@@ -1,24 +1,3 @@
-/**
- * Theme/wiring regression tests for the Add/Edit Template dialog.
- *
- * Pins the 2026-09-02 theme pass, the dialog must render with the
- * app's native primitives instead of the removed custom field shell:
- *
- *   (1) The panel is the roomier size="lg" + w-130 composition (520px
- *       desktop panel), the old w-105 cramped the form.
- *   (2) The output textarea is the shared ``ui/textarea`` primitive
- *       (pill surface, ``rounded-3xl``, same focus contract as Input),
- *       not a bespoke styled raw <textarea>.
- *   (3) The match-mode trigger is the native ``SelectTrigger`` (only
- *       width overridden), matching the outline-Button pill language.
- *   (4) The unknown-variable alert uses the ``--warning`` theme token,
- *       not hardcoded ``amber-500``.
- *
- * Unlike the sibling gate tests (which mock ``Modal``), these render
- * the REAL Modal → DialogContent chain so the panel/field classes are
- * actually exercised in the DOM (Radix renders through a portal, so
- * queries go through document.body).
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

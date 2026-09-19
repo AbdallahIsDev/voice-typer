@@ -1,11 +1,9 @@
 // ``t`` (translate) and ``tChoice`` (pluralize) functions + their caches.
-//
 // The dead PluralRules stub at the
 // old i18n.ts L648-664 has been deleted. The fallback path now uses
 // ``new Intl.PluralRules("en")`` as the single fallback; if even that
 // throws (no Intl runtime), a clear error is raised rather than
 // silently degrading to a stub.
-//
 // Reads shared state (``_currentLocale`` via ``getLocale``, ``_translations``)
 // from ``./store``, never mutates it directly.
 
@@ -17,7 +15,6 @@ import { _translations, getLocale } from "./store";
 import type { TranslationChoiceKey, TranslationKey } from "./translation-keys";
 
 //cache the per-parameter interpolation RegExp. ``t()`` /
-// ``tChoice()`` previously built a fresh ``new RegExp(`\\{${k}\\}`, "g")``
 // for every parameter of every call, under a hot render path with
 // several interpolations per string this allocated thousands of
 // short-lived RegExp objects per second. The keyspace is tiny (only a
@@ -26,34 +23,21 @@ import type { TranslationChoiceKey, TranslationKey } from "./translation-keys";
 export const _interpCache = new Map<string, RegExp>();
 
 //per-(locale, key) resolved-string cache.
-//
-// ``t()`` previously walked the locale → English → key fallback chain
 // on every call. With ~77 ``t()`` calls in ``AudioFilterChain.tsx``
 // alone and dozens more across Dashboard/Home/Settings, the Map.has +
 // Map.get chain runs hundreds of times per render. The keyspace
 // (locale, key) is small and stable, so memoizing the resolved string
 // (before interpolation) skips the lookup chain on hits.
-//
 // Invalidation: when a locale's translation Map is replaced (via
 // ``registerTranslations`` or ``ensureLocaleLoaded`` in store.ts), the
 // entire per-locale cache entry is dropped via
 // ``_invalidateResolvedCache``.
 export const _resolvedCache: Map<Locale, Map<string, string>> = new Map();
 
-/**
- * Drop the cached resolved strings for a locale. Called when a locale's
- * translation table is registered/replaced (e.g. via the dynamic
- * import path in ``ensureLocaleLoaded``) so stale strings don't linger.
- */
 export function _invalidateResolvedCache(locale: Locale): void {
 	_resolvedCache.delete(locale);
 }
 
-/**
- * Get (or create) the cached interpolation RegExp for a placeholder key.
- * The RegExp matches the literal ``{key}`` token globally so it can be
- * passed to ``String.prototype.replace`` for substitution.
- */
 function interpRegex(key: string): RegExp {
 	let r = _interpCache.get(key);
 	if (!r) {
@@ -67,16 +51,6 @@ function interpRegex(key: string): RegExp {
 // expensive enough that we don't want to do it on every tChoice() call.
 export const _pluralRulesCache: Map<Locale, Intl.PluralRules> = new Map();
 
-/**
- * Get (or create) an Intl.PluralRules instance for the given locale.
- * Returns the cached instance if available.
- *
- * The dead PluralRules stub fallback
- * has been removed. If the requested locale fails AND the English
- * fallback fails (no Intl runtime), we rethrow with a clear message
- * instead of silently degrading, silent degradation hid a real
- * runtime-availability bug.
- */
 function getPluralRules(locale: Locale): Intl.PluralRules {
 	let rules = _pluralRulesCache.get(locale);
 	if (!rules) {
@@ -89,7 +63,6 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
 			try {
 				rules = new Intl.PluralRules("en");
 			} catch (enErr) {
-				// Last resort used to be a stub that always returned
 				// "other", but if even English PluralRules fails,
 				// the Intl runtime is fundamentally broken. Surface
 				// the error loudly so it's not silently masked.
@@ -104,60 +77,7 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
 	return rules;
 }
 
-/**
- * Translate a catalog key to the current locale's string.
- *
- * Lookup chain (in order):
- *
- *   1. ``currentLocale``, the active UI locale's translation map.
- *   2. ``primary subtag``, when the current locale is a regional
- *      variant (contains ``-``), try the bare primary subtag's map
- *      before falling back to English. e.g. ``zh-CN`` → ``zh`` → ``en``.
- *      Bare primaries (``en``, ``zh``, ``ar`` …) skip this step because
- *      the subtag would equal the locale itself.
- *   3. ``en``, the universal fallback. English is always loaded
- *      synchronously at module init (see ``store.ts``) so this step
- *      never blocks on a dynamic import.
- *   4. the raw key, defensive last resort so callers don't crash on
- *      a typo. In dev mode (``import.meta.env?.DEV``) this step also
- *      emits a ``console.warn`` so a misspelled or absent key surfaces
- *      during QA instead of silently rendering the literal key string
- *      in production UI.
- *
- * Supports optional ``{placeholder}`` interpolation: if ``params`` is
- * provided, each ``{key}`` in the translated string is replaced with
- * the corresponding value from ``params``.
- *
- * Key typing, two overloads (the same strict+loose pattern as
- * ``PythonCall`` in ``lib/python-bridge/usePython.ts``):
- *
- *   - STRICT (this overload): a statically written key literal must be
- *     a member of the ``TranslationKey`` union derived from
- *     ``translations/en.json`` (see ``./translation-keys``), so a
- *     typo'd or missing key path is a COMPILE error, not a shipped
- *     raw-key string.
- *   - LOOSE (next overload): for genuinely dynamic keys (built from
- *     template expressions or held in ``string``-typed variables at
- *     runtime). The loose overload is gated so it can NOT become a
- *     default escape hatch for static literals: it only accepts key
- *     types that are ``string`` itself, a concrete literal (or union
- *     of literals) that is absent from the catalog matches NEITHER
- *     overload and fails with an actionable error naming the bad key.
- *
- * @param key - Dot-separated translation key (e.g., "app.name")
- * @param params - Optional interpolation params (e.g., `{ key: "Esc" }`)
- * @returns The translated string
- */
 export function t(key: TranslationKey, params?: Record<string, string>): string;
-/**
- * Dynamic-key overload, see the strict overload above for the lookup
- * chain and interpolation contract. This overload only matches when
- * the argument's type is plain ``string`` (or wider), i.e. the key is
- * built at runtime rather than statically written. A statically
- * written literal that is absent from the catalog does NOT match this
- * overload, the parameter type degrades to an error-message string —
- * so typos still fail at compile time.
- */
 export function t<K extends string>(
 	key: string extends K
 		? K
@@ -171,7 +91,6 @@ export function t(key: string, params?: Record<string, string>): string {
 	//per-(locale, key) resolved-string cache. The cached value
 	// is the pre-interpolation template, so we still run interpolation
 	// after the cache hit, only the lookup chain is short-circuited.
-	//
 	// The cache also memoizes the raw-key fallback (step 4 below) so a
 	// missing key warns at most once per (locale, key) pair, subsequent
 	// calls return the cached raw key without re-warning. This keeps
@@ -258,10 +177,8 @@ export function t(key: string, params?: Record<string, string>): string {
 }
 
 //pluralization support ───────────────────────────────
-//
 // tChoice() resolves a pluralized translation key using the CLDR plural
 // rules for the current locale. The lookup order is:
-//
 //   1. Look up the locale-specific CLDR plural category for `count` via
 //      `Intl.PluralRules` (categories: "zero", "one", "two", "few",
 //      "many", "other").
@@ -273,13 +190,11 @@ export function t(key: string, params?: Record<string, string>): string {
 //      been pluralized yet, preserves backwards compatibility with
 //      existing single-form strings.
 //   5. Last resort: return the raw key (matching `t()` semantics).
-//
 // After resolving the catalog value, `{placeholder}` interpolation runs
 // just like `t()`, pass `{ count: "5" }` (or any other params) to
 // substitute into the resolved string. The `count` used for plural
 // selection is automatically exposed as `{count}` in the params for
 // convenience, mirroring ICU MessageFormat semantics.
-//
 // Example catalog:
 //   {
 //     "inbox": {
@@ -288,7 +203,6 @@ export function t(key: string, params?: Record<string, string>): string {
 //       "messages_few": "Masz {count} nieprzeczytane wiadomości."  // Polish
 //     }
 //   }
-//
 // Example call:
 //   tChoice("inbox.messages", 1)         → "You have 1 unread message."
 //   tChoice("inbox.messages", 5)         → "You have 5 unread messages."
@@ -298,7 +212,6 @@ export function t(key: string, params?: Record<string, string>): string {
 
 /**
  * Resolve a pluralized translation key for the given count.
- *
  * Key typing, the same strict+loose overload pair as ``t()`` above:
  * the strict overload accepts a bare catalog key or the base of a
  * plural family (``TranslationChoiceKey``, the union of
@@ -307,7 +220,6 @@ export function t(key: string, params?: Record<string, string>): string {
  * key fails at compile time; the loose overload handles genuinely
  * runtime-built base keys and rejects static literals the catalog
  * cannot resolve.
- *
  * @param key - Dot-separated base key (e.g., "inbox.messages")
  * @param count - The numeric count that determines the plural category
  * @param params - Optional additional interpolation params. The count is
@@ -320,11 +232,6 @@ export function tChoice(
 	count: number,
 	params?: Record<string, string>,
 ): string;
-/**
- * Dynamic-key overload, see the strict ``tChoice`` overload above.
- * Accepts only plain-``string``-typed base keys (runtime-built); static
- * literals the catalog cannot resolve fail at compile time.
- */
 export function tChoice<K extends string>(
 	key: string extends K
 		? K

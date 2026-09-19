@@ -1,12 +1,9 @@
 // About & Privacy page, merged product identity + data-handling
 // disclosure.
-//
-// The previously separate About page (product identity) and Privacy
 // page (audio/data disclosure) were combined into ONE sidebar
 // destination: both surfaces are short, read as a single "what this
 // app is + how it treats your data" story, and the merge removes a
 // low-traffic second navigation entry.
-//
 // The page stays static AT LOAD, the only dynamic values are:
 //   - the installed version, read directly from package.json at build
 //     time (VERSION-SOURCE-FIX) so it never drifts from the canonical
@@ -19,7 +16,6 @@
 //     Analytics data path use), interpolated into the Local data
 //     description. On a failed fetch the row falls back to a neutral
 //     "—" instead of a permanent "Loading…".
-//
 // The privacy disclosure is kept intact per the audit rule "do not
 // remove meaningful privacy disclosures", with its earlier
 // presentation fixes preserved:
@@ -51,16 +47,6 @@ import pkg from "../../../../package.json";
 // canonical source of truth on a release bump.
 const APP_VERSION = pkg.version as string;
 
-/**
- * Shape of the `check_offline_pack_update` IPC response.
- *
- * Mirrors `UpdateCheckResult` in
- * `voice_typer/server/service/update_check.py` (`total=False`, so every
- * field is optional), the handler
- * (`_handle_check_offline_pack_update` in `server/ipc/lifecycle.py`)
- * returns it as a plain dict over the bridge. Only the field the page
- * actually consults is listed; the server may send more.
- */
 interface PackUpdateCheckResult {
 	consent_required?: boolean;
 }
@@ -120,7 +106,6 @@ export default function AboutAndPrivacyPage() {
 				{},
 			)) as PackUpdateCheckResult;
 			// Point-of-use consent gate: the backend found an update but
-			// refused to start the download because
 			// `offline_pack_consent` is off. Ask via the SHARED consent
 			// dialog right now, Allow persists the consent and re-runs
 			// the check (which then triggers the download); Cancel

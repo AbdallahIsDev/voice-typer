@@ -1,12 +1,10 @@
 // Shared skeleton primitives + the route-chunk fallback.
-//
 // The app's loading UI has ONE primitive (`components/ui/skeleton.tsx`,
 // shadcn Skeleton) and these layout primitives. Every PAGE composes its
 // own skeleton from them (`pages/<page>/components/*Skeleton.tsx`) so
 // each loading state mirrors the page it replaces: structure, spacing,
 // row counts and proportions come from the loaded UI, never from a
 // generic template. Rules:
-//
 //   - dimensions mirror the real components (a toolbar pill is h-8 like
 //     SortSelect's trigger, a switch placeholder is h-5 w-11 like
 //     ui/switch.tsx, a text line matches its font's line box);
@@ -15,7 +13,6 @@
 //   - every skeleton region is an <output aria-busy="true"> whose
 //     accessible name is the localized loading label (the one contract
 //     pinned by `__tests__/pages/loading-patterns.test.tsx`).
-//
 // `RouteSkeleton` is the single deliberate generic: it renders while a
 // lazy route CHUNK is streaming in, for at most one frame in practice
 // (chunks are prefetched at idle, see router/prefetch.ts), so it shows
@@ -111,7 +108,6 @@ export function SwitchSkeleton({ className }: { className?: string }) {
 
 /**
  * Heading block mirroring `components/common/PageHeading.tsx`.
- *
  * Dimensions come from the real heading: the h1 is `text-2xl` (32px
  * line box → h-8) and the description is `text-sm` (20px → h-5). With
  * `action` set, renders the with-children variant: heading column left,

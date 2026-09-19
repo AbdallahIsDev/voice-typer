@@ -1,11 +1,7 @@
-//pure dashboard helpers extracted from `pages/Dashboard.tsx`.
-//
 // These functions are React-agnostic and have no side effects beyond
 // reading their arguments, so they can be unit-tested in isolation and
-// re-used by the share-image capture path. They were previously inlined
 // at module scope in `Dashboard.tsx` (lines ~80-235 of the pre-split
 // file); behaviour is unchanged.
-//
 // Cross-module dependency note:
 //   - `buildActivityBars` calls `dayAbbr` from `./format`; `./format`
 //     imports only from `@/i18n/i18n`, no module cycle exists between
@@ -20,12 +16,10 @@ import { dayAbbr } from "./format";
 /**
  * Aggregate dashboard metrics derived from the backend's
  * `get_config` / `get_history` / `get_history_count` IPCs.
- *
  * Kept in this module (rather than `lib/format.ts`) because the
  * period/activity helpers' return shapes are the `period` /
  * `activity` fields, co-locating the type with the producer keeps the
  * contract obvious.
- *
  * NOTE: every metric here derives from ONE history sample (the last
  * 500 dictations) so the cards, chart, and streaks can never disagree
  * with each other. The only exception is `totalCount`, which comes
@@ -55,14 +49,12 @@ export interface DashboardData {
 }
 
 // ── Date helpers ─────────────────────────────────────────────────────
-//
 // ``localDateKey`` / ``parseUtcTimestamp`` / ``dateKey`` moved to
 // ``@/lib/format`` (the shared locale/formatting utilities module) so
 // the History page's date-grouped list can bucket rows by the same
 // local calendar day WITHOUT importing from the dashboard feature
 // folder. They are re-exported here so the existing dashboard imports
 // (and the streaks unit tests) keep resolving unchanged. Note this
-// also removes the old format ↔ streaks import cycle: `./format` now
 // imports these helpers from `@/lib/format` directly.
 
 export {
@@ -152,11 +144,6 @@ export function rangeDaySpan(range: RangeId): number | null {
 	}
 }
 
-/**
- * Aggregated stats for one time range + the PREVIOUS window of the
- * same length (for trend indicators). Every number derives from the
- * same history sample, so the cards can never contradict the chart.
- */
 export interface PeriodStats {
 	range: RangeId;
 	count: number;
@@ -224,10 +211,6 @@ function aggregate(records: HistoryRecord[]): WindowAgg {
 	};
 }
 
-/**
- * Compute the stats for `range` (ending today) plus the previous
- * same-length window, from one history sample.
- */
 export function computePeriodStats(
 	records: HistoryRecord[],
 	range: RangeId,
@@ -283,7 +266,6 @@ export function computePeriodStats(
 /**
  * Shape of the server's ``get_correction_usage`` snapshot
  * (``voice_typer/server/correction_usage.py``).
- *
  * ``corrections_by_day`` / ``dictations_by_day`` are keyed by the
  * LOCAL calendar day (``YYYY-MM-DD``), the same bucketing as
  * ``localDateKey``, so the range window math here joins cleanly.
@@ -307,11 +289,6 @@ export interface CorrectionStats {
 	prevCorrections: number | null;
 }
 
-/**
- * Sum the correction/dictation day maps over the same window the
- * period stats use, so the corrections card can never contradict the
- * dictation cards (both are computed from the same range window).
- */
 export function computeCorrectionStats(
 	usage: CorrectionUsageSnapshot | null,
 	range: RangeId,
@@ -361,12 +338,6 @@ export interface ActivityBar {
 	/** Short tick label ("Mon", "9", "12"). */
 	label: string;
 	count: number;
-	/**
-	 * True when the bar represents a slot where data CANNOT exist yet
-	 * (a future hour) or a day OLDER than the oldest record in the
-	 * history sample (i.e. the sample simply doesn't cover it). Visually
-	 * distinct from a genuine zero-activity slot.
-	 */
 	isMissing: boolean;
 }
 

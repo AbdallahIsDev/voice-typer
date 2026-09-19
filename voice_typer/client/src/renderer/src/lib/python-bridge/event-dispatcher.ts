@@ -1,6 +1,4 @@
 // Shared event dispatcher for `usePythonEvent` subscribers.
-//
-// Previously each `usePythonEvent` call subscribed to `api.onEvent`
 // directly, creating N subscriptions for N callers. On Tauri, each
 // subscription registers 4 Tauri event listeners (the main
 // `python-event` channel + 3 supervisor relay channels in
@@ -10,13 +8,11 @@
 // `if (event.type === type)` check. On predecessor each subscription
 // adds one `python-event` IPC listener, so
 // N callers created N IPC listeners with the same fan-out waste.
-//
 // The dispatcher subscribes to `api.onEvent` exactly ONCE per
 // `window.python` instance and fan-outs to per-type subscribers
 // stored in a `Map<type, Set<entry>>`. This collapses the
 // N-listener multiplication: N callers share 1 subscription (4
 // Tauri listeners / 1 predecessor IPC listener).
-//
 // The dispatcher is module-level (singleton). It is lazily set up
 // when the first subscriber registers (after the bridge is ready)
 // and torn down when the last subscriber unsubscribes, so a test

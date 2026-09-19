@@ -1,4 +1,3 @@
-//shared types extracted from Onboarding.tsx so the
 // step components, the wizard hook, and the permissions-probe hook can all
 // reference the same contracts without duplicating definitions.
 
@@ -13,10 +12,8 @@ export interface MicrophoneOption {
 	name: string;
 	//backend's `list_microphones()` (and the onboarding
 	// `onboarding_get_microphones` IPC that wraps it) emits two
-	// optional fields the renderer previously ignored because the
 	// type didn't declare them. Both are optional so older
 	// backends (or mocked tests) that omit them still type-check.
-	//
 	// `default` is true for the OS default input device, the
 	// wizard auto-selects this mic instead of `microphones[0]`
 	// (which is just the first in sounddevice's enumeration

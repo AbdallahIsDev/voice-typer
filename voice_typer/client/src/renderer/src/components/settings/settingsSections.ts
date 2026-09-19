@@ -1,19 +1,15 @@
 // settingsSections, the canonical registry of Settings section pages.
-//
 // The Settings surface is a HUB + nested section pages: the hub
 // (the `settings` Page literal) renders ONE card whose rows are the
 // sections below; each row navigates to its section page, which renders
-// only that domain's cards. This replaces the former 4-tab model
 // (General / AI & Audio / Appearance / Privacy) where up to five
 // unrelated domains stacked on a single sub-page.
-//
 // This module is the SINGLE SOURCE OF TRUTH for the section set:
 //   - the hub card rows (title, description, icon, order),
 //   - `isSettingsSectionPage` (Sidebar active-state, GlobalSearchBar
 //     placeholder, prefetch),
 //   - the search label sets (see `settingsTabLabels.ts`, keyed by
 //     `SettingsSectionPage`).
-//
 // The `Page` union in `types/ipc/enums.ts` must stay in lockstep: every
 // literal below is a `Page`, and `Record`-typing keeps the compiler
 // honest if either side drifts.
@@ -61,12 +57,6 @@ export interface SettingsSectionDef {
 /** Registry entry shape, the page IS the key, so it's not repeated. */
 type SettingsSectionDefData = Omit<SettingsSectionDef, "page">;
 
-/**
- * The section registry, keyed BY page literal, the `Record` type makes
- * a missing/extra/renamed section page a compile error, so this module
- * and the `Page` union cannot drift. Key insertion order IS the hub-card
- * order; the array exports below derive from it.
- */
 const SETTINGS_SECTION_DEFS: Record<
 	SettingsSectionPage,
 	SettingsSectionDefData

@@ -1,29 +1,3 @@
-/**
- *  vitest rewrite, behavioral tests for `hotkey-utils.ts`.
- *
- * Replaces the following string-pattern Python tests from
- * `tests/test_hotkeys.py`:
- *   - TestHotkeyUtilsFormatLabel::test_formats_single_key
- *   - TestHotkeyUtilsFormatLabel::test_formats_combo
- *   - TestHotkeyUtilsValidate::test_validate_rejects_empty
- *   - TestHotkeyUtilsValidate::test_validate_rejects_modifiers_only_in_combo
- *   - TestHotkeyUtilsValidate::test_validate_rejects_multi_key_in_single_mode
- *   - TestDictationKeySupportsExpandedPresets::test_single_key_presets_include_beyond_f12
- *
- * The Python tests asserted on substring presence inside the source file
- * (e.g. `"function formatHotkeyLabel" in utils`, `'"Caps Lock"' in utils`).
- * These are brittle: they pass even when the function silently returns
- * the wrong value, and they fail on innocent refactors (renaming the
- * function, switching quote style, extracting constants).  The vitest
- * versions below call the actual functions and assert on the returned
- * value, so a refactor that preserves the contract still passes and a
- * behavioral regression fails.
- *
- * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  They are NOT deleted, they
- * remain as a fallback until CI verifies the vitest versions pass on
- * all platforms.
- */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 async function importUtils() {

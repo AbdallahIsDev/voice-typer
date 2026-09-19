@@ -1,20 +1,3 @@
-/**
- * A11yLiveRegions, the app shell's three screen-reader live regions
- * (recording / connection-error / connection-recovery), extracted from
- * App.tsx.
- *
- * Verifies the announcement matrix:
- *   - recording stream (polite): each RecordingState maps to its
- *     announcement; coarse transcribing/loading announcements are
- *     suppressed on the Home page (Home owns its own specific live
- *     region for those transitions).
- *   - connection-error stream (assertive): disconnected / restarting.
- *   - connection-recovery stream (polite): announces only real
- *     recoveries, not the initial connecting → connected transition.
- *
- * The i18n layer is mocked to return raw keys so assertions key on the
- * exact translation keys (stable against copy edits).
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

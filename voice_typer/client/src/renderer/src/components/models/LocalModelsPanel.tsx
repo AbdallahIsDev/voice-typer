@@ -1,48 +1,3 @@
-/**
- * LocalModelsPanel, local-models tab content for the Models page.
- *
- * extracted from `pages/Models.tsx`. Renders:
- *   • Disk-space warning banner (when `diskInfo` is available
- *     and free space is below 1GB).
- *   • "Open models folder" button (when the backend exposes
- *     the `open_models_folder` IPC).
- *   • The model-family accordion + per-variant cards (each card mounts
- *     `ModelCardActions` for the action button row, and a
- *     `DownloadProgressBar` when its model is actively downloading).
- *
- * (UI/UX overhaul 2026-08-20):
- *   • The persistent HuggingFace consent banner was REMOVED, consent
- *     is now checked just-in-time in the download flow
- *     (`useModelLifecycle.handleDownloadModel`), which opens the
- *     shared point-of-use consent dialog (`openConsentGate`) when the
- *     consent is missing. This panel no longer renders any consent UI.
- *   • The group accordion + variant rows now compose the shared
- *     `ModelGroupList` primitives (same components as the Cloud Models
- *     tab) so both tabs share one visual system.
- *   • The metadata line distinguishes label+value pairs (VRAM, WER —
- *     muted label, colon, primary value) from standalone tags
- *     (Multilingual / English Only / speed / Distilled, neutral
- *     pills).
- *   • Model size moved out of the metadata line into the download
- *     button (see `ModelCardActions`).
- *   • Display names are derived: family header = company ("OpenAI"),
- *     variant names = "Whisper Tiny" / "Whisper Large V3" etc. via
- *     `getModelVariantDisplayName` (display-layer only, slugs,
- *     repo_ids and config keys are untouched).
- *
- * This panel is a pure presentational component, it receives all
- * state + handlers as props from `useModelLifecycle`. No IPC, no
- * useState (except the accordion open-state which is purely local UI
- * and the co-located download-queue subscription below).
- *
- * Queue exception: the pending-download queue state is derived DIRECTLY
- * from the backend's `download_progress` events (`queue_position`
- * field) via the co-located `useModelDownloadQueue` hook. The backend
- * is the single source of truth for the queue (it survives renderer
- * navigation/reload and serves non-renderer triggers too), so the
- * queue slice does not round-trip through the page's prop plumbing —
- * it is consumed here and forwarded to each card's actions.
- */
 import { Alert02Icon, Folder02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Fragment, memo, useState } from "react";
@@ -363,7 +318,6 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 });
 
 // ── Metadata line (label+value pairs vs standalone tags) ─────────────
-//
 // Distinguishes label+value pairs (VRAM, WER, muted label, colon,
 // primary value) from standalone descriptive tags (Multilingual /
 // English Only, speed, Distilled, neutral pills). Size is NOT part of
@@ -411,7 +365,6 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 }
 
 // ── Local helper: status badge for dep-required models ────────────────
-//
 // Kept inside the panel (not in lib/utils/models.ts) because it's
 // purely presentational, it returns CSS color strings tied to the
 // amber-400 token used by the deps-required badge. The lib module stays

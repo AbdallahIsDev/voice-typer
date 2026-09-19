@@ -1,29 +1,3 @@
-/**
- * Tests for the shared Spinner component.
- *
- * : the previous implementation rendered the root element as
- * `<output aria-label="Loading">` for the non-decorative default. The
- * HTML5 `<output>` element has an implicit ARIA role of `status`, which
- * means it is treated as a polite `aria-live` region by screen readers.
- * As a result, AT users heard "Loading" announced every time ANY page
- * rendered a Spinner (e.g. while data was being fetched on the History,
- * Vocabulary, Templates, Microphone, Models, Settings, and Onboarding
- * pages), even though the spinner in those contexts is incidental,
- * not a primary status message.
- *
- * The fix (): the default root is now a `<span role="img">`
- * with `aria-label={t("a11y.loading")}`. It carries the accessible
- * name (so AT users hear "Loading" when they focus the spinner) but
- * does NOT have an implicit live region. Pages that want a status
- * announcement (e.g. ConnectionStatusScreen while the backend is
- * starting) wrap the Spinner in their own `<output aria-live="polite">`.
- *
- * These tests pin both contracts:
- *   1. Default root is `<span role="img">` with no implicit aria-live.
- *   2. `decorative` prop renders `<div aria-hidden>` (unchanged).
- *   3. `aria-label` is wired through `t("a11y.loading")`.
- *   4. The size + className merge behaviour is preserved.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Spinner } from "../Spinner";

@@ -1,22 +1,3 @@
-/**
- * Dev-mode a11y warning regression tests.
- *
- * The interactive primitives fire a dev-mode ``console.warn`` when an
- * accessible name is missing, the goal is to surface the gap during
- * development without failing the production bundle. Each warn is
- * gated behind ``process.env.NODE_ENV !== "production"`` so the
- * production bundle is unaffected.
- *
- * These tests stub ``console.warn`` and assert the expected message
- * fires (or does NOT fire) for each primitive's a11y contract:
- *   - Button without text children or aria-label → warn
- *   - Button with text children → no warn
- *   - Switch without aria-label / aria-labelledby → warn
- *   - Slider without aria-label / aria-labelledby / thumbLabels → warn
- *   - SelectTrigger without children / aria-label → warn
- *   - SegmentedControl without ariaLabel → warn
- *   - SegmentedControl icon-only option without title → warn
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

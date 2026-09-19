@@ -1,5 +1,4 @@
 // Public barrel for the Python bridge hooks.
-//
 // The implementation lives in focused modules under
 // `lib/python-bridge/` (event dispatcher, bridge-ready subscription
 // gate, per-command timeouts, error-envelope parsing, and the

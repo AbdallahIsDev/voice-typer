@@ -1,19 +1,3 @@
-/**
- * Tests for the PunctuationCheatSheet component ().
- *
- * Verifies that the cheat sheet:
- *   1. Renders with the expected testid container.
- *   2. Surfaces every punctuation entry from `PUNCTUATION_ENTRIES`
- *      (the canonical list, see the component file for the source
- *      of truth link to text_cleanup.py).
- *   3. Includes the canonical punctuation characters that
- *      text_cleanup.py:374 recognizes: `, . ; : ! ?`.
- *   4. Surfaces "new line" (the directive's required example).
- *
- * This is a vitest unit test, not a full App integration test, the
- * App.test.tsx mock of `@/components/common/Modal` returns a stub
- * that swallows children, so we mount the component directly.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 

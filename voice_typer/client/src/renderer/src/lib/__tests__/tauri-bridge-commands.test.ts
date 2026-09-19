@@ -1,43 +1,3 @@
-/**
- * Tests for the Tauri bridge command wiring ( + ).
- *
- * ADR-0020 §2 (bridge parity), §6 (bubble), §16 (frozen contract).
- *
- * These tests verify that `tauri-bridge.ts` correctly invokes the
- * Rust host commands added alongside each bridge method:
- *
- *   (export commands):
- *   - `window.window_.exportHistory(data, format)` → `invoke('export_history', { data, format })`
- *   - `window.window_.exportVocabulary(data, format)` → `invoke('export_vocabulary', { data, format })`
- *
- *   (locale push):
- *   - `window.window_.setLocale(locale)` → `invoke('set_host_locale', { locale })`
- *     (predecessor `i18n:set-locale` parity, the Rust host stores the
- *      value in `SidecarState::host_locale`)
- *
- *   (bubble commands):
- *   - `window.bubble.show()` → `invoke('bubble_show')`
- *   - `window.bubble.signalReady()` → `invoke('bubble_signal_ready')`
- *   - `window.bubble.setPosition(position)` → `invoke('bubble_set_position', { x: position, y: position })`
- *     (: `position: "top" | "bottom"`, the Rust host takes
- *      `(x: Value, y: Value)` and resolves the strings to absolute
- *      physical coords based on monitor bounds)
- *   - `window.bubble.setDraggable(draggable)` → `invoke('bubble_set_draggable', { draggable })`
- *   - `window.bubble.moveBy(dx, dy)` → `invoke('bubble_move_by', { dx, dy })`
- *   - `window.bubble.hideComplete()` → `invoke('bubble_hide_complete')`
- *
- * The bridge uses `window.__TAURI__.core.invoke` (Tauri v2 global API
- * when `withGlobalTauri: true` in `tauri.conf.json`). We mock that
- * global with `vi.fn()` and assert each bridge method invokes it with
- * the expected command name and argument envelope.
- *
- * The test also verifies the predecessor-mode no-op contract: when
- * `window.__TAURI__` is absent (predecessor runtime), the bridge MUST NOT
- * override the namespaces already installed by the predecessor preload
- * (`window.python`, `window.bubble`, `window.window_`). This is the
- * Phase 3 UI port invariant, the renderer code is identical on both
- * paths because the bridge auto-installs the right namespace.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Minimal stub of `window.__TAURI__` matching the shape consumed by
@@ -516,8 +476,6 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		});
 		expect(result).toEqual({ ok: false, error: "command unavailable" });
 	});
-
-	//predecessor-mode no-op (Phase 3 UI port invariant) ──
 
 	it("is a no-op when the bridge namespaces are already installed (does not override window.python/bubble/window_)", async () => {
 		// Simulate an already-installed bridge having exposed the

@@ -1,51 +1,3 @@
-/**
- * Theme hook: manages the active theme mode (light/dark/system), preset,
- * custom colours, and text-size scaling.  Applies the theme to the
- * document via CSS variables and persists changes to the backend config
- * with a 300ms debounce.
- *
- * @param call  The Python bridge `call` function (from usePython).
- *
- * ── composition root for the theme subsystem ────────────────────
- *
- * This file is now the composition root only, the concern modules live
- * in ``hooks/theme/`` (each imported once, no cycles):
- *
- *   - ``theme/themeStore.ts``  , the singleton Zustand store + the
- *     localStorage hydration readers (state concern).
- *   - ``theme/themeApply.ts``  , DOM application of the resolved theme
- *     (``.dark`` class, preset/custom CSS vars, ``--font-scale``).
- *   - ``theme/themePersist.ts``, the single debounced backend write
- *     path (``scheduleThemeSave``), the quit-time flush
- *     (``flushPendingThemeSave``), and the localStorage cache sync.
- *   - ``theme/themeSync.ts``   , backend→store sync: the initial
- *     config reload, the stable ``config_changed`` handler, and the
- *     initOnce side-effect guard (``ensureThemeSideEffects``).
- *   - ``theme/themeBridge.ts`` , the singleton IPC-bridge slots shared
- *     by the sync and persist paths (read at use time, never captured).
- *
- * ── singleton store + initOnce side-effect guard (rationale) ─────
- *
- * ``useTheme`` is called from BOTH ``App.tsx`` (always-mounted) AND
- * ``Settings.tsx`` (lazy-mounted when the user opens Settings), so all
- * state lives in the shared module-level store and every side-effecting
- * piece of setup runs EXACTLY ONCE via the ``ensureThemeSideEffects``
- * initOnce guard: one ``get_config`` reload, one ``beforeunload`` flush
- * listener, one ``config_changed`` push handler (the dispatcher in
- * ``usePython.ts`` deduplicates the underlying ``api.onEvent``
- * subscription, and the shared store makes the second handler
- * invocation a no-op).
- *
- * The per-instance effects (theme application, localStorage cache sync,
- * unmount flush) are KEPT per-instance, they are idempotent (apply the
- * same values, write the same keys) and cheap, so deduplicating them
- * would add complexity without meaningful perf gain.
- *
- * ``_resetThemeStoreForTest`` is the test seam (mirrors
- * ``_resetNavigationForTest``): it re-reads localStorage into the
- * store + resets the ``initOnce`` flag so a test can mount a fresh
- * ``useTheme`` consumer deterministically.
- */
 import { useCallback, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useLatestRef } from "@/hooks/useLatestRef";
@@ -91,7 +43,6 @@ export function useTheme(
 	const callRef = useLatestRef(call);
 
 	// ── Read state from the singleton store ────────────────────────
-	//
 	// ``useShallow`` collapses the 5 value reads into ONE selector
 	// run + ONE shallow-equal check per ``set()``. The selector
 	// returns a fresh object on every run, but ``useShallow``
@@ -124,7 +75,6 @@ export function useTheme(
 	const setTextSizeState = useThemeStore((s) => s.setTextSizeState);
 
 	// ── Singleton side-effect init (initOnce guard) ────────────────
-	//
 	// The FIRST ``useTheme`` caller's mount effect triggers
 	// ``ensureThemeSideEffects``, which sets ``themeInitStarted = true``
 	// and runs: (1) ``reloadThemeFromConfig`` (single ``get_config``
@@ -140,7 +90,6 @@ export function useTheme(
 	}, [mergeConfig]);
 
 	// ── Theme detection & application (per-instance, idempotent) ────
-	//
 	// KEPT per-instance rather than moved to the singleton, it's
 	// idempotent (applies the same CSS vars) and cheap. Both
 	// consumers' effects fire on every state change, but they write
@@ -188,7 +137,6 @@ export function useTheme(
 	// after the wizard applies the user's choices (the onboarding_apply
 	// IPC route doesn't reliably emit a config_changed event, so we
 	// explicitly re-fetch the config).
-	//
 	// Wraps the module-level ``reloadThemeFromConfig`` (themeSync) so the
 	// public API stays the same (``reloadThemeFromConfig()`` returns a
 	// Promise). The ``call`` reference is refreshed from the singleton
@@ -205,7 +153,6 @@ export function useTheme(
 	}, []);
 
 	// ── Sync theme state to localStorage on every change ────────────
-	//
 	// KEPT per-instance, idempotent (writes the same value twice).
 	// Both consumers' effects fire on every state change, but they
 	// write the same keys with the same values.
@@ -214,7 +161,6 @@ export function useTheme(
 	}, [themeMode, themePreset, customTheme, textSize]);
 
 	// ── Config changed push (live UI updates) ───────────────────────
-	//
 	// ``usePythonEvent`` is called per-consumer (rules-of-hooks), but
 	// the handler is the STABLE module-level ``handleConfigChanged``
 	// singleton. The dispatcher in ``usePython.ts`` already
@@ -226,7 +172,6 @@ export function useTheme(
 	usePythonEvent("config_changed", handleConfigChanged);
 
 	// ── Theme change handler (save to config) ─────────────────────
-	//
 	// Public-facing setters: each updates the store immediately (so
 	// the UI reflects the change without waiting for the backend
 	// round-trip) AND schedules a debounced save via the module-level
@@ -276,7 +221,6 @@ export function useTheme(
 	// (e.g. Settings closes) while a save is pending. The second
 	// caller's unmount cleanup is a no-op (no pending after the first
 	// flush). Idempotent.
-	//
 	// The empty dep array means this effect runs ONCE per mount with
 	// a stable cleanup closure. ``flushPendingThemeSave`` is a
 	// module-level function (stable identity), so the cleanup always
@@ -305,7 +249,6 @@ export function useTheme(
 }
 
 // ── Test seam ────────────────────────────────────────────────────────
-//
 // Mirrors ``_resetNavigationForTest``: re-reads localStorage into the
 // shared store + resets the ``initOnce`` flag so a test can mount a
 // fresh ``useTheme`` consumer deterministically. Composed from the

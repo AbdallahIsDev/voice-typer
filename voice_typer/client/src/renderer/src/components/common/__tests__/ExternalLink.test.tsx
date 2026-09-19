@@ -1,12 +1,3 @@
-/**
- * Tests for `components/common/ExternalLink.tsx` (MO-118).
- *
- * Pins the contract every external help / feedback / changelog link
- * depends on: the element stays a REAL anchor (role=link + href, so
- * copy-link / middle-click / the existing page tests keep working), but
- * activating it is routed through the shared host opener instead of
- * navigating the webview itself.
- */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

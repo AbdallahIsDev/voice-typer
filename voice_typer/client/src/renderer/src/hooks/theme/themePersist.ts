@@ -1,31 +1,3 @@
-/**
- * themePersist.ts, the persistence concern of the theme subsystem,
- * split out of ``hooks/useTheme.ts``. Owns the single debounced backend
- * write path (``scheduleThemeSave``), the quit-time flush
- * (``flushPendingThemeSave``), and the localStorage cache sync.
- *
- * ── debounced backend save ───────────────────────────────────────────
- *
- * PERF: debounce the backend write so rapid theme toggling (e.g.
- * user clicking through light → dark → system quickly) doesn't
- * fire 3 separate set_config IPC calls. The local UI updates
- * immediately (via the store); the backend save is deferred 300ms
- * and only the LAST selected mode is persisted.
- *
- * QUIT-FLUSH-FIX: previously, if the user changed the theme and
- * then closed the app (close-to-tray → tray Quit, or window close)
- * during the 300ms debounce window, the pending save was dropped
- * and the next launch loaded the old theme from the backend. The
- * ``beforeunload`` listener (installed once via
- * ``ensureThemeSideEffects``) + the per-instance unmount cleanup
- * (in the hook body) both call ``flushPendingThemeSave`` so the
- * pending save fires synchronously before the renderer tears down.
- *
- * The bridge (``call``) is read via ``getActiveCall()`` at fire/flush
- * time, never captured, so the write always targets the latest
- * registered bridge even if the consumer that scheduled the save has
- * since unmounted.
- */
 import {
 	LS_CUSTOM_THEME,
 	LS_TEXT_SIZE,
@@ -100,12 +72,6 @@ export function scheduleThemeSave(updates: ThemeSaveUpdates): void {
 	}, 300);
 }
 
-/**
- * Mirror the theme state into localStorage so the pre-React
- * ``theme-bootstrap.ts`` (and the next mount's store hydration) start
- * from the freshest cache. KEPT per-instance by the hook (idempotent —
- * both consumers write the same keys with the same values).
- */
 export function syncThemeCacheToLocalStorage(
 	themeMode: VoiceTyperConfig["theme_mode"],
 	themePreset: VoiceTyperConfig["theme_preset"],

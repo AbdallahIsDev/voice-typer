@@ -1,30 +1,8 @@
 /**
  * usePointerFocusModality, behavior-preservation tests for the shared
  * pointer-vs-keyboard focus-modality contract (C-FOCUS-3).
- *
- * The state machine was previously duplicated verbatim in
  * `components/ui/input.tsx` and `components/ui/textarea.tsx`; it now
- * lives in ONE hook (`hooks/usePointerFocusModality.ts`) consumed by
- * both primitives. These tests pin the exact semantics so the
- * extraction cannot silently change them:
- *
- *   1. pointerdown sets pointer-modality → the heavy focus ring is
- *      suppressed (`focus:border-ring/60 focus-visible:ring-0`) and
- *      the full-opacity keyboard ring classes are NOT applied.
- *   2. a Tab or Arrow keydown returns the field to keyboard modality →
- *      the full-opacity `focus-visible:ring-1 focus-visible:ring-ring`
- *      classes return (WCAG 1.4.11 3:1, keyboard ring intact).
- *   3. blur resets the modality (a later keyboard focus is announced
- *      with the full ring even after a previous pointer interaction).
- *   4. non-navigation keys (e.g. typing "a") do NOT leave pointer
- *      modality, only Tab/Arrow switch back to keyboard modality.
- *   5. caller-supplied onPointerDown/onKeyDown/onBlur OVERRIDE the
- *      hook's handlers (the documented `{...props}`-spread clobber
- *      semantics pinned by SearchField's comment, the same contract
  *      C-FOCUS-4 describes for the shared inputs).
- *
- * jsdom has no CSS engine, so the assertions read className strings
- * (same technique as `focus-ring-contrast.test.tsx`).
  */
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -46,12 +46,6 @@ function nextMode(
 interface ThemeSwitchProps {
 	themeMode: VoiceTyperConfig["theme_mode"];
 	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
-	/**
-	 * Optional className merged over the icon-only button's base
-	 * styling. Lets the host (e.g. the TitleBar) tune size, rounded
-	 * corners, hover wash, and text color to its own button language
-	 * without forking a second theme control.
-	 */
 	className?: string;
 }
 export function ThemeSwitch({
@@ -67,7 +61,6 @@ export function ThemeSwitch({
 
 	// Include the NEXT mode in the aria-label so screen-reader users
 	// know what clicking will do, not just what the current state is.
-	// Previously the aria-label was ``"Current theme: Dark. Click to
 	// switch."``, ambiguous about the result of the click.  Now:
 	// ``"Current theme: Dark. Click to switch to System."`` etc.
 	const nextLabel = t(

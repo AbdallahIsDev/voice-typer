@@ -1,31 +1,3 @@
-/**
- * Regression tests for the  / d-review  fix in
- * `usePython.ts`.
- *
- * The gap: the predecessor `python-call` IPC handler
- * (`client/src/main/index.ts:1904-1918`) can resolve the pending
- * request with EITHER of two error-envelope shapes:
- *
- *   1. `{_error: "..."}` (string), predecessor main-process synthetic
- *      errors (backend-not-connected, sendToPython exceptions).
- *   2. `{type:"error", data:{code, message}}`, Python server
- *      unhandled-dispatch exceptions (`server/ipc_server.py:1044-1050`),
- *      passed through verbatim.
- *
- * Previously `usePython` only checked `"_error" in result`, so the
- * `type:"error"` envelope was silently treated as a successful result
- * and callers downstream read `undefined` from data fields. The fix
- * adds a `type:"error"` branch alongside the existing `_error` branch
- * and throws a real `Error` (with the message extracted from either
- * envelope) so `try { await python.call(...) } catch (e) {}` callers
- * see failures on both shapes.
- *
- * On Tauri these in-code checks are dead code (the Rust `dispatch`
- * command rejects the `invoke` promise on `type:"error"` before the
- * resolved value reaches JS), but the same `usePython.ts` bundle ships
- * under both hosts, these tests cover the predecessor-path logic that
- * the in-code guards implement.
- */
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,10 +1,7 @@
 // useCollectionImportExport, the shared import/export round-trip
 // skeleton for collection pages (Vocabulary, Templates).
-//
-// Extracted from the 1:1 mirror pair useVocabularyImportExport /
 // useTemplateImportExport: both own the same flow with only the
 // domain specifics varying. The SKELETON owns the round trip —
-//
 //   IMPORT:  hidden file input ref → OS picker click → file.text() →
 //            domain parse (throws) → empty check → merge with the
 //            current list (de-duplicated by a domain key) → domain
@@ -14,35 +11,28 @@
 //            IPC save → saved/unavailable/rejected outcome mapping →
 //            filename toast / not-available toast / rejected toast;
 //            catch → console.error + generic failure toast.
-//
 //, while the DOMAIN (page) injects the variable parts as parameters:
-//
 //   - parseImported / rowKey / readExisting / persistMerged  (import)
 //   - getExportItems / exportFile                             (export)
 //   - messages (i18n keys, resolved here via t(), the same
 //     key-injection pattern the shared useRowSelection hook
 //     established for the collection-page family)
-//
 // The hidden `<input type="file">` ELEMENT renders in the page's
 // toolbar (CollectionToolbar); this hook owns the ref the toolbar
 // attaches it to, so re-selecting the same file fires onChange again
 // (the input's value is reset in the import round-trip's finally).
-//
 // Kept in its own hook (rather than in the page data hooks) so the
 // import-file event handler doesn't re-create when the list changes
 // (which would re-render the hidden `<input>` and reset its value
 // mid-flight).
-//
 // ── Drift decision points (resolve at MIGRATION time, Wave 5) ──────
 // The two pages' export/import error handling shipped two drifts; the
 // skeleton keeps BOTH forms possible via optional parameters:
-//
 //   1. Export rejected (IPC returned `success: false`), Vocabulary
 //      is SILENT (no toast); Templates toasts
 //      `result.error || t(exportFailed)`. Optional flag
 //      `notifyOnExportRejected`: absent = silent (Vocabulary form),
 //      present = the rejected outcome toasts with the generic
-//      exportFailed key as fallback (Templates form, byte-identical).
 //      Wave 5 should likely set the flag for BOTH pages (a failed
 //      export must not be silent), but that unification is a
 //      deliberate migration-time behavior decision, not something this
@@ -53,7 +43,6 @@
 //      pair `isDuplicateError` + `messages.importDuplicate`: both
 //      present = targeted toast (Vocabulary form), absent = generic
 //      (Templates form).
-//
 //   3. doExport's `format` defaults to `"json"` (the Templates
 //      signature, the superset). Vocabulary's current signature has
 //      no default but every call site passes the format explicitly,
@@ -64,10 +53,6 @@ import { toast } from "sonner";
 import { t } from "@/i18n/i18n";
 import type { ExportFormat } from "../../../shared/export-format";
 
-/**
- * Raw IPC export result, the common shape both page bridges
- * (`exportVocabulary` / `exportTemplates`) resolve with.
- */
 export interface CollectionExportResult {
 	success: boolean;
 	/** Absolute saved path (present on success). */
@@ -76,15 +61,6 @@ export interface CollectionExportResult {
 	error?: string;
 }
 
-/**
- * i18n message keys for the import/export toasts. Keys are resolved by
- * THIS hook via `t()`; params (`{count}`, `{error}`, `{filename}`) are
- * interpolated where the skeleton owns the value.
- *
- * Optional parameters are drift decision points (see the file header):
- * `importDuplicate` (with `isDuplicateError`) and
- * `notifyOnExportRejected`.
- */
 export interface CollectionImportExportMessages {
 	importEmpty: string;
 	importSuccessSingular: string;
@@ -100,13 +76,6 @@ export interface CollectionImportExportMessages {
 	exportFailed: string;
 }
 
-/**
- * Domain adapters for the import/export round trip.
- *
- * @typeParam Row - the page's row type (list state, carries the row id).
- * @typeParam Item - the domain's import/export item type (persisted
- *   shape, Vocabulary entries, templates).
- */
 export interface UseCollectionImportExportArgs<Row, Item> {
 	/** Page name for `console.error` prefixes (e.g. "Vocabulary"). */
 	debugLabel: string;
@@ -149,11 +118,6 @@ export interface UseCollectionImportExportArgs<Row, Item> {
 
 export interface UseCollectionImportExportResult<Row> {
 	importInputRef: React.RefObject<HTMLInputElement | null>;
-	/**
-	 * Export rows. When *rows* is given (bulk "Export selected") those
-	 * exact rows are exported; otherwise the domain's full list is
-	 * exported. `format` defaults to `"json"` (see drift note 3).
-	 */
 	doExport: (format?: ExportFormat, rows?: Row[]) => Promise<void>;
 	handleImportFile: (file: File | undefined | null) => Promise<void>;
 	handleImportClick: () => void;

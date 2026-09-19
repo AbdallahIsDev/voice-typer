@@ -1,24 +1,3 @@
-/**
- * Unit tests for `useModelFolder`.
- *
- * Coverage :
- *   - diskInfo + modelsFolderSupported stay at their constant null/false values
- *     (the optional probes were removed, see the hook's docstring)
- *   - handleImportModel bails out (info-level snackbar) when window.window_
- *     is unavailable (e.g. without the desktop host bridge), covers the "outside-host"
- *     permission/error path
- *   - handleImportModel surfaces a warning snack when no models are found
- *     in the picked folder (success=true, found.length=0)
- *   - handleImportModel surfaces an error snack when the backend reports
- *     failedAll (success=true, found.length>0, imported.length=0)
- *   - handleImportModel propagates a thrown IPC error via the failed snack
- *   - handleImportModel flips isImporting=true during the IPC round-trip
- *     and clears it in the finally block
- *   - handleOpenModelsFolder is a no-op (preserved for backwards-compat)
- *
- * Strategy: renderHook with a mocked `call` IPC fn + a stubbed
- * `window.window_.openModelImportDialog`.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,27 +1,3 @@
-/**
- *  vitest rewrite, behavioral test for `PrivacySettingsSection.tsx`
- * consent toggles.
- *
- * Replaces the following string-pattern Python test from
- * `tests/test_consent_and_privacy.py`:
- *   - TestAboutAndSettingsShowVoiceBiometricConsent::test_settings_has_all_consent_toggles_consolidated
- *
- * The Python test asserted on substring presence inside
- * `PrivacySettingsSection.tsx` for the literal consent field names:
- * "huggingface_consent", "voice_biometric_consent",
- * "cloud_openai_consent", "cloud_groq_consent",
- * "cloud_deepgram_consent", and "llm_polish_consent".  These pass
- * even when the toggle is broken, when the wrong Switch is bound to
- * the wrong config key, or when the toggle silently no-ops.  The
- * vitest version below mounts the real PrivacySettingsSection with
- * a fully-populated config and asserts:
- *   1. Flipping each Switch calls updateConfig with the correct
- *      consent key + new value.
- *   2. Each Switch reflects the current config value as `checked`.
- *
- * The corresponding Python test is skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  It is NOT deleted.
- */
 import {
 	cleanup,
 	fireEvent,

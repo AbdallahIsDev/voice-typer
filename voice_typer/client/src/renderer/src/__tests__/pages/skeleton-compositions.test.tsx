@@ -1,26 +1,3 @@
-/**
- * Page-aware skeleton composition suite.
- *
- * Pins that every page renders a loading skeleton shaped like ITS OWN
- * loaded UI (never one generic template):
- *
- *   - each skeleton exposes the shared loading contract (a status
- *     region named by `a11y.loading`, `aria-busy="true"`, pulsing
- *     `[data-slot="skeleton"]` blocks);
- *   - each skeleton's inner structure mirrors the loaded page:
- *     History = day-section cards with divide-y rows, Vocabulary /
- *     Templates = single columned list card with a sticky column
- *     header, Models = full-width segmented control + collapsed family
- *     accordion cards, Microphone = test card (level bar + controls) +
- *     preset accordion + device radio rows, Settings hub = ONE 9-row
- *     card, Dashboard = stat grid + chart + quick-info rows;
- *   - DashboardSkeleton stays a NON-live region (`<section>`), the
- *     live-region guard contract from data-pages-live-region-guards.
- *
- * The components are mounted directly (the pages themselves mount them
- * in their first-load branches, covered by loading-patterns.test.tsx).
- */
-
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 

@@ -1,23 +1,3 @@
-/**
- * ,  regression test: Settings search empty state.
- *
- * When the user types a search query that matches no row on the active
- * tab, the Settings page must render an empty-state banner with the
- * i18n string "No settings match \"{query}\"" so the user knows the
- * search ran but found nothing (instead of staring at a blank tab).
- *
- * The sentinel `hasAnyVisibleRow` is computed by lifting the per-section
- * visibility calls via the `_filter_settings` function, it bumps a
- * render-phase counter on each positive match, and a layout effect reads
- * the counter to derive the boolean state. This test verifies the
- * end-to-end behaviour (typing a non-matching query shows the banner;
- * clearing the query hides it) without depending on the internal
- * counter mechanism.
- *
- * The query is set via the shared `useGlobalSearch` store (the
- * per-page SearchField was removed, the global title-bar search
- * owns the only search input).
- */
 import {
 	cleanup,
 	fireEvent,
@@ -48,19 +28,10 @@ vi.mock("next-themes", () => nextThemesMock());
 import { makeConfig } from "@/__tests__/helpers/fixtures";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-/**
- * Settings-page render helper. The page's render graph uses Radix
- * `Tooltip` (via SettingRow and other ui primitives); the real App shell
- * wraps the page in a `TooltipProvider` (App.tsx), so tests mounting
- * `<SettingsPage />` directly must provide one too, otherwise every
- * Tooltip render throws "Tooltip must be used within TooltipProvider"
- * and the page mounts empty.
- */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 /** Minimal valid config, same shape as Settings.test.tsx's baseConfig.
- *
  *  Built on the shared `makeConfig` fixture so this file no longer keeps
  *  its own ~120-field copy of `VoiceTyperConfig` (XA-15-2 drift hazard).
  *  Only the fields that differ from `DEFAULT_CONFIG` are overridden here. */
@@ -106,7 +77,6 @@ describe("UX-18: Settings search empty state", () => {
 		});
 
 		// Set a nonsense query via the global store (the per-page
-		// SearchField was removed; the title-bar search owns the input).
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("zzzqqqxxxyyy999");
 

@@ -1,5 +1,4 @@
 // Models page loading skeleton (full page).
-//
 // Mirrors the loaded Models layout (`pages/Models.tsx` +
 // `components/models/LocalModelsPanel.tsx`): page shell → heading with
 // the trailing Import-Model action (the loaded PageHeading has one) →

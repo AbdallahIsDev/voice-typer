@@ -1,5 +1,4 @@
 // Zustand store for the renderer-side ``device_lost`` state.
-//
 // The backend publishes ``device_lost`` when the ACTIVE microphone
 // disappears and retries are exhausted (`level_monitor/monitoring.py`
 // for the mic-test stream, `mic_lifecycle_hooks.py` for the dictation
@@ -10,38 +9,16 @@
 //      pause the live meter + show a recovery banner. A single event →
 //      a single subscription feeding both surfaces (no duplicate
 //      subscribers, no divergent state).
-//
 // The store lives at module scope in its OWN file (not inside the hook)
 // so Vite HMR of the hook module does not reset it, same rationale as
 // `lastResortToastStore.ts`.
 
 import { create } from "zustand";
 
-/**
- * Global dedupe window (ms) for the device-lost recovery toast. The
- * window governs the store's ``lastToastShownAt`` clock, BOTH the
- * level-monitor path (``device_lost``) and the recorder-stream path
- * (``microphone_disconnected``) check that one clock, so the window
- * lives WITH the clock (imported by both consumer hooks) to keep the
- * two dedupe windows from drifting apart.
- *
- * Slightly longer than the toast duration so a dismiss + immediate
- * re-fire doesn't re-nag within the same notification cycle.
- */
 export const DEVICE_LOST_TOAST_DEDUPE_MS = 10_000;
 
 interface DeviceLostState {
-	/**
-	 * `source` string from the last ``device_lost`` event, or ``null``
-	 * when no device is currently flagged lost. Diagnostics only —
-	 * user-facing copy is source-agnostic.
-	 */
 	lostSource: string | null;
-	/**
-	 * Wall-clock timestamp of the last device-lost toast shown
-	 * (``null`` = none yet). Drives the short global dedupe window so
-	 * rapid re-emissions collapse into one visible notification.
-	 */
 	lastToastShownAt: number | null;
 	/** Record a device loss (idempotent, latest wins). */
 	markLost: (source: string) => void;

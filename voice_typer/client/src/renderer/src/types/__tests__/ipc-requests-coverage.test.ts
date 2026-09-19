@@ -1,8 +1,6 @@
 // types/__tests__/ipc-requests-coverage.test.ts
-//
 // Regression test for the PythonRequest union widening + the typed
 // PythonCall overload. Locks in two properties:
-//
 //   1. Every renderer-called command (surveyed via
 //      ``rg 'call<...>\("..."'`` across ``src/renderer/src``) is a
 //      member of ``PythonRequest["type"]``. If a future contributor
@@ -10,7 +8,6 @@
 //      interface in ``types/ipc/requests.ts``, the ``satisfies``
 //      annotation below fails to compile (the key ``foo`` is not a
 //      known ``PythonRequest["type"]`` literal).
-//
 //   2. The typed ``PythonCall`` overload (the first of two overloads
 //      declared on the ``PythonCall`` type in ``hooks/usePython.ts``)
 //      is intact. The check uses ``@ts-expect-error`` on a call that
@@ -19,12 +16,10 @@
 //      if the typed overload is removed, the string fallback accepts
 //      the call, the ``@ts-expect-error`` becomes unused, and tsc
 //      reports an error. This pins the compile-time narrowing.
-//
 // These tests do NOT verify the Python-side wire contracts (the
 // permissive ``data?: Record<string, unknown>`` shape is intentionally
 // loose). Tightening individual interfaces to bare or stricter shapes
 // is tracked separately under the Python-side ``PushEventType`` enum
-// plan (out of lane for the renderer-only slice, see review.md
 // (Python-side plan).
 
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -33,7 +28,6 @@ import type { PythonCall } from "@/hooks/usePython";
 import type { PythonRequest } from "@/types/ipc/requests";
 
 // ── Section 1: union coverage ───────────────────────────────────────
-//
 // ``Partial<Record<PythonRequest["type"], true>>`` allows the union to
 // grow without forcing this object to enumerate every member, but if
 // a key listed here is NOT in the union, the ``satisfies`` check fails
@@ -56,7 +50,6 @@ const _RENDERER_CALLED_COMMANDS = {
 	save_vocabulary: true,
 	// Per-entry "Test this entry", the row action runs the entry's
 	// wrong phrase through the LIVE backend engine (the standalone
-	// free-text panel was removed).
 	test_vocabulary_correction: true,
 	// per-correction usage snapshot, the Vocabulary page fetches it
 	// to show "used Nx / last triggered" per entry.
@@ -73,7 +66,6 @@ const _RENDERER_CALLED_COMMANDS = {
 	onboarding_check_permissions: true,
 	reset_macos_accessibility: true,
 	reset_linux_permissions: true,
-	// finding #919 part b (2026-08-10): the Settings →
 	// Troubleshooting section probes the macOS Accessibility grant on
 	// mount to surface the stale-grant reset command. Callsite:
 	// TroubleshootingSettingsSection.tsx.
@@ -118,7 +110,6 @@ const _RENDERER_CALLED_COMMANDS = {
 	undo_last: true,
 	// 12 missing commands added, these ARE in the
 	// Python ``_COMMAND_REGISTRY`` AND the renderer allowlist
-	// AND are invoked from renderer code (see review.md
 	// for the per-command call-site survey).
 	get_defaults: true,
 	download_model: true,
@@ -148,7 +139,6 @@ const _RENDERER_CALLED_COMMANDS = {
 } satisfies Partial<Record<PythonRequest["type"], true>>;
 
 // ── Section 1b: server-registry parity ──────────────────────────────
-//
 // ``_SERVER_REGISTRY_MINUS_PYTHON_ONLY`` is a static mirror of
 // every command registered in the Python ``_COMMAND_REGISTRY``
 // (``voice_typer/server/ipc/registry.py``) MINUS the entries in
@@ -161,7 +151,6 @@ const _RENDERER_CALLED_COMMANDS = {
 // parity test) AND ``src/main/allowed-commands.ts`` MUST all be
 // updated in lockstep (the 4-way parity contract documented in the
 // registry module's docstring).
-//
 // This list asserts the "PythonRequest["type"] ⊆ server_registry -
 // _PYTHON_ONLY_COMMANDS" half of the parity invariant: every member
 // of the ``PythonRequest`` union must be a real, dispatcher-
@@ -251,14 +240,12 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	// absent, they're ``_PYTHON_ONLY_COMMANDS`` exclusions.
 } satisfies Record<string, true>;
 
-// Compile-time guard: every ``PythonRequest["type"]`` literal must
 // be a key of ``_SERVER_REGISTRY_MINUS_PYTHON_ONLY``. If a phantom
 // command (like the deleted ``get_disk_info`` /
 // ``models_folder_supported`` / ``open_models_folder``) is ever
 // reintroduced into the ``PythonRequest`` union, the conditional
 // below resolves to ``false`` and the ``true`` assignment fails to
 // compile.
-//
 // This guard is the symmetric counterpart of Section 1's
 // ``RENDERER_CALLED_COMMANDS ⊆ PythonRequest["type"]`` check: that
 // one catches MISSING interfaces (renderer call sites with no
@@ -271,7 +258,6 @@ type _PhantomCommandGuard =
 const _noPhantomCommands: _PhantomCommandGuard = true;
 
 // ── Section 2: typo guard ───────────────────────────────────────────
-//
 // A typo'd command name must NOT be a member of ``PythonRequest["type"]``.
 // If someone accidentally adds a ``typo_cmd`` interface to the union,
 // this assignment fails compile (``"typo_cmd" extends ... ? true : false``
@@ -280,13 +266,11 @@ type TypoCmdGuard = "typo_cmd" extends PythonRequest["type"] ? true : false;
 const _typoCmdNotInUnion: TypoCmdGuard = false;
 
 // ── Section 3: typed PythonCall overload integrity ──────────────────
-//
 // ``PythonCall`` (declared in ``hooks/usePython.ts``) is a two-overload
 // type. The FIRST overload narrows ``type`` to ``PythonRequest["type"]``
 // and conditionally types ``data`` based on the per-command interface.
 // The SECOND overload accepts any ``string`` for forward-compat with
 // backend-added commands not yet in the union.
-//
 // Direct ``@ts-expect-error`` calls on ``PythonCall`` can't pin the
 // typed overload's narrowing power because TypeScript falls through to
 // the string fallback overload (which accepts any
@@ -336,7 +320,6 @@ async function _exerciseTypedOverload(): Promise<void> {
 
 describe("PythonRequest union covers renderer-called commands", () => {
 	it("every renderer-called command is in the PythonRequest union", () => {
-		// Compile-time guard via `satisfies` above; runtime
 		// tautology ensures the test runs in CI.
 		const keys = Object.keys(_RENDERER_CALLED_COMMANDS);
 		expect(keys.length).toBeGreaterThanOrEqual(50);
@@ -347,7 +330,6 @@ describe("PythonRequest union covers renderer-called commands", () => {
 	});
 
 	it("PythonRequest union contains NO phantom commands (every type is in the server registry minus python-only)", () => {
-		// Compile-time guard via ``_PhantomCommandGuard``
 		// above; runtime tautology asserts the guard runs in
 		// CI. If a phantom command (e.g. ``get_disk_info``,
 		// ``models_folder_supported``, ``open_models_folder``)
@@ -364,7 +346,6 @@ describe("PythonRequest union covers renderer-called commands", () => {
 	});
 
 	it("typed PythonCall overload narrows data to undefined for bare commands", async () => {
-		// Compile-time guard via `expectTypeOf` on `GetConfigHasData`
 		// (defined above). `GetConfigRequest` has no `data` field, so
 		// the typed overload's conditional `data?` type resolves to
 		// `undefined` for `get_config`. If a refactor adds a `data`

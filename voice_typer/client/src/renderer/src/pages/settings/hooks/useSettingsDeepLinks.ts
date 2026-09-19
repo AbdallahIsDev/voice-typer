@@ -1,19 +1,15 @@
 // Settings deep-link consumption + scroll/highlight hook.
-//
-// Extracted from `pages/Settings.tsx` (page-root slimming): the consent
 // deep-link (``client.consent_required`` path) and the cross-page search
 // deep-link machinery, two near-twin "consume → scroll-to-row → ring"
 // effects plus their shared one-shot guard, ring-lifetime timer, and
 // max-lifetime safety net, was the page's largest cohesive EFFECT
 // block. It lives here so the page root stays layout + wiring.
-//
 // The two scroll effects share ONE parameterized helper
 // (`pages/settings/lib/scrollToRowWithHighlight.ts`), the bounded
 // retry loop, the one-shot guard, the scrollIntoView call, and the
 // ring-lifetime timer live there once; each effect supplies only its
 // row matcher and how the ring is applied (consent: state-driven,
 // consumed by PrivacySettingsSection; search: imperative ring classes).
-//
 // IMPORTANT: the effects inside this hook must run in the ORIGINAL page
 // order (consume → consume → scroll → scroll → safety net) relative to
 // the page's surface-scroll restore effect, the consent consumption
@@ -32,12 +28,6 @@ export interface UseSettingsDeepLinksOptions {
 	config: VoiceTyperConfig | null;
 	/** The active Settings surface page literal (route-switch prop). */
 	page: Page;
-	/**
-	 * The page's per-surface scroll-position memory (owned by the page,
-	 * shared with `useSettingsSurfaceScroll`). The consent consumption
-	 * effect zeroes the Privacy surface's saved offset so the restore
-	 * behavior doesn't fight the deep-link scroll.
-	 */
 	scrollPositionsRef: React.RefObject<Record<string, number>>;
 }
 
@@ -48,12 +38,6 @@ export interface UseSettingsDeepLinksReturn {
 	searchScrollHint: string | null;
 }
 
-/**
- * Consent + search deep-link handling for the Settings page: consumes
- * the pending targets from the nav store, scrolls the target row into
- * view (bounded retry), and rings it for the highlight lifetime. See
- * the file header for the extraction rationale and ordering contract.
- */
 export function useSettingsDeepLinks({
 	config,
 	page,

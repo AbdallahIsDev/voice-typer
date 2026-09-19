@@ -1,12 +1,3 @@
-/**
- * Behavioral tests for QuickInfoCard (Analytics secondary row + Current
- * Setup section).
- *
- * POLISH round: the card's text block stretches to the card height
- * (items-stretch) and the value carries `mt-auto`, giving the secondary
- * row the same top-pinned label / bottom-pushed number rhythm as the
- * top-row stat cards.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

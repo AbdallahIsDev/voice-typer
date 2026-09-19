@@ -1,10 +1,7 @@
 // components/common/ExternalLink.tsx
-//
 // MO-118: the ONE anchor every in-app link to an EXTERNAL https page
 // renders through.
-//
 // Why an anchor instead of a `Button onClick={() => open(url)}`:
-//
 // - Semantics/a11y: the element IS a link, so it keeps `role="link"`,
 //   the accessible href, keyboard activation, middle-click, and
 //   right-click "copy link address". Turning it into a button loses all
@@ -13,9 +10,7 @@
 // - Regression-safe: the pre-existing pages/tests assert on
 //   `a[href*="SECURITY.md"]` and `getByRole("link", …)`, so the element
 //   type must stay an anchor.
-//
 // Why intercept the click anyway:
-//
 // - Under predecessor the host intercepts `target="_blank"` /
 //   `window.open` (`input-nav-guard.ts`) and `shell.openExternal`s the
 //   https URL, so the native behavior is already correct there.
@@ -26,7 +21,6 @@
 //   (`window.window_.openExternalUrl` → Rust `open_external_url_command`,
 //   same https-only policy), which itself falls back to the classic
 //   `window.open` when the bridge is absent.
-//
 // Callers keep the app's normal look by wrapping it in
 // `<Button asChild>`; the Slot merges the Button classes onto this
 // anchor.

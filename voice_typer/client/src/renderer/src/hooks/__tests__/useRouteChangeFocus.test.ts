@@ -1,11 +1,3 @@
-/**
- * Tests for useRouteChangeFocus (extracted from App.tsx).
- *
- * Contract: move keyboard focus to ``<main id="main-content">`` on
- * every route change, EXCEPT the initial mount (the skip-first-run
- * guard: the user hasn't navigated yet, so stealing focus would be
- * rude).
- */
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 

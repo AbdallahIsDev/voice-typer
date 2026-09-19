@@ -1,21 +1,3 @@
-/**
- * Tests for the merged About & Privacy page (product identity +
- * data-handling disclosure) plus the moved-out surfaces it used to
- * host:
- *
- *   - formatBytes() / formatRelativeTime(), now exported from the
- *     DiagnosticsSettingsSection component (they moved there with the
- *     diagnostics table in the IA split).
- *   - The diagnostics table itself (config dir, Loaded Via, Copy
- *     diagnostics, model-truth rows), now lives in Settings →
- *     Privacy (support area), covered by mounting
- *     DiagnosticsSettingsSection directly.
- *   - The privacy disclosure, lives on the SAME page now (the About
- *     and Privacy pages were merged into AboutAndPrivacy); covered by
- *     the a11y-rewrite/About-privacy.test.tsx suite.
- *   - Product-identity smoke tests + the negative tests that Help /
- *     Cache Status / Updates are gone from the identity card.
- */
 import {
 	cleanup,
 	fireEvent,
@@ -206,7 +188,6 @@ describe("About & Privacy page, product identity (merged)", () => {
 		});
 		expect(checkButton).toBeTruthy();
 		expect(checkButton.getAttribute("data-size")).toBe("xs");
-		// The Platforms row was removed, version + button only.
 		expect(screen.queryByText("Platforms")).toBeNull();
 		expect(screen.queryByText("Windows, macOS, and Linux")).toBeNull();
 	});
@@ -242,7 +223,6 @@ describe("About & Privacy page, product identity (merged)", () => {
 			).toBeTruthy();
 		});
 
-		// The Help section previously rendered a "Start / Stop dictation"
 		// row. After , that row is gone (the help overlay is the
 		// canonical source for shortcut labels).
 		expect(screen.queryByText("Start / Stop dictation")).toBeNull();
@@ -260,7 +240,6 @@ describe("About & Privacy page, product identity (merged)", () => {
 			).toBeTruthy();
 		});
 
-		// The Cache Status card previously had a "Run Prewarm Now"
 		// button and a "Refresh" button, both removed.
 		expect(screen.queryByText("Cache Status")).toBeNull();
 		expect(screen.queryByText("Run Prewarm Now")).toBeNull();
@@ -277,7 +256,6 @@ describe("About & Privacy page, product identity (merged)", () => {
 			).toBeTruthy();
 		});
 
-		// The runtime-pack STATUS row was removed (user spec): the
 		// update check is triggered via the inline button beside the
 		// version, and no pack status text is rendered anywhere.
 		expect(screen.queryByText("Offline engine pack")).toBeNull();
@@ -395,7 +373,6 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
-		// The in-page section nav was removed entirely, no
 		// navigation landmark remains.
 		expect(
 			screen.queryByRole("navigation", { name: "About page sections" }),

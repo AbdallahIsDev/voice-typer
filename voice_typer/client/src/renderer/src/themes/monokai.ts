@@ -1,9 +1,3 @@
-/**
- * "Monokai" theme preset, high-contrast dark base with vivid accents.
- *
- * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
- * are consumed.
- */
 import type { ThemePreset } from "../themes";
 
 export const monokaiTheme: Omit<ThemePreset, "nameKey"> = {

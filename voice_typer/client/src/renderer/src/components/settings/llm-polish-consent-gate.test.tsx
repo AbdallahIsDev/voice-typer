@@ -1,19 +1,3 @@
-/**
- * LlmPolishingSettingsSection, LLM-polish enablement consent gate.
- *
- * Turning the "LLM Polishing" master toggle ON sends transcribed text
- * to the configured LLM provider, which requires `llm_polish_consent`.
- * Contract (shared point-of-use consent gate):
- *
- *   • consent missing + toggling ON → does NOT persist llm_polish;
- *     opens the shared dialog request (llm_polish_consent field +
- *     its consentDialog body key);
- *   • Allow → (dialog persisted the consent) → retry enables
- *     llm_polish;
- *   • Cancel → nothing enabled;
- *   • consent already granted, or toggling OFF → behaves as before
- *     (immediate persist, no dialog).
- */
 import {
 	act,
 	cleanup,

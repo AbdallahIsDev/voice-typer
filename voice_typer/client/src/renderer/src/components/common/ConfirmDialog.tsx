@@ -19,19 +19,7 @@ interface ConfirmDialogProps {
 	message: string;
 	confirmLabel?: string;
 	cancelLabel?: string;
-	/**
-	 * Visual variant forwarded to the underlying {@link Button}. Defaults
-	 * to `"destructive"` for the common "delete / discard" case. Pass
-	 * `"warning"` for mid-tier destructive actions (e.g. skip onboarding)
-	 * or any other Button variant the call site needs.
-	 */
 	variant?: React.ComponentProps<typeof Button>["variant"];
-	/**
-	 * Opt-in backdrop-click dismissal: when true, clicking the dimmed
-	 * overlay outside the dialog closes it exactly like Cancel (no data
-	 * change). Default false preserves the strict AlertDialog contract
-	 * (explicit acknowledge only) everywhere else.
-	 */
 	dismissOnBackdrop?: boolean;
 	onConfirm: () => void;
 	onCancel: () => void;
@@ -54,12 +42,10 @@ export default function ConfirmDialog({
 	// Radix AlertDialog fires onOpenChange(false) once per close.
 	// We use a ref to distinguish "user clicked Confirm" (which should NOT
 	// call onCancel) from Cancel/Escape/backdrop (which should).
-	// The old dismissedByButton ref guarded both actions; now only the
 	// confirm action needs it.
 	const confirmedRef = useRef(false);
 
 	// BACKDROP-CLICK DISMISSAL (opt-in via `dismissOnBackdrop`).
-	//
 	// Radix's AlertDialogContent HARD-REPLACES any caller-supplied
 	// `onPointerDownOutside` / `onInteractOutside` with
 	// `(event) => event.preventDefault()` (see the alert-dialog source:
@@ -152,7 +138,6 @@ export default function ConfirmDialog({
 						// warning (the warning variant in button.tsx uses the
 						// --warning design token so the amber tint tracks the
 						// active theme), and any other value → default.
-						// Previously `warning` fell through to `default`,
 						// making the confirm button visually identical to a
 						// safe primary action.
 						variant={variant}

@@ -8,16 +8,7 @@ interface QuickInfoCardProps {
 	icon: IconSvgElement;
 	label: string;
 	value: ReactNode;
-	/**
-	 * Optional secondary line under the value (e.g. the corrections
-	 * rate), rendered with the same muted style as the label.
-	 */
 	sublabel?: ReactNode;
-	/**
-	 * Quieter styling for system/config info (the "Current Setup"
-	 * section) so it doesn't compete with the usage metrics for
-	 * attention: smaller text, no accent wash behind the icon.
-	 */
 	muted?: boolean;
 }
 

@@ -15,26 +15,6 @@ interface RangeSliderProps {
 	className?: string;
 	/** Disable the slider (greyed out, no interaction) */
 	disabled?: boolean;
-	/**
-	 * When true, the slider's `onChange` callback is deferred to the
-	 * next "commit" event (`pointerup` / `blur`).
-	 * During a drag the thumb moves (via a local display state) but the
-	 * real `onChange` is only invoked when the user releases the pointer
-	 * (or Tabs away from the slider after an arrow-key step).  Use this
-	 * for settings where each `onChange` triggers an immediate IPC
-	 * write, prevents a flood of `set_config` calls during a drag.
-	 *
-	 * Commit handlers currently bound: `onPointerUp` (covers
-	 * mouse/touch/pen release) and `onBlur` (covers keyboard-only
-	 * arrow-key steps which never produce a `pointerup`). A
-	 * `useEffect` cleanup also commits on unmount if the slider is
-	 * torn down mid-drag (e.g. parent navigates away).
-	 *
-	 * Added for the text-size slider: each `onChange` would otherwise
-	 * fire a separate `updateConfig({ text_size })` IPC call for every
-	 * pixel of drag, flooding the backend and re-rendering the entire
-	 * UI on every step.
-	 */
 	deferApply?: boolean;
 }
 
@@ -82,7 +62,6 @@ export function RangeSlider({
 	// progress (dirtyRef === true), commit the pending value so the
 	// parent's `onChange` actually fires. Without this, navigating
 	// away mid-drag silently drops the user's last value.
-	//
 	// We use a ref-to-latest-commit pattern (commitRef) so the
 	// unmount cleanup can read the freshest `displayValue` / `value`
 	// without re-binding the effect on every render. Re-binding on

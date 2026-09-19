@@ -1,17 +1,3 @@
-/**
- * F-17: axe-core automated WCAG scan for the ErrorBoundary fallback UI.
- *
- * The existing `a11y/axe-core.test.tsx` mocks `ErrorBoundary` as a
- * pass-through wrapper (`<>{children}</>`) so it can mount pages without
- * their own boundary. That mock hides the real fallback's a11y surface
- * from CI. This file mounts the real `ErrorBoundary`, forces a render
- * crash in a child, and runs axe-core against the resulting fallback UI
- * (heading + alert region + recovery button row).
- *
- * The color-contrast rule is disabled because the test environment
- * doesn't load the full Tailwind stylesheet (same approach as
- * `a11y/axe-core.test.tsx`).
- */
 import { cleanup, render } from "@testing-library/react";
 import axe from "axe-core";
 import { Component } from "react";

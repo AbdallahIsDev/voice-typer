@@ -1,25 +1,3 @@
-/**
- *  (session NH) test: every theme preset defines
- * ``--success`` / ``--warning`` / ``--info`` tokens.
- *
- * Before , the renderer had no design tokens for success/warning/info
- * states, components improvised with raw Tailwind palette colors
- * (``text-emerald-500``, ``text-amber-500``, ``bg-amber-400``) which
- * don't follow the active theme's palette.  added the three new
- * semantic tokens to ``index.css`` (light + dark) AND to every theme
- * preset's light/dark maps so status colours track the theme.
- *
- * This test asserts:
- *   1. Every non-default / non-custom theme preset defines the three
- *      tokens in BOTH light and dark maps (parity).
- *   2. The tokens are also in the ``THEME_VARIABLES`` superset (so they
- *      get cleared on theme switch, see ``clearThemeVars``).
- *   3. ``deriveCustomVars`` (the runtime builder for user-customised
- *      themes) also emits the three tokens so custom themes don't fall
- *      back to the stylesheet default.
- *   4. The ``index.css`` stylesheet defines the three tokens (light +
- *      dark) and maps them to Tailwind utility classes via ``@theme``.
- */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";

@@ -1,15 +1,12 @@
 //data-fetch + refresh + event-subscription hook extracted
 // from `pages/Dashboard.tsx` (lines ~243-402 of the pre-split file).
-//
 // Owns the dashboard's `data` / `configRaw` / `refreshing` React state,
 // the `refreshData` fetch, the manual-refresh wrapper, and the two
 // `usePythonEvent` subscriptions (`transcription_final` and
 // `history_changed`) that debounced-refresh the dashboard after backend
 // state changes. Also owns the cleanup effect that clears the pending
 // debounced-refresh timer on unmount.
-//
 // SINGLE-SOURCE-OF-TRUTH change (data-consistency fix):
-//   Previously the page pulled "today" stats from the backend's
 //   `get_today_stats` aggregator while the chart/streaks/totals were
 //   derived from a `get_history({limit: 200})` sample, two independent
 //   computations that could disagree (and did: "Dictations Today: 0"
@@ -22,9 +19,7 @@
 //   (`parseUtcTimestamp` / `dateKey` in lib/streaks). The only
 //   independent number is `totalCount`, from the dedicated
 //   `get_history_count` IPC (the true all-time row count).
-//
 // Behaviour is otherwise identical to the pre-split inline
-// implementation. The dead `loadData` wrapper (Finding 10) stays
 // removed, `refreshData` is called directly at both former `loadData`
 // call sites (initial mount + manual refresh).
 
@@ -55,25 +50,8 @@ import {
 /** History sample size for the dashboard's derived stats. */
 export const DASHBOARD_SAMPLE_LIMIT = 500;
 
-/**
- * Hot-path delta size for event-triggered refreshes (BP-159).
- *
- * A completed dictation appends exactly one row, so the event path
- * fetches only the 10-row head (+ count + corrections) instead of the
- * full 500-row sample. Any deviation (count jump, empty/malformed
- * delta, unseen-id mismatch) falls back to the full refresh.
- */
 export const DASHBOARD_DELTA_LIMIT = 10;
 
-/**
- * Pure `DashboardData` builder shared by the full and delta refresh
- * paths (BP-159 hot/cold split).
- *
- * Derives every stat (today cards, totals, streaks, setup line) from
- * ONE history sample with UTC-correct day bucketing, so both paths
- * compute byte-identical shapes from whatever sample they hand in.
- * Has no side effects, callers own cache writes + state updates.
- */
 function buildDashboardData(args: {
 	cfg: VoiceTyperConfig | null;
 	recs: HistoryRecord[];
@@ -161,13 +139,6 @@ function buildDashboardData(args: {
 // Module-cache key for the SWR seed (see lib/ipcCache.ts).
 const DASHBOARD_CACHE_KEY = "analytics.dashboardData";
 
-/**
- * Arguments for {@link useDashboardData}.
- *
- * `call` is the Python IPC call function from `usePython()`, passed in
- * (rather than re-fetched) so the parent component owns the bridge
- * lifecycle and so the hook can be unit-tested with a stub `call`.
- */
 export interface UseDashboardDataArgs {
 	call: <T = unknown>(
 		type: string,
@@ -192,12 +163,6 @@ export interface UseDashboardDataResult {
 	correctionStats: CorrectionStats;
 	refreshData: () => Promise<void>;
 	handleManualRefresh: () => Promise<void>;
-	/**
-	 * The debounced-refresh callback attached to both
-	 * `transcription_final` and `history_changed` events. Exposed
-	 * primarily for testability, production callers should not invoke
-	 * it directly (the subscriptions inside the hook already do so).
-	 */
 	debouncedRefreshFromEvent: () => (() => void) | undefined;
 	/** "Last updated" relative label (e.g. "5s ago") for the indicator. */
 	agoLabel: string;
@@ -210,7 +175,6 @@ export function useDashboardData({
 }: UseDashboardDataArgs): UseDashboardDataResult {
 	// SWR seed: the initial `useState` value reads the MODULE-level IPC
 	// cache (survives page unmount, so navigation back to the dashboard
-	// shows the previously-fetched data instantly, the former
 	// per-instance ref died with the unmounted page and never actually
 	// survived navigation). `refreshData` still revalidates fresh data
 	// over it every mount.
@@ -228,7 +192,6 @@ export function useDashboardData({
 	// R7-F18: removed dead `const [, setLoading] = useState(true)`.
 	const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);
 	const [configDir, setConfigDir] = useState<string>("");
-	// F4 (b-review Finding 11): "Last updated" indicator state. We mark
 	// the timestamp after each successful refreshData() to surface
 	// staleness to the user.
 	const { agoLabel, markUpdated } = useLastUpdated();
@@ -263,14 +226,6 @@ export function useDashboardData({
 		modelStatus: ModelStatusMap;
 	} | null>(null);
 
-	/**
-	 * Fetch ALL dashboard data from the Python backend (cold path).
-	 *
-	 * Serves mount + manual refresh + the `config_changed` event (the
-	 * only event that can move config / model-install / backend-status
-	 * state). The per-dictation events (`transcription_final` /
-	 * `history_changed`) use {@link refreshDataDelta} instead.
-	 */
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const refreshData = useCallback(async () => {
 		try {
@@ -348,7 +303,6 @@ export function useDashboardData({
 			setFetchError(null);
 		} catch (err) {
 			// Surface refresh failures to the user instead of
-			// silently swallowing them.  The previous implementation
 			// caught and ignored ALL errors, so a backend disconnect
 			// during a background refresh (e.g. transcription_final
 			// trigger) left the user staring at stale data with no
@@ -369,19 +323,6 @@ export function useDashboardData({
 		}
 	}, []);
 
-	/**
-	 * Hot-path delta refresh for per-dictation events (BP-159).
-	 *
-	 * Fetches only `get_history({limit: DASHBOARD_DELTA_LIMIT})` +
-	 * `get_history_count()` + `get_correction_usage()` and prepends the
-	 * single new row onto the cached sample (capped at
-	 * `DASHBOARD_SAMPLE_LIMIT`), reusing the cold snapshot for config /
-	 * model-status / config-dir. Returns `true` when the delta applied;
-	 * ANY deviation (no cold snapshot yet, count jump ≠ +1, empty or
-	 * malformed head, head id already present, any throw) returns
-	 * `false` so the caller falls through to the full {@link refreshData}
-	 *, the worst case of the new code is byte-identical to the old one.
-	 */
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef/markUpdatedRef are useLatestRef mirrors (see refreshData above); the *Ref mirrors below are refs by design
 	const refreshDataDelta = useCallback(async (): Promise<boolean> => {
 		try {
@@ -505,12 +446,10 @@ export function useDashboardData({
 		[],
 	);
 
-	// F11-FIX (b-review Finding 11): invalidate the cached dashboard data
 	// when history changes through a path OUTSIDE this page (clear/delete/
 	// restore/favorite from the tray menu, another window, or a CLI tool).
 	// Mirrors the transcription_final refresh. Both subscriptions share
 	// the same debounced-refresh callback.
-	//
 	// BP-159: the hot path tries the cheap delta first (10-row head +
 	// count + corrections, no config/model-status/status re-fetch) and
 	// falls through to the full refresh on any deviation, per-dictation

@@ -1,12 +1,3 @@
-/**
- * Bubble overlay package, shared constants.
- *
- * All visualisation tuning knobs and the shared button `className`
- * live here so the three button components (`BubbleMicButton`,
- * `BubbleStopButton`, `BubbleDismissButton`) stay in sync by
- * construction rather than by copy/paste.
- */
-
 // ── Types ────────────────────────────────────────────────────────────
 
 export type BubbleMode =
@@ -35,12 +26,6 @@ export const MAX_HEIGHT = 22;
 /** Per-bar response weights, gentle bell so the spectrum looks organic. */
 export const DOT_WEIGHTS = [0.5, 0.75, 1.0, 0.95, 1.0, 0.75, 0.5];
 
-/**
- * Pre-computed `[0, 1, … DOT_COUNT-1]` index array. Previously
- * `BubbleVisualizer` allocated a fresh `Array.from({ length: DOT_COUNT },
- * (_, i) => i)` on every render, small but unnecessary garbage. Hoisted
- * to module scope so the JSX `.map` uses a stable reference.
- */
 export const DOT_INDICES: readonly number[] = Array.from(
 	{ length: DOT_COUNT },
 	(_, i) => i,
@@ -61,15 +46,13 @@ export const FADEOUT_DURATION_MS = 150;
  * `no-drag` opt-out so clicks bubble through the predecessor
  * `-webkit-app-region: drag` region) so they read as siblings of one
  * pill.
- *
  * Uses semantic tokens (`text-muted-foreground`, `bg-muted`,
  * `text-foreground`, `ring-ring`) so the buttons inherit the active
  * theme preset's palette instead of hardcoded `zinc-*` colors. The
  * `dark:hover:bg-muted/50` variant softens the hover surface in dark
  * mode (where `--muted` is already a dark surface), full-strength
  * `bg-muted` on hover would feel too aggressive in dark themes.
- *
- * `focus-visible:ring-1focus-visible:ring-ring` ensures the buttons
+ * `focus-visible:ring-1 focus-visible:ring-ring` ensures the buttons
  * have a visible focus indicator for keyboard / AT users navigating
  * via screen-reader cursor. Note: the bubble BrowserWindow is created
  * with `focusable: false` (see `main/windows/bubble-window.ts`), so
@@ -77,20 +60,18 @@ export const FADEOUT_DURATION_MS = 150;
  * correct a11y hygiene and would matter immediately if the
  * `focusable` flag is ever flipped (see the keyboard-accessibility
  * trade-off notes in `Bubble.tsx`).
- *
  * `ms-1` (margin-inline-start) replaces the original `ml-1` for RTL
  * safety: in LTR it renders as margin-left; in RTL (ar locale) it
  * flips to margin-right automatically.
  */
 export const BUBBLE_BUTTON_CLASS =
-	"no-drag ms-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) focus-visible:outline-none focus-visible:ring-1focus-visible:ring-ring focus-visible:ring-offset-0";
+	"no-drag ms-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0";
 
 // ── Mode transition (single source of truth) ───────────────────
 
 /**
  * Pure bubble-mode reducer, the SINGLE implementation of every mode
  * transition in the bubble package (single source of truth).
- *
  * Pre-refactor, the bubble's `mode` was tracked TWICE: in
  * `useBubbleStateMachine` (React state, the source of truth driving the
  * rendered pill) and in a local closure inside `useAudioLevels` (gating
@@ -99,7 +80,6 @@ export const BUBBLE_BUTTON_CLASS =
  * implementations of the same transition table, a change to one (e.g.
  * adding `blocked` / `cancelling` / `permission_revoked` /
  * `paste_failed`) silently left the other stale.
- *
  * This reducer is the single transition table. It is consumed by:
  *   - `useBubbleBridge`, to keep the bridge's authoritative mode ref
  *     in lockstep with the event stream, updated BEFORE fan-out so
@@ -108,7 +88,6 @@ export const BUBBLE_BUTTON_CLASS =
  *     functional `setMode`), preserving the queued-update semantics of
  *     the original inline logic (e.g. hide → setState in the same
  *     batch).
- *
  * The transition table below reproduces the pre-refactor
  * `useBubbleStateMachine` logic verbatim:
  *   - `show` → `recording`, unless already `transcribing` (the backend
@@ -152,32 +131,10 @@ export function nextBubbleMode(
 	}
 }
 
-/**
- * Normalise the `bubble:set-state` payload into a state string + an
- * optional message + an optional partial transcript. The IPC type is
- * `(state: string) => void`, but the runtime payload MAY be a richer
- * object once the backend + main process are extended to forward error
- * reasons (`message`) or live partial transcription text (`transcript`).
- * Defensive duck-typing keeps consumers forward-compatible
- * without requiring a type-system change to
- * `BubbleWindowExtras.onSetState`.
- *
- * Shared by `useBubbleStateMachine` (React state + side effects) and
- * `useBubbleBridge` (the authoritative mode ref) so both normalize the
- * payload identically.
- */
 export function parseSetStatePayload(arg: unknown): {
 	state: string;
 	message: string | null;
 	transcript: string | null;
-	/**
-	 * Tri-state engine capability from the backend's one-time
-	 * live-preview signal: `false` when the active engine cannot
-	 * stream partials (no `transcribe_words`), `true` when explicitly
-	 * supported, `null` when the payload doesn't say (legacy/other
-	 * publishers). Consumers keep the last explicit value while the
-	 * recording continues.
-	 */
 	livePreviewSupported: boolean | null;
 } {
 	if (typeof arg === "string") {

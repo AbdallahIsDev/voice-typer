@@ -1,32 +1,3 @@
-/**
- * VP-16 regression guard: no production code may redeclare the inline
- * `"json" | "csv"` union.
- *
- * `ExportFormat` (defined in `src/shared/export-format.ts`) is the
- * single source of truth for the export-format union. Before VP-16
- * the bare union `"json" | "csv"` was inlined at 12+ call sites
- * (main-process export handlers, preload bridge types, the renderer's
- * ExportFormatMenu, the per-page toolbar/import-export hooks, and the
- * tauri window namespace). Adding a new format (e.g. `"tsv"`) required
- * touching every site with no compile-time guard; a missed file
- * silently broke the format selector for that flow.
- *
- * This test scans the PRODUCTION source tree (main, preload, shared,
- * renderer) for the inline pattern and fails if any remains. It is
- * deliberately conservative:
- *   - Only literal `"json" | "csv"` (and `"csv" | "json"`) unions are
- *     flagged, the exact duplication VP-16 removed.
- *   - Test files (`.test.ts` / `.test.tsx` / `__tests__/`) are
- *     EXCLUDED: tests may construct fixture values inline, and the
- *     2 remaining inline unions in `tauri-bridge-commands.test.ts`
- *     are exactly the kind of test-only drift this guard is meant to
- *     catch without blocking test authors from writing literals.
- *   - `src/shared/export-format.ts` itself is excluded (it is the
- *     canonical declaration).
- *
- * A production file that legitimately needs the union must import
- * `ExportFormat` from `src/shared/export-format` instead of inlining.
- */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -37,7 +8,6 @@ const EXCLUDED_BASE = "src/shared/export-format.ts";
 const TEST_SUFFIXES = [".test.ts", ".test.tsx"];
 
 // Matches the inline `"json" | "csv"` union (either order). The
-// whitespace-tolerant shape mirrors how the pre-VP-16 sites wrote it
 // (e.g. `"json" | "csv"` in type position). Only the two-literal union
 // is flagged, a single `"json"` literal or a wider union is not this
 // finding's target.
@@ -89,7 +59,6 @@ describe('VP-16: no inline "json" | "csv" union in production code', () => {
 			const lines = text.split("\n");
 			for (let i = 0; i < lines.length; i++) {
 				// Skip comment-only lines, a docstring/comment that
-				// mentions the old union (e.g. this very test's header)
 				// is documentation, not a redeclaration.
 				const raw = lines[i] ?? "";
 				const line = raw.trim();

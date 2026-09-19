@@ -1,12 +1,9 @@
 // useForceCancel, the "Force cancel" state machine for a stuck
-// dictation transcription, extracted from Home.tsx so the page file
 // stays a thin composition root. Behaviour is preserved
 // statement-for-statement, this machine is consent/privacy-sensitive
 // surface wiring (the reveal gate and every reset path must stay
 // exactly as they were).
-//
 // Owns:
-//
 //   - `applyStatusChange(data)`, the `status_change` handler body.
 //     Entering "transcribing" stamps `transcribeStartedAt` (first
 //     stamp wins, `prev ?? Date.now()`) and hides the affordance;
@@ -34,14 +31,6 @@ import { FORCE_CANCEL_DELAY_MS } from "../lib/constants";
 /** Payload shape of the `status_change` push event's `data`. */
 type StatusChangeData = StatusChangeEvent["data"];
 
-/**
- * Own the force-cancel availability state machine + the cancel action.
- * Call once at the top level of Home; the store subscription for the
- * `status_change` event itself stays in the page root and forwards
- * payloads to {@link useForceCancel.return.applyStatusChange}.
- *
- * @param call the Python bridge `call` function (from `usePython()`).
- */
 export function useForceCancel(call: PythonCall) {
 	const [transcribeStartedAt, setTranscribeStartedAt] = useState<number | null>(
 		null,

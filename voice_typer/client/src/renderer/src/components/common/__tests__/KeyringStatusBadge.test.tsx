@@ -1,30 +1,3 @@
-/**
- *  (KeyringStatusBadge branching test).
- *
- * KeyringStatusBadge has four code paths:
- *
- *   1. `status?.available === true` (with a real OS keyring backend) →
- *      green LockKey icon + "Secure" text (full) or icon-only (compact)
- *      + tooltip text localized via `settings.keyring.available` /
- *      `settings.keyring.availableWithBackend`.
- *   2. otherwise (fallback / legacy / unknown status object) →
- *      amber Alert02 icon + "Plaintext" text (full) or icon-only (compact)
- *      + tooltip text localized via `settings.keyring.fallback` /
- *      `settings.keyring.fallbackWithReason`.
- *
- * Additional contract:
- *   - In compact mode the trigger button carries an aria-label so the
- *     icon-only button still has an accessible name.
- *   - In full mode the visible "Secure"/"Plaintext" span provides the
- *     accessible name and aria-label is omitted (no double announcement).
- *   - : cursor-help → cursor-default. The trigger button must
- *     NOT carry the misleading `cursor-help` class.
- *
- * The tooltip text is asserted via the Tooltip content; Radix Tooltip
- * requires the trigger to be focused (or hovered) before the content
- * is portaled into the DOM, so we focus the trigger then findByText
- * the tooltip string.
- */
 import {
 	cleanup,
 	fireEvent,
@@ -188,7 +161,6 @@ describe("KeyringStatusBadge, BG-R11 (branching + cursor-default)", () => {
 	});
 
 	it("ZU-32: does NOT mount its own <TooltipProvider data-slot='tooltip-provider'> (per-caller provider removed)", () => {
-		// The per-caller provider was removed so the App-root
 		// provider can own delayDuration / skipDelayDuration for the
 		// whole tree. The wrapper here supplies the provider; the
 		// component itself should not render a second one.
@@ -201,14 +173,9 @@ describe("KeyringStatusBadge, BG-R11 (branching + cursor-default)", () => {
 		expect(innerProviders.length).toBe(0);
 	});
 
-	it("XA-3: trigger button uses the shared focusRing (ring-1, not the thinner ring-1/ring-ring/50)", () => {
-		// Previously the badge used `focus-visible:ring-1focus-visible:ring-ring/50`
-		// which was thinner AND more opaque than the design-system Button's
-		// `focus-visible:ring-1 focus-visible:ring-ring`. The mismatch meant
-		// the badge's focus indicator visually diverged from every other
-		// focusable element in the app. The fix routes through the shared
-		// `focusRing` constant so all interactive elements share one focus
-		// indicator language.
+	it("XA-3: trigger button uses the shared focusRing (ring-1, not the thinner /50 alpha)", () => {
+		// Routes through the shared `focusRing` so the badge matches the
+		// design-system Button (C-FOCUS-2: full-opacity ring-1 / ring-ring).
 		const { rerender } = render(
 			withProvider(<KeyringStatusBadge status={availableStatus} />),
 		);
@@ -216,20 +183,14 @@ describe("KeyringStatusBadge, BG-R11 (branching + cursor-default)", () => {
 		const cls = btn.className;
 		expect(cls).toContain("focus-visible:ring-1");
 		expect(cls).toContain("focus-visible:ring-ring");
-		// The legacy thinner ring-1 indicator must be gone.
-		expect(cls).not.toMatch(/focus-visible:ring-1\b/);
-		// The legacy /50 alpha modifier (which broke WCAG 1.4.11 composite
-		// contrast in some themes) must also be gone.
+		// Legacy /50 alpha modifier (WCAG 1.4.11) must be gone.
 		expect(cls).not.toMatch(/focus-visible:ring-ring\/50/);
 
-		// Re-render with the fallback variant and check the same invariant —
-		// the focus-ring contract applies to BOTH branches (available + fallback).
 		rerender(withProvider(<KeyringStatusBadge status={fallbackStatus} />));
 		const btn2 = screen.getByRole("button");
 		const cls2 = btn2.className;
 		expect(cls2).toContain("focus-visible:ring-1");
 		expect(cls2).toContain("focus-visible:ring-ring");
-		expect(cls2).not.toMatch(/focus-visible:ring-1\b/);
 		expect(cls2).not.toMatch(/focus-visible:ring-ring\/50/);
 	});
 });

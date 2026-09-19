@@ -1,36 +1,3 @@
-/**
- *  vitest suite, App.tsx `download_progress` subscription gating.
- *
- * `connectingProgress` is ONLY consumed by `<ConnectionStatusScreen>`,
- * which App renders exclusively when `connectionStatus !== "connected"`.
- * Updating `connectingProgress` while connected is wasted work, it
- * triggers an App re-render for a state value nobody reads. The fix
- * mirrors `connectionStatus` into a ref and short-circuits the
- * `usePythonEvent("download_progress", ...)` handler when connected.
- *
- * This test mocks:
- *   - `usePythonEvent`, captures the registered handler so the test
- *     can invoke it directly with a synthetic `download_progress`
- *     payload.
- *   - `useConnection`, controls `connectionStatus` so the test can
- *     flip between "connecting" and "connected" between renders.
- *   - `<ConnectionStatusScreen>`, exposes `connectingProgress` via a
- *     `data-connecting-progress` attribute so the test can observe
- *     whether the state update fired.
- *   - All child pages + window chrome, trivial stubs so the App
- *     render graph stays isolated.
- *
- * Assertions:
- *   1. When `connectionStatus === "connecting"`, invoking the captured
- *      `download_progress` handler with `{ progress: 50 }` updates
- *      `connectingProgress` to 50 (visible in the mocked
- *      ConnectionStatusScreen's data attribute).
- *   2. When `connectionStatus === "connected"`, invoking the same
- *      handler with `{ progress: 75 }` does NOT update
- *      `connectingProgress`, it stays at its previous value because
- *      the handler short-circuits. The mocked ConnectionStatusScreen
- *      is also unmounted (App renders the active page instead).
- */
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

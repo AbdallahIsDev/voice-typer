@@ -1,14 +1,3 @@
-/**
- * Tests for the _themeColorCache in ThemeSettingsSection.
- *
- * BACKLOG: The cache was added to avoid redundant DOM queries when
- * getCurrentThemeColors is called repeatedly with the same preset ID.
- * These tests verify the cache behavior:
- *   - Cache hit returns the same object without re-reading DOM/THEMES
- *   - Cache invalidation on custom color change
- *   - Cache clear on component unmount
- */
-
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { _themeColorCache } from "./themeColorCache";

@@ -1,43 +1,3 @@
-/**
- * Bubble overlay package, `useBubbleStateMachine` hook.
- *
- * Owns the bubble's mode/animation state machine.
- *
- *   - `mode` is one of `"recording" | "transcribing" | "idle" |
- *     "fading" | "error"`. The first four mirror the original Bubble
- *     behavior; `"error"` is set when the backend pushes
- *     `set_state("error")` so the overlay can surface a red "⚠ Error"
- *     label (and an optional short reason string) instead of silently
- *     keeping the last mode.
- *   - `animState` is `"enter" | "exit" | ""` and drives the CSS
- *     `animate-bubble-enter` / `animate-bubble-exit` classes.
- *   - `exitTick` is incremented on each hide request to force the
- *     exit effect (in `Bubble.tsx`) to re-run even when mode doesn't
- *     change (e.g. recording → recording).
- *   - `errorMessage` is an optional short reason string surfaced from
- *     the `bubble:set-state` payload when entering error mode. The
- *     `onSetState` IPC callback is typed as `(state: string) => void`,
- *     but the runtime payload MAY be a richer object
- *     `{ state: string; message?: string }` if/when the backend + main
- *     process are extended to forward error reasons. The defensive
- *     runtime check below handles both shapes so this hook is
- *     forward-compatible without a type-system change to
- *     `BubbleWindowExtras.onSetState` (owned by the bubble-bridge types).
- *   - `transcript` is an optional short partial-transcription string
- *     surfaced from the same `bubble:set-state` payload when in
- *     transcribing mode. The main-process handler at
- *     `main/python/handle-message.ts` forwards the full payload
- *     (state + optional `message` + optional `transcript`) whenever the
- *     backend emits those fields, and the bare state string otherwise —
- *     the parsing is forward-compatible with both shapes, so once the
- *     backend pushes `{ state: "transcribing", transcript: "..." }`,
- *     the renderer will display the live partial text in the bubble
- *     pill (live partial text). No IPC surface change is required on the renderer
- *     side, the existing `bubble:set-state` channel already supports
- *     the richer payload shape.
- *
- * Subscribes to the bridge's `show` / `hide` / `setState` events.
- */
 import {
 	type Dispatch,
 	type SetStateAction,
@@ -61,19 +21,7 @@ export interface BubbleStateMachine {
 	setExitTick: Dispatch<SetStateAction<number>>;
 	/** Short reason string for the current error mode, or `null`. */
 	errorMessage: string | null;
-	/**
-	 * Short partial-transcription string for the current transcribing
-	 * (or fading) mode, or `null` when no transcript has been pushed
-	 * yet. Cleared on transition to a non-transcribing mode.
-	 */
 	transcript: string | null;
-	/**
-	 * True when the backend signalled that the active engine cannot
-	 * stream live partials (no `transcribe_words`, Parakeet/Qwen).
-	 * Sticky while recording stays the current mode; cleared on any
-	 * transition to another mode so a later Whisper recording starts
-	 * clean.
-	 */
 	livePreviewUnsupported: boolean;
 }
 

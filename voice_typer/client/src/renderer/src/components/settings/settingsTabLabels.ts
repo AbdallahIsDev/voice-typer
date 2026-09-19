@@ -3,7 +3,6 @@
 // user's query navigates to the section page whose labels best match)
 // and by the hub's query filter (so hub rows hide unless their section
 // matches), label-based, not hint-based.
-//
 // Hints (settings.searchHints.*) remain in i18n for completeness
 // (translated into zh/de/fr/hi/ru) but are NOT used by the
 // auto-switch logic; labels are sufficient because every section title
@@ -12,17 +11,6 @@
 import { t } from "@/i18n/i18n";
 import type { SettingsSectionPage } from "./settingsSections";
 
-/**
- * Returns the translated labels that appear on each Settings section
- * page. Called inside the search effects so the labels reflect the
- * current locale at the moment the user types.
- *
- * The Advanced page's label set is supplemented at the call sites with
- * the PrewarmAndUpdates row labels (e.g. "Prewarm cache status",
- * "Installed version", "Latest release") via getPrewarmAndUpdatesLabels()
- * so queries like "prewarm" / "cache" / "version" / "update" route to
- * the section page where that component lives.
- */
 export function getSectionLabels(): Record<SettingsSectionPage, string[]> {
 	return {
 		settingsGeneral: [

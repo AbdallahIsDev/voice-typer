@@ -12,13 +12,11 @@ import { cleanup } from "@testing-library/react";
 // framework default). Running both here guarantees a clean DOM AND a
 // clean localStorage between tests, regardless of what an individual
 // spec forgets to do.
-//
 // sessionStorage is cleared too: page filter state lives in
 // sessionStorage (`vt:filters:*` via useFilterState), and the same
 // intra-file order-drift class the localStorage clear exists to
 // prevent applies to it (a `vt:filters:*` key written by one test
 // leaking into the next test's default-filter-state assertion).
-//
 // The guards (`typeof`, `!= null`) make this safe to import in Node
 // unit-test contexts that don't have a DOM or localStorage at all —
 // vitest evaluates `setupFiles` once per worker, but a config can
@@ -62,7 +60,6 @@ afterEach(() => {
 const lsDesc = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 const ssDesc = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
 // The Node experimental-webstorage stub is a plain accessor (``get``,
-// no ``value``). jsdom's real Storage and any previously-installed
 // shim are data properties (``value``), leave those alone.
 const isNodeWebstorageStub = (desc: PropertyDescriptor | undefined): boolean =>
 	desc !== undefined && desc.get !== undefined && !("value" in desc);
@@ -121,7 +118,6 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 		ResizeObserverStub as unknown as typeof ResizeObserver;
 }
 
-// Collect the jsdom polyfills that previously had to be
 // re-installed inside individual test files (Bubble.test.tsx,
 // Bubble-keyboard-move.test.tsx, ux-components-behavior.test.tsx, etc.).
 // Centralising them here means new tests get a working DOM environment
@@ -248,7 +244,6 @@ if (
 // time. Tests that DON'T care about the bubble still indirectly import
 // components that touch `window.bubble`, so a no-op default prevents
 // "Cannot read properties of undefined" crashes during render.
-//
 // Tests that DO assert on bubble behaviour (e.g. Bubble-keyboard-move)
 // install their own mock in `beforeEach` via `installBubbleBridgeMock`
 // (see `__tests__/helpers/mocks.ts`), which OVERWRITES this default.

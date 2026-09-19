@@ -1,46 +1,3 @@
-/**
- * useModelFolder, disk-space probe + import / open-folder slice.
- *
- * Extracted from the former
- * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns:
- *   • `diskInfo`, always `null` today. Historically the result of an
- *     optional `get_disk_info` IPC probe; the probe was removed
- *     because the command was never registered in the Python
- *     `_COMMAND_REGISTRY` nor allowed through the renderer
- *     allowlist (``src/main/allowed-commands.ts``), so the probe always
- *     failed silently and `diskInfo` stayed `null` in practice. The
- *     field is preserved in the return type for backwards-compat with
- *     the ``LocalModelsPanel`` consumer (which still expects the
- *     prop) and so a future backend can re-introduce the probe by
- *     re-adding the interface + allowlist entry without touching
- *     consumers.
- *   • `modelsFolderSupported`, always `false` today. Historically the
- *     result of an optional `models_folder_supported` probe; the probe
- *     was removed (same phantom-command reason as
- *     `diskInfo`). Preserved in the return type for the same
- *     backwards-compat reason, the consumer's conditional render of
- *     the "Open models folder" button simply always evaluates to
- *     `false`.
- *   • `isImporting`, flag for the "Import Model" button's loading
- *     state.
- *
- * And the two actions that drive them:
- *   • `handleImportModel`, opens the host folder picker
- *     (`window.window_.openModelImportDialog`), fires
- *     the `import_model` IPC with the picked path, surfaces success /
- *     warning / error snacks, and re-runs `loadConfig` to reconcile the
- *     local model list with the freshly-imported entries.
- *   • `handleOpenModelsFolder`, NO-OP today. Historically called the
- *     `open_models_folder` IPC, but that command was never
- *     registered so the button was never rendered (it was
- *     gated behind the always-failing `models_folder_supported`
- *     probe). The function is preserved as a no-op for
- *     backwards-compat with the ``LocalModelsPanel`` / ``Models``
- *     page consumer (which still passes it as the "Open models
- *     folder" button's onClick prop); since the button is never
- *     rendered, the no-op is never invoked.
- */
-
 import { useCallback, useState } from "react";
 import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
@@ -102,7 +59,6 @@ export function useModelFolder({
 		try {
 			result = await api.openModelImportDialog();
 		} catch (err) {
-			// A rejected dialog open previously escaped as an unhandled
 			// promise rejection with zero user feedback.
 			console.error("[renderer:useModelFolder] import dialog failed:", err);
 			showSnack(t("models.import.failedAll"), "error");
@@ -153,7 +109,6 @@ export function useModelFolder({
 		}
 	}, [call, loadConfig, showSnack]);
 
-	// `handleOpenModelsFolder` was previously an async action
 	// that called the `open_models_folder` IPC. That command was
 	// never registered in `_COMMAND_REGISTRY` nor allowed through
 	// `ALLOWED_COMMANDS`, AND the button invoking this action was
@@ -163,7 +118,6 @@ export function useModelFolder({
 	// (`LocalModelsPanel` / `Models.tsx` still pass it as the "Open
 	// models folder" button's onClick prop, which itself is never
 	// rendered because `modelsFolderSupported === false`).
-	//
 	// If a future backend exposes `open_models_folder`, re-add the
 	// matching interface in `types/ipc/requests.ts`, the
 	// `ALLOWED_COMMANDS` entry, the Python handler, AND restore the

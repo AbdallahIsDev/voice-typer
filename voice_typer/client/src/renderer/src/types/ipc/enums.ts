@@ -1,28 +1,21 @@
 // types/ipc/enums.ts
-//
 // Primitive enums / string-literal unions for the IPC layer.
-//
-// Split out from the original monolithic `types/ipc.ts`.
 // This module owns the three foundational unions that other domain files
 // build on:
 //   - `RecordingState`, the 6-state backend lifecycle union.
 //   - `Page`, the renderer's route-name union.
 //   - `ErrorCodes`, the namespaced + legacy error-code union referenced
 //     by `ErrorEvent` (in `./push_events`).
-//
-// No behaviour change vs. the original file, pure structural refactor.
 
 // ── Recording states ──────────────────────────────────────────────
 
 //aligned with the Python ``AppState`` enum in
 // ``voice_typer/server/tray_types.py``.  The previous type union
 // included 7 dead values (``listening``, ``processing``, ``warming_up``,
-// ``downloading``, ``paused``, ``setup``, ``not_configured``) that the // Python backend never emits.  The old Home status-pill helper
 // (``statusKeyFor``, removed with RecordingStatusPill) had to
 // normalize ``listening`` → ``idle`` to paper over the mismatch;
 // other dead values silently fell through to the default "READY"
 // label, hiding real state changes from the user.
-//
 // The 6 values below are the only ones the backend actually emits:
 //   idle, recording, transcribing, loading, cancelling, error.
 export type RecordingState =
@@ -62,8 +55,6 @@ export type Page =
 	| "aboutAndPrivacy";
 
 // ── Error code union ──────────────────────────────────────────────
-//
-//(addresses []): narrowed `code` from bare `string` to the
 // `ErrorCodes` union below. The namespaced forms (`server.*`, `client.*`)
 // are the forward contract; the legacy aliases are still emitted by some
 // backend paths (see `voice_typer/server/handlers/_base.py:178`,
@@ -71,7 +62,6 @@ export type Page =
 // `voice_typer/server/sidecar_ws.py:316,404`) and must remain valid here
 // until the migration to namespaced forms is completed (tracked by
 //[] /  in the backend).
-//
 // Referenced by `ErrorEvent` in `./push_events.ts`.
 export type ErrorCodes =
 	| "client.invalid_field"
@@ -151,13 +141,11 @@ export type ErrorCodes =
 	| "disallowed_window";
 
 // ── Python-call envelope error codes ──────────────────────────────
-//
 //the predecessor main process's `python-call` IPC handler
 // (`src/main/ipc/python-call-handler.ts`) stamps a structured `_code`
 // field on its `{_error, _code}` error envelope so the renderer can
 // branch on the failure class (timeout vs. not-connected vs.
 // backend-exited) without parsing the human-readable message text.
-//
 // The canonical declaration lives in
 // `src/shared/python-call-error-code.ts`, a cross-boundary module
 // included by BOTH `tsconfig.web.json` and `tsconfig.node.json` (both
@@ -166,7 +154,6 @@ export type ErrorCodes =
 // (`@/types/ipc/enums` -> `PythonCallErrorCode`) keep resolving; the
 // previous mirror declaration that required both files to carry a
 // pointer comment has been removed.
-//
 // The codes are stable (the python-call-handler docstring says "never
 // rename an existing code, only add new ones"), so future additions
 // only need to touch the shared file.

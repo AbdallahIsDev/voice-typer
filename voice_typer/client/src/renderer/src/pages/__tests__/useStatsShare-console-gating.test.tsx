@@ -1,40 +1,3 @@
-/**
- * Regression test pinning the useStatsShare logging invariant:
- *   "Production console.info calls in useStatsShare.ts"
- *
- * This file replaces an earlier dead debug-only spec (4 console.log
- * calls + `expect(true).toBe(true)`). It asserts nothing vacuous; it
- * pins a real production-code invariant:
- *
- *   Every `console.info(...)` call in `useStatsShare.ts` MUST be wrapped in
- *   an `if (import.meta.env.DEV) { ... }` block so the diagnostic logs do
- *   not leak user-data shape (offsetWidth / dimensions / dataUrl prefix)
- *   to the renderer DevTools console of the packaged app.
- *
- * Static-source-check strategy
- * ----------------------------
- * Rendering the `useStatsShare` hook (it pulls in `html-to-image`, `react`,
- * the i18n singleton, etc.) would force us to re-stub a heavy dependency
- * graph for what is fundamentally a source-text invariant. The
- * `console.info` calls and their `import.meta.env.DEV` wrappers are both
- * visible in the source text, so we use `fs.readFileSync` + a small block
- * parser, same pattern used by `Dashboard.test.tsx` and
- * `pages-improvements.test.tsx` for similar static contracts.
- *
- * The parser:
- *   1. Strips string/template/comment contents (replacing them with spaces
- *      of the same length so line numbers and brace positions are
- *      preserved). This eliminates false-positive braces from `${...}`
- *      template interpolations, object-literal string keys, and regex
- *      literals.
- *   2. Walks the stripped source character-by-character, maintaining a
- *      stack of "block frames". Each frame records the brace depth at
- *      which it was opened and whether it was opened by an
- *      `if (import.meta.env.DEV)` header.
- *   3. When a `console.info(` token is found, the parser checks the
- *      innermost enclosing block frame. If any enclosing frame is a DEV
- *      block, the call is "gated".
- */
 import { describe, expect, it } from "vitest";
 
 const fs = require("node:fs");
@@ -45,19 +8,6 @@ const USE_STATS_SHARE_SRC = fs.readFileSync(
 	"utf8",
 );
 
-/**
- * Replace string / template-literal / comment contents with spaces, leaving
- * brace structure outside those contexts intact. Line numbers are preserved
- * (newlines are never replaced).
- *
- * Approximations (acceptable for the source file under test):
- *   - Template literals are matched as a whole (including any `${...}`
- *     interpolations). This means braces INSIDE `${...}` are stripped —
- *     which is what we want, since they're part of the template syntax
- *     and shouldn't affect outer brace counting.
- *   - Regex literals are not stripped, but the source under test contains
- *     none with brace characters.
- */
 function stripNonCode(src: string): string {
 	let result = src;
 	// Strip block comments, preserve newlines so line numbers stay aligned.
@@ -87,11 +37,6 @@ interface ConsoleInfoSite {
 	gated: boolean;
 }
 
-/**
- * Walk the (stripped) source and, for every `console.info(` token, record
- * whether it sits inside at least one `if (import.meta.env.DEV) { ... }`
- * block.
- */
 function analyzeConsoleInfoGating(src: string): ConsoleInfoSite[] {
 	const stripped = stripNonCode(src);
 	const results: ConsoleInfoSite[] = [];

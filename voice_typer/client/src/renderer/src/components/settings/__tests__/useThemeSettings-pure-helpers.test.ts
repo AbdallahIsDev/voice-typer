@@ -1,13 +1,3 @@
-/**
- * Unit tests for the pure helpers already exported from
- * `useThemeSettings`.
- *
- * The large hook body is React state + draft persistence and stays in
- * the hook (further extraction is high-risk / low-value). These two
- * module-level helpers are the pure surface the component JSX calls
- * directly and pin the defensive nameKey accessor + the preview-swatch
- * colour resolution.
- */
 import { describe, expect, it } from "vitest";
 
 import {

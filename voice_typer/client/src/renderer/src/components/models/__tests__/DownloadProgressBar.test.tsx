@@ -1,28 +1,3 @@
-/**
- * i18n aria-label test for DownloadProgressBar.
- *
- * The component previously used a hardcoded English aria-label
- * ("Model download progress"). After the fix the label comes from the
- * `models.download.progressAria` i18n key, so non-English users get a
- * localized progress-bar announcement from screen readers.
- *
- * ── Failure-state additions ─────────────────────────────────────────
- * The suite now ALSO covers the failure/queued sub-items:
- *
- *   • throttling boundary coverage (0/5/15/50/95/100).
- *   • explicit error state (role="alert" region + red fill
- *                 + Pause disabled).
- *   • `models.progress.paused` chip rendered when isPaused.
- *   • Retry button renders iff (error && onRetry) and
- *                 invokes onRetry on click.
- *   • modelName disambiguates the aria-label.
- *
- * Tests are written to be robust to the new i18n keys being absent
- * from the catalogue (they will be added by the primary agent): they
- * assert on the `error` prop value (which is always surfaced verbatim)
- * and on structural presence/absence, not on the localized label text
- * of the new keys.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -135,16 +110,13 @@ describe("DownloadProgressBar, i18n aria-label", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 //throttling boundary coverage. The pre-existing tests only
 //covered progress=42 and 42.7, both round to 40. The original
-// finding flagged this as insufficient: the throttle formula
 // `Math.round(progress / 10) * 10` has surprising behaviour at the 5%
 // midpoint (rounds UP to 10) and at the 0% / 100% extremes (no
 // rounding needed but the formula must still produce the right value).
 // These tests pin the formula at every boundary so a future "round to
 // nearest 5" change (or a Math.floor regression) is caught.
-// ─────────────────────────────────────────────────────────────────────
 describe("DownloadProgressBar, aria-valuenow throttle boundaries", () => {
 	afterEach(() => {
 		cleanup();
@@ -171,7 +143,6 @@ describe("DownloadProgressBar, aria-valuenow throttle boundaries", () => {
 	);
 });
 
-// ─────────────────────────────────────────────────────────────────────
 //explicit error state. Before this fix the bar had no error
 // UI, a failed download was only surfaced via a toast (which auto-
 // dismisses) and the bar was unmounted by the consumer. Now when
@@ -179,7 +150,6 @@ describe("DownloadProgressBar, aria-valuenow throttle boundaries", () => {
 // region so SR users hear the failure announcement automatically, (b)
 // turns the fill red via the `bg-destructive` class, and (c) disables
 // the Pause button (pausing a failed download is a no-op).
-// ─────────────────────────────────────────────────────────────────────
 describe("DownloadProgressBar, explicit error state", () => {
 	afterEach(() => {
 		cleanup();
@@ -274,14 +244,12 @@ describe("DownloadProgressBar, explicit error state", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 // In-place Retry button. Before it existed the only
 // recovery path for a failed download was to re-navigate to the model
 // card and click Download again, particularly painful when
 // a multi-GB download fails at 90%+. Now when
 // `error` is set AND `onRetry` is provided, a Retry button renders
 // next to Cancel.
-// ─────────────────────────────────────────────────────────────────────
 describe("DownloadProgressBar, in-place Retry button", () => {
 	afterEach(() => {
 		cleanup();
@@ -333,13 +301,11 @@ describe("DownloadProgressBar, in-place Retry button", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 //render `models.progress.paused`. The i18n key
 //("· Paused") has existed in en.json since  but was never
 // rendered, the only paused cue was the amber bar fill, which is
 // invisible to SR users and easy to miss for sighted users. The fix
 // prepends the chip to the status line when `isPaused` is true.
-// ─────────────────────────────────────────────────────────────────────
 describe("DownloadProgressBar, render models.progress.paused chip", () => {
 	afterEach(() => {
 		cleanup();
@@ -371,13 +337,11 @@ describe("DownloadProgressBar, render models.progress.paused chip", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 // Model-specific aria-label. The generic aria-label
 // was always "Model download: N% complete", useless when two models
 // are downloading concurrently (e.g. Whisper + Parakeet on the same
 // Models page). When `modelName` is provided the label becomes
 // "{name} download: N% complete" so SR users can disambiguate.
-// ─────────────────────────────────────────────────────────────────────
 describe("DownloadProgressBar, model-specific aria-label", () => {
 	afterEach(() => {
 		cleanup();

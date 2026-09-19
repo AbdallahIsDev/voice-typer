@@ -1,20 +1,3 @@
-/**
- * SettingRow unit tests.
- *
- * SettingRow is the layout primitive used to render every labelled
- * setting in the Settings tabs. It composes a visible label + optional
- * InfoTooltip + child form control.
- *
- * : when the caller passes an `info` string, SettingRow forwards
- * its own `label` as the InfoTooltip's `contextLabel`. This lets a
- * screen-reader user tabbing through N SettingRows on the same Settings
- * tab distinguish each row's tooltip ("More info about VAD
- * aggressiveness" vs. "More info about Noise gate threshold") instead
- * of hearing the generic "More info" on every row.
- *
- * These tests pin the wiring so a future refactor that drops
- * `contextLabel={label}` is caught here.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

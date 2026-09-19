@@ -1,14 +1,3 @@
-/**
- * Single-flight coverage for the renderer's IPC `call` pipe
- * (`lib/python-bridge/usePython.ts`).
- *
- * Startup mounts several independent readers at once, and dev StrictMode
- * double-invokes mount effects, so identical reads overlap in flight.
- * Concurrent calls with the same command + payload must share one
- * underlying `window.python.call`; sequential calls must still re-fetch
- * (freshness), different payloads must not share, and writes must never
- * share.
- */
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

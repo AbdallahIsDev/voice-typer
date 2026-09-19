@@ -30,7 +30,7 @@ function Switch({
 			// invalid ring), and opacity (disabled). The thumb owns the
 			// transform animation via its own `transition-transform`.
 			className={cn(
-				"peer group/switch relative inline-flex shrink-0 items-center rounded-full border-2 transition outline-hidden after:absolute after:-inset-x-3 after:-inset-y-3 focus-visible:border-ring focus-visible:ring-1focus-visible:ring-ring aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-[size=default]:h-5 data-[size=default]:w-11 data-[size=sm]:h-4 data-[size=sm]:w-7 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary/30 data-checked:bg-primary data-unchecked:border-transparent data-unchecked:bg-input/90 data-disabled:cursor-not-allowed data-disabled:opacity-50 data-disabled:pointer-events-none",
+				"peer group/switch relative inline-flex shrink-0 items-center rounded-full border-2 transition outline-hidden after:absolute after:-inset-x-3 after:-inset-y-3 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-[size=default]:h-5 data-[size=default]:w-11 data-[size=sm]:h-4 data-[size=sm]:w-7 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary/30 data-checked:bg-primary data-unchecked:border-transparent data-unchecked:bg-input/90 data-disabled:cursor-not-allowed data-disabled:opacity-50 data-disabled:pointer-events-none",
 				className,
 			)}
 			{...props}

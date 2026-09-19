@@ -1,26 +1,8 @@
 /**
  * unit tests for `components/audio/audioFilterLabels.ts`, the pure
  * builder for the AudioFilterChain labels dictionary.
- *
  * The `buildAudioFilterLabels(t)` function resolves every i18n key
- * referenced by `audioFilterRowDescriptors` against the supplied `t`
  * function. CONSTRAINT C-I18N-1 requires every user-facing string be in
- * ALL 8 locale files (`en`, `ar`, `de`, `es`, `fr`, `hi`, `ru`, `zh`).
- *
- * Coverage:
- *   1. Every i18n key referenced by the descriptor registry (labelKey,
- *      infoSearchKey, sectionTitleKey, infoKey, ariaKey, and any
- *      `options[].labelKey`) is PRESENT in every one of the 8 shipped
- *      locale JSON files. Catches the regression where a key was added
- *      to the registry (or to en.json) but a translator forgot to add
- *      it to (say) hi.json, without this check, Hindi users silently
- *      fall back to English.
- *   2. `buildAudioFilterLabels` calls `t()` exactly once per unique key
- *      (deduplicates the section title key shared across all descriptors).
- *   3. The returned dictionary is keyed by the full i18n key, callers
- *      can look up by `descriptor.labelKey` etc. without mangling.
- *   4. The `t` function receives only the key (no params) for these
- *      label/info/aria lookups.
  */
 import { describe, expect, it, vi } from "vitest";
 import { flatten } from "@/i18n/store";

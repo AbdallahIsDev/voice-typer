@@ -1,26 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { t } from "@/i18n/i18n";
 
-/**
- * The live MM:SS recording timer shown next to the status pill while
- * recording.
- *
- * Owns its own per-second `setInterval` + elapsed-seconds state so the
- * tick re-renders ONLY this leaf, previously the interval lived in
- * Home.tsx, so every second re-rendered the entire Home tree (stats,
- * activity list, share image, …) just to bump two digits. The component
- * is additionally wrapped in `React.memo` so unrelated Home re-renders
- * (state flips, event refreshes) skip it when `isRecording` is
- * unchanged.
- *
- * Rendered output is byte-identical to the previous inline span in
- * Home.tsx, including `role="timer"` + explicit `aria-live="off"`:
- * per WAI-ARIA the `timer` role only carries live="off" implicitly and
- * some screen readers announce role="timer" content changes anyway, so
- * the explicit attribute is what guarantees the per-second tick is
- * NEVER announced (Home's single status live region is the dynamic
- * line under the mic button).
- */
 export interface RecordingTimerProps {
 	/** Whether a recording is in progress. When false the timer renders nothing. */
 	isRecording: boolean;

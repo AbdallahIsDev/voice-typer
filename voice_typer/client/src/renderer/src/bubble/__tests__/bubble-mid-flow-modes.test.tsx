@@ -1,33 +1,3 @@
-/**
- * Bubble state machine mid-flow mode tests.
- *
- * Background
- * ----------
- * Pre-fix: `BubbleMode` union had only `recording | transcribing |
- * idle | fading | error`. `useBubbleStateMachine` only handled
- * `transcribing/idle/recording/error`. When the user pressed the
- * dictation hotkey while a previous transcription was in flight, the
- * backend silently ignored the press and the bubble stayed in
- * "Transcribing…" mode, the user got zero feedback that their keypress
- * was registered-then-rejected. ESC cancel was similarly invisible:
- * the bubble kept showing the previous mode during the ~200ms cancel
- * window. Permission revocation and paste failure fell back to the
- * generic "error" mode (or silent hide).
- *
- * Post-fix: `BubbleMode` extended with `blocked` / `cancelling` /
- * `permission_revoked` / `paste_failed`. `useBubbleStateMachine`
- * accepts these state values from `onSetState`. `Bubble.tsx` renders a
- * distinctive label for each new mode.
- *
- * These tests verify each new mode:
- *   - is reachable via `onSetState` (the sandboxed bubble renderer's
- *     only state-push channel, the backend's `toggle_blocked` /
- *     `microphone_permission_revoked` events must be bridged through
- *     `bubble:set-state`, owned by ).
- *   - renders a distinctive label (so the user gets visual feedback).
- *   - sets a distinctive aria-label on the outer `<output>` (so screen
- *     readers hear the mode change).
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,45 +1,8 @@
 /**
  * useCloudProviders, cloud-provider API keys + consent slice.
- *
- * Extracted from the former
- * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
  * cloud-provider test results and the actions that persist API keys +
  * consent flags:
- *   • `saveApiKey`, persists the per-provider API key via `updateConfig`
- *     + surfaces a localised success snackbar. Bails out (and surfaces
- *     an info snackbar) when the key is empty or unchanged from the
- *     persisted value, prevents silently clobbering stored keys
- *     with the empty string that `safeApiKey` substitutes for the
- *     `<redacted>` sentinel on every config fetch.
- *   • `setCloudConsent`, persists a cloud-provider consent flag +
- *     optimistically updates the local config snapshot (so the UI
- *     flips immediately without waiting for the `config_changed`
- *     event round-trip). HuggingFace consent is NOT handled here —
- *     it's granted through the shared point-of-use consent dialog
- *     (`lib/consentGate.ts`) opened by the download flow in
- *     `useModelLifecycle.handleDownloadModel`, and revoked via the
- *     Settings privacy row.
- *   • `testConnection`, routes the cloud-provider key verification
- *     through the backend IPC `test_cloud_connection` command so the
  *     API key never leaves the Python process (C-DATA-1 offline-app
- *     compliance, ). Sets a `"pending"` status at the start so
- *     the UI can show a spinner + disable the Test button.
- *   • `clearTestResult`, clears the test result for a single
- *     provider. Wired to the API-key Input's onChange so stale
- *     "Success" badges don't linger after the user edits the key.
- *
- * The three module-level helpers (`consentKeyFor`, `apiKeyConfigField`,
- * `safeApiKey`) live in this file. `safeApiKey` is re-exported so
- * `useModelConfig.loadConfig` can call it when seeding `apiKeys` from
- * the freshly-fetched config, without duplicating the
- * redaction-sentinel stripping logic.
- *
- * `apiKeys` + `setApiKeys` are received as args (state owned by
- * `useModelConfig` because `loadConfig` populates them, see that
- * hook's docstring for the rationale). `setConfig` + `updateConfig`
- * come from `useModelConfig` too. `config` is also forwarded so
- * `saveApiKey`'s unchanged-guard can compare the in-memory input
- * value against the persisted (redacted-or-not) config field.
  */
 
 import { useCallback, useState } from "react";
@@ -99,26 +62,12 @@ export function consentKeyFor(provider: string): keyof VoiceTyperConfig {
 	return "cloud_deepgram_consent";
 }
 
-/**
- *  helper: translate the cloud-provider key into the
- * matching `*_api_key` config field.
- */
 function apiKeyConfigField(provider: string): keyof VoiceTyperConfig {
 	if (provider === "openai") return "openai_api_key";
 	if (provider === "groq") return "groq_api_key";
 	return "deepgram_api_key";
 }
 
-/**
- * Strip the "<redacted>" sentinel that the backend substitutes for
- * saved API keys in `get_config` responses. The renderer never
- * displays the redacted marker, it shows an empty input field
- * instead, so the user can re-enter the key without confusion.
- *
- * Re-exported (not just used internally) because `useModelConfig.
- * loadConfig` calls it when seeding `apiKeys` from the freshly-fetched
- * config.
- */
 export function safeApiKey(value: string | undefined | null): string {
 	return value && value !== "<redacted>" ? value : "";
 }
@@ -150,7 +99,6 @@ export function useCloudProviders({
 	}, []);
 
 	// ── Action: saveApiKey / setCloudConsent ─────────────────────────
-	//
 	// Bail out (and surface an info snackbar) when:
 	//   • `key.trim() === ""`, the input is empty (the user clicked
 	//     Save without typing anything). This is the most dangerous case
@@ -210,12 +158,9 @@ export function useCloudProviders({
 	);
 
 	// ── Action: testConnection ──────────────────────────────────────
-	//
 	// Sets a `"pending"` status at the start so the UI can disable the
 	// Test button + show an inline spinner. The status transitions to
 	// `"success"` / `"failure"` / `"info"` on terminal branches.
-	//
-	//previously the renderer-side ``fetch`` to the cloud
 	// provider's API leaked the user's API key through the
 	// ``Authorization`` header on a cross-origin request, and a
 	// CORS / network failure surfaced as an opaque ``TypeError:

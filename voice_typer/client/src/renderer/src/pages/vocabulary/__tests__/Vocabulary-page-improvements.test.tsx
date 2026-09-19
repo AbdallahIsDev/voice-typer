@@ -1,16 +1,3 @@
-/**
- * Tests for the Vocabulary page-level improvements:
- *
- *   - : soft display cap (200 rows) with "Show more" button
- *   - : "Clear All" button gated by ConfirmDialog
- *   - : count label stays visible during search (in the search/filter
- *     row, reworded to "corrections")
- *   - : noResults EmptyState has a description
- *
- * Mock strategy mirrors the existing Vocabulary.test.tsx: we stub
- * ``usePython`` (so ``call`` is a vi.fn we control), ``useSnackbar``,
- * sonner, hugeicons, and next-themes.
- */
 import {
 	cleanup,
 	fireEvent,
@@ -157,11 +144,9 @@ describe("Vocabulary page, display cap + Show more", () => {
 			expect(screen.getByText("word0")).toBeTruthy();
 		});
 
-		// The per-page SearchField was removed, the global title-bar
 		// search owns the only search input. The entry count is pushed
 		// into the shared useGlobalSearch store so the title-bar
 		// placeholder can show "Search 5 corrections". The count badge
-		// that used to sit next to the sort Select was removed (2026-08-28).
 		const { useGlobalSearch: storeModule } = await import(
 			"@/hooks/useGlobalSearch"
 		);
@@ -470,7 +455,6 @@ describe("Vocabulary page, paginated Show more (incremental reveal)", () => {
 
 	it("each Show more click reveals another batch (not all at once)", async () => {
 		// 450 entries, exceeds two DISPLAY_CAP batches (200 + 200 = 400)
-		// but not three (600). With the old setShowAll(true) path a
 		// single click would mount all 450 rows at once. With the
 		// paginated path the first click reveals rows 201..400, the
 		// second reveals rows 401..450, and only then does the

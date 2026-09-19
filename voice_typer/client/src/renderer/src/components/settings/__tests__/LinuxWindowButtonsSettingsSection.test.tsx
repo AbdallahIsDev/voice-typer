@@ -1,11 +1,3 @@
-/**
- * Tests for LinuxWindowButtonsSettingsSection.
- *
- * Covers: Linux-only gating, the system-mode info row (following-system
- * vs unavailable), custom-mode controls (side select + three switches),
- * and that every edit commits the COMPLETE linux_window_buttons object
- * (the server validator requires all 5 keys).
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettingsSectionSharedProps } from "@/components/settings/types";

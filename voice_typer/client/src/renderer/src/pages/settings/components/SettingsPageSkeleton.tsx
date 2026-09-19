@@ -1,5 +1,4 @@
 // Settings page loading skeleton (full page, hub state).
-//
 // Mirrors the loaded Settings hub (`pages/Settings.tsx` +
 // `components/settings/SettingsHub.tsx`): the real shell uses `gap-8`
 // (not the data pages' gap-6), then PageHeading, then ONE

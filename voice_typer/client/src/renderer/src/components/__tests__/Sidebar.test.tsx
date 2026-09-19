@@ -1,13 +1,3 @@
-/**
- * Tests for the Sidebar component.
- *
- * Sidebar renders the primary navigation: 9 nav items (Home, History,
- * Analytics, Templates, Vocabulary, Models, Microphone, Settings,
- * About & Privacy, the former About and Privacy pages merged into ONE
- * destination). The branding header + the ThemeSwitch moved OUT of
- * the sidebar (the theme control now lives in the TitleBar), so the
- * sidebar is nav-only.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -120,7 +110,6 @@ describe("Sidebar", () => {
 
 	it("renders NO branding header (no logo, no app-name text in the sidebar)", () => {
 		const { container } = renderWithProviders(<Sidebar {...baseProps} />);
-		// The logo/title header block was removed from the sidebar, the
 		// nav is the sidebar's only content now.
 		const nav = screen.getByRole("navigation", { name: "Main navigation" });
 		expect(nav).toBeTruthy();

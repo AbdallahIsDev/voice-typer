@@ -1,32 +1,3 @@
-/**
- * useModelSelection, model-selection + deletion slice of the Models page.
- *
- * Extracted from the former
- * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns:
- *   • `selectingModel`, the name of the model currently being
- *     selected (drives the spinner on the model card's Select button).
- *   • `deleteModelTarget` + `setDeleteModelTarget`, the model pending
- *     deletion confirmation (drives the ConfirmDialog open state).
- *
- * And the three actions that drive them:
- *   • `selectModel`, dep-gated guard (replaces the
- *     `model.name === "parakeet"` magic string with the
- *     `depsInstallable` flag), persists the new active model via
- *     `updateConfig`, optimistically updates the local model list,
- *     then calls `refreshModelStatus` to reconcile (the
- *     uses the extracted helper instead of duplicating the
- *     `get_model_status` block from `loadConfig`). : surfaces
- *     config-save failures instead of silently showing the success
- *     toast.
- *   • `requestDeleteModel`, stashes the target for the ConfirmDialog.
- *     Deleting the ACTIVE model is allowed (ACTIVE-DELETE): the backend
- *     removes the files and reassigns the selection (first other
- *     downloaded model, or the "no model selected" state when none
- *     exists), so no frontend refusal is needed.
- *   • `confirmDelete`, fires the `delete_model` IPC, updates local
- *     state, and surfaces success / failure via snackbar.
- */
-
 import { useCallback, useState } from "react";
 import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
@@ -78,14 +49,12 @@ export function useModelSelection({
 	);
 
 	// ── Action: selectModel ─────────────────────────────────────────
-	//
 	// Dep-gated selection replaces the `model.name === "parakeet"` magic
 	// string with the `depsInstallable` flag (so future dep-required
 	// models can opt into the same UX without touching this code).
 	const selectModel = useCallback(
 		async (model: ModelInfo) => {
 			// Dep-gated models can't be selected until
-			// their deps are installed. Previously this was a hardcoded
 			// `model.name === "parakeet"` check.
 			if (model.depsInstallable && !model.depsOk) {
 				showSnack(
@@ -129,7 +98,6 @@ export function useModelSelection({
 				);
 
 				// Use the extracted refresh helper
-				// (previously a verbatim duplicate of loadConfig's block).
 				await refreshModelStatus();
 
 				showSnack(

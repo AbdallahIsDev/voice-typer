@@ -1,11 +1,9 @@
 // Display-name helpers for config values shown in the UI.
-//
 // The backend config stores machine values ("cuda", "cpu", "tiny",
 // "en"). These helpers map them to user-facing labels so every surface
 // (Analytics Current Setup, About, Home share image) renders the same
 // friendly text. The internal config values are NOT changed, only the
 // rendered text.
-//
 // - device: "cuda" → "GPU" (friendly; the config keeps "cuda" to avoid
 //   a wider refactor). "cpu" → "CPU". Unknown values pass through.
 // - model: capitalize the first letter ("tiny" → "Tiny") so Model /
@@ -30,11 +28,6 @@ export function formatModel(model: string): string {
 	return model.charAt(0).toUpperCase() + model.slice(1);
 }
 
-/**
- * Full localized language name for a config language code.
- * Empty string / "auto" → the localized "Auto-detect" label; unknown
- * codes pass through as-is.
- */
 export function formatLanguage(code: string): string {
 	if (!code) return t("settings.languageAutoDetect");
 	const labelKey = LANGUAGE_LABEL_KEYS[code];

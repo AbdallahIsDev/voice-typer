@@ -1,33 +1,3 @@
-/**
- *  regression test: background ``refreshFromEvent`` must preserve
- * the user's accumulated paged-in depth.
- *
- * First regression: ``useHistoryCache.refreshFromEvent`` called
- * ``fetchPage(query, favoritesOnly, HISTORY_PAGE_SIZE, 0)`` and overwrote
- * ``records`` with only the first ``HISTORY_PAGE_SIZE`` (50) rows. After a
- * user clicked "Load More" three times to reach 200 visible rows, the next
- * dictation triggered a debounced ``transcription_final`` event that
- * silently shrank the list back to 50 rows, the user lost 150 rows of
- * scroll context plus their scroll position. The fix uses
- * ``Math.max(HISTORY_PAGE_SIZE, offsetRef.current)`` as the refresh limit so
- * the refresh is never shallower than the existing visible depth.
- *
- * Second regression: the refresh limit is only a REQUEST, the server
- * clamps any single history fetch to its IPC row cap
- * (``_HISTORY_LIMIT_MAX = 500`` in ``server/ipc/history_bounds.py``), so a
- * deep-browsed list (paged-in depth > 500) receives only the newest 500
- * rows back. Replacing ``records`` with that response truncated the list
- * AND set ``hasMore = 500 >= refreshLimit(800) = false``, older rows
- * vanished and Load-More stayed dead until remount. The fix MERGES the
- * returned head with the existing tail keyed by ``id`` (keyset ordering —
- * ``timestamp DESC, id DESC``, guarantees the retained tail is strictly
- * older than the fresh head), and derives ``hasMore`` from the merged
- * length.
- *
- * The test renders the hook directly (not the full page) so it can drive
- * the load → loadMore → refreshFromEvent sequence deterministically
- * without depending on Radix portals or debounce timers.
- */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -86,9 +56,6 @@ const zeroStats: TodayStats = {
  * Mirror of the server's per-request history row cap
  * (``_HISTORY_LIMIT_MAX`` in ``server/ipc/history_bounds.py``, the SEC-010
  * materialization guard). The renderer never hardcodes this value in
- * production code (it is a server-side contract), but the mock IPC layer
- * here MUST honor it so the refresh path is exercised against the real
- * backend behavior: ask for 800, receive 500.
  */
 const SERVER_ROW_CAP = 500;
 
@@ -228,14 +195,6 @@ describe("refreshFromEvent preserves paged-in depth", () => {
 });
 
 describe("refreshFromEvent merges the capped head with the existing tail", () => {
-	/**
-	 * Mock IPC layer that behaves like the real backend: a global
-	 * newest-first keyset list (``timestamp DESC, id DESC``, ascending
-	 * ``id`` = ascending time), sliced by the requested offset/limit,
-	 * with the per-request row cap applied (ask 800 → get 500). The
-	 * underlying total is mutable so a test can simulate new rows
-	 * arriving (the ``transcription_final`` path).
-	 */
 	function installCappedServerHistoryMock(totalRef: { total: number }) {
 		mockCall.mockImplementation((type: string, args?: unknown) => {
 			const a = (args ?? {}) as {

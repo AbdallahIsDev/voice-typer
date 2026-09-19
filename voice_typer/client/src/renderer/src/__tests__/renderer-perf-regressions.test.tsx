@@ -1,25 +1,8 @@
-/**
- *  regression tests for Group 2 (Performance & Resources) fixes.
- *
- * Covers:
- *  (a) , i18n ``t()`` caches the per-key interpolation RegExp.
- *  (b) , ``formatBytes`` caches ``Intl.NumberFormat`` instances.
- *  (c) , ``closeAudioContext`` nulls the shared AudioContext.
- *  (d) , ``useConnection`` only probes ``get_status`` after a
- *      5-minute gap with no backend push events.
- *
- * These tests are deliberately narrow: they verify the caching / gating
- * behaviour added by the  wave, not the broader functional
- * behaviour (which is covered by the existing ``useConnection.test.tsx``,
- * ``useSoundFeedback.test.tsx``, and ``sound-manager.test.ts`` suites).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// ───────────────────────────────────────────────────────────────────────
 //(a) , t() caches the per-key interpolation RegExp
-// ───────────────────────────────────────────────────────────────────────
 
 describe("ER-20: t() caches interpolation RegExp by key", () => {
 	beforeEach(() => {
@@ -103,9 +86,7 @@ describe("ER-20: t() caches interpolation RegExp by key", () => {
 	});
 });
 
-// ───────────────────────────────────────────────────────────────────────
 //(b) , formatBytes caches Intl.NumberFormat
-// ───────────────────────────────────────────────────────────────────────
 
 describe("ER-23: formatBytes caches Intl.NumberFormat", () => {
 	let originalNumberFormat: typeof Intl.NumberFormat;
@@ -167,9 +148,7 @@ describe("ER-23: formatBytes caches Intl.NumberFormat", () => {
 	});
 });
 
-// ───────────────────────────────────────────────────────────────────────
 //(c) , closeAudioContext nulls the shared AudioContext
-// ───────────────────────────────────────────────────────────────────────
 
 describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 	let mockCtor: ReturnType<typeof vi.fn>;
@@ -263,9 +242,7 @@ describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 	});
 });
 
-// ───────────────────────────────────────────────────────────────────────
 //(d) , useConnection probes only after a 5-minute event gap
-// ───────────────────────────────────────────────────────────────────────
 
 // Hoist the mock call/event handlers so they're available inside the
 // vi.mock factory (which is hoisted to the top of the file by vitest).

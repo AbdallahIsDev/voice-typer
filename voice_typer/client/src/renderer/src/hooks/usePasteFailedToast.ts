@@ -1,31 +1,7 @@
-/**
- * usePasteFailedToast, surfaces backend ``paste_failed`` events as
- * sonner toasts.
- *
- * Extracted from App.tsx (App.tsx slimming split) to keep
- * App.tsx a pure layout shell. Behaviour is byte-identical to the
- * original inline ``usePythonEvent("paste_failed", ...)`` block:
- *
- *   - The action button label was a hardcoded English string
- *     ("Copy path") which broke i18n for non-English users. Wired
- *     through ``t("common.copyPath")`` so the label resolves to the
- *     active locale's translation.
- *   - If the backend supplies a ``recovery_path``, the toast shows a
- *     "Copy path" action that writes it to the clipboard (best-effort
- *    , clipboard API may be unavailable, non-fatal).
- *   - The message may be multi-line: the first line becomes the toast
- *     title, the rest the description.
- */
-
 import { usePythonEvent } from "@/hooks/usePython";
 import type { TranslateFn } from "@/i18n/translate-types";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
-/**
- * Subscribe to ``paste_failed`` push events and render the recovery
- * toast. Call once at the top level of a component; the subscription
- * lives for the component's lifetime.
- */
 export function usePasteFailedToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("paste_failed", (data): (() => void) | undefined => {

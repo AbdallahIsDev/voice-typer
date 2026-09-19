@@ -54,7 +54,6 @@ export const LinuxWindowButtonsSettingsSection = memo(
 		const t = useT();
 		if (!IS_LINUX) return null;
 
-		// Labels resolved INSIDE the body (B-REVIEW-3 pattern, t() reads
 		// a module-level locale variable; import-time evaluation would
 		// freeze the strings to the first locale).
 		const title = t("settings.linuxWindowButtons.title");

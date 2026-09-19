@@ -1,22 +1,8 @@
 /**
- * CollectionListHeader, the shared column-header row extracted from
  * the VocabListHeader / TemplateListHeader mirror (the pair differed
  * ONLY in i18n keys and data-testid).
- *
  * These tests pin the shell's contract for the Wave-5 page migration:
- *   - the three column labels + the select-all aria resolve through
- *     t() from the injected keys
- *   - the select-all checkbox state machine: unchecked →
- *     indeterminate (some visible rows selected) → checked (all
- *     selected), and the onCheckedChange direction flips with
- *     allSelected (clicking a checked header deselects)
- *   - the byte-identical visual tokens survive the extraction: the
- *     sticky header treatment, the responsive grid template with the
  *     fixed 6.25rem actions column, and the C-UI-10 gap-x-3 spacing
- *
- * The Checkbox is the real Radix-based design-system component (the
- * same one the rows use), driven with fireEvent.click like the
- * Vocabulary page suites do.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

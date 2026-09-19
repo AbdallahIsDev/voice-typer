@@ -1,19 +1,3 @@
-/**
- * Tests for the Templates page,  (load-error variant) and
- * (export format forwarding).
- *
- * : the load-error EmptyState in Templates.tsx previously used the
- * default ``"info"`` variant, which made a backend-load failure look
- * identical to "you haven't added anything yet".  switches the
- * load-error EmptyState to ``variant="error"`` so the failure is
- * visually distinct (destructive ring + Alert02Icon + role="alert").
- *
- * : the ExportFormatMenu picks "json" or "csv" and calls
- * onExport(format). Templates.tsx previously had ``onExport={() =>
- * doExport()}``, the arrow function dropped the format arg, so CSV
- * export silently behaved like JSON export.  forwards the format
- * through to ``doExport`` and ultimately to the IPC bridge.
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

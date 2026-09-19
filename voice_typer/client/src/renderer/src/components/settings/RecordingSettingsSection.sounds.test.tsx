@@ -1,18 +1,3 @@
-/**
- * Tests for the (sound volume + Test Sound) and (hidden
- * config rows) work in `RecordingSettingsSection` and
- * `PrivacySettingsSection`.
- *
- * Pinned contracts:
- *  - Recording → Sound Feedback: a volume slider (RangeSlider) wired to
- *    debounced `set_config` writes + an immediate `setSoundVolume` sync,
- *    plus a "Test Sound" button that plays one existing cue.
- *  - Recording → paste-safety rows (unsafe_paste_on_unknown_focus,
- *    warn_elevated_paste, warn_password_paste) persist via updateConfig.
- *  - Privacy → log_transcriptions + clipboard_save_restore rows persist
- *    via updateConfig.
- *  - All new rows feed their label+info into the search predicate.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

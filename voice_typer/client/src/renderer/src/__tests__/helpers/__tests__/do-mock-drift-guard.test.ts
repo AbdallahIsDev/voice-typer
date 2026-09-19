@@ -1,39 +1,3 @@
-/**
- * Drift guard: no test file may register BOTH a hoisted `vi.mock("X")`
- * AND a `vi.doMock("X")` for the same module path, and no module path
- * may be registered with `vi.mock("X")` more than once (the second
- * registration is a runtime re-registration, i.e. `vi.mock` called
- * inside `it()`/`beforeEach`, which is equivalent to `vi.doMock` and
- * carries the same order-dependent flake).
- *
- * Background: a renderer test flaked intermittently under full-suite load
- * because the loading-screen test overrode `useConnection` via
- * `vi.doMock` + `vi.resetModules()` + dynamic import while the SAME file
- * had a hoisted `vi.mock("@/hooks/useConnection", ...)` returning a
- * DIFFERENT default, the per-test override was intermittently dropped
- * and App rendered with the hoisted default instead of the loading
- * screen. Re-mocking a hoisted module inside `it()`/`beforeEach` is
- * order-dependent under the threads pool: the dynamic import can resolve
- * the module before a late doMock factory is applied (the race is even
- * documented in src/main/__tests__/bootstrap-app-user-model-id.test.ts).
- *
- * The fix for any file hitting this: convert the per-test override to a
- * hoisted mutable mock, a `vi.hoisted(() => ({ mockX: vi.fn() }))` fn,
- * a `vi.mock("X", () => ({ useX: mockX }))` factory that delegates to
- * it, a beforeEach that restores the default, and per-test
- * `mockX.mockReturnValue(...)` / `mockX.mockImplementation(...)`. (For
- * modules that need the REAL implementation in some tests, load them
- * with `vi.importActual` inside those tests, vitest memoizes a mock
- * factory's result at first import, so a per-test flag read inside an
- * async `importOriginal` factory never re-evaluates.)
- *
- * This guard scans the renderer test tree (`src/renderer/src`).
- * Scoped doMock use that does NOT overlap a hoisted mock for the same
- * path (stable page/layout stubs, describe-scoped mocks with doUnmock
- * cleanup) remains legitimate and is not flagged. LIMITATION: the
- * regexes match only double/single-quoted paths, not backtick template
- * literals.
- */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -111,7 +75,6 @@ describe("vi.doMock drift guard (hoisted vi.mock + doMock same-path overlap)", (
 		// drifts (file moved / vitest changes its module-dir shim),
 		// fail loudly with the resolved paths instead of silently
 		// scanning the wrong tree (a too-narrow scan turns this guard
-		// into a no-op, an off-by-one here previously produced
 		// .../client/src/src/main).
 		expect(
 			existsSync(join(RENDERER_SRC, "App.tsx")),

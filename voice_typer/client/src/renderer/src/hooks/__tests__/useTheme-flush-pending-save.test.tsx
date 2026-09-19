@@ -1,23 +1,3 @@
-/**
- * Tests for useTheme, focused on the `flushPendingThemeSave` path
- * that runs on unmount / beforeunload.
- *
- * The change under test: `flushPendingThemeSave` previously used
- * `try { void call(...) } catch (e) { console.warn(...) }` which
- * only catches SYNCHRONOUS throws from `call()` itself. If `call`
- * returned a Promise that later rejected (the common case, IPC
- * rejection on backend unavailable), the rejection was unhandled.
- * The fix uses `void call(...).catch((e) => console.warn(...))` so
- * Promise rejections are caught.
- *
- * Strategy: render a Probe that uses `useTheme`, invoke a setter
- * (`handleThemeChange`) to schedule a debounced save, then unmount
- * WITHOUT waiting for the debounce. The unmount cleanup calls
- * `flushPendingThemeSave`, which immediately fires `call("set_config",
- * pending)`. We make the mock `call` return a rejected Promise and
- * verify `console.warn` is invoked (proof the `.catch` ran) and no
- * unhandled rejection surfaces.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

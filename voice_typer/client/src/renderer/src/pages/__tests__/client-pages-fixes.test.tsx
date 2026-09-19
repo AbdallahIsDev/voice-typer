@@ -1,19 +1,3 @@
-/**
- * Regression tests for the client-pages fix batch.
- * Each describe block pins one fix so a future
- * regression points at the exact contract that broke.
- *
- *   -  History "Clear All" button has a permanent destructive
- *               visual cue (text-destructive + border-destructive at
- *               rest, not just on hover).
- *   -      Home.tsx extraction: the page imports the extracted
- *               subcomponents from `./home/` AND keeps the
- *               `debouncedRefreshFromEvent` declaration in the
- *               composition root (R7-F13 contract preserved).
- *
- * The S2-CR-39 onboarding-mic block was removed with the Microphone
- * step itself (2026-09-14 onboarding overhaul).
- */
 import { describe, expect, it } from "vitest";
 
 //mic auto-select prefers `default: true` ─────────────────
@@ -42,7 +26,6 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 		expect(src).toContain(
 			"hover:text-destructive-foreground dark:hover:bg-destructive",
 		);
-		// Permanent tint must be gone, History used to carry
 		// border-destructive/40 text-destructive/80 at rest and a 5% wash
 		// on hover (hover:bg-destructive/5) which the pass removed.
 		expect(src).not.toContain("text-destructive/80");
@@ -65,14 +48,12 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 		expect(slice).toContain("hover:bg-destructive");
 		expect(slice).toContain("hover:text-destructive-foreground");
 		expect(slice).toContain("hover:border-destructive");
-		// Must NOT still contain the old permanent tint in the active code.
 		expect(slice).not.toContain("text-destructive/80");
 	});
 
 	it("every shared-pattern destructive-hover button restates dark:hover:bg-destructive", async () => {
 		// History Clear All + the shared collection toolbar (which
 		// renders the Vocabulary / Templates toolbars' Clear All —
-		// the former per-page mirrors were deleted) + the Home
 		// discard button share the muted-at-rest →
 		// solid-red-hover contract. The outline/ghost variants
 		// carry dark:hover:bg-input/30 (resp. dark:hover:bg-muted/50),

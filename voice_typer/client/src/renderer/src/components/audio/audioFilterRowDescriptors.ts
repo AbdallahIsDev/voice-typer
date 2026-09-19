@@ -3,8 +3,6 @@
 // row's i18n keys AND its rendering metadata (config key, kind,
 // min/max/step, aria/info keys, default value, optional parent
 // toggle).
-//
-//previously this registry lived inside `AudioFilterChain.tsx`
 // and held only `{ labelKey, infoSearchKey }`. The actual render
 // metadata (config key, min/max/step, suffix, aria/info keys,
 // default value, parent toggle) was duplicated inline across ~520 LOC
@@ -12,8 +10,6 @@
 // registry, the labels useMemo, the destructure block, and the JSX
 // body. Now the registry IS the render spec, the JSX is a single
 // `.map` over `audioFilterRowDescriptors`.
-//
-// previously `AudioSettingsSection`'s `sectionItems` array
 // (used for the section-level "any item visible?" check) listed only
 // 16 of the 24 distinct filter rows. The 8 missing sub-rows
 // (`gateAttack`, `gateHold`, `gateRelease`, `compressorAttack`,
@@ -21,7 +17,6 @@
 // `notchFrequency`) all have `*InfoSearch` keys in `en.json` but were
 // not in the array, so searching for one of those sub-row labels
 // caused the entire Audio Enhancement section to be hidden.
-//
 // Co-locating the registry here (rather than duplicating the list in
 // `AudioSettingsSection`) keeps it next to the component that
 // actually renders the rows, any future filter row added to the
@@ -30,19 +25,8 @@
 
 import type { VoiceTyperConfig } from "@/types/config";
 
-/**
- * Single shared i18n key for the Audio Enhancement section title
- * (used by every descriptor's `sectionTitleKey`). Extracted as a
- * constant so callers (e.g. `AudioSettingsSection`'s visibility
- * check) can reference it without re-typing the string.
- */
 export const AUDIO_SECTION_TITLE_KEY = "settings.audioEnhancement.title";
 
-/**
- * Option for a `kind: "select"` row. Either `label` (a plain
- * non-i18n string like "RNNoise") or `labelKey` (an i18n key like
- * `"settings.audioEnhancement.noneOption"`), mutually exclusive.
- */
 export interface AudioFilterSelectOption {
 	value: string;
 	/** Plain (non-i18n) label. Mutually exclusive with `labelKey`. */
@@ -58,10 +42,6 @@ export interface AudioFilterRowDescriptor {
 	infoSearchKey: string;
 	/** i18n key for the section title (used in the search visibility predicate). */
 	sectionTitleKey: string;
-	/**
-	 * Config key this row reads/writes, e.g. `"noise_filter_highpass"`.
-	 * Typed as `keyof VoiceTyperConfig` so renames surface at compile time.
-	 */
 	configKey: keyof VoiceTyperConfig;
 	/** Render kind: toggle (Switch), slider (RangeSlider), or select (Select). */
 	kind: "toggle" | "slider" | "select";
@@ -69,10 +49,6 @@ export interface AudioFilterRowDescriptor {
 	infoKey: string;
 	/** i18n key for the control's `aria-label` (the `t("...Aria")` call). */
 	ariaKey: string;
-	/**
-	 * Fallback value when `config[configKey]` is `undefined`.
-	 * `boolean` for toggles, `number` for sliders, `string` for selects.
-	 */
 	defaultValue: number | boolean | string;
 	/** Slider-only: minimum value. */
 	min?: number;
@@ -82,22 +58,11 @@ export interface AudioFilterRowDescriptor {
 	step?: number;
 	/** Slider-only: unit suffix (e.g. `"Hz"`, `"dB"`, `"ms"`, `":1"`). */
 	suffix?: string;
-	/**
-	 * When set, this row only renders when `config[parentToggle]` is
-	 * truthy (after applying the parent's own `defaultValue` fallback).
-	 * Used for sub-rows like high-pass cutoff (under
-	 * `noise_filter_highpass`). The parent toggle's `defaultValue` is
-	 * looked up from the descriptor with this `configKey`.
-	 */
 	parentToggle?: keyof VoiceTyperConfig;
 	/** Select-only: option list. */
 	options?: readonly AudioFilterSelectOption[];
 }
 
-/**
- * Static registry of every distinct SettingRow rendered by
- * `<AudioFilterChain>`. The order is the render order.
- */
 export const audioFilterRowDescriptors: readonly AudioFilterRowDescriptor[] = [
 	// ─── High-pass filter ──────────────────────────────────────────
 	{
@@ -143,7 +108,6 @@ export const audioFilterRowDescriptors: readonly AudioFilterRowDescriptor[] = [
 			// on-device). The historical "deepfilternet"
 			// option was retired with it, and the dead
 			// "speex" option (never implemented, rejected by
-			// the IPC validator) was removed from the list.
 			{ value: "gtcrn", label: "GTCRN" },
 			{ value: "none", labelKey: "settings.audioEnhancement.noneOption" },
 		],
@@ -450,11 +414,6 @@ export const audioFilterRowDescriptors: readonly AudioFilterRowDescriptor[] = [
 	},
 ];
 
-/**
- * Lookup map from `configKey` → descriptor, used to resolve a
- * `parentToggle`'s `defaultValue` without scanning the array on
- * every render.
- */
 export const audioFilterDescriptorByConfigKey: ReadonlyMap<
 	string,
 	AudioFilterRowDescriptor

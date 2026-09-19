@@ -1,12 +1,9 @@
 // PrivacySettingsSection, Audio & Recovery + Privacy & Consent sections of
 // the Settings page.
-//
-// Extracted from src/renderer/src/pages/Settings.tsx. Renders two
 // SettingsSection blocks: "Audio & Recovery" (Crash Recovery) and
 // "Privacy & Consent" (HuggingFace / Voice biometric / OpenAI / Groq /
 // Deepgram / LLM polish consents, Agree-to-All banner, Export Templates
 // and Config buttons). Behaviour is identical to the previous
-// monolithic implementation; this section owns its own `usePython` and
 // `useSnackbar` hooks (per the refactor spec) so it can issue the
 // `get_templates` / `get_config` IPC calls and surface their results
 // without needing the parent to forward `call` or `showSnack` as props.
@@ -32,29 +29,12 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-/**
- * Config keys whose value type is `boolean`, the keys a Switch row can
- * read/write. Derived from `VoiceTyperConfig` so a value-type change on
- * any of these keys surfaces here at compile time. The `-?` modifier
- * strips the interface's optional markers so the indexed access yields
- * a plain literal union (homomorphic mapped types preserve `?`, which
- * would otherwise leak `undefined` into the union).
- */
 type BooleanConfigKey = {
 	[K in keyof VoiceTyperConfig]-?: VoiceTyperConfig[K] extends boolean
 		? K
 		: never;
 }[keyof VoiceTyperConfig];
 
-/**
- * One row of the consent/privacy switch matrix. The descriptor IS the
- * render spec (the audio-filter row registry is the in-repo precedent):
- * the section-level search-visibility arrays, the per-row visibility
- * gating, the rendered SettingRow+Switch pair, and the Agree-to-All
- * update payload are all derived from this single list, adding consent
- * #7 is a one-entry change here, not ~7 coordinated edits across the
- * file.
- */
 export interface ConsentFieldDescriptor {
 	/** Which Settings section renders the row. */
 	section: "audioRecovery" | "privacy";
@@ -64,37 +44,17 @@ export interface ConsentFieldDescriptor {
 	labelKey: TranslationKey;
 	/** i18n key for the SettingRow info tooltip. */
 	infoKey: TranslationKey;
-	/**
-	 * i18n key for the search-visible info, the section-level
-	 * "any row visible?" arrays read this variant. Equals `infoKey`
-	 * for rows that have no dedicated `*InfoSearch` key.
-	 */
 	infoSearchKey: TranslationKey;
 	/** i18n key for the Switch's aria-label. */
 	ariaKey: TranslationKey;
 	/** Fallback when the runtime config value is undefined. */
 	defaultValue: boolean;
-	/**
-	 * Renders inside the highlighted ConsentRow wrapper (which carries
-	 * the `data-consent-field` scroll target + deep-link focus ring).
-	 * The six GDPR consent flags use it; the hidden-config rows render
-	 * as bare SettingRows, exactly as before.
-	 */
 	consentRow?: boolean;
-	/**
-	 * Participates in Agree-to-All (the granted payload), the granted
-	 * count, and the button's disabled state.
-	 */
 	agreeToAll?: boolean;
 	/** Stable Switch `data-testid` (hidden-config rows carry one). */
 	testId?: string;
 }
 
-/**
- * The consent/privacy switch matrix, order is render order within each
- * section. i18n keys are unchanged from the hand-written rows this
- * registry replaces (pure refactor; no locale edits).
- */
 export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 	// Audio & Recovery section (single row).
 	{
@@ -111,7 +71,6 @@ export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 	// by the backend (HuggingFace download refusal, CloudEngine
 	// ConsentRequiredError, etc.).  This section gives the user a
 	// single place to view and revoke any consent they've
-	// previously granted.  Initial grant happens contextually
 	// (HuggingFace banner on Models page, per-provider toggles on
 	// Models page), this section is primarily for
 	// review/revocation.
@@ -183,7 +142,6 @@ export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 		consentRow: true,
 		agreeToAll: true,
 	},
-	// Hidden-config rows (previously config.json-only fields, now
 	// user-tunable): transcription logging and the clipboard
 	// borrow/restore behavior (ADR-0010). Both are privacy-relevant
 	// (transcription text leaving traces; the app reading clipboard
@@ -215,17 +173,6 @@ export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 /** The Agree-to-All subset, the six flags the banner grants at once. */
 const AGREE_TO_ALL_FIELDS = CONSENT_FIELDS.filter((field) => field.agreeToAll);
 
-/**
- * Module-level consent-row wrapper (stable identity). Carries the
- * ``data-consent-field`` attribute that Settings.tsx's deep-link scroll
- * targets, and renders the temporary highlight ring when ``highlighted``.
- *
- * MUST stay at module scope: an inline component would get a fresh
- * function identity on every section re-render, which React treats as a
- * changed element type → unmount/remount of the whole row subtree on
- * each render, losing focus on a just-clicked Switch and resetting
- * child-local state.
- */
 function ConsentRow({
 	field,
 	highlighted,
@@ -254,15 +201,6 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	isVisible,
 	consentFocusField,
 }: SettingsSectionSharedProps & {
-	/**
-	 * Consent deep-link target (e.g. ``"voice_biometric_consent"``).
-	 * When set, the matching consent row renders a temporary highlight
-	 * ring so the user lands visually on the exact toggle the
-	 * ``client.consent_required`` refusal named. Rendered by
-	 * Settings.tsx from the navigate ``{ consentField }`` option;
-	 * cleared after a short timeout. ``data-consent-field``
-	 * attributes double as Settings.tsx's scroll target.
-	 */
 	consentFocusField?: string | null;
 }) {
 	const { call } = usePython();

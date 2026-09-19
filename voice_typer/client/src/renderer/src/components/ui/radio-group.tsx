@@ -3,16 +3,6 @@ import type * as React from "react";
 
 import { cn } from "#utils";
 
-/**
- * Design-system radio group (shadcn/ui, radix-luma style, Radix Root +
- * Item/Indicator, mirroring `checkbox.tsx`). The selected state is a
- * filled inner dot on the accent fill (`--accent` maps to
- * `var(--primary)` in every theme), matching the checkbox's checked
- * treatment so the two controls read as siblings.
- *
- * NOTE: Radix emits `data-state="checked|unchecked"` (NOT
- * `data-checked`), same convention as checkbox.tsx.
- */
 function RadioGroup({
 	className,
 	...props
@@ -34,7 +24,7 @@ function RadioGroupItem({
 		<RadioGroupPrimitive.Item
 			data-slot="radio-group-item"
 			className={cn(
-				"relative flex size-4 shrink-0 items-center justify-center rounded-full border border-(--text-muted)/40 bg-transparent transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-1focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-[state=checked]:border-accent dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+				"relative flex size-4 shrink-0 items-center justify-center rounded-full border border-(--text-muted)/40 bg-transparent transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-[state=checked]:border-accent dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
 				className,
 			)}
 			{...props}

@@ -1,31 +1,3 @@
-/**
- * Tests for the  fix: ConnectionStatusScreen `restarting` state
- * + `role="alert"` switch + secondary "Force retry" action.
- *
- * Background: the  finding documented that the root element used
- * `role="alertdialog" aria-modal="false"` (contradictory, alertdialog
- * is implicitly modal) and that the `restarting` state had NO spinner,
- * NO progress, NO action button. Users perceived the app as frozen
- * during transient backend restarts and had no in-app escape.
- *
- * The fix:
- *  - Replaces `role="alertdialog"` with a ROLELESS wrapper (the
- *    assertive announcement contract later moved onto the description
- *    node's polite `role="status"`, so the wrapper carries no role at
- *    all) and drops `aria-modal` entirely.
- *  - Renders the `<Spinner />` for BOTH `isConnecting` AND
- *    `isRestarting` (previously `isConnecting`-only).
- *  - Adds a secondary "Force retry" button when `isRestarting` that
- *    short-circuits `useConnection`'s 60s safety timer.
- *
- * This file is the regression guard for those three changes. The
- * existing `pages/__tests__/ConnectionStatusScreen.test.tsx` and
- * `components/layout/__tests__/ConnectionStatusScreen-axe.test.tsx`
- * files pin the broader per-state behavioral + a11y contracts; this
- * file narrows in on the  surface so a future regression
- * to the alertdialog role or the missing restarting-state spinner
- * fails loudly here.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

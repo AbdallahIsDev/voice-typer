@@ -1,6 +1,4 @@
 // OS-level microphone permission probe.
-//
-//(onchange leak fix): the previous implementation registered the
 // change listener via status.onchange = handler but the cleanup only
 // set cancelled = true, it did NOT clear status.onchange. The
 // PermissionStatus object is owned by navigator.permissions cache and

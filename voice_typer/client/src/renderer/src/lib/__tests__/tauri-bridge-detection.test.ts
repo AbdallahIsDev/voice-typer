@@ -1,29 +1,9 @@
-/**
- * Tests for the Tauri bridge detection logic (Phase 3 UI port).
- *
- * ADR-0020 §6.3: `tauri-bridge.ts` auto-installs `window.python`,
- * `window.bubble`, and `window.window_` using Tauri's global
- * `__TAURI__` API when running inside a Tauri WebView, and is a no-op
- * in predecessor mode (where the predecessor preload already installed the
- * same namespaces via `contextBridge.exposeInMainWorld`).
- *
- * These tests verify the three contract guarantees the renderer relies
- * on so `usePython.ts` (and every page/component) works unchanged on
- * both runtimes:
- *  1. In Tauri mode, `window.python.call({type, data})` routes to
- *     `invoke('dispatch', {cmd: type, data})`.
- *  2. In predecessor mode, the module is a no-op, it does NOT override
- *     the namespaces the preload installed.
- *  3. In Tauri mode, `window.bubble.onLevel(cb)` registers a Tauri
- *     event listener on the `bubble_level` channel.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Minimal stub of `window.__TAURI__` matching the shape consumed by
 // tauri-bridge.ts (core.invoke, event.listen, window.getCurrentWindow).
 // The real shape is injected by `tauri::Builder` when
 // `app.withGlobalTauri = true` (see tauri.conf.json).
-//
 // The `label` option controls which Tauri window the stub reports as.
 // The bubble-namespace installer uses this label to decide whether to
 // install the full BubbleWindowBubble API (label "bubble") or only the

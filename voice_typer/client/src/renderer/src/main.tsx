@@ -7,13 +7,11 @@ import App from "./App";
 import { ensureTauriBridgeInstalled } from "./lib/tauri-bridge/ensure";
 import "./index.css";
 
-// ADR-0020 §6.3 (Phase 3 UI port): install the Tauri bridge BEFORE the
 // React app mounts so `window.python` / `window.bubble` / `window.window_`
 // are available when `usePython` and other hooks initialize. The runtime
 // gate (Tauri-only dynamic import, separate async chunk, never fetched
 // under predecessor where the preload already installed the namespaces) and
 // its full rationale live in `./lib/tauri-bridge/ensure`, the single
-// shared copy of a gate this entrypoint previously duplicated from
 // `bubble-main.tsx`. Top-level await guarantees ordering, the
 // `ReactDOM.createRoot().render()` below does not run until the bridge is
 // installed.
@@ -30,7 +28,6 @@ await ensureTauriBridgeInstalled();
 //   - errors that would otherwise silently vanish, the user sees no toast
 //     and the only trace is a dev-tools console message that disappears on
 //     refresh.
-//
 // The function is idempotent, calling it twice is a no-op. The handler
 // logs to `console.error` with a `[renderer:globalErrorHandler]` prefix (forwarded to the
 // main-process log via `webContents.on("console-message")`) and shows a

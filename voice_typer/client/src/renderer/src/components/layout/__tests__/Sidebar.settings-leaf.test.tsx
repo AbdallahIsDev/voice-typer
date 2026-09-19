@@ -1,31 +1,3 @@
-/**
- * Sidebar, Settings as a SINGLE LEAF (hub-and-spoke model).
- *
- * The nested Settings submenu (parent trigger + Collapsible children +
- * collapsed Popover flyout + arrow glyph) was removed: the Settings
- * page is now a HUB whose rows open the focused section pages (see
- * settingsSections.ts), and the sidebar rail renders Settings as ONE
- * leaf button like every other destination. This suite pins the new
- * model's invariants:
- *
- *  - Single leaf: no disclosure semantics anywhere in the nav, no
- *    aria-expanded, no dialog/haspopup roles; exactly 9 leaf buttons.
- *  - Roving tabindex: the active page's leaf holds tabIndex=0 +
- *    aria-current="page"; every other leaf holds -1.
- *  - Settings-surface fallback: on ANY Settings surface (the hub or a
- *    section page, neither is a nav item) the SETTINGS leaf becomes
- *    the roving tab stop (tabIndex=0) via the `isSettingsSurface`
- *    fallback in SidebarInner, so keyboard focus follows the active
- *    section even though the section page itself is not a nav item.
- *  - Click semantics: the leaf navigates to the hub ("settings"),
- *    never directly to a section page.
- *  - Collapsed rail: the Settings leaf stays focusable under the
- *    fallback and keeps its aria-keyshortcuts contract.
- *
- * Labels are resolved through the real i18n module (en locale), the
- * same `t()` calls Sidebar.tsx makes, so the accessible-name queries
- * can never drift from the production keys.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -106,7 +78,6 @@ describe("Sidebar, Settings is a single leaf (no submenu)", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const nav = document.querySelector("nav");
 		expect(nav).toBeTruthy();
-		// The former parent trigger carried aria-expanded, a leaf nav
 		// has no expansion state at all.
 		expect(nav?.querySelectorAll("[aria-expanded]").length).toBe(0);
 		// The collapsed flyout used a Popover (dialog semantics), gone.

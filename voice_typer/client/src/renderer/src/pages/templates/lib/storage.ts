@@ -1,6 +1,4 @@
 // Backend + localStorage persistence for templates.
-//
-// Extracted from the former ``pages/Templates.tsx`` module-level helpers
 // (loadTemplatesFromLocalStorage, loadTemplatesFromBackend, saveTemplates,
 // makeRowId).  The page hook ``useTemplates`` is the only consumer of
 // these helpers, but isolating them in a pure-data module keeps the hook
@@ -15,11 +13,9 @@ import type { Template } from "./types";
 // directory (``~/.voice-typer`` on POSIX, ``%APPDATA%\voice-typer``
 // on Windows).  This file survives predecessor userData resets and
 // reinstalls, so templates are no longer lost on app data wipe.
-//
 // localStorage is now used ONLY as a one-time migration source: if
 // the backend has no templates but localStorage does (e.g. user
 // upgrades from a previous build), we push the localStorage data to
-// the backend on first load and then localStorage is no longer read.
 export const STORAGE_KEY = "templates_data";
 export const MIGRATION_FLAG_KEY = "templates_migrated_to_backend";
 
@@ -48,19 +44,6 @@ export function loadTemplatesFromLocalStorage(): Template[] {
 	}
 }
 
-/**
- * : load templates from the Python backend.  Falls back to
- * localStorage on IPC failure (e.g. backend not yet started) so the
- * page remains usable during startup.
- *
- * : previously this function returned `[]` for BOTH "no
- * templates exist" (valid empty array from backend) AND "the backend
- * returned malformed data" (null/undefined result, or a `templates`
- * field that wasn't an array). That collapsed two very different
- * states into one empty list, hiding genuine load failures from the
- * user. Now we throw on genuine failure and only return `[]` when the
- * backend explicitly reported an empty (but valid) template list.
- */
 export async function loadTemplatesFromBackend(
 	callFn: <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>,
 ): Promise<Template[]> {
@@ -89,21 +72,15 @@ export async function loadTemplatesFromBackend(
 // #6: saveTemplates now accepts an optional callFn for IPC persistence.
 // Add/edit paths pass the IPC call function so the server is notified.
 // Delete path also passes callFn so the server stays in sync.
-//
-//backend persistence is now functional (previously the
 // IPC save was a no-op because the Config dataclass had no
 // templates_data field).  We still mirror to localStorage as a
 // startup-fallback cache in case the backend is unreachable on next
 // launch (e.g. user opens the page during Python boot).
-//
 //now async so callers can `await saveTemplates(...)` before
-// triggering `loadRows()`.  Previously the IPC save was fire-and-forget
 // (`.catch(...)`), which meant `loadRows()` could re-read the backend
 // BEFORE the save landed, racing the just-saved list out of the UI
 // and re-rendering the pre-save state.  Awaiting guarantees the load
 // sees the new state.
-//
-//the IPC error path previously swallowed the rejection after
 // logging it, callers had no way to know the save failed, so they
 // showed a success toast even when the backend rejected the write.
 // We now rethrow after logging so the calling hook (e.g.
@@ -139,15 +116,6 @@ export async function saveTemplates(
 	}
 }
 
-/**
- * Generate a stable UUID for a row.  Uses the Web Crypto API
- * (`crypto.randomUUID`) which is available in the predecessor's renderer
- * (Chromium) and in jsdom (Node ≥ 19).  Falls back to a
- * `Math.random`-based pseudo-ID if `crypto.randomUUID` is unavailable
- * (older runtimes / sandboxed tests) so the React key is still unique
- * within the session, UUID quality doesn't matter here because the
- * ID is never persisted, only used as a React key.
- */
 export function makeRowId(): string {
 	try {
 		if (

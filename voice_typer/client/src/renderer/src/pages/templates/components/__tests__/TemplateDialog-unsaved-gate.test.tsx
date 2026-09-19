@@ -1,16 +1,3 @@
-/**
- * Unsaved-edits gate on the Template dialog.
- *
- * Closing the dialog via Escape / overlay / corner X while the form
- * holds unsaved content must first ask the user to confirm the
- * discard (ConfirmDialog "discard changes" preset) instead of
- * silently throwing the edits away. A clean form (no edits) closes
- * immediately.
- *
- * The dialog is a pure presentational wrapper, so the tests render it
- * with stub props and drive the REAL Modal + ConfirmDialog (only the
- * leaf UI primitives are mocked, mirroring the sibling dialog test).
- */
 import {
 	cleanup,
 	fireEvent,

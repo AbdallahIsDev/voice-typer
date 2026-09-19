@@ -1,20 +1,3 @@
-/**
- * Unit tests for the dashboard's derived-stat helpers (lib/streaks.ts).
- *
- * Covers the data-consistency fixes:
- *   - UTC timestamp parsing: SQLite stores `timestamp` as UTC
- *     ("YYYY-MM-DD HH:MM:SS", no zone marker). JS parses unmarked
- *     date-times as LOCAL, which shifted calendar-day bucketing by the
- *     UTC offset, that's why the 7-day chart's today-bar and the
- *     streak anchor disagreed with the server's (correct) today stats.
- *   - computePeriodStats: one sample, one bucketing → range-aware
- *     cards + trends that can never contradict the chart.
- *   - buildActivityBars: zero-activity slots vs no-data slots
- *     (future hours / days older than the sample) are distinguished.
- *
- * All records are built RELATIVE to a fixed `now` so the assertions
- * are deterministic on any machine / timezone.
- */
 import { describe, expect, it, vi } from "vitest";
 
 import type { HistoryRecord } from "@/types/ipc";
@@ -31,11 +14,6 @@ import {
 	parseUtcTimestamp,
 } from "../streaks";
 
-/**
- * Narrowed bar accessor. Tests assert `bars.length` first, so an
- * out-of-range index is a test bug, throw rather than risk a silent
- * `undefined` propagation (avoids non-null assertions per repo lint).
- */
 function bar(bars: ActivityBar[], i: number): ActivityBar {
 	const b = bars[i];
 	if (b === undefined) throw new Error(`missing bar at index ${i}`);
@@ -94,7 +72,6 @@ describe("UTC timestamp parsing (data-consistency fix)", () => {
 		const expected = localDateKey(parseUtcTimestamp(ts));
 		expect(dateKey(ts)).toBe(expected);
 		// And it differs from the naive parse when the offset crosses
-		// midnight (the old bug). On UTC+0 machines this is vacuous.
 		const naiveDay = localDateKey(new Date(ts));
 		expect(dateKey(ts) === naiveDay).toBe(expected === naiveDay);
 	});

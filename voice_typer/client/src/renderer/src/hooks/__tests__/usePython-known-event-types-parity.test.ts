@@ -1,36 +1,3 @@
-/**
- * : parity test for `KNOWN_EVENT_TYPES` in `hooks/usePython.ts`.
- *
- * `KNOWN_EVENT_TYPES` is a hand-maintained runtime mirror of the
- * `PythonPushEvent["type"]` TS union declared in
- * `types/ipc/push_events.ts`. TS cannot enumerate union members at
- * runtime, so the set is maintained by hand. The dev-time typo warning
- * in `usePythonEvent` consults this set to surface typos like
- * `usePythonEvent("past_failed", ...)` (intended `"paste_failed"`).
- *
- * The risk: a new event is added to the `PythonPushEvent` union but
- * the contributor forgets to add it to `KNOWN_EVENT_TYPES`. The
- * dev-time warning would then false-positive on the legitimate new
- * event, training developers to ignore the warning.
- *
- * This test pins parity in BOTH directions:
- *
- *   1. Compile-time: the `_PARITY` object below is annotated with
- *      `satisfies Record<PythonPushEvent["type"], true>`. If a type is
- *      added to the union but not listed here, the `satisfies` check
- *      fails (missing required property). If a type is listed here but
- *      not in the union, the `satisfies` check fails (excess
- *      property). This forces the `_PARITY` object to exactly match
- *      the union.
- *
- *   2. Runtime: the test asserts that `KNOWN_EVENT_TYPES` contains
- *      every key in `_PARITY` and has the same size. This catches the
- *      case where `_PARITY` is updated but `KNOWN_EVENT_TYPES` is not
- *      (or vice versa).
- *
- * Together, these two checks ensure `KNOWN_EVENT_TYPES` stays in sync
- * with the `PythonPushEvent` union.
- */
 import { describe, expect, it } from "vitest";
 
 import { KNOWN_EVENT_TYPES } from "@/hooks/usePython";
@@ -42,7 +9,6 @@ import type { PythonPushEvent } from "@/types/ipc";
 // any divergence a compile error:
 //   - Missing type → "Property 'X' is missing" error.
 //   - Extra type → "Object literal may only specify known properties" error.
-//
 // If you add a new event to `PythonPushEvent`, add it here AND to
 // `KNOWN_EVENT_TYPES` in `hooks/usePython.ts`, this test will fail
 // tsc until both are updated.
@@ -86,7 +52,6 @@ const _PARITY = {
 	reconnected: true,
 	mic_level: true,
 	transcription_partial: true,
-	// Master plan §7.4, 12 new push events from the
 	// slim-core / runtime-pack split. Pinned by
 	// `tests/test_event_types_parity.py` (Python-side cross-layer
 	// parity test that also covers the Rust `ALLOWED_EVENT_TYPES`
@@ -105,7 +70,6 @@ const _PARITY = {
 	worker_crashed: true,
 	worker_unloaded: true,
 	transcribe_offline_result: true,
-	// Backend model-load lifecycle + previously-dropped push events
 	// (published by the Python sidecar; wired through the Rust
 	// allowlist + this union, see the per-interface docstrings in
 	// types/ipc/push_events.ts and the emitting-direction parity

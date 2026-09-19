@@ -1,24 +1,3 @@
-/**
- * RTL regression guard for the TitleBar window chrome.
- *
- * The document direction (dir="rtl", set by i18n for Arabic) mirrors
- * flex rows, without protection the whole title bar would flip:
- * the macOS traffic-light gutter would jump to the RIGHT edge and the
- * Windows/Linux minimize/maximize/close cluster to the LEFT edge.
- * Native window chrome never moves with UI language direction, so the
- * bar root is pinned dir="ltr" (physical sides preserved) while the
- * Back/Forward chevrons opt INTO mirroring via the shared
- * `.nav-directional-icon` rule ([dir="rtl"] ancestor selector).
- *
- * jsdom does no layout, so "stays on the physical right" is asserted
- * structurally: inside a dir="ltr" container DOM order == visual order
- * left→right, so the window controls must appear AFTER the leading
- * nav buttons, and the macOS gutter must be the bar's FIRST child.
- *
- * Pattern follows rtl-locale-guard.test.ts / TitleBar.test.tsx:
- * platform constants are module-load derived, so each block stubs the
- * UA and re-imports a fresh TitleBar module.
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,16 +1,13 @@
 // Active-microphone card.
-//
 // Renders the currently-selected microphone (or "System Default")
 // header, the live LevelBar, the LiveQualityFeedback during a test,
 // the start/stop test buttons, the "filters changed" invalidation
 // notice, the TestReviewPanel (post-test transcription, quality +
 // playback), and the PresetAccordionSelector. This is the primary
 // interactive surface of the Microphone page.
-//
 // Pure presentational component, all state and handlers are passed in
 // from the page (which wires them from ``useMicrophoneData`` /
 // ``useMicrophoneTest``). The card owns no business logic.
-//
 // Memoised children: the heaviest subtrees —
 // `PresetAccordionSelector` (renders the full `AudioFilterChain` when
 // `preset === "custom"`) and `TestReviewPanel` (post-test quality
@@ -296,11 +293,9 @@ export function ActiveMicrophoneCard({
 }
 
 // ── : LevelBarContainer ─────────────────────────────────────────
-//
 // Bundles the two children that consume `level` / `peak`:
 // - `<LevelBar>`, the live horizontal bar.
 // - `<LiveQualityFeedback>`, peak marker + test progress readout.
-//
 // `level` updates at 10 Hz (or ≤30 Hz once 's `mic_level` push
 // lands), this container re-renders on every push, which is the
 // intended behavior. The point of the split is that the SIBLING
@@ -340,13 +335,11 @@ function LevelBarContainer({
 }
 
 // ── : Memoised children ─────────────────────────────────────────
-//
 // `React.memo` with a custom comparator. The comparator focuses on the
 // props that actually affect the rendered output, callback identity
 // changes (which happen on every Microphone.tsx render due to inline
 // closures) are ignored so a 10–30 Hz `mic_level` push doesn't
 // re-render these heavy subtrees.
-//
 // `onConfigChange` IS included in the PresetAccordionSelector comparator
 // because it's `useCallback`-stable in `useMicrophoneTest` (its
 // identity changes only when `updateConfig` changes, which happens

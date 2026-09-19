@@ -1,20 +1,9 @@
 /**
  * Compile-time + runtime contract tests for the translation-catalog key
  * typing on `t()` / `tChoice()`.
- *
  * The catalog contract (see `i18n/translation-keys.ts`) derives a flat
- * key union from `translations/en.json` and types `t()`/`tChoice()` with
- * a strict overload + a gated dynamic-key (loose) overload, so a
- * statically written key that is absent from the catalog fails
- * `npm run typecheck` with an error naming the bad key.
- *
  * The `// @ts-expect-error` directives below are TYPE-LEVEL assertions:
- * tsc MUST report an error on those lines, if the strict typing ever
- * regresses back to plain `string` (the original defect: any key
- * accepted, typos ship raw keys to production UI), the directives lose
  * their matching error and `tsc` FAILS the file ("Unused '@ts-expect-error'
- * directive"). The runtime half of this file documents the fallback
- * behavior that remains for genuinely dynamic keys.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -31,7 +20,6 @@ import type {
 
 // ── Type-level assertions (checked by tsc; values verified at runtime
 // in the tests below) ────────────────────────────────────────────────
-//
 // Assignments marked `@ts-expect-error` MUST fail to compile; the valid
 // assignments MUST compile. Together they pin the derived union to the
 // real catalog shape.

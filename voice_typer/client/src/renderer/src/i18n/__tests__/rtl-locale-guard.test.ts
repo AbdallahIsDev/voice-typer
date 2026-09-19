@@ -1,26 +1,3 @@
-/**
- * Compile-time + runtime guard: every locale in ``RTL_LOCALES`` MUST be a
- * member of ``SUPPORTED_LOCALES``.
- *
- * The RTL flipping logic in ``setLocale`` (store.ts) and ``initI18n``
- * (index.ts) looks up ``isRtlLocale(next)`` to decide whether to set
- * ``document.documentElement.dir = "rtl"``. The ``isRtlLocale`` lookup
- * is a ``Set.has`` against ``RTL_LOCALES``, but ``RTL_LOCALES`` is
- * typed as ``Set<Locale>``, and ``Locale`` is the union derived from
- * ``SUPPORTED_LOCALES``. So if a locale is added to ``RTL_LOCALES``
- * without also being added to ``SUPPORTED_LOCALES``, the TypeScript
- * compiler catches it at build time.
- *
- * This test is the runtime backstop: it asserts the subset relationship
- * directly so a future refactor that loosens the ``Locale`` type (e.g.
- * changing ``RTL_LOCALES`` to ``Set<string>`` to "fix" a build error)
- * still fails loudly in CI.
- *
- * Platform: Linux sandbox / Windows host / macOS host (pure static
- * check, no DOM, no jsdom). Validation:
- *   VALIDATE ON LINUX HOST: cd voice_typer/client && npx vitest run \
- *     src/renderer/src/i18n/__tests__/rtl-locale-guard.test.ts
- */
 import { describe, expect, it } from "vitest";
 
 import { SUPPORTED_LOCALES } from "@/i18n/locale";

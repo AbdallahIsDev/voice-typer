@@ -1,16 +1,12 @@
 // theme-bootstrap.ts, pre-React theme application to prevent FOUC.
-//
-// Before this module existed, the renderer painted with the
 // stylesheet-default theme (light mode, no preset vars) for ~1 frame
 // before React mounted and ``useTheme`` ran its theme-application
 // effect.  On dark-mode or themed installs this produced a visible
 // white-flash-of-unstyled-content (FOUC) on every launch.
-//
 // This module is imported as the FIRST ``<script type="module">`` in
 // ``index.html`` (see ``src/renderer/index.html``).  Because ES modules
 // are deferred by default, it executes after the DOM is parsed but
 // BEFORE ``main.tsx`` calls ``ReactDOM.createRoot().render()``.  It:
-//
 //   1. Reads the last-known theme state from ``localStorage`` (the same
 //      keys ``useTheme`` uses to seed its ``useState`` initializers).
 //   2. Applies the ``.dark`` class to ``document.documentElement``
@@ -20,7 +16,6 @@
 //      ``import()`` the preset module and populate the ``THEMES`` entry
 //      in place, THEN calls ``applyThemeVars()`` so the preset CSS
 //      variable overrides are in place before the first paint.
-//
 // Lazy themes: the preset's ``light`` / ``dark`` var maps are
 // no longer statically imported, they live in a separate async chunk
 // per preset. The bootstrap ``await``s ``loadThemePreset(preset)``
@@ -30,7 +25,6 @@
 // next ``<script type="module">`` in ``index.html``) does not execute
 // until the theme is applied. This preserves the FOUC-prevention
 // guarantee.
-//
 // After applying the initial theme, the module also fires-and-forgets
 // ``loadThemePreset`` for ALL remaining lazy presets so the cache is
 // warm by the time the user opens Settings and switches themes. This
@@ -38,14 +32,12 @@
 // React mount. Under offline conditions (C-DATA-1) the chunks are
 // served from the local .asar (the predecessor) or dist (Tauri), so the
 // pre-fetch completes without network access.
-//
 // After this module runs, ``useTheme`` may re-apply the theme once the
 // backend config is fetched, but that is a no-op when the cached
 // localStorage state matches the backend (the common case).  See the
 // ``hasInitialReloadCompleted`` guard in ``useTheme.ts`` for how the
 // post-backend theme-application effect is suppressed on the first
 // mount to avoid a second flash.
-//
 // This module is safe to import in any context (predecessor renderer,
 // Vitest with jsdom, SSR).  All DOM access is guarded with
 // ``typeof document !== "undefined"`` and localStorage access is
@@ -123,14 +115,6 @@ function readLsCustomTheme(): CustomThemeData | null {
 	return null;
 }
 
-/**
- * Resolve the effective dark/light state for the given theme mode,
- * consulting ``matchMedia`` for the system preference when mode is
- * ``"system"``.
- *
- * Returns ``false`` (light) when ``window.matchMedia`` is unavailable
- * (e.g. SSR / restricted sandbox) so the bootstrap never crashes.
- */
 function resolveIsDark(mode: ThemeMode): boolean {
 	if (mode === "dark") return true;
 	if (mode === "light") return false;
@@ -150,22 +134,6 @@ function resolveIsDark(mode: ThemeMode): boolean {
 	return false;
 }
 
-/**
- * Apply the cached theme to the document.  Idempotent, calling it
- * twice with the same cached state produces the same DOM outcome
- * (toggling ``.dark`` to the same value is a no-op, and
- * ``applyThemeVars`` clears previous overrides before applying new
- * ones).
- *
- * This function is ASYNC because it must
- * ``await loadThemePreset(preset)`` to populate the lazy preset
- * light/dark maps before ``applyThemeVars`` reads them.
- * For ``default`` and ``custom`` (statically imported) the
- * ``loadThemePreset`` call is an instant no-op.
- *
- * Exposed as a named export so unit tests can invoke it directly
- * without relying on module side-effects.
- */
 export async function applyBootstrapTheme(): Promise<void> {
 	if (typeof document === "undefined") return;
 
@@ -202,7 +170,6 @@ export async function applyBootstrapTheme(): Promise<void> {
 // synchronously after the DOM is parsed but before React mounts
 // (because this is the first <script type=module> in index.html).
 // In tests / SSR the guard inside applyBootstrapTheme makes this a no-op.
-//
 // TOP-LEVEL AWAIT, the module evaluation pauses until the
 // preset is loaded + vars applied. ESM <script type=module> tags
 // block subsequent module scripts until top-level await resolves, so
@@ -217,7 +184,6 @@ await applyBootstrapTheme();
 // applied the active theme), it is a fire-and-forget pre-fetch. Each
 // loadThemePreset call is idempotent + cached, so the active
 // preset (already loaded above) is an instant no-op here.
-//
 // Under offline conditions (C-DATA-1) the chunks are served from the
 // local .asar (the predecessor) or dist (Tauri), so the pre-fetch completes
 // without network access. If a fetch fails (e.g. a chunk file is
@@ -233,7 +199,6 @@ for (const id of Object.keys(lazyThemeLoaders)) {
 }
 
 // invalidate the cached theme when prefers-color-scheme changes.
-//
 // original FOUC fix: this module reads the cached theme mode
 // from localStorage ONCE at module-import time and applies it before
 // React mounts. When the user OS switches between light/dark while
@@ -241,17 +206,13 @@ for (const id of Object.keys(lazyThemeLoaders)) {
 // at sunset), the browser fires a prefers-color-scheme change
 // event on window.matchMedia. Without a listener, the cached
 // system mode would NOT track the OS change, the renderer
-// would stay in the old mode until the user manually toggled or
 // restarted the app.
-//
 // The listener re-applies the bootstrap (which re-reads resolveIsDark
 // against the now-current matchMedia result) on every change.
-//
 // The listener is installed ONCE at module import and lives for the
 // lifetime of the renderer process. It is a no-op in tests / SSR
 // (the typeof window === undefined / window.matchMedia
 // guards short-circuit).
-//
 // applyBootstrapTheme is async (it awaits loadThemePreset).
 // The listener fire-and-forgets the async call, the OS theme change
 // is not time-critical (the user already has a rendered UI; a brief

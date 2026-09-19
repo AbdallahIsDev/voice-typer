@@ -1,12 +1,9 @@
 // Bridge-ready subscription via useSyncExternalStore.
-//
-// `usePythonEvent` previously returned early from its `useEffect` when
 // `window.python` was undefined at mount, and the effect's only
 // dependency was `[type]`, so if `window.python` was installed later
 // (e.g. by the Tauri bridge's auto-install on first import, or by the
 // predecessor preload under slow HMR), the subscription was never
 // re-attempted and events were silently dropped.
-//
 // `useBridgeReady` polls `window.python` presence every 100ms until it
 // appears, then notifies React via the `useSyncExternalStore` callback.
 // Including `bridgeReady` in the effect's dependency array causes the
@@ -42,14 +39,12 @@ function subscribeBridgeReady(callback: () => void): () => void {
 	// Poll every 100ms until window.python is available, then stop.
 	// The interval self-clears on first detection to avoid leaking a
 	// timer once the bridge is installed.
-	//
 	// If `window.python` is already set at subscribe time, the first
 	// tick (≤100ms later) detects it and calls `callback()`. React
 	// re-renders, `getSnapshot()` returns the same `true`, and the
 	// effect (which already ran with `bridgeReady=true` on the
 	// initial render) does not re-run, so the no-op re-render is
 	// harmless.
-	//
 	// Also detect the Tauri runtime appearing AFTER the
 	// initial module-import-time auto-install. The auto-install in
 	// the tauri-bridge installer runs once at module load, if
@@ -100,14 +95,6 @@ function getBridgeReadyServerSnapshot(): boolean {
 	return false;
 }
 
-/**
- * Returns `true` once `window.python` is installed (by the predecessor
- * preload script or by `installTauriBridge()`). Re-render-safe via
- * `useSyncExternalStore`: the snapshot is a stable boolean.
- *
- * Used by `usePythonEvent` to re-attempt the event subscription
- * when the bridge becomes available after mount.
- */
 export function useBridgeReady(): boolean {
 	return useSyncExternalStore(
 		subscribeBridgeReady,

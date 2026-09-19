@@ -70,9 +70,7 @@ export const CustomActionIcon: Story = {
 // error variant was invisible in the Storybook docs, designers and
 // QA had no canonical reference for what a load-failed empty state
 // should look like, which led to drift across pages.
-//
 // The variant is consumed by ConnectionStatusScreen, History,
-//Templates, Vocabulary, and Microphone (see  finding for the
 // full list). This story serves as the visual contract: any page
 // that renders `<EmptyState variant="error" />` should match this
 // appearance.

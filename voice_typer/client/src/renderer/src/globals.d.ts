@@ -1,5 +1,4 @@
 // src/renderer/src/globals.d.ts
-//
 // Ambient module declarations for non-TS imports used by the renderer.
 // Without these, `tsc --noEmit` fails with TS2882 on side-effect CSS
 // imports (e.g. `import "./index.css"` in main.tsx / bubble-main.tsx).

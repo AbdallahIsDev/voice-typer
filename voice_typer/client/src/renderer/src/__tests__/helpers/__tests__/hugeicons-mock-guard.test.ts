@@ -1,32 +1,3 @@
-/**
- * Drift guard for the shared `@hugeicons/core-free-icons` mock.
- *
- * Background: every renderer test file used to hand-roll its own icon-module
- * `vi.mock` factory with `IconX: make("IconX")` stub lists. The lists
- * drifted, a component importing an icon missing from a file's list crashed
- * that file's tests at module-load time with "No '<Icon>' export is defined
- * on the mock" (vitest validates named imports against the mock factory
- * upfront). The canonical mock now lives in `helpers/hugeicons-mock.ts`;
- * these HARD assertions keep it in sync with the source tree forever:
- *
- *   1. Every icon imported from `@hugeicons/core-free-icons` anywhere in
- *      `src/renderer/src` (components, pages, stories, tests) MUST be a key
- *      of the canonical mock. Adding a new icon to a component → this test
- *      fails with a message pointing at `hugeicons-mock.ts`, so the mock
- *      can never silently miss an icon again.
- *
- *   2. No test file may hand-roll its own `...Icon: make("...")` stub list —
- *      they must all delegate to `createHugeiconsMock()`, so behavior is
- *      consistent everywhere and there is exactly one list to maintain.
- *
- *   3. The canonical mock must stay alphabetized (keeps diffs greppable).
- *
- * NOTE: this file deliberately never contains the literal mock-marker
- * substring (the icon-module specifier immediately following `vi.mock(`)
- *, the one-off migration script that converted the hand-rolled mocks
- * scans for that substring and would otherwise rewrite this file's own
- * docstring example.
- */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -97,7 +68,6 @@ describe("hugeicons mock drift guard", () => {
 	it("every icon imported from @hugeicons/core-free-icons is in the canonical mock", () => {
 		// Self-validating path resolution (mirrors the do-mock drift
 		// guard): if the __dirname math drifts, fail loudly instead of
-		// silently under-scanning, this file previously resolved
 		// RENDERER_SRC to .../src/renderer/src/__tests__ (one `..` too
 		// few) and missed icon imports in components/pages.
 		expect(

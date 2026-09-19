@@ -21,56 +21,14 @@ interface HotkeyPickerProps {
 	value: string;
 	onChange: (hotkey: string) => void;
 	mode: "single" | "combo";
-	/**
-	 * Optional preset options for the dropdown menu.
-	 * When provided, a dropdown is rendered so the user can pick from
-	 * these presets. When omitted or empty, no dropdown is shown and
-	 * only the capture button is available.
-	 */
 	presets?: { value: string; label: string }[];
 	className?: string;
 	"aria-label"?: string;
-	/**
-	 * optional callback invoked when capture mode starts.
-	 * Used by the parent to pause the global ESC cancel hotkey in the
-	 * backend so that pressing Escape during capture doesn't trigger
-	 * recording cancellation.
-	 */
 	onCaptureStart?: () => void;
-	/**
-	 * optional callback invoked when capture mode ends
-	 * (user pressed Escape, selected a key, or clicked the button
-	 * again).  Used by the parent to resume the global ESC cancel
-	 * hotkey in the backend.
-	 */
 	onCaptureEnd?: () => void;
-	/**
-	 * hotkey strings that are already occupied by other
-	 * settings. When the user tries to set this picker to a value that's
-	 * already in use, an error is shown and the change is rejected.
-	 * This prevents two settings from having the same hotkey.
-	 * Example: if the dictation key is set to "<shift>", passing
-	 * occupiedHotkeys={["<shift>"]} to the repaste key picker prevents
-	 * the user from also setting the repaste key to Shift.
-	 */
 	occupiedHotkeys?: string[];
-	/**
-	 * when true (and ``value`` is non-empty), renders a
-	 * small "Clear" (X) button next to the picker that calls
-	 * ``onChange("")``. Lets the user unset a hotkey without having
-	 * to capture a new one. Defaults to ``false`` so existing
-	 * callers that don't want a clear button see no UI change.
-	 */
 	allowClear?: boolean;
 }
-
-/**
- * Presentational shell for the hotkey picker. All capture-session
- * state (refs, keyboard listeners, countdown, commit / cancel logic)
- * lives in ``useHotkeyCapture``; this component renders the Button +
- * DropdownMenu + output hint + error ``<p>`` + Clear button and wires
- * them to the hook's API.
- */
 
 export function HotkeyPicker({
 	value,
@@ -109,7 +67,6 @@ export function HotkeyPicker({
 	// custom values and map them to a "__custom__" sentinel that
 	// displays the actual hotkey label, so the dropdown always shows
 	// something meaningful.
-	//
 	// The presets are now passed in from the parent via the `presets`
 	// prop, no hard-coded preset logic in this component. If no
 	// presets are provided, the dropdown is not rendered at all.

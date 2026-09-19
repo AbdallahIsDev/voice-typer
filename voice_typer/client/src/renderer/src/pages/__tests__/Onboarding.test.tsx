@@ -1,28 +1,3 @@
-/**
- * Tests for the Onboarding wizard (4-step essentials flow, 2026-09-14).
- *
- * Contracts under test:
- *
- * 1. The renderer mirrors the server's 4-step wizard
- *    (voice_typer/server/onboarding.py): Welcome → Consent → Model →
- *    Hotkey. Step rendering branches on `step_name` so the tests
- *    exercise the same step names the server actually emits.
- *
- * 2. F2 regression: selections are seeded from the saved config on
- *    every start (get_config runs on fresh start AND resume).
- *
- * 3. Model step: Continue is blocked until the user explicitly picks
- *    a model (no default model exists since the 2026-08-28 sentinel
- *    change), and the accordion rows fire onboarding_set_model.
- *
- * 4. Final step: "Get started" persists the hotkey (onboarding_set_hotkey)
- *    BEFORE onboarding_apply, then shows the success snack + navigates.
- *    Apply failure surfaces an inline alert + error snack and does NOT
- *    complete.
- *
- * All IPC is mocked via the shared stableMocks preamble.
- */
-
 import {
 	cleanup,
 	fireEvent,
@@ -67,12 +42,6 @@ const STEP_HEADINGS: string[] = [
 	"Choose Your Hotkey",
 ];
 
-/**
- * Mock the IPC handlers with a controllable wizard state machine.
- *
- * `get_config` returns `cfg` (defaults to a user with saved F4 +
- * large-v3-turbo so the "no default model" guard doesn't block).
- */
 function mockWizard(
 	options: {
 		startStep?: number;

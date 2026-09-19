@@ -2,7 +2,6 @@
 // lives in `./dashboard/hooks/useDashboardData`; pure helpers in
 // `./dashboard/lib/{streaks,format}`; presentational sub-components in
 // `./dashboard/components/`. LOC history: 732 (pre-split) → <150 (post-split).
-//
 // Analytics layout:
 //   1. Range selector (Today / 7 Days / 30 Days / All Time), drives
 //      the stat cards AND the chart together (single source: one
@@ -65,7 +64,6 @@ import { TimeRangeSelector } from "./dashboard/components/TimeRangeSelector";
 import { useDashboardData } from "./dashboard/hooks/useDashboardData";
 
 // Hidden share-image capture target container style.
-//
 // Hoisted to a module-level constant so the object identity is stable
 // across renders, a fresh inline `style={{...}}` literal on every
 // render breaks `React.memo` on the share-image subtree (each render
@@ -83,13 +81,6 @@ const SHARE_IMAGE_CAPTURE_STYLE: CSSProperties = {
 	pointerEvents: "none",
 };
 
-/**
- * Trend vs the previous period of the same length.
- *
- * Returns null when there's no prior period to compare (All Time) or
- * the previous period had no activity (division by zero). A zero delta
- * yields a flat trend (pct 0).
- */
 function computeTrend(
 	cur: number,
 	prev: number | null | undefined,

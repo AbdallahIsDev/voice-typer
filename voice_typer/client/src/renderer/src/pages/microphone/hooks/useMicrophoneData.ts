@@ -1,18 +1,15 @@
 // Data hook for the Microphone page.
-//
 // Owns: the ``microphones`` / ``config`` / ``loading`` / ``loadError``
 // state, the module-level caches (``_cachedMicrophones`` /
 // ``_cachedConfig``) that survive page navigations, the ``loadData`` /
 // ``updateConfig`` handlers, the mount-time load effect, and the
 // ``config_changed`` + ``microphones_changed`` event subscriptions.
-//
 // Both the mount/reload path and the ``microphones_changed`` handler
 // reconcile the active microphone selection: when the persisted
 // ``config.microphone`` id matches no enumerated device (hot-unplug,
 // Bluetooth power-off, renamed host API), the hook auto-falls back to
 // System Default with a warning snack instead of rendering
 // ``t("microphone.unknown")``.
-//
 // The reconciliation depends on the test hook's ``selectMicrophone``
 // closure. The page owns a shared ``selectMicrophoneRef`` and passes
 // it to both this hook and ``useMicrophoneTest``; this hook reads
@@ -60,17 +57,6 @@ type MicReconcileDecision =
 	| { action: "fallback"; micId: string }
 	| { action: "noop" };
 
-/**
- * Pure active-mic reconciliation decision, shared by the full
- * ``loadData`` path and the lightweight ``config_changed`` path (E7:
- * one decision implementation, not two copies of the guard logic).
- *
- * Mirrors the historical inline rules exactly: nothing to do when no
- * mic is selected, the list is empty, or the id is already guarded;
- * re-arm the guard when the id resolves again; fall back only when a
- * persisted id matches no enumerated device. Side effects (snack +
- * select) stay with the callers.
- */
 function decideMicReconcile(
 	cfg: VoiceTyperConfig | null,
 	mics: readonly MicrophoneDevice[],
@@ -90,12 +76,6 @@ function decideMicReconcile(
 }
 
 interface UseMicrophoneDataOptions {
-	/**
-	 * Ref-to-latest ``selectMicrophone`` closure owned by
-	 * ``useMicrophoneTest``. Read at event-fire time by the
-	 * ``microphones_changed`` handler so we don't need to re-subscribe
-	 * on every render.
-	 */
 	selectMicrophoneRef: RefObject<(micId: string | null) => Promise<void>>;
 }
 
@@ -134,7 +114,6 @@ export function useMicrophoneData({
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
 	const [loading, setLoading] = useState(true);
 	//surface backend-load failures to the user instead of
-	// silently masking them. The previous implementation only logged to
 	// console, leaving the user with an empty mic list and no indication
 	// that the backend was unreachable (vs. genuinely no microphones).
 	const [loadError, setLoadError] = useState<string | null>(null);
@@ -189,21 +168,6 @@ export function useMicrophoneData({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadData = useCallback(
 		async (isCancelled: () => boolean = () => false) => {
-			/**
-			 * Startup/reload counterpart of the ``microphones_changed``
-			 * hot-swap handler below: a persisted device id that matches no
-			 * enumerated device would otherwise leave ActiveMicrophoneCard
-			 * rendering ``t("microphone.unknown")`` silently until some later
-			 * event fired. Runs the SAME fallback (warning snack +
-			 * selectMicrophone(null)). Guard rails:
-			 *   - skip while already on System Default (nothing to fall back from),
-			 *   - skip when the list is EMPTY, a failed/empty enumeration is
-			 *     not evidence the device is gone (the catch path never gets
-			 *     here, but an empty success response does),
-			 *   - fire at most once per distinct missing id until state changes
-			 *     (loop guard: config_changed reloads triggered BY the fallback
-			 *     itself must not re-snack while the stale id is still persisted).
-			 */
 			function reconcileActiveMic(cfg: VoiceTyperConfig | null): void {
 				const decision = decideMicReconcile(
 					cfg,
@@ -318,7 +282,6 @@ export function useMicrophoneData({
 		};
 	}, [loadData]);
 
-	// F11-FIX (b-review Finding 11): invalidate the module-level caches
 	// when the backend reports that the underlying data changed through
 	// a path OUTSIDE this page. The server already emits
 	// ``microphones_changed`` (startup_tasks.py) when the device list
@@ -326,13 +289,11 @@ export function useMicrophoneData({
 	// show stale devices until the next manual refresh. ``config_changed``
 	// (emitted by set_config / onboarding) keeps ``_cachedConfig`` fresh
 	// too. Both re-run loadData() so the cache AND the visible UI update.
-	//
 	//(Fix 2): hot-swap detection. After loadData() refreshes
 	// the microphone list, if the currently-selected microphone
 	// (config.microphone) is no longer present in the new list, we:
 	//   1. show a warning snackbar explaining what happened, and
 	//   2. auto-fall back to the system default (selectMicrophone(null)).
-	// Previously the active mic card would silently render "Unknown" and
 	// the user had no idea why their mic stopped working (USB disconnect,
 	// Bluetooth headset power-off, hot-plug reorder, etc.).
 	usePythonEvent(

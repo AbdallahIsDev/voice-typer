@@ -1,34 +1,3 @@
-/**
- * Tests for the Vocabulary page, D2-FIX (b-review Finding 4).
- *
- * Scenario under test: clicking the trash icon on a vocabulary entry fires
- * `instantDeleteEntry`, which:
- *   1. Filters the entry out of the local `entries` state and calls
- *      `save_vocabulary` to persist the change.
- *   2. Shows an undoable toast (6 s window) so the user can click Undo.
- *
- * The undo callback previously closed over the render-time `entries`
- * snapshot, which STILL INCLUDED the deleted entry (because
- * `instantDeleteEntry` reads `entries` to compute `updated` via `.filter`,
- * but never replaces `entries` in the closure).  When the user clicked
- * Undo (up to 6 s later), `restored = [...entries]` contained `entry` at
- * its original index, `restored.indexOf(entry)` returned that index, and
- * `restored.splice(idx, 0, entry)` (deleteCount=0) INSERTED A SECOND COPY
- * at that index, the entry reappeared TWICE after Undo.  The closure was
- * also stale with respect to any other vocabulary edits made between the
- * delete and the Undo click, those edits were silently lost.
- *
- * The D2 fix reads the LATEST entries via a ref (`entriesRef.current`,
- * kept in sync by a `useEffect`) inside the undo callback, filters out
- * the deleted entry defensively, and splices it back at its captured
- * original index, guaranteeing exactly ONE copy is restored regardless
- * of concurrent edits.
- *
- * The test seeds 3 vocabulary entries, deletes one, captures the undo
- * callback from the `toast.warning` call, invokes it, and asserts that
- * the deleted entry reappears EXACTLY ONCE (not twice) and the list
- * returns to 3 entries.
- */
 import {
 	cleanup,
 	render,
@@ -90,10 +59,6 @@ function saveCallCount(): number {
 	).length;
 }
 
-/**
- * Delete the row showing `original` via its direct per-row Delete
- * button (aria-label = vocabulary.deleteAria → "Delete: {original}").
- */
 async function deleteViaMenu(original: string) {
 	const user = userEvent.setup();
 	const row = screen
@@ -217,7 +182,6 @@ describe("Vocabulary page, D2-FIX undo duplicates", () => {
 	});
 
 	it("Undo preserves concurrent edits made between delete and undo click", async () => {
-		// D2-FIX bonus: the closure was previously stale with
 		// respect to any other vocabulary edits made between the
 		// delete and the Undo click, those edits were silently
 		// lost because the restore replaced the current list with
@@ -225,7 +189,6 @@ describe("Vocabulary page, D2-FIX undo duplicates", () => {
 		// callback reads the LATEST entries via `entriesRef.current`
 		// and only re-inserts the deleted entry, preserving any
 		// concurrent edits.
-		//
 		// We simulate a "concurrent edit" by deleting a SECOND
 		// entry ("teh") between the first delete ("recieve") and
 		// the Undo click.  Before the fix, the first Undo's stale

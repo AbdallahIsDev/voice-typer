@@ -6,14 +6,6 @@ interface PageHeadingProps {
 	children?: ReactNode;
 }
 
-/**
- * Internal helper that renders the actual `<h1>` title plus the optional
- * description paragraph. Extracted so the two layout branches in
- * {@link PageHeading} (with-action row vs. stacked) share a single
- * render path, previously both branches duplicated the same JSX, which
- * made it easy for them to drift out of sync (e.g. a className tweak
- * applied to one branch but not the other).
- */
 function HeadingContent({
 	title,
 	description,

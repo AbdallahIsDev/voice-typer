@@ -1,5 +1,4 @@
 // useOfflinePackDownload, silent-mode offline-pack readiness hook.
-//
 // Models the offline-pack lifecycle introduced by the installer split
 // (see `upload/plan-offline-pack-split.md` §7.4 + §8.4 + §8.10 + §4.9).
 // The slim-core sidecar downloads + verifies + launches the pack worker
@@ -11,14 +10,11 @@
 // transcription areas when the user attempts offline transcription
 // before the pack is ready (§4.9, local whisper / Parakeet degrade
 // silently to "silent download starts, 'Preparing…' line, then works").
-//
 // ── Subscribed push events (§7.4, 11 of the 13 new events) ──────────
-//
 // The hook subscribes to the 11 pack/worker lifecycle push events.
 // The other 2 events in §7.4 (`transcribe_offline` request and
 // `transcribe_offline_result` push) are per-transcription events, not
 // pack-lifecycle events, so they don't belong here.
-//
 //   1.  `offline_pack_download_started`  , download kicked off (after consent)
 //   2.  `offline_pack_download_progress` , byte counter (silent, no UI surface)
 //   3.  `offline_pack_download_completed`, bytes landed; verify step begins
@@ -30,7 +26,6 @@
 //   9.  `worker_started`         , worker process up (not yet prewarmed)
 //   10. `worker_crashed`         , worker exited unexpectedly
 //   11. `worker_unloaded`        , slim-core asked worker to unload (RAM)
-//
 // NOTE on type-safety: the 11 event names ARE in the
 // `PythonPushEvent` union in `types/ipc/push_events.ts` AND in the
 // runtime `KNOWN_EVENT_TYPES` mirror that backs the dev-time typo
@@ -44,9 +39,7 @@
 // narrowed overload. The runtime behaviour is the same either way —
 // `usePythonEvent`'s dispatcher fans out by `event.type` regardless
 // of union membership.
-//
 // ── Transport-agnostic ───────────────────────────────────────────────
-//
 // The hook only depends on `usePythonEvent`, which goes through the
 // module-level dispatcher that subscribes to `window.python.onEvent`.
 // The `window.python` namespace is installed by EITHER:
@@ -58,14 +51,11 @@
 // under both runtimes. We do NOT touch Tauri or predecessor APIs
 // directly, see the contract documented at the top of
 // `hooks/usePython.ts`.
-//
 // ── State machine ────────────────────────────────────────────────────
-//
 // `status` is the lifecycle stage of the pack+worker. `isReady` is
 // `true` ONLY when `status === "ready"` (pack verified + worker
 // started + prewarmed, the `offline_pack_ready` event). Every other state
 // means offline transcription will either queue, fail, or degrade.
-//
 // Transitions (event → new status):
 //   offline_pack_download_started  → "downloading"
 //   offline_pack_download_progress → "downloading" (no-op if already)
@@ -83,7 +73,6 @@
 //                            slim core actively asks a RUNNING worker
 //                            to unload, which can only happen after
 //                            `offline_pack_ready`.)
-//
 // `error` is cleared on every successful transition (`offline_pack_ready`).
 // Failure events overwrite `error` with the message from the event
 // payload (`data.error` / `data.reason`) if present, otherwise leave
@@ -156,7 +145,6 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 	);
 
 	// ── offline_pack_download_progress → "downloading" (silent, no UI surface)
-	//
 	// §7.4 calls this event "silent, no UI". We still subscribe so the
 	// status machine reflects "actively downloading" even if
 	// `offline_pack_download_started` was missed (e.g. the renderer mounted
@@ -191,7 +179,6 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 	);
 
 	// ── offline_pack_verified → "worker-starting" (pack OK, worker not yet up)
-	//
 	// `offline_pack_ready` is the terminal event; `offline_pack_verified` is an
 	// intermediate "checksum OK, worker about to start" signal. We
 	// transition to "worker-starting" unless we're already at "ready"
@@ -205,7 +192,6 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 	);
 
 	// ── offline_pack_missing → "missing" (§8.10, deleted by cleaner/AV) ─────
-	//
 	// The slim-core launch-time existence check found no pack dir.
 	// A silent re-download is queued; we surface the status so the
 	// "Preparing…" banner can show the right copy if the user attempts
@@ -260,7 +246,6 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 	);
 
 	// ── worker_unloaded → "worker-unloaded" (only from "ready") ──────
-	//
 	// §7.3 says the slim core can unload the worker under RAM pressure
 	// and restart it on next transcription. `worker_unloaded` only
 	// fires when the worker was actually running (i.e. after

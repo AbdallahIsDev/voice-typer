@@ -1,21 +1,3 @@
-/**
- * Accessibility + perf pins for the Microphone page components.
- *
- * This file mounts the real components and asserts on the rendered DOM
- * (not on source substrings) so a refactor that preserves the contract
- * still passes and a behavioural regression fails.
- *
- * Mock strategy:
- *   - `@hugeicons/react` and `@hugeicons/core-free-icons` are stubbed
- *     so we don't pull in the real icon runtime.
- *   - `@/components/audio/AudioFilterChain` is stubbed so the
- *     PresetAccordionSelector test doesn't mount the full settings row
- *     graph (irrelevant to its memoization invariant).
- *   - `@/i18n/i18n` is mocked with a `t` spy that returns the real
- *     English value (loaded from en.json) AND records every call so we
- *     can assert that `getPresetOptions()` runs exactly once per mount
- *     instead of per render.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -183,10 +165,8 @@ afterEach(() => {
 	cleanup();
 });
 
-// ──────────────────────────────────────────────────────────────────────
 //Mic list radio rows: each row exposes an accessible name, checked
 // state tracks the selection, and items are REALLY disabled during a test.
-// ──────────────────────────────────────────────────────────────────────
 describe("mic selection rows expose radio semantics with per-row accessible names", () => {
 	it("renders one radiogroup whose radios carry the device names (System Default included)", () => {
 		render(
@@ -241,11 +221,9 @@ describe("mic selection rows expose radio semantics with per-row accessible name
 	});
 });
 
-// ──────────────────────────────────────────────────────────────────────
 //TestReviewPanel exposes quality updates via aria-live +
 // role=status, hides the decorative bullet from AT, and uses the
 // theme warning token (no hardcoded palette classes).
-// ──────────────────────────────────────────────────────────────────────
 describe("TestReviewPanel quality block is announced to AT", () => {
 	const qualityWithIssues = {
 		volume_level: "good" as const,
@@ -324,9 +302,7 @@ describe("TestReviewPanel quality block is announced to AT", () => {
 	});
 });
 
-// ──────────────────────────────────────────────────────────────────────
 //TestReviewPanel transcription display ("You said" / unavailable copy).
-// ──────────────────────────────────────────────────────────────────────
 describe("TestReviewPanel test-transcription display", () => {
 	it("renders the transcription under the You-said label when present", () => {
 		render(
@@ -402,10 +378,8 @@ describe("TestReviewPanel test-transcription display", () => {
 	});
 });
 
-// ──────────────────────────────────────────────────────────────────────
 //AvailableMicrophonesList keeps real list semantics (ul/li) around the
 // unified radio rows.
-// ──────────────────────────────────────────────────────────────────────
 describe("AvailableMicrophonesList renders a real list with ul/li + roles", () => {
 	it("wraps the mic rows in a <ul role=list>", () => {
 		render(
@@ -463,10 +437,8 @@ describe("AvailableMicrophonesList renders a real list with ul/li + roles", () =
 	});
 });
 
-// ──────────────────────────────────────────────────────────────────────
 //PresetAccordionSelector memoizes getPresetOptions() instead of
 // calling it inline per render.
-// ──────────────────────────────────────────────────────────────────────
 describe("PresetAccordionSelector memoizes getPresetOptions() to a single call per mount", () => {
 	it("calls t('settings.audioEnhancement.presetAuto') exactly once on initial render", () => {
 		// The option array is built inside useMemo(() =>
@@ -633,12 +605,10 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 	});
 });
 
-// ──────────────────────────────────────────────────────────────────────
 //PresetAccordionSelector compact rows: option descriptions are NOT
 // permanently visible, each option exposes a keyboard-focusable
 // InfoTooltip trigger instead, and interacting with that trigger never
 // changes the selected preset.
-// ──────────────────────────────────────────────────────────────────────
 describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers", () => {
 	const baseProps = {
 		config: minimalConfig,
@@ -721,9 +691,7 @@ describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers"
 	});
 });
 
-// ──────────────────────────────────────────────────────────────────────
 //MicrophoneListItem: badge + row rendering for the unified radio list.
-// ──────────────────────────────────────────────────────────────────────
 describe("MicrophoneListItem radio row", () => {
 	function renderRowInGroup(ui: React.ReactElement) {
 		// Radix RadioGroupItem requires a Root ancestor (production always

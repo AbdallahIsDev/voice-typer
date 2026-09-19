@@ -1,22 +1,3 @@
-/**
- * Unit tests for `useDashboardData` BP-159 hot/cold split.
- *
- * Coverage:
- *   - mount performs the FULL refresh (all six IPCs, 500-row sample).
- *   - `transcription_final` with count+1 applies the DELTA (10-row head
- *     + count + corrections only; get_config/get_model_status/get_status
- *     NOT re-fetched; new row prepended + capped).
- *   - count jump (+2, import/restore path) falls back to the full refresh.
- *   - empty delta head falls back to the full refresh.
- *   - duplicate head id (already in sample) falls back to the full refresh.
- *   - `config_changed` triggers the FULL refresh (cold getters live there).
- *   - corrections card updates from the hot path alone.
- *
- * Strategy: pass a stub `call` directly (the hook takes it as an arg),
- * mock `usePythonEvent` to capture subscribers, stub
- * `document.visibilityState` to "visible" (jsdom defaults to
- * "prerender", which the hook treats as hidden).
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

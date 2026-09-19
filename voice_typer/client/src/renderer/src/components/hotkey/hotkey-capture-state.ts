@@ -1,41 +1,3 @@
-/**
- * Canonical location for the hotkey capture-session state machine
- * (pure reducer + action/state types) and the UI-mode-aware
- * validation wrapper.
- *
- * Extracted from the former ``hotkey-utils.ts`` monolith.
- *
- * Two concerns live here:
- *
- *  1. ``validateHotkey``, the UI wrapper that adds ``"single"`` /
- *     ``"combo"`` mode semantics on top of the shared structural
- *     validator in ``hotkey-validation.ts`` (which handles reserved
- *     shortcuts, structural, normalization). Used by
- *     ``HotkeyPicker.tsx`` and the test suite.
- *
- *  2. The capture-session state machine, a pure ``useReducer``-style
- *     reducer (no side effects) extracted from ``useHotkeyCapture.ts``
- *     so it can be unit-tested in isolation. The hook dispatches
- *     actions; timers / DOM listeners / IPC live in the hook, NOT here.
- *
- * The reducer tracks ONLY visible UI state: status
- * (idle → capturing → committed | cancelled | error), the localized
- * error string, the 30s capture countdown, and the live
- * "Holding: …" label. The hook retains refs for genuine mutable state
- * NOT in the reducer (held/session key sets, ESC-pressed flag, timer
- * IDs, container DOM ref, unsupported-combo label).
- *
- * Depends on:
- *  - ``hotkey-validation``, shared validation API (detectPlatform,
- *    isReserved, validateHotkey as validateHotkeyShared).
- *  - ``hotkey-keymap``, IS_MAC and MODIFIER_KEYS (for the mode-aware
- *    Fn-on-macOS-only and combo-must-end-with-non-modifier rules).
- *  - ``hotkey-format``, formatHotkey / formatHotkeyLabel (used to
- *    build error-message labels and the live "Holding:" label).
- *  - ``./checkHotkeyConflict``, duplicate-across-pickers check used
- *    by ``tryCommitHotkey``.
- */
-
 import { t } from "@/i18n/i18n";
 import { checkHotkeyConflict } from "./checkHotkeyConflict";
 import { formatHotkey, formatHotkeyLabel } from "./hotkey-format";
@@ -56,10 +18,8 @@ import {
 /**
  * Validate a hotkey for the UI, with an additional mode parameter
  * for single-key vs. combo constraints.
- *
  * For single mode: must be exactly one key (no modifiers together).
  * For combo mode: delegates to the shared validateHotkey.
- *
  * Returns null on success, or an error message string on failure.
  */
 export function validateHotkey(
@@ -71,7 +31,6 @@ export function validateHotkey(
 	//  - empty / no-keys check
 	//  - reserved-shortcut check (OS-specific)
 	//  - structural check (combo must end with non-modifier)
-	//
 	// We add mode-specific checks (single key constraint, Fn-on-macOS-only)
 	// on top, since those are UI-mode concerns the shared validator
 	// doesn't know about.
@@ -132,16 +91,11 @@ export function validateHotkey(
 	return null;
 }
 
-// ────────────────────────────────────────────────────────────────────
 // Hotkey capture state machine (reducer + types)
-// ────────────────────────────────────────────────────────────────────
-//
-// Extracted from ``useHotkeyCapture.ts`` so the reducer is a pure,
 // unit-testable function. The hook calls ``useReducer(hotkeyCaptureReducer,
 // initialHotkeyCaptureState)`` and dispatches actions; side-effects
 // (calling ``onChange``, ``onCaptureStart``/``onCaptureEnd``, clearing
 // timers) live in the hook, NOT in the reducer.
-//
 // The reducer tracks ONLY the visible UI state:
 //   - status: idle → capturing → committed | cancelled (→ error is unused
 //     in practice because validation failures keep the user in capture
@@ -149,21 +103,13 @@ export function validateHotkey(
 //   - error: the localized error string shown under the picker
 //   - secondsRemaining: the 30s capture countdown
 //   - heldModifiersLabel: the live "Holding: …" label
-//
 // The hook retains refs for genuine mutable state NOT in the reducer
 // (held/session key sets, ESC-pressed flag, timer IDs, container DOM
 // ref, unsupported-combo label).
-// ────────────────────────────────────────────────────────────────────
 
 /** How long the picker stays in capture mode before auto-exiting. */
 export const CAPTURE_TIMEOUT_SECONDS = 30;
 
-/**
- * Canonical modifier order. Modifiers are stored in the session set in
- * insertion order, but the captured hotkey must be identical regardless
- * of press order, so we always emit modifiers in this canonical order
- * before committing.
- */
 export const CANONICAL_MOD_ORDER = [
 	"ctrl",
 	"shift",
@@ -215,11 +161,6 @@ export const initialHotkeyCaptureState: HotkeyCaptureState = {
 	heldModifiersLabel: "",
 };
 
-/**
- * Build the human-readable "Holding: …" label from a comma-joined
- * modifier list (the format the hook dispatches in ``KeyDown`` /
- * ``KeyUp`` actions). Empty/blank string → empty label.
- */
 function buildHeldModifiersLabelFromAction(modifiers: string): string {
 	if (!modifiers) return "";
 	const mods = modifiers
@@ -230,22 +171,6 @@ function buildHeldModifiersLabelFromAction(modifiers: string): string {
 	return formatHotkeyLabel(mods.map((m) => `<${m}>`).join("+"));
 }
 
-/**
- * Pure reducer for the hotkey capture state machine.
- *
- * Invariants:
- *   - No side effects. No DOM access, no timer manipulation, no IPC.
- *   - All "leave capturing" transitions (cancel/commit/timeout) reset
- *     ``heldModifiersLabel`` and ``secondsRemaining`` to 0 so the UI
- *     doesn't flash a stale label/timer after exit.
- *   - ``KeyDown``/``KeyUp`` are no-ops when not capturing (the hook
- *     also short-circuits via ``capturingRef``, but the reducer guards
- *     defensively in case a stale dispatch slips through).
- *   - ``CommitFailure`` / ``SetError`` only touch ``error``, they do
- *     NOT change ``status``. The user stays in capture mode after a
- *     validation error so they can try again without re-clicking
- *     Record.
- */
 export function hotkeyCaptureReducer(
 	state: HotkeyCaptureState,
 	action: HotkeyCaptureAction,
@@ -318,28 +243,6 @@ export function hotkeyCaptureReducer(
 	}
 }
 
-/**
- * : shared commit-validation helper. Consolidates the duplicated
- * validate-then-conflict-check sequence that previously lived inline in
- * ``commitModifierOnlyCombo``, ``commitFullCombo`` (useHotkeyCapture.ts)
- * and the preset-dropdown ``onSelect`` (HotkeyPicker.tsx).
- *
- * Pure: returns ``{ ok: true }`` or ``{ ok: false, error }`` without
- * touching any React state or calling any callbacks. The caller decides
- * what to do with the result.
- *
- * @param newHotkey       The hotkey string to validate (e.g. ``"<ctrl>+<shift>+v"``).
- * @param opts.mode       ``"single"`` (dictation key) or ``"combo"`` (re-paste etc.).
- * @param opts.value      The picker's current value, re-selecting the same
- *                        value is allowed (conflict check skips it).
- * @param opts.occupiedHotkeys  Hotkey strings already claimed by sibling pickers.
- * @param opts.t          The i18n ``t`` function.
- * @param opts.resetSession  Hint flag for the caller: ``true`` for capture
- *                        sessions (call ``resetCaptureSession()`` after),
- *                        ``false`` for the preset dropdown (no session to
- *                        reset). Currently unused inside this helper, the
- *                        caller uses it to decide whether to reset.
- */
 export function tryCommitHotkey(
 	newHotkey: string,
 	opts: {

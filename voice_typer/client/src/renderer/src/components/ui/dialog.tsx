@@ -67,7 +67,6 @@ function DialogContent({
 				data-size={size}
 				aria-modal={true}
 				// bg-(--bg): modal panels intentionally share the app/sidebar
-				// background color, the old bg-popover sat one step lighter
 				// and read as a detached grey box against the window.
 				className={cn(
 					"group/dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-6 rounded-lg bg-(--bg) p-6 text-foreground ring-1 ring-foreground/5 duration-100 outline-hidden data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-md data-[size=lg]:max-w-xs data-[size=lg]:sm:max-w-xl dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
@@ -108,7 +107,7 @@ function DialogContent({
 						// the rest of the dark UI's icon buttons. ``size-9``
 						// matches the normalized icon-button size (all icon
 						// buttons are 36px app-wide).
-						"absolute inset-e-2 top-2 inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+						"absolute inset-e-2 top-2 inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 					)}
 				>
 					<HugeiconsIcon icon={Cancel01Icon} />

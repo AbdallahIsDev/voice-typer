@@ -1,31 +1,3 @@
-/**
- * : regression tests for the shared event dispatcher in
- * `hooks/usePython.ts`.
- *
- * Previously each `usePythonEvent` call subscribed to `api.onEvent`
- * directly, creating N subscriptions for N callers. On Tauri, each
- * subscription registers 4 Tauri event listeners (the main
- * `python-event` channel + 3 supervisor relay channels in
- * `python-namespace.ts`), so N callers created 4N Tauri listeners —
- * and every event triggered all 4N callbacks only to be filtered
- * down to the (typically 1) matching caller by the
- * `if (event.type === type)` check.
- *
- * The dispatcher subscribes to `api.onEvent` exactly ONCE (per
- * `window.python` instance) and fan-outs to per-type subscribers
- * stored in a `Map<type, Set<entry>>`. These tests pin:
- *
- *   1. N callers → 1 `onEvent` subscription (the multiplication is
- *      eliminated).
- *   2. The dispatcher fan-outs only to matching-type subscribers.
- *   3. The dispatcher tears down the `onEvent` subscription when the
- *      last subscriber unsubscribes (no dangling listener).
- *   4. The dispatcher re-subscribes if `window.python` is replaced
- *      (e.g. test `afterEach` deletes and re-sets it).
- *   5. The  cleanup contract is preserved: the cleanup
- *      returned by the previous handler invocation is run before the
- *      next matching event's handler.
- */
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -191,7 +163,6 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 		(window as unknown as { python: PythonBridgeMock }).python = newMock;
 
 		// Mount a new subscriber, the dispatcher detects the
-		// instance change, tears down the old subscription, and
 		// re-subscribes to the new mock.
 		renderHook(() => usePythonEvent("transcription_final", () => undefined));
 

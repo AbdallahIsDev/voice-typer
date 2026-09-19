@@ -1,10 +1,3 @@
-/**
- * Unit tests for the module-level last-test session cache.
- *
- * The cache survives Microphone-page unmount so navigating away and
- * back does not discard a just-completed test recording + verdict.
- * Start / mic-switch paths must clear it (wrong-mic A/B material).
- */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {

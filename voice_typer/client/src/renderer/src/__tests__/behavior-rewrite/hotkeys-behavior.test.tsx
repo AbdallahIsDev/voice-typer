@@ -1,61 +1,6 @@
-/**
- *  vitest rewrite, behavioral tests for hotkey-related TS modules
- * covered by `tests/test_hotkeys.py`.
- *
- * This file replaces the following string-pattern Python tests (each
- * one is also `@pytest.mark.skip`-ed in `tests/test_hotkeys.py` with
- * a pointer back to this file):
- *
- *   - TestHotkeyUtilsValidate::test_validate_function_exists
- *       (Python invariant: `"function validateHotkey" in utils` source string)
- *   - TestRepasteKeySettingUsesHotkeyPicker::test_no_free_text_input_for_repaste
- *       (Python invariant: regex `<Input[^>]*value=\{config\.repaste_hotkey`
- *       does NOT match source)
- *   - TestDictationKeySupportsExpandedPresets::test_dictation_key_uses_hotkey_picker_combo_mode
- *       (Python invariant: `'mode="combo"' in recording` AND
- *       `"DICTATION_KEY_PRESETS" in recording` source strings)
- *   - TestDictationKeySupportsExpandedPresets::test_old_f2_f12_dropdown_removed
- *       (Python invariant: `'f2', 'f3', 'f4', 'f5', 'f6'` is NOT in
- *       `pages/Settings.tsx` source)
- *
- * The Python tests asserted on substring presence/absence inside TS
- * source files. These pass even when the function silently returns the
- * wrong value, fail on innocent refactors (renaming the function,
- * switching quote style, extracting constants), and, for the "absent"
- * variants, silently pass if the offending code is merely moved to a
- * sibling file. The vitest versions below exercise the real runtime
- * behaviour: they import the function or mount the component, then
- * assert on the actual returned value or rendered DOM, so a refactor
- * that preserves the contract still passes and a behavioural regression
- * fails.
- *
- * NOTE: tests that overlap with the  rewrite
- * (`__tests__/a11y-rewrite/hotkey-utils-behavior.test.ts` and
- * `__tests__/a11y-rewrite/RecordingSettings-hotkey-picker.test.tsx`)
- * are NOT duplicated here, the  file already covers
- * `test_formats_single_key`, `test_formats_combo`,
- * `test_validate_rejects_empty`,
- * `test_validate_rejects_modifiers_only_in_combo`,
- * `test_validate_rejects_multi_key_in_single_mode`,
- * `test_settings_imports_hotkey_picker`,
- * `test_repaste_key_uses_hotkey_picker_combo_mode`, and
- * `test_single_key_presets_include_beyond_f12`.
- *
- * The corresponding Python tests are skipped (NOT deleted) so they
- * remain as a fallback until CI verifies the vitest versions pass on
- * all platforms.
- */
-
 import { cleanup, render } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-/**
- * Page-level render helper. Pages like Settings mount Radix Tooltip
- * (via SettingRow / ui primitives); the real App shell wraps everything
- * in a TooltipProvider (App.tsx), so tests mounting pages directly must
- * provide one too, otherwise every Tooltip render throws "Tooltip must
- * be used within TooltipProvider" and the page mounts empty.
- */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
@@ -70,7 +15,6 @@ import {
 } from "vitest";
 
 // ── HotkeyPicker mock ──────────────────────────────────────────────────────
-//
 // Capture every HotkeyPicker instance's props so we can assert on the
 // actual rendered configuration.  This is the same pattern used by the
 //rewrite (RecordingSettings-hotkey-picker.test.tsx); replicating
@@ -411,7 +355,6 @@ describe("old F2–F12 dropdown is removed (rewrite of test_old_f2_f12_dropdown_
 	});
 
 	it("does NOT render a <select> with F2–F12 <option> children", () => {
-		// The old dropdown was a <Select> (shadcn) with F2..F12 options.
 		// Even if a future refactor re-introduces a <select> for some
 		// other setting, none of its <option> children should be F2-F12.
 		const { container } = renderWithProviders(
@@ -430,7 +373,6 @@ describe("old F2–F12 dropdown is removed (rewrite of test_old_f2_f12_dropdown_
 	});
 
 	it("does NOT include any F-key in the dictation picker's preset labels", () => {
-		// The labels are user-visible; the old dropdown used "F2",
 		// "F3", etc. as labels.  A regression that re-introduces
 		// F-key labels (even with non-F-key values) would also be
 		// caught here.

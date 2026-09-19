@@ -4,14 +4,12 @@
 // warning in `usePythonEvent` consults this set to surface typos like
 // `usePythonEvent("past_failed", ...)` (intended `"paste_failed"`) in
 // the dev console.
-//
 // KEEP IN SYNC with the `PythonPushEvent` union in
 // `types/ipc/push_events.ts`. When a new event is added there, add
 // its `type` literal here too. The dev-time warning will surface
 // forgetfulness the first time a renderer subscribes to the new
 // event (the warning fires for unknown types, including ones added
 // to the TS union but not yet to this set).
-//
 // Exported so the parity test
 // (`hooks/__tests__/usePython-known-event-types-parity.test.ts`) can
 // assert the runtime set matches the compile-time `PythonPushEvent["type"]`
@@ -68,7 +66,6 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	// `bubble_set_state` transcript field; this event stays on the
 	// push-event surface for main-window consumers.
 	"transcription_partial",
-	// ── Pack + worker IPC events (master plan §7.4, 12 push
 	// events from the slim-core / runtime-pack split). Each is
 	// published by `event_bus.publish(...)` in the Python sidecar
 	// (the worker→slim-core hop forwards each as a standard event-
@@ -76,7 +73,6 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	// is a REQUEST (renderer → slim core → worker), so it lives
 	// in `PythonRequest` (`types/ipc/requests.ts`), NOT here.
 	// Pinned by `tests/test_event_types_parity.py`.
-	//
 	// Pack download lifecycle (silent progress + visible started/
 	// completed/failed):
 	"offline_pack_download_started",
@@ -96,7 +92,6 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	// The request counterpart `transcribe_offline` is a command,
 	// NOT a push event, see `PythonRequest`.
 	"transcribe_offline_result",
-	// ── Backend model-load lifecycle + previously-dropped push
 	// events (each is published by the Python sidecar; the
 	// per-interface docstrings in types/ipc/push_events.ts name the
 	// emitters). Pinned by tests/test_event_types_parity.py in both

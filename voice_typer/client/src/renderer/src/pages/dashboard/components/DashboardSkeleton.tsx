@@ -1,5 +1,4 @@
 // Dashboard loading skeleton.
-//
 // Mirrors the loaded Dashboard layout block-for-block
 // (`pages/Dashboard.tsx`): shell (gap-6) → PageHeading → range row
 // (TimeRangeSelector pill group LEFT + LastUpdatedIndicator right) →
@@ -8,7 +7,6 @@
 // card (header with h-8 icon chip, h-36 plot with y-axis + 7 bars +
 // x-label row) → the derived-metrics QuickInfo row (`sm:grid-cols-3`)
 // → the "Current Setup" heading + muted 3-col QuickInfo grid.
-//
 // The root stays a `<section aria-busy>` (NOT a live region): the
 // live-region guard test (`data-pages-live-region-guards.test.tsx`)
 // pins the first-paint skeleton at ZERO live regions, the hydrated

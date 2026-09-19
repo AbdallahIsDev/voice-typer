@@ -1,6 +1,5 @@
 // Test-session state machine hook for the Microphone page.
 //
-//Extracted from the former ``useMicrophoneTest`` monolith ().
 // Owns the test-recording lifecycle state
 // (``testRunning`` / ``testElapsed`` /
 // ``testAudioBase64`` / ``rawAudioBase64`` / ``testDurationMs`` /
@@ -11,7 +10,6 @@
 //
 //(1-C Finding 8): ``startTest`` / ``stopTest`` /
 // ``selectMicrophone`` are wrapped in ``useCallback`` with their actual
-// deps so the ``microphone_test_complete`` subscription and the
 // countdown timer can capture them directly, the ``stopTestRef``
 // indirection is no longer needed.
 //
@@ -20,10 +18,8 @@
 //   ``useMicrophoneLevelMonitor``), used to reset the meter on test
 //   start / stop / mic-change.
 // - ``stopPlayback`` (owned by ``useMicrophonePlayback``), called at
-//   the start of ``startTest`` to pause any playing test audio (the
 //   prior implementation relied on the unmount-cleanup effect pausing
 //   audio on the ``testRunning`` transition; that effect now lives in
-//   the playback hook and fires only on unmount, so we pause
 //   explicitly here to preserve the behaviour).
 // - ``selectMicrophoneRef`` (owned by the page, shared with
 //   ``useMicrophoneData``), assigned the latest stable
@@ -81,7 +77,6 @@ export const MICROPHONE_TEST_DURATION_SEC = 10;
 export const MIC_TEST_RECORDING_TTL_MS = 5 * 60 * 1000;
 
 // Module-level last-test cache lives in ../lib/testSessionCache (with
-// the chunked audio transport in ../lib/testAudioTransfer); this hook
 // keeps only the subscription/state/timer/effect wiring.
 
 /** Type of the ``t()`` i18n function, accepts a key + optional params. */
@@ -133,8 +128,6 @@ interface UseMicrophoneTestSessionOptions {
 	 * ``selectMicrophone`` is ``useCallback``-stable.
 	 */
 	selectMicrophoneRef?: RefObject<(micId: string | null) => Promise<void>>;
-	// NOTE: the former ``onOpenPrivacySettings`` prop was REMOVED when
-	// the consent-required snackbar was replaced by the unified
 	// point-of-use consent dialog (ConsentGateDialog), the dialog's
 	// "Open Settings" action navigates itself via the consentGate
 	// store, so the per-hook callback was dead code. See
@@ -181,20 +174,16 @@ export function useMicrophoneTestSession({
 	// class). ``callRef.current`` is read at cleanup time instead.
 	const callRef = useLatestRef(call);
 	// stopPlayback mirror (same pattern): the silent 5-min expiry timeout
-	// must not capture the `stopPlayback` identity (would churn stopTest),
 	// `stopPlaybackRef.current` is read at fire time instead.
 	const stopPlaybackRef = useLatestRef(stopPlayback);
 	// ``updateConfig`` is part of the public session-hook signature
-	// for parity with the prior ``useMicrophoneTest`` API but is not
 	// used directly here, preset / config-change handlers live in
-	// the composition hook. Reference it to satisfy exhaustive-deps
 	// lint without making it a runtime dep.
 	void updateConfig;
 
 	const [testRunning, setTestRunning] = useState(false);
 	// Guard against double-start while the start IPC is in flight. This
 	// is UI-only (disables Start + ignores re-entry), it never drives
-	// the recording timer/level UI, which still starts only after the
 	// backend confirms success.
 	const [testStarting, setTestStarting] = useState(false);
 	const [testElapsed, setTestElapsed] = useState(0);
@@ -229,22 +218,17 @@ export function useMicrophoneTestSession({
 	const startingRef = useRef(false);
 	// Silent 5-min UI expiry of the mic-test recording
 	// (MIC_TEST_RECORDING_TTL_MS). Generation-guarded: arming bumps
-	// `expiryGenRef` and captures it, firing only when still current so
 	// an older test's timer can never clear a newer test. Invalidate
 	// (gen++ + clearTimeout) at startTest / selectMicrophone / unmount.
 	const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const expiryGenRef = useRef(0);
 	// INTERNAL lifecycle flag owned by THIS hook (synchronous). The
-	// ``testRunningRef`` prop stays the cross-hook CONTRACT mirror for the
 	// level monitor, but the unmount cleanup must not depend on a prop-ref's
 	// identity staying stable across renders, read our own flag instead.
 	const recordingActiveRef = useRef(false);
 	// Latest ``startTest`` closure, so the consent dialog's retry
-	// (shown INSIDE startTest) can re-run the FULL start after the
-	// user grants consent, the closure identity isn't available to
 	// itself while it's being defined.
 	const startTestRef = useRef<() => Promise<void>>(async () => {});
-	//``testRunningRef`` is owned by the composition hook so the
 	// level monitor (declared alongside this hook in the composition)
 	// can read it without an ordering dependency. This hook syncs it
 	// via the effect below whenever ``testRunning`` changes.
@@ -252,7 +236,6 @@ export function useMicrophoneTestSession({
 		testRunningRef.current = testRunning;
 	}, [testRunning, testRunningRef]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: stopPlaybackRef/expiry refs are useLatestRef/useRef mirrors: reading .current in the expiry timeout is the hook's documented contract, .current must NOT become a dep
 	const stopTest = useCallback(async () => {
 		if (stoppingRef.current) return;
 		stoppingRef.current = true;
@@ -291,7 +274,6 @@ export function useMicrophoneTestSession({
 					);
 				}
 				// The recording itself succeeded, duration/quality verdict
-				// and transcription are valid even when playback delivery
 				// failed above (only the playable data is missing).
 				setTestDurationMs(result.duration_ms || 0);
 				if (result.quality) {
@@ -305,24 +287,18 @@ export function useMicrophoneTestSession({
 					result.transcription_unavailable === true;
 				setTestTranscription(transcriptionText);
 				setTestTranscriptionUnavailable(transcriptionUnavailable);
-				// Mirror the freshly-captured test recording into
-				// the module-level cache so a page navigation does NOT
 				// discard it.
 				writeTestSessionCache({
 					audioBase64: audioB64,
 					rawAudioBase64: rawB64,
 					durationMs: result.duration_ms || 0,
 					// Keep any prior quality when the backend omitted it
-					// this stop (matches the previous if-write).
 					quality: result.quality ?? readTestSessionCache().quality,
 					transcription: transcriptionText,
 					transcriptionUnavailable,
 				});
-				// Arm the silent 5-min UI expiry (covers both fetch-ok and
 				// fetch-failed-null above: the branch is entered whenever
-				// the recording itself completed). Generation-guarded so a
 				// newer test is never cleared by an older timer. Firing is
-				// completely silent (no toast): stops playback (don't strand
 				// a playing data-URI player), clears ALL test state + cache.
 				expiryGenRef.current += 1;
 				const expiryGen = expiryGenRef.current;
@@ -355,7 +331,6 @@ export function useMicrophoneTestSession({
 			) {
 				// Benign stale-trigger no-op: the backend already finalized this
 				// recording (auto-stop raced a manual stop, or a lost-push safety
-				// retry landed after completion). Deterministic state handling —
 				// NOT a failure; toasting it trained users to ignore real errors.
 				return;
 			} else if (result?.success) {
@@ -383,7 +358,7 @@ export function useMicrophoneTestSession({
 		} finally {
 			stoppingRef.current = false;
 		}
-	}, [call, config, showSnack, t, setLevel]);
+	}, [call, config, showSnack, t, setLevel, stopPlaybackRef]);
 
 	const startTest = useCallback(async () => {
 		// Invalidate any pending silent-expiry timer: a newer test must
@@ -403,10 +378,7 @@ export function useMicrophoneTestSession({
 		setTestTranscription(null);
 		setTestTranscriptionUnavailable(false);
 		// Invalidate the module-level test cache when a
-		// new test starts, the cache holds the PREVIOUS test's
 		// recording, which is now superseded. The setX calls above
-		// update React state immediately; the cache reset keeps the
-		// module-level copy in lockstep so a navigation during the
 		// test doesn't surface stale data on return.
 		_resetMicrophoneTestCache();
 		setLevel(0);
@@ -414,7 +386,6 @@ export function useMicrophoneTestSession({
 		setTestElapsed(0);
 
 		// Pause any playing test audio before starting a new
-		// recording (preserves the prior behaviour where the
 		// ``testRunning``-transition cleanup paused the audio
 		// element). The playback hook's own unmount cleanup
 		// only fires on unmount, so we pause explicitly here.
@@ -425,23 +396,15 @@ export function useMicrophoneTestSession({
 		// Record the current filter state for invalidation tracking.
 		setFiltersSinceLastTest(computeAudioKey(config));
 
-		// Shared point-of-use consent dialog (deduped across the
 		// resolved-envelope + thrown-error paths below, and shared with
-		// the level-monitor path). Opens the UNIFIED consent gate
 		// (Allow → persists the consent → retries the full test start
-		// via ``startTestRef``; "Open Settings" deep-links to the
 		// exact toggle). The ``consentField`` from the backend
-		// envelope is forwarded so the dialog + Settings target the
-		// right row (defaults to ``voice_biometric_consent``, the
-		// only field the level-monitor / mic-test gates enforce, for
 		// older backends whose plain ``success:false`` envelope omits
 		// it).
 		const showConsentSnack = (consentField: string) => {
 			openConsentGate({
 				consentField,
 				bodyKey: consentBodyKey(consentField),
-				// Retry after granting: re-run the FULL test start, the
-				// first attempt was aborted at the gate before the
 				// session state (countdown / timers / running flag) was
 				// set up, so a raw IPC retry would leave the UI in a
 				// half-started state.
@@ -463,12 +426,8 @@ export function useMicrophoneTestSession({
 
 			if (!result?.success) {
 				// The backend's ``client.consent_required`` envelope
-				// (from ``_respond_with_error``'s ConsentRequiredError
 				// mapping) carries a structured ``code`` field and a
-				// message containing "consent required", branch on the
 				// code first (robust to message rewording), falling back
-				// to the substring for older backend versions that only
-				// resolve a plain ``success:false`` envelope. Surface the
 				// consent requirement with a deep-link to Settings →
 				// Privacy instead of the generic failure toast. The
 				// handler docstring (see microphone_test_handlers.py)
@@ -480,7 +439,6 @@ export function useMicrophoneTestSession({
 					(typeof result?.message === "string" &&
 						result.message.includes("consent required"))
 				) {
-					// Forward the structured ``consent_field`` from the
 					// envelope so the deep-link lands on the EXACT
 					// Settings toggle (not just the Privacy tab).
 					const resolvedConsentField = (
@@ -508,11 +466,8 @@ export function useMicrophoneTestSession({
 			// only AFTER the backend confirmed the recording started
 			// (``result.success`` above) and is cleared ONLY by
 			// ``stopTest`` / ``selectMicrophone`` / unmount, never by a
-			// dep-driven effect cleanup on the ``testRunning`` transition,
-			// which previously killed these intervals one commit after
 			// creation and froze the timer at 00:00 while the backend kept
 			// recording. The backend's own auto-stop remains the primary
-			// completion signal (``microphone_test_complete`` event); the
 			// grace-period trigger below exists only as a safety net for a
 			// lost push event, not as the clock source.
 			if (testTimerRef.current) clearInterval(testTimerRef.current);
@@ -546,16 +501,10 @@ export function useMicrophoneTestSession({
 			testTimerRef.current = tickInterval;
 		} catch (err) {
 			// The predecessor path surfaces the backend's
-			// ``client.consent_required`` envelope as a thrown Error
-			// with ``code`` preserved (see usePython.call's
-			// ``type:"error"`` handling). Detect it and surface the
-			// consent prompt + Settings deep-link instead of the
 			// generic failure toast.
 			const code = (err as { code?: string } | null)?.code;
 			if (code === CONSENT_REQUIRED_CODE) {
 				// ``usePython.call`` now preserves the structured
-				// consent fields onto the thrown Error, forward the
-				// ``consent_field`` so the deep-link scrolls to the
 				// exact Settings toggle.
 				const consentField = (err as { consent_field?: unknown } | null)
 					?.consent_field;
@@ -585,7 +534,6 @@ export function useMicrophoneTestSession({
 	// Keep the consent-retry ref pointed at the latest closure.
 	startTestRef.current = startTest;
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const selectMicrophone = useCallback(
 		async (micId: string | null) => {
 			// Stop any active test first
@@ -622,7 +570,6 @@ export function useMicrophoneTestSession({
 			setTestTranscription(null);
 			setTestTranscriptionUnavailable(false);
 			// Invalidate the test recording cache on a
-			// mic switch, the cached recording was for the PREVIOUS
 			// mic and would be misleading A/B comparison material
 			// against the new mic. Mirrors the startTest invalidation.
 			// Also invalidate any pending silent-expiry timer so it can
@@ -640,7 +587,6 @@ export function useMicrophoneTestSession({
 				setLevel(0);
 				setPeak(0);
 				setMicMonitoring(false);
-				// NOTE: no explicit ``level_monitor_start`` here, the
 				// level-monitor effect in ``useMicrophoneLevelMonitor``
 				// re-runs ``level_monitor_start`` whenever
 				// ``config.microphone`` changes (its dep array includes
@@ -666,8 +612,6 @@ export function useMicrophoneTestSession({
 			}
 		},
 		[
-			// `call` deliberately dropped: read via the callRef mirror
-			// above so this callback keeps a STABLE identity, the
 			// selectMicrophoneRef sync effect below (deps
 			// [selectMicrophone]) is the documented-to-be-stable
 			// consumer, and an identity churn under test mocks would
@@ -682,11 +626,11 @@ export function useMicrophoneTestSession({
 			setPeak,
 			setMicMonitoring,
 			testRunningRef,
+			callRef,
 		],
 	);
 
 	// When the backend finishes recording, drive ``stopTest`` to fetch
-	// the result + reset the test-running UI. Now that ``stopTest`` is
 	// ``useCallback``-stable, we capture it directly (no ``stopTestRef``
 	// indirection). The subscription re-binds when ``testRunning`` OR
 	// ``stopTest`` changes, ``stopTest`` changes are bounded by its
@@ -705,15 +649,11 @@ export function useMicrophoneTestSession({
 		),
 	);
 
-	// Unmount-only teardown ([] deps): clear the lifecycle timer and
-	// cancel an in-flight test recording so the backend doesn't keep the
 	// mic stream open after navigation. MUST NOT depend on
 	// ``testRunning``: a dep-driven cleanup re-runs on every
-	// false→true transition and its closure clears the CURRENT refs —
 	// which are exactly the intervals ``startTest`` created one commit
 	// earlier (the frozen-00:00 timer bug). Audio-pausing on unmount is
 	// owned by ``useMicrophonePlayback`` (its own cleanup effect).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		return () => {
 			// Invalidate any pending silent-expiry timer so an unmounted
@@ -739,7 +679,7 @@ export function useMicrophoneTestSession({
 					);
 			}
 		};
-	}, []);
+	}, [callRef]);
 
 	// Keep ``selectMicrophoneRef`` pointed at the latest stable
 	//``selectMicrophone`` closure (). The assignment now happens

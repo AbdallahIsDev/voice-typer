@@ -1,26 +1,3 @@
-/**
- *  vitest suite, Sidebar React.memo re-render gating.
- *
- * Sidebar receives only primitive props + stable `useCallback` refs
- * from App.tsx (`navigate`). Wrapping it in `React.memo` (matching the
- * TitleBar.tsx pattern) lets the default shallow-equal comparator
- * short-circuit re-renders when no prop has changed.
- *
- * The two tests below verify:
- *   1. Re-rendering the parent with the SAME prop references does
- *      NOT re-render Sidebar (render counter stays at 1).
- *   2. Re-rendering the parent with a CHANGED `currentPage` prop
- *      DOES re-render Sidebar (render counter increments to 2).
- *      This guards against an over-aggressive memo that would break
- *      navigation (NEVER DOWNGRADE behaviour).
- *
- * Render counting is done via a mocked `<Button>` child (the shared
- * design-system Button that every nav item/submenu parent renders
- * through). Sidebar always renders exactly 9 Buttons in the expanded
- * state (8 leaves + the Settings parent); Button itself is NOT memo'd,
- * so a Sidebar re-render propagates to every Button. Counting Button
- * renders is therefore a faithful proxy for counting Sidebar renders.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

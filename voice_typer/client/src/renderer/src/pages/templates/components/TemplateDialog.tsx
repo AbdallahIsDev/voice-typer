@@ -1,15 +1,11 @@
 // Add/Edit template dialog (Modal).
-//
-// Extracted from the former monolithic ``pages/Templates.tsx``.
 // Renders the trigger / output / match-mode fields and the
 // Cancel / Save footer.  All state + handlers are passed in from the
 // parent (``useTemplateDialog`` owns them) so this component is a
 // pure presentational wrapper.
-//
 // 2026-08-28 UX pass (uniform field system): placeholders visibly
 // muted, variable tokens as tappable keycap chips, 24px rhythm between
 // field groups.
-//
 // 2026-09-02 theme pass (native primitives, roomier panel):
 //   - The custom ``rounded-lg`` field chrome is GONE, every control
 //     now uses the app's native pill language: the shared ``Input``
@@ -24,7 +20,6 @@
 //   - The unknown-variable alert uses the ``--warning`` theme token
 //     (tracks the active theme like the warning Button variant)
 //     instead of hardcoded ``amber-500``.
-//
 // 2026-09-03 info architecture pass + field polish:
 //   - Trigger description moved from a body paragraph into an
 //     InfoTooltip beside the label, the exact Settings-page pattern.
@@ -203,7 +198,7 @@ export function TemplateDialog({
 								title={t("templates.insertVariable", { token })}
 								className={cn(
 									KBD_CHIP_CLASSES,
-									"cursor-pointer transition-colors hover:border-accent/40 hover:bg-accent/5 hover:text-accent focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none",
+									"cursor-pointer transition-colors hover:border-accent/40 hover:bg-accent/5 hover:text-accent focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
 								)}
 							>
 								{token}

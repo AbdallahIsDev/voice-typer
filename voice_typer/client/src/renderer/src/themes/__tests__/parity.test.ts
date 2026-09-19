@@ -1,29 +1,3 @@
-/**
- * theme preset light/dark var coverage parity test.
- *
- * Each built-in theme preset defines CSS variable overrides for both
- * light and dark colour schemes.  If the light map and dark map don't
- * cover the SAME set of variable names, components that read a var
- * present in only one map silently fall through to the stylesheet
- * default in the other scheme, producing an inconsistent accent
- * colour, border, or sidebar tint when the user toggles between
- * light and dark mode.
- *
- * This test asserts that for every preset under test, the set of
- * keys in ``preset.light`` is identical to the set of keys in
- * ``preset.dark``.  It also asserts the union covers the full
- * ``THEME_VARIABLES`` superset declared in ``themes.ts`` so a future
- * edit that drops a var from both maps is caught.
- *
- * previously only amoled, sepia, and nord were exercised.
- * The remaining 7 non-default/non-custom presets (dracula, solarized,
- * tokyo-night, ayu, monokai, catppuccin, github) silently shipped
- * with missing light-mode tokens because the parity test didn't
- * cover them. The test now derives its fixtures from the canonical
- * ``THEMES`` array (filtering out the no-op ``default`` and runtime-
- * computed ``custom`` presets) so any future preset is automatically
- * covered.
- */
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { THEME_VARIABLES, THEMES } from "@/themes";
@@ -142,7 +116,6 @@ describe("theme preset light/dark var coverage parity", () => {
 });
 
 // ─── regression tests ────────────────────
-//
 // These tests assert the design-system invariants introduced by the
 // invariants: nameKey, dark --ring WCAG 1.4.11, dark
 // --muted-foreground WCAG AA 4.5:1, and --primary vs
@@ -256,13 +229,11 @@ describe("theme preset WCAG contrast invariants", () => {
 });
 
 // ─── pickBestForeground + passesWCAG helpers ────────
-//
 // These tests exercise the new helpers in ``@/lib/color-utils`` that
 // let the custom theme editor compute the best foreground for a given
 // background by trying a candidate list (replacing the hardcoded
 // ``#ffffff`` for primary/accent/destructive foregrounds that broke
 // AA on light primary colors).
-//
 // separate tests below assert the WCAG invariants for
 // --ring (light mode), --border, --accent-foreground, and
 // --destructive-foreground. These are SKIPPED because the underlying
@@ -350,7 +321,6 @@ describe("passesWCAG convenience helper", () => {
 });
 
 // ─── theme-preset WCAG invariants ───────────────────────────────────
-//
 // These tests document the desired WCAG invariants for the theme
 // presets' --ring (light), --border, --accent-foreground, and
 // --destructive-foreground tokens. The underlying theme files

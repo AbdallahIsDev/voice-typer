@@ -1,34 +1,3 @@
-/**
- *  vitest rewrite, type-level tests for `RecordingState`.
- *
- * Replaces the following string-pattern Python tests from
- * `tests/test_feature_hardening_regressions.py`:
- *   - TestRecordingStateEnumHasSixBackendStates::test_only_six_states
- *   - TestRecordingStateEnumHasSixBackendStates::test_dead_states_removed
- *
- * The Python tests regex-parsed the `RecordingState` union out of
- * `types/ipc.ts` source and asserted (a) it contained exactly the 6
- * states `idle | recording | transcribing | loading | cancelling |
- * error` and (b) it did NOT contain any of the 7 dead values
- * (`listening`, `processing`, `warming_up`, `downloading`, `paused`,
- * `setup`, `not_configured`).  These are brittle: they fail on
- * innocent format refactors (switching from a multi-line union to a
- * single-line alias, extracting to a `const`, using a `Record<...>`
- * helper) and they pass even when a dead value silently reappears as
- * long as it's outside the regex match window.
- *
- * The vitest version below uses TypeScript's type system itself as
- * the source of truth: it declares type-level helpers that evaluate
- * to `true` only when the `RecordingState` union is exactly the
- * expected 6-state set, and bind those helpers to `const`s that the
- * `it()` blocks assert on at runtime.  If anyone adds or removes a
- * state from the union, the type-level `_isExact` / `_noDead` consts
- * fail to compile, the `tsc --noEmit` step in CI catches it, and
- * the `it()` blocks never run (because the file doesn't compile).
- *
- * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  They are NOT deleted.
- */
 import { describe, expect, it } from "vitest";
 import type { RecordingState } from "@/types/ipc";
 

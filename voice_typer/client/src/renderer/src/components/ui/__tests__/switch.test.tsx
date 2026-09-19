@@ -1,15 +1,3 @@
-/**
- * Switch component tests, covers  (RTL thumb translate) and the
- *  follow-ups (sub-24px touch target via `after:-inset-y-3`,
- * visible `data-checked:border-primary/30` ring, `bg-clip-padding`
- * Safari-rendering-bug comment presence).
- *
- * The tests assert on `className` strings rather than computed styles
- * because jsdom has no CSS engine, the Tailwind `rtl:` and `data-*:`
- * variants compile to plain CSS selectors in the bundle, so verifying
- * the variant prefix is present in the rendered `class` attribute is
- * sufficient to confirm the intent.
- */
 import { cleanup, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
@@ -69,7 +57,6 @@ describe("Switch, BG-R12 sub-24px touch target", () => {
 
 		const root = document.querySelector('[data-slot="switch"]') as HTMLElement;
 		expect(root).toBeTruthy();
-		//previously `after:-inset-y-2` (8px each side → 36px
 		// total touch height on the 20px-tall default track). Now
 		// `after:-inset-y-3` (12px each side → 44px total, WCAG 2.5.5).
 		expect(root.className).toContain("after:-inset-y-3");

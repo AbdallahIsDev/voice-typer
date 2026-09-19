@@ -1,66 +1,3 @@
-/**
- *  vitest rewrite, behavioral tests for consent & privacy UI.
- *
- * This file replaces 19 TS-string Python tests from
- * `tests/test_consent_and_privacy.py`. Each Python test asserted on
- * substring presence inside the renderer source files (e.g.
- * `'t("about.voiceBiometricsDesc")' in src`). Those pass even when the
- * disclosure is conditionally hidden, when the i18n key is mistyped, or
- * when a toggle silently no-ops. The vitest versions below mount the
- * real components and assert behavioral invariants: the disclosure is
- * rendered into the DOM, the toggle is wired to the correct config key,
- * the onNavigate callback fires, etc.
- *
- * Replaced Python tests (each is `@pytest.mark.skip`-ed in
- * `tests/test_consent_and_privacy.py` with a pointer back to this file):
- *
- *   TestAboutPageHasPrivacyDisclosure (3 PORT):
- *     - test_about_page_has_updates_section
- *     - test_about_page_has_help_links
- *     - test_about_page_has_feedback_links
- *
- *   TestSettingsTroubleshootHasDiagnosticActions (2 PORT):
- *     - test_settings_has_diagnostics_button
- *     - test_settings_has_on_navigate_prop
- *
- *   TestAboutAndSettingsShowVoiceBiometricConsent (3 PORT):
- *     - test_about_cites_gdpr_article_9
- *     - test_settings_has_privacy_consent_section
- *     - test_settings_has_voice_biometric_consent_toggle
- *
- *   TestVoiceTyperConfigTypeIncludesAllFields (5 PORT):
- *     - test_sound_feedback_enabled_in_type
- *     - test_huggingface_consent_in_type
- *     - test_cloud_consent_fields_in_type
- *     - test_voice_biometric_consent_in_type
- *     - test_llm_polish_consent_in_type
- *
- *   TestModelsPageExposesCloudConsentToggles (6 PORT):
- *     - test_models_imports_switch
- *     - test_models_has_set_cloud_consent_handler
- *     - test_models_has_consent_key_helper
- *     - test_models_has_consent_disclosure_text
- *     - test_models_has_hugging_face_consent_banner
- *     - test_models_consent_section_only_shown_when_key_present
- *
- * Python tests that remain KEEP (Python-only behavior, no TS
- * counterpart): TestConfigDeclaresConsentFlags,
- * TestCloudEngineRefusesWithoutConsent,
- * TestWhisperPreDownloadRespectsHuggingFaceConsent,
- * TestEngineAcceptsConfigInRealConstructionPath,
- * TestModelManagerWiresConfigIntoWhisper.
- *
- * Python tests already skipped in the prior  round (with their own
- * vitest counterparts in `__tests__/a11y-rewrite/`):
- *   - test_about_page_has_privacy_section        → About-privacy.test.tsx
- *   - test_settings_has_all_consent_toggles_consolidated
- *                                                → PrivacySettings-consent.test.tsx
- *
- * The Python tests are NOT deleted, they remain skipped so they stay
- * available as a fallback until CI verifies the vitest versions pass on
- * all platforms.
- */
-
 import {
 	act,
 	cleanup,
@@ -71,20 +8,12 @@ import {
 } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-/**
- * Page-level render helper. Pages like Settings mount Radix Tooltip
- * (via SettingRow / ui primitives); the real App shell wraps everything
- * in a TooltipProvider (App.tsx), so tests mounting pages directly must
- * provide one too, otherwise every Tooltip render throws "Tooltip must
- * be used within TooltipProvider" and the page mounts empty.
- */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Hoisted mock state ────────────────────────────────────────────────
-//
 // vi.mock factories are hoisted by vitest and execute before any
 // module-level const/let, so any value the factory closes over must be
 // allocated via vi.hoisted().
@@ -307,9 +236,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 	return last?.[1] ?? null;
 }
 
-// =====================================================================
 // Group 1: TestAboutPageHasPrivacyDisclosure (3 PORT tests)
-// =====================================================================
 
 describe("About page, updates / help / feedback sections", () => {
 	beforeEach(() => {
@@ -341,7 +268,6 @@ describe("About page, updates / help / feedback sections", () => {
 		});
 
 		// Stub global.fetch, C-DATA-1 regression guard. The Updates
-		// section previously fired a fetch to api.github.com on mount
 		// and again when the (now-removed) "Check for Updates" button
 		// was clicked. The manual button has been removed entirely;
 		// this stub captures ANY fetch call so the C-DATA-1 test below
@@ -367,7 +293,6 @@ describe("About page, updates / help / feedback sections", () => {
 		// the offline guarantee forbids. The button + handler +
 		// latestVersion state have all been removed; the Updates section
 		// now shows the installed version plus a static offline message.
-		//
 		// Behavioral: mount PrewarmAndUpdates directly (avoiding the
 		// full Settings page mount to keep the test focused + avoid
 		// cross-test cleanup interactions). The "Check for Updates"
@@ -381,7 +306,6 @@ describe("About page, updates / help / feedback sections", () => {
 		);
 		renderWithProviders(<PrewarmAndUpdates />);
 
-		// Prewarm mount-time IPC call was removed when prewarm became a
 		// worker startup phase (plan §6.2 P-1). Flush any pending microtasks
 		// so the effect cleanup settles.
 		await new Promise((r) => setTimeout(r, 0));
@@ -404,7 +328,6 @@ describe("About page, updates / help / feedback sections", () => {
 		// Python invariant (test_about_page_has_help_links):
 		//   "README_URL" in src OR "README.md" in src
 		//   "CHANGELOG_URL" in src OR "CHANGELOG.md" in src
-		//
 		// Behavioral: anchor links to README.md and CHANGELOG.md
 		// are rendered as <a href="...README.md"> and
 		// <a href="...CHANGELOG.md">. The resources grid moved to
@@ -431,7 +354,6 @@ describe("About page, updates / help / feedback sections", () => {
 		//   "Report a Bug" in src OR "Report an Issue" in src
 		//   OR "Report a Bug" in en OR "Report an Issue" in en
 		//   "github.com/AbdallahIsDev/voice-typer/issues" in src
-		//
 		// Behavioral: an anchor with visible text matching
 		// /Report a (Bug|Issue)/ points at the GitHub issues URL.
 		const { ResourcesSettingsSection } = await import(
@@ -455,9 +377,7 @@ describe("About page, updates / help / feedback sections", () => {
 	});
 });
 
-// =====================================================================
 // Group 2: TestSettingsTroubleshootHasDiagnosticActions (2 PORT tests)
-// =====================================================================
 
 describe("Settings page, Troubleshooting section", () => {
 	beforeEach(() => {
@@ -504,8 +424,6 @@ describe("Settings page, Troubleshooting section", () => {
 		//   "Help & FAQ" in src OR en
 		//   "Report a Bug" in src OR en
 		//   "Open Log Folder" in src OR en
-		//
-		// IA split: the Troubleshooting + Diagnostics sections live on
 		// the Settings → Advanced section page in the hub IA, so the
 		// section heading renders directly there. The Troubleshooting
 		// buttons carry aria-labels (en.json:
@@ -539,7 +457,6 @@ describe("Settings page, Troubleshooting section", () => {
 	});
 
 	it("renders the diagnostics table in Settings without navigating to About", async () => {
-		// Behavioral: the diagnostics panel that previously lived on
 		// the About page now renders INLINE on the Settings → Advanced
 		// section page (DiagnosticsSettingsSection, alongside the
 		// Troubleshooting section), no navigation to "about" is
@@ -564,9 +481,7 @@ describe("Settings page, Troubleshooting section", () => {
 	});
 });
 
-// =====================================================================
 // Group 3: TestAboutAndSettingsShowVoiceBiometricConsent (3 PORT tests)
-// =====================================================================
 
 describe("About & Settings, voice biometric consent disclosure", () => {
 	afterEach(() => {
@@ -577,7 +492,6 @@ describe("About & Settings, voice biometric consent disclosure", () => {
 		// Python invariant (test_about_cites_gdpr_article_9):
 		//   't("about.voiceBiometricsDesc")' in src
 		//   't("about.voiceBiometricsTitle")' in src
-		//
 		// IA merge: the voice-biometrics disclosure and the About
 		// product identity now share ONE page (aboutAndPrivacy).
 		// Behavioral: the rendered merged page contains the
@@ -635,7 +549,6 @@ describe("About & Settings, voice biometric consent disclosure", () => {
 		// Python invariant (test_settings_has_privacy_consent_section):
 		//   't("settings.privacy.privacyTitle")' in src
 		//   't("settings.privacy.privacyDescription")' in src
-		//
 		// Behavioral: the rendered Settings (Privacy tab) shows
 		// both the localized "Privacy & Consent" section title
 		// and the localized description text (en.json:
@@ -675,7 +588,6 @@ describe("About & Settings, voice biometric consent disclosure", () => {
 		//   "voice_biometric_consent" in src
 		//   't("settings.privacy.voiceBiometricProcessingInfo")' in src
 		//   't("settings.privacy.voiceBiometricLabel")' in src
-		//
 		// Behavioral: the Privacy tab renders a Switch labeled
 		// "Voice biometric processing" with an info tooltip
 		// mentioning BIPA / GDPR, and flipping the Switch fires
@@ -724,10 +636,7 @@ describe("About & Settings, voice biometric consent disclosure", () => {
 	});
 });
 
-// =====================================================================
 // Group 4: TestVoiceTyperConfigTypeIncludesAllFields (5 PORT tests)
-// =====================================================================
-//
 // The Python tests asserted on substring presence inside
 // `types/config.ts`. The TS type system already enforces the existence
 // of these keys at compile time, if a key is removed from the
@@ -740,7 +649,6 @@ describe("VoiceTyperConfig type, consent flags", () => {
 	it("declares sound_feedback_enabled as a key of VoiceTyperConfig", () => {
 		// Python invariant (test_sound_feedback_enabled_in_type):
 		//   "sound_feedback_enabled" in types/config.ts source.
-		//
 		// Compile-time: the assignment below fails typecheck if
 		// "sound_feedback_enabled" is not a key of the type.
 		const key: keyof VoiceTyperConfig = "sound_feedback_enabled";
@@ -784,9 +692,7 @@ describe("VoiceTyperConfig type, consent flags", () => {
 	});
 });
 
-// =====================================================================
 // Group 5: TestModelsPageExposesCloudConsentToggles (6 PORT tests)
-// =====================================================================
 
 describe("Models page, cloud consent toggles", () => {
 	beforeEach(() => {
@@ -863,7 +769,6 @@ describe("Models page, cloud consent toggles", () => {
 	it("renders at least one Switch for cloud consent when a provider has an API key", async () => {
 		// Python invariant (test_models_imports_switch):
 		//   "import { Switch }" in pages/Models.tsx source.
-		//
 		// Behavioral: when a cloud provider has an API key set,
 		// the per-provider consent row renders a Switch.  The
 		// aria-label is interpolated with the provider's
@@ -892,7 +797,6 @@ describe("Models page, cloud consent toggles", () => {
 		//   "cloud_openai_consent" in src
 		//   "cloud_groq_consent" in src
 		//   "cloud_deepgram_consent" in src
-		//
 		// Behavioral: clicking the OpenAI provider's Switch
 		// fires set_config with cloud_openai_consent=true.
 		await renderModels({
@@ -920,7 +824,6 @@ describe("Models page, cloud consent toggles", () => {
 	it("toggling Groq and Deepgram Switches persists the correct per-provider consent key", async () => {
 		// Python invariant (test_models_has_consent_key_helper):
 		//   "consentKeyFor" in src
-		//
 		// Behavioral: the consentKeyFor helper maps each provider
 		// to its own consent flag, toggling the Groq Switch
 		// persists cloud_groq_consent, and toggling the Deepgram
@@ -968,7 +871,6 @@ describe("Models page, cloud consent toggles", () => {
 		// Python invariant (test_models_has_consent_disclosure_text):
 		//   't("models.cloud.consentTitle")' in src
 		//   '"models.cloud.consentDescription"' in src
-		//
 		// Behavioral: the localized "Audio transmission consent"
 		// title (en.json: models.cloud.consentTitle) and the
 		// provider-specific description text (en.json:
@@ -994,7 +896,6 @@ describe("Models page, cloud consent toggles", () => {
 	});
 
 	it("opens the shared consent dialog on download and continues the download after Allow", async () => {
-		// The persistent HuggingFace consent banner was REMOVED, and the
 		// interim "transient toast with a Grant action" was replaced by
 		// the SHARED point-of-use consent dialog (`openConsentGate` —
 		// the same modal every other consent-gated flow uses). Contract:
@@ -1100,7 +1001,6 @@ describe("Models page, cloud consent toggles", () => {
 		// Python invariant (test_models_consent_section_only_shown_when_key_present):
 		//   "apiKeys[provider.key]" in src
 		//   "consentKeyFor(provider.key)" in src
-		//
 		// Behavioral: when OpenAI has an API key but Groq and
 		// Deepgram don't (and their consent flags are false),
 		// the OpenAI consent Switch is rendered but the Groq

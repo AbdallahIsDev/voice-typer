@@ -1,15 +1,3 @@
-/**
- * Tests for hooks/theme/themePersist, the persistence concern
- * extracted from useTheme.ts (the debounced backend write path, the
- * quit-time flush, and the localStorage cache sync).
- *
- * The write-path semantics pinned here are load-bearing: rapid theme
- * changes must coalesce into ONE ``set_config`` 300ms after the last
- * change (merged pending payload), the flush path must fire
- * synchronously with the merged pending payload, and Promise
- * rejections on both paths must be caught (console.warn, no unhandled
- * rejection).
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearActiveBridge, setActiveBridge } from "../themeBridge";
 import {

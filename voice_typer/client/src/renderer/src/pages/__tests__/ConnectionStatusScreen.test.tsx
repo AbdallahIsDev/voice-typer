@@ -1,19 +1,3 @@
-/**
- *  (session NH): ConnectionStatusScreen render tests.
- *
- * The component was previously a `return null` stub. App.tsx rendered it
- * whenever the renderer wasn't connected to the Python backend, but
- * because the body was empty the user saw a blank main pane during
- * startup / reconnect / restart. The accessibility test mocked it as
- * `<div data-testid="connection-status" />`, which hid the regression
- * from CI.
- *
- * These tests exercise the real component directly so a future regression
- * to a stub would fail loudly. The App-level test
- * (`a11y/accessibility.test.tsx`) keeps the mock removed so the real
- * component is also exercised through the App render path.
- */
-
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";

@@ -1,11 +1,3 @@
-/**
- * Tests for `useRendererHeartbeat` (MO-113).
- *
- * The hook feeds the host's webview watchdog: beats must flow while the
- * document is VISIBLE, must stop while hidden (engine-level background
- * throttling would otherwise read as a false stall), and must resume on
- * the next visibility change.
- */
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

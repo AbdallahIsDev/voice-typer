@@ -1,32 +1,3 @@
-/**
- * ModelGroupList, shared list/group primitives for the Models page.
- *
- * (UI/UX overhaul 2026-08-20): the Local Models tab and the Cloud
- * Models tab previously rendered two completely different visual
- * patterns (collapsible accordion groups vs. flat always-expanded
- * cards). Both tabs now compose the SAME primitives from this file:
- *
- *   • `ModelGroupAccordion` / `ModelGroupItem` / `ModelGroupTrigger` —
- *     the collapsible group shell (header with brand logo + name, the
- *     plus/minus expand glyph from `ui/accordion.tsx`, hover
- *     affordance on the header row ONLY).
- *   • `ModelVariantRow`, a single model/plan list row (name + status
- *     badges on the left, metadata line below, actions on the right).
- *     The row itself is NOT clickable, only the action button is —
- *     so it carries no hover affordance (see point 10 of the
- *     overhaul).
- *   • `MetadataPair`, a label+value pair ("VRAM: ~512 MB", "WER:
- *     2.0%"): the LABEL renders in muted/secondary text, followed by a
- *     colon + the VALUE in primary text, visually "a named metric
- *     with a measured value".
- *   • `MetadataTag`, a standalone descriptive tag ("Multilingual",
- *     "Fast Speed") rendered as a neutral pill/badge chip, visually
- *     distinct from the label+value pairs.
- *
- * Future style updates to the group/list pattern happen HERE (one
- * place) and propagate to both tabs.
- */
-
 import type { ComponentProps, ReactNode } from "react";
 import {
 	Accordion,
@@ -71,12 +42,6 @@ export function ModelGroupItem({
 	);
 }
 
-/**
- * Group header row (brand logo + name). Clickable (expands/collapses),
- * so it carries a hover affordance. The plus/minus glyph comes from
- * `ui/accordion.tsx`; Radix supplies `aria-expanded` + `aria-controls`
- * on the trigger and the icons are aria-hidden.
- */
 export function ModelGroupTrigger({
 	className,
 	children,
@@ -124,11 +89,6 @@ export interface ModelVariantRowProps {
 	actions?: ReactNode;
 }
 
-/**
- * A single list row for one model version / cloud plan. The row is NOT
- * independently clickable, only `actions` is, so it renders no hover
- * affordance on the row itself.
- */
 export function ModelVariantRow({
 	name,
 	headingExtra,
@@ -183,12 +143,6 @@ export function MetadataPair({
 	);
 }
 
-/**
- * Standalone descriptive tag ("Multilingual", "Fast Speed", "Cloud")
- * rendered as a small neutral pill, visually distinct from
- * label+value pairs so users can immediately tell "a characteristic"
- * from "a measured value".
- */
 export function MetadataTag({
 	children,
 	className,

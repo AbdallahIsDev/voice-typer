@@ -1,13 +1,3 @@
-/**
- * AlertDialog + Accordion text-start tests, covers  (physical
- * `text-left` was replaced with logical `text-start` so dialog header
- * and accordion trigger text aligns to the inline-start edge in both
- * LTR and RTL locales).
- *
- * The tests assert on `className` strings because jsdom has no CSS
- * engine; verifying the logical Tailwind utilities are present (and
- * the physical ones are NOT) is sufficient to confirm the intent.
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -54,7 +44,6 @@ describe("AlertDialog, BG-69 text-start (logical)", () => {
 			'[data-slot="alert-dialog-header"]',
 		) as HTMLElement;
 		expect(header).toBeTruthy();
-		//the sm: breakpoint override previously used physical
 		// `text-left`; now uses logical `text-start` so the header's
 		// text-align follows the document's inline-start edge (left in
 		// LTR, right in RTL) on screens >= sm.

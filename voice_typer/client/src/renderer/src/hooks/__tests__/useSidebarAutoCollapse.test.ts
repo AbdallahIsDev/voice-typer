@@ -1,11 +1,3 @@
-/**
- * Tests for useSidebarAutoCollapse (extracted from App.tsx).
- *
- * Contract: own the sidebar collapse state; only the wide→narrow
- * TRANSITION (and the initial narrow mount) force a collapse. Once
- * collapsed, the user's manual expand wins until the next wide→narrow
- * transition. Narrow→wide does NOT auto-expand.
- */
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

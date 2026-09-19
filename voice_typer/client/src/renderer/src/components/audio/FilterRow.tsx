@@ -1,11 +1,8 @@
 // FilterRow, presentational per-row renderer for `<AudioFilterChain>`.
-//
-//previously `AudioFilterChain.tsx` had ~520 LOC of JSX with
 // the same `SettingRow + (Switch | RangeSlider | Select)` pattern
 // repeated 24 times (16 sliders + 7 toggles + 1 select). This
 // component renders ONE descriptor, the parent does a `.map` over
 // the registry.
-//
 //Behaviour preservation (vs the pre- inline JSX):
 //   - `<SettingRow label={...} info={...}>`, label is the resolved
 //     i18n string from the labels dictionary; info is resolved via
@@ -39,12 +36,6 @@ import {
 	audioFilterDescriptorByConfigKey,
 } from "./audioFilterRowDescriptors";
 
-/**
- * Type of the `set` helper passed down from `<AudioFilterChain>`.
- * Generic so call sites that know their `configKey` literal get full
- * type safety (e.g. `set("noise_filter_highpass", v)`, `v` is
- * inferred as `boolean`).
- */
 export type AudioFilterSet = <K extends keyof VoiceTyperConfig>(
 	k: K,
 	v: VoiceTyperConfig[K],
@@ -57,12 +48,6 @@ export interface FilterRowProps {
 	labels: AudioFilterLabels;
 }
 
-/**
- * Returns `config[k] ?? defaultValue` for the row's own configKey.
- * Cast through `number | boolean | string` because the registry's
- * `configKey` is `keyof VoiceTyperConfig` (widened), the descriptor's
- * `defaultValue` carries the right scalar type at runtime.
- */
 function readRowValue(
 	config: VoiceTyperConfig,
 	descriptor: AudioFilterRowDescriptor,
@@ -72,11 +57,6 @@ function readRowValue(
 	return raw as number | boolean | string;
 }
 
-/**
- * Returns true when the parent toggle is on (or there is no parent
- * toggle). The parent's `defaultValue` is looked up from the
- * descriptor registry so there's a single source of truth.
- */
 function parentToggleActive(
 	config: VoiceTyperConfig,
 	parentToggle: AudioFilterRowDescriptor["parentToggle"],
@@ -90,11 +70,6 @@ function parentToggleActive(
 	return Boolean(parentRaw ?? parentDefault);
 }
 
-/**
- * Renders a single filter row. Returns `null` when the parent toggle
- * is off (so the surrounding `.map`'s `isVisible && <FilterRow/>`
- * short-circuit still works, `null` is falsy-ish in JSX).
- */
 export function FilterRow({
 	descriptor,
 	config,

@@ -1,21 +1,3 @@
-/**
- * Focused tests for `useThemeSync`, locale + text-size reaction.
- *
- * Covers the two sync surfaces added alongside the existing theme
- * triplet handling:
- *
- *   1. `localeChanged` bridge event: the main process pushes the
- *      user's UI locale (`bubble:locale-changed` → preload
- *      `onLocaleChanged` → bridge "localeChanged"); the hook must
- *      route a SUPPORTED locale through the public `setLocale`
- *      (updating `_currentLocale`, `dir`, `lang`, and the i18n
- *      subscribers) and re-render, and must IGNORE unsupported /
- *      garbled payloads (no `dir` flip from a hostile value).
- *   2. `text_size` in the `bubble:config` payload: the hook must set
- *      `--font-scale` = text_size / 14 on `document.documentElement`
- *     , the same formula the main window's `useTheme` applies, and
- *      must ignore non-numeric / non-positive values.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

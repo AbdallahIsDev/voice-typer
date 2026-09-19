@@ -1,10 +1,8 @@
 // Shared ASR transcription-language options.
-//
 // Single source of truth for the language codes the backend accepts
 // (`config.language`) and their i18n label keys. Used by:
 //   - the Settings transcription-language select (ModelSettingsSection)
 //   - the Analytics "Current Setup" language card (via formatLanguage)
-//
 // Dropdown option labels are translated at render time so they follow
 // the user's chosen UI language. No `description` field is set on any
 // entry, earlier versions shipped inconsistent per-language

@@ -1,37 +1,3 @@
-/**
- * Tests for useModelDownload, focused on the single-setState
- * consolidation of the 10 previously-separate useState fields.
- *
- * Background
- * ----------
- * Previously: the hook used 10 separate `useState` calls
- * (`downloadingModel`, `downloadProgress`, `downloadStatus`, `isPaused`,
- * `downloadedBytes`, `totalBytes`, `speedBps`, `etaSeconds`,
- * `failedDownload`). Each `download_progress`
- * event invoked up to 8 of these setters, React 18 batched them into
- * a single re-render, but the per-setter overhead (state-entry lookup
- * + Object.is check + subscriber notification) ran 8 times per event.
- *
- * After consolidation: the 10 fields live in a single
- * `useState<DownloadState>`. Each `download_progress` event produces
- * ONE setState call with a patch object containing only the fields
- * present in the event payload.
- *
- * These tests verify:
- *   1. A multi-field `download_progress` event updates ALL fields
- *      atomically (single setState, verified by render count).
- *   2. The return shape is preserved (consumer identity stays stable).
- *   3. A `download_progress` event with only one field updates only
- *      that field (others preserved).
- *   4. A `download_progress` event with no recognised fields is a
- *      no-op (no setState, no re-render).
- *
- * Implementation note: the production-code import (`useModelDownload`)
- * is done via dynamic `await import()` inside the test setup so the
- * vi.mock factory for `@/hooks/usePython` is fully initialized before
- * the mock is asked to resolve `usePythonEvent` (mirrors the
- * `useTheme-flush-pending-save.test.tsx` pattern).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -151,7 +117,6 @@ describe("useModelDownload, single-setState consolidation", () => {
 		// Reset render count after mount settles.
 		const mountRenderCount = renderCount.current;
 
-		// Fire a multi-field progress event. Previously this would
 		// invoke up to 8 separate setters (one per field); now it
 		// produces ONE setState with a patch object.
 		act(() => {
@@ -277,7 +242,6 @@ describe("useModelDownload, single-setState consolidation", () => {
 		expect(captures.current?.etaSeconds).toBeNull();
 		expect(captures.current?.isPaused).toBe(false);
 
-		// Second event: update only `progress`. The previously-set
 		// `totalBytes` must be preserved (single-state spread).
 		act(() => {
 			handler?.({ progress: 50 });

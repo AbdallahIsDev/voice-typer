@@ -1,23 +1,3 @@
-/**
- * Unit tests for `useCloudProviders`.
- *
- * Coverage :
- *   - cloud provider config validation: saveApiKey bails on empty key, on
- *     unchanged key (no IPC round-trip)
- *   - secret redaction: saveApiKey reads the persisted value through
- *     `safeApiKey`, which strips the `<redacted>` sentinel so a redacted
- *     persisted value does NOT match a freshly-typed empty-string input
- *   - testConnection: sets pending → success on backend OK
- *   - testConnection: sets pending → failure on backend !OK
- *   - testConnection: sets info status when no API key is present
- *   - testConnection: the pending "Testing…" message goes through t()
- *     ("models.test.testing"), no hardcoded English literal
- *   - clearTestResult: removes only the targeted provider's entry
- *   - setCloudConsent: persists the consent flag + optimistically updates
- *     the local config snapshot
- *   - module-level `safeApiKey` helper: strips `<redacted>` sentinel,
- *     preserves real keys, normalizes null/undefined to ""
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

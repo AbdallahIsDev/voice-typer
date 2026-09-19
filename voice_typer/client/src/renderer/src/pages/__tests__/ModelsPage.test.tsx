@@ -1,27 +1,3 @@
-/**
- * Tests for the Import Model flow in ModelsPage.
- *
- * Covers:
- * - Import Model button renders with correct label
- * - Click opens the desktop folder dialog (window_.openModelImportDialog)
- * - Cancel dialog → no IPC call, no snackbar
- * - Successful import → calls import_model IPC, shows success snackbar
- * - No known models found → shows warning snackbar
- * - All models fail → shows error snackbar
- * - import_model IPC error → shows failure snackbar
- * - Outside predecessor (no window_ API) → shows warning snackbar
- *
- * Additional coverage ():
- * - MDL-3: cancel produces no duplicate snackbar from `downloadModel`
- * - MDL-5: cloud provider API key inputs have unique HTML ids
- * - MDL-9: download success auto-selects the model in the renderer
- *   (user request, supersedes no-auto-activate); config/status are
- *   still re-fetched to reconcile before the activation persists
- * - Select buttons remain ENABLED while any download is in progress
- *   (only the Download / Download-Deps buttons are gated on
- *   `anyDownloading`, the earlier "Select disabled" claim was wrong)
- */
-
 import {
 	cleanup,
 	fireEvent,
@@ -67,7 +43,6 @@ import en from "@/i18n/translations/en.json";
 import ModelsPage from "@/pages/Models";
 
 // Helper: flatten a nested JSON object into dot-separated keys (same as
-// the i18n module does internally).  Used to look up translated strings
 // by key for assertions.
 function flattenKeys(
 	obj: Record<string, unknown>,
@@ -178,9 +153,7 @@ describe("ModelsPage, Import Model flow", () => {
 	it("shows a 'No model selected' banner when model_size is empty", async () => {
 		// model_size === "" is the backend's NO_MODEL_SIZE sentinel, the
 		// page must surface the genuine no-model state via the compact
-		// dismissible banner (replaced the former centered EmptyState py-16
 		// block, see 2026-08-30 polish pass). Banner is sticky, accent
-		// tinted, with a close X far right, session-dismissible.
 		await renderPage({ ...MOCK_CONFIG, model_size: "" });
 
 		const banner = document.querySelector(
@@ -215,7 +188,6 @@ describe("ModelsPage, Import Model flow", () => {
 				document.querySelector('[data-testid="models-no-model-banner"]'),
 			).toBeNull();
 		});
-		// Dismiss is session-scoped via sessionStorage.
 		expect(sessionStorage.getItem("models:noModelBannerDismissed")).toBe("1");
 	});
 
@@ -563,7 +535,6 @@ describe("ModelsPage, Import Model flow", () => {
 });
 
 //MDL-3 / MDL-5 / MDL-9 / select-button gating ────────────────────
-//
 // These tests cover fixes for the Models.tsx bugs identified in the
 // comprehensive review (MDL-3, MDL-5, MDL-9, and the download-gating
 // behaviour). They focus on user-visible behaviour (snackbar calls,
@@ -798,7 +769,6 @@ describe("ModelsPage, MDL-5: cloud provider API key inputs have unique HTML ids"
 			expect(label?.textContent).toContain(t("models.cloud.apiKey"));
 		}
 
-		// Sanity: no element uses the old shared id.
 		expect(document.getElementById("api-key-input")).toBeNull();
 		// And there are exactly 3 inputs with the api-key-input-*
 		// prefix (one per provider).
@@ -865,7 +835,6 @@ describe("ModelsPage, MDL-9: download auto-selects the model in the renderer", (
 		// small.en is active per MOCK_CONFIG. After downloading
 		// large-v3-turbo, the renderer auto-selects it (user
 		// request: a download ends with the model active). This
-		// supersedes the old MDL-9 no-auto-activate contract.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
 			if (type === "get_model_status") return Promise.resolve({});
@@ -1004,7 +973,6 @@ describe("ModelsPage, segmented control card border treatment (2026-08-21)", () 
 		// `rounded-xl bg-(--bg-subtle)`, the app-wide page-card token)
 		// so the control reads as one card among the model cards, NOT
 		// a borderless strip. The tabs
-		// variant's base `border-none` was REMOVED (2026-08-21) because
 		// tailwind-merge treats `border` (width) and `border-none`
 		// (style) as different groups, so `border-style: none` silently
 		// killed the container border, guard against it returning.

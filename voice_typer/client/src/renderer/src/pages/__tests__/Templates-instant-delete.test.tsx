@@ -1,28 +1,3 @@
-/**
- * Tests for the Templates page,  (instant-delete optimisation).
- *
- * Scenario under test: clicking the trash icon on a template row fires
- * `instantDeleteTemplate`, which previously:
- *   1. Computed the post-delete `items` array.
- *   2. Awaited `saveTemplates(items, call)` (a 100-500ms IPC round-trip).
- *   3. Called `loadRows()` (another IPC round-trip) to refresh state.
- *   4. The React state only updated AFTER both round-trips, the
- *      deleted row stayed visible for the entire duration, which felt
- *      sluggish and could trigger duplicate-delete clicks.
- *
- * The fix mirrors useVocabulary's D2-FIX pattern: `setTemplates(toRows(items))`
- * is called BEFORE the await, so the row disappears from the UI instantly.
- * On IPC failure, the catch branch restores the pre-delete state from a
- * captured local variable before showing the error toast.
- *
- * The test mocks `save_templates` with a never-resolving promise so the
- * IPC never completes, the only way the row can disappear from the UI
- * is if the optimistic `setTemplates` ran. This is the strongest possible
- * regression assertion: if anyone reverts the optimistic update, the row
- * would still be present when the test asserts its absence (because the
- * await never resolved, so neither `loadRows()` nor the post-save
- * setState would have run).
- */
 import {
 	cleanup,
 	fireEvent,
@@ -218,7 +193,6 @@ describe("Templates page, Clear All + single-row toolbar", () => {
 		await waitFor(() => {
 			expect(screen.getByText("hello")).toBeTruthy();
 		});
-		// The LastUpdatedIndicator was removed (2026-08-28) to mirror the
 		// Vocabulary page; the sort Select now lives in the toolbar's
 		// secondary cluster instead of a lone orphaned row.
 		expect(screen.queryByTestId("last-updated-indicator")).toBeNull();

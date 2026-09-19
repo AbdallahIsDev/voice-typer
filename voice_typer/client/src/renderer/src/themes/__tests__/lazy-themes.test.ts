@@ -1,28 +1,3 @@
-/**
- * regression test: ``themes/index.ts`` MUST statically import ONLY
- * the ``default`` and ``custom`` presets. The 10 non-default/non-custom
- * presets MUST be loaded ON DEMAND via the ``lazyThemeLoaders``
- * registry (dynamic ``import()``).
- *
- * Background: the previous code had 12 static top-level imports in
- * ``themes/index.ts``, one per preset. Each preset module is small
- * (~60 CSS variable strings), but 10 × 60 = ~600 strings shipped
- * eagerly in the initial renderer bundle even though only the active
- * preset's vars are applied at any time.
- *
- * The refactor replaced the 10 preset imports with a
- * ``Record<string, () => Promise<...>>`` registry of dynamic
- * ``import()`` loaders. Vite emits each preset as a SEPARATE async
- * chunk; ``loadThemePreset(id)`` populates the ``THEMES`` entry in
- * place. ``default`` and ``custom`` remain statically imported (they're
- * the fallback pair, both are no-ops with empty light/dark maps).
- *
- * This test does a STATIC source analysis (reads the file as text and
- * regex-matches) to verify the import structure. It also does a
- * FUNCTIONAL test that ``loadThemePreset`` actually populates a lazy
- * preset's light/dark maps.
- */
-
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -76,7 +51,6 @@ describe("themes/index.ts lazy-load registry", () => {
 				// form (inside the LAZY_PRESETS loader array) uses
 				// `import(` (parenthesis, no whitespace) so it does NOT
 				// match this regex.
-				//
 				// We assert each lazy preset is NOT statically imported
 				//, it should only appear as a dynamic `import("./<id>")`
 				// inside the loader registry.

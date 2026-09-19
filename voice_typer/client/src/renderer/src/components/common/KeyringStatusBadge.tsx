@@ -1,11 +1,9 @@
 // KeyringStatusBadge, shows a small lock icon + tooltip when
 // secrets are stored in the OS keychain, or a warning badge when only
 // the plaintext fallback (config.json with 0o600 perms) is available.
-//
 // Used next to API key inputs in:
 //   - pages/Models.tsx (OpenAI / Groq / Deepgram cloud provider cards)
 //   - components/settings/ModelSettingsSection.tsx (LLM polish API key)
-//
 // The status comes from the backend's `get_config` response, where the
 // service layer attaches a `keyring_status` field (see
 // voice_typer/server/service.py:get_config). When the field is absent
@@ -49,7 +47,6 @@ export function KeyringStatusBadge({
 		"inline-flex items-center appearance-none border-0 bg-transparent p-0 cursor-default",
 		// Use the shared focusRing (ring-1 / ring-ring, no alpha) so the
 		// badge's focus indicator matches the design-system Button instead
-		// of the thinner ring-1 / ring-ring/50 that previously broke WCAG
 		// 1.4.11 composite-contrast in some themes.
 		focusRing,
 	);

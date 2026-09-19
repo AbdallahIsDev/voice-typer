@@ -1,10 +1,8 @@
 // Inline "quick add" row state + save logic for the Vocabulary page.
-//
 // Replaces the disconnected Add-Entry modal (the list stays visible
 // while adding). The row lives at the top of the list: Wrong-phrase +
 // correct-phrase inputs and Save/Cancel, the simplified two-field
 // flow (no category picker; the backend bucket is auto-detected).
-//
 // Save logic: trim both fields, resolve the category (auto-detect),
 // refuse duplicate wrong→correct pairs via `findDuplicate`, append
 // with a fresh UUID, persist, and toast.

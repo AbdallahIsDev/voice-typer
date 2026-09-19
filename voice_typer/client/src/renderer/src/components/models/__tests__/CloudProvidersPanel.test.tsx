@@ -1,33 +1,3 @@
-/**
- * CloudProvidersPanel unit tests,  /
- *
- * (UI/UX overhaul 2026-08-20): the panel was rebuilt to match the
- * Local Models tab's collapsible-group pattern:
- *   • each provider is a collapsible accordion group header;
- *   • expanding a group reveals the API model row + a "Configure"
- *     action that reveals the API-key form (input + Save Key + Test
- *     Connection + consent Switch).
- * Tests that exercise the form therefore expand the group AND click
- * Configure first (`openApiKeyForm` helper).
- *
- * Coverage:
- *   1. : the test-result <span> exposes role=status + aria-live=polite
- *      so SR users hear the test-connection outcome as it arrives.
- *   2. : the "info" branch uses the canonical `text-(--text-muted)`
- *      Tailwind class (NOT the invalid `text-[(--text-muted)]` form).
- *   3. Three test-result color branches (success/failure/info) render the
- *      right text color class.
- *   4. Consent progressive disclosure: the consent card is hidden when no
- *      API key is set AND no consent has been granted; it appears when
- *      EITHER condition is true.
- *   5. Consent granted / not-granted status strings render appropriately.
- *   6. : the Save Key button is disabled when the input is empty.
- *   7. : the Test Connection button shows a spinner + is disabled
- *      while a test is in flight; stale results are cleared via
- *      onClearTestResult when the API-key Input changes.
- *   8. (overhaul point 11): the provider group is collapsible and the
- *      API-key form is hidden until the Configure action is clicked.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -115,7 +85,6 @@ const baseProps = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────
-//
 // The API-key form lives behind the provider group (accordion trigger)
 // + the "Configure" action (overhaul point 11). These helpers expand
 // the group and reveal the form before the test interacts with it.
@@ -403,12 +372,10 @@ describe("CloudProvidersPanel, Save / Test buttons", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 //the "Save Key" button is disabled when the input is empty
 // (prevents silently clobbering a stored secret with the empty string
 // that `safeApiKey` substitutes for the `<redacted>` sentinel on
 // every config fetch).
-// ─────────────────────────────────────────────────────────────────────
 describe("CloudProvidersPanel, Save Key button disabled guard", () => {
 	afterEach(() => cleanup());
 
@@ -445,12 +412,10 @@ describe("CloudProvidersPanel, Save Key button disabled guard", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 //the "Test Connection" button shows a spinner + is disabled
 // while a test is in flight (`testResult?.status === "pending"`).
 // Stale results are cleared via `onClearTestResult` whenever the
 // API-key Input changes.
-// ─────────────────────────────────────────────────────────────────────
 describe("CloudProvidersPanel, Test Connection pending state + clear-on-key-change", () => {
 	afterEach(() => cleanup());
 

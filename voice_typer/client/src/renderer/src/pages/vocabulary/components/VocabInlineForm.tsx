@@ -1,14 +1,11 @@
 // Inline vocabulary entry form, the SINGLE add/edit pattern for the
-// page (the edit dialog modal was removed so create and modify use the
 // same inline row treatment, keeping the list visible while editing).
-//
 // Renders the two simplified fields (wrong word/phrase + correct
 // word/phrase) plus Save / Cancel. The parent owns all state
 // (useVocabularyQuickAdd for create, useVocabularyEdit for edit);
 // this component is purely presentational. The category picker was
 // removed with the flat-list redesign, the backend bucket is
 // auto-detected on save (and preserved on edit).
-//
 // Used in two places:
 //   - the quick-add row above the table (withBottomBorder, add icon)
 //   - the in-place edit row replacing the row being edited
@@ -62,7 +59,6 @@ export function VocabInlineForm({
 				// Standalone quick-add row (above the table): full card
 				// treatment, same border, radius, and surface as the
 				// table container so the form reads as part of the same
-				// design system (the old form only had a bottom border
 				// and a translucent background that matched nothing).
 				// The in-list edit row (withBottomBorder=false) is
 				// already framed by the table card, so it keeps the

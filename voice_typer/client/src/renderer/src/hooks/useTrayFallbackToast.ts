@@ -1,6 +1,5 @@
 // useTrayFallbackToast, surfaces the ``tray_fallback_notification``
 // push event (the tray-unavailable degraded-mode banner).
-//
 // When the native system-tray icon cannot be created (headless build,
 // Linux without a systray compositor, VOICE_TYPER_NO_TRAY, …) the
 // backend queues tray notifications and periodically drains the queue
@@ -8,14 +7,12 @@
 // signal that tray features are degraded and that queued notifications
 // went to the log instead of the screen. Before this hook the frames
 // passed the host's event gate but landed on NO subscriber.
-//
 // PAYLOAD: the emitter nests ``title``/``message`` under ``data`` (the
 // canonical envelope, root-level fields are stripped by the
 // event-protocol layer, which is why an earlier predecessor-era root-level
 // shape delivered an empty payload). Both fields stay optional so the
 // banner still renders the generic degraded-mode copy if a future
 // emitter omits them.
-//
 // Dedupe: the drain loop can publish one frame per queued
 // notification, so a 60s window collapses a backlog into ONE banner.
 // The timestamp lives in `degradationToastStore` (Zustand, in its own
@@ -34,13 +31,6 @@ const TRAY_FALLBACK_TOAST_ID = "tray-fallback-notification";
  * matches the backend's 60s pending-notification drain cadence. */
 const TRAY_FALLBACK_TOAST_COOLDOWN_MS = 60_000;
 
-/**
- * Subscribe to ``tray_fallback_notification`` push events and show the
- * tray-unavailable banner. Call once at the top level of a component
- * (App wires it with the i18n `t` function).
- *
- * @param t i18n translate function (from useT).
- */
 export function useTrayFallbackToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 

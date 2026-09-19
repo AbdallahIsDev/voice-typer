@@ -1,31 +1,3 @@
-/**
- * Purity pins for the `useThemeSettings` state updaters.
- *
- * React requires setState updater functions to be PURE, StrictMode
- * double-invokes them in development, and an interrupted/replayed
- * render can re-invoke one with a different base state in production.
- * The custom-colour edit handler used to tuck all of its side effects
- * (document theme-var writes, the theme-colour cache invalidation, the
- * localStorage draft write, and the debounced backend-save arming)
- * INSIDE the `setCustomDraft` updater, so a double-invocation doubled
- * every one of them.
- *
- * These tests render the hook inside <StrictMode> (React's own testing
- * pattern for exposing impure updaters) and assert that ONE colour
- * edit produces EXACTLY ONE of each side effect:
- *   - one `saveDraftToLS` localStorage write,
- *   - one `updateConfigDebounced("custom_theme", …, 300)` save arming,
- *   - one `applyThemeVars` document write.
- *
- * They also pin the behavioural contract the refactor must preserve:
- *   - two edits in the same tick COMPOSE (both colours land in the
- *     draft, the ref mirror keeps the second edit from clobbering the
- *     first the way the old functional-updater form composed them);
- *   - a colour edit before the draft exists (null config / pre-init)
- *     is a no-op (no side effects, no state change).
- *
- * Tests run on LINUX (sandbox).
- */
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { type ChangeEvent, type ReactNode, StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +13,6 @@ vi.mock("@/lib/theme-draft-storage", () => ({
 
 // Partial-mock @/themes: keep the real data helpers (deriveCustomVars,
 // DEFAULT_CUSTOM_* maps) but spy on applyThemeVars, the document-write
-// side effect that used to run inside the state updater.
 vi.mock("@/themes", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/themes")>();
 	return {
@@ -187,7 +158,6 @@ describe("useThemeSettings, one side-effect batch per colour edit (StrictMode pu
 		});
 
 		// No act() between the two calls: the second must compose off the
-		// first (the old functional-updater form composed them; the ref
 		// mirror preserves that contract outside the updater).
 		editColor(result, "--background", "#111111");
 		editColor(result, "--foreground", "#222222");

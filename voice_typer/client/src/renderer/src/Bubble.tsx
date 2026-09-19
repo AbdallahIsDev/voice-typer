@@ -1,30 +1,3 @@
-/**
- * Bubble overlay React component, the always-on-top floating pill that
- * visualises microphone levels while recording and surfaces
- * transcribing/idle/error state.
- *
- * Previously a 671-line monolith. Extracted subcomponents and hooks
- * live in `./bubble-components.tsx`:
- *   - `useBubbleLifecycle`, theme sync, audio-level rAF loop (paused
- *     when hidden), and visibility tracking.
- *   - `useBubbleStateMachine`, `mode` / `animState` / `exitTick` /
- *     `errorMessage`.
- *   - `BubbleVisualizer`, recording-mode bars + REC indicator.
- *   - `BubbleMicButton`, always-visible mic toggle.
- *   - `BubbleDismissButton`, dismiss '×' affordance.
- *   - `BubbleModeContent`, 8-way mode-branch pill body (extracted
- *     from the inline ternary chain that used to live here).
- *   - `getBubbleAriaLabel`, pure helper that returns the
- *     state-aware aria-label for the `<output aria-live>` wrapper.
- *
- * This file owns only the auto-resize `useLayoutEffect`, the
- * fading → exit timer, the animation-end callback, the error-mode
- * auto-hide timer, and the render tree.
- *
- * The dead keyboard-move handler that previously lived here has been
- * removed, see the comment below for why and how to re-implement
- * keyboard-move correctly.
- */
 import {
 	useCallback,
 	useEffect,
@@ -56,7 +29,6 @@ import {
 // over their text field after they've moved on.
 const ERROR_AUTO_HIDE_MS = 7000;
 
-// Previously every effect/callback in this file re-cast `window.bubble`
 // to `BubbleWindowBubble | undefined` inline, the same
 // `as import("@/types/ipc").BubbleWindowBubble | undefined` expression
 // appeared 5+ times. Centralising the cast in one typed accessor makes
@@ -70,15 +42,12 @@ function getBubbleApi(): BubbleWindowBubble | undefined {
 	return window.bubble as BubbleWindowBubble | undefined;
 }
 
-// Keyboard-based bubble repositioning was previously implemented as a
 // `window.addEventListener("keydown", ...)` handler in this component.
 // It was DEAD CODE in production because the bubble BrowserWindow is
 // created with `focusable: false` (see
 // `voice_typer/client/src/main/windows/bubble-window.ts`), so the
 // renderer never receives keyboard focus and window-level `keydown`
 // events never fire in the shipped app. The handler only fired under
-// jsdom synthetic events (the old `Bubble-keyboard-move.test.tsx`).
-//
 // DECISION (option b, document as mouse-drag-only): rather than add a
 // MAIN-PROCESS global hotkey (option a), the bubble is documented in
 // user-facing help as mouse-drag-only. This is a deliberate product
@@ -89,7 +58,6 @@ function getBubbleApi(): BubbleWindowBubble | undefined {
 // with low expected usage. The main-process `bubble:move-by` IPC
 // handler (in `main/ipc/bubble-handlers.ts`) is preserved so a future
 // product change can wire a global hotkey without renderer work.
-//
 // If a future product decision flips `focusable: false` to `true`
 // (which would also affect the mic-button accessibility trade-off),
 // re-introducing a renderer keydown handler becomes safe, see the
@@ -174,7 +142,6 @@ function BubbleInner() {
 	// `bubble_behavior` / `bubble_click_to_toggle` / `bubble_mic_button`
 	// via the dedicated `bubble:config` channel. We show the mic button
 	// only when all three conditions are met.
-	//
 	// (The `theme_mode` / `theme_preset` / `custom_theme` / `locale`
 	// fields of the same payload are handled inside `useBubbleLifecycle`
 	// → `useThemeSync`.)

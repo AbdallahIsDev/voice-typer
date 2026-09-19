@@ -1,19 +1,3 @@
-/**
- * "Nord" theme preset, cool arctic blues and frosty greys.
- *
- * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
- * are consumed.
- *
- * light and dark now define the SAME superset of CSS vars.
- * Previously the light map was missing --card-foreground,
- * --popover-foreground, --surface-page, --text-primary,
- * --sidebar-primary, --sidebar-primary-foreground,
- * --sidebar-accent-foreground, --sidebar-ring, --destructive,
- * --destructive-foreground, --scrollbar-thumb, and
- * --scrollbar-thumb-hover, components reading those vars in light
- * mode silently fell back to the stylesheet default. Both maps now
- * cover the same key set.
- */
 import type { ThemePreset } from "../themes";
 
 export const nordTheme: Omit<ThemePreset, "nameKey"> = {
@@ -125,7 +109,6 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		"--input": "oklch(0.54 0.01 240)",
 		"--ring": "oklch(0.7 0.1 240)",
 		// Destructive (added --destructive-foreground so dark
-		// matches light coverage; previously only --destructive was set.)
 		"--destructive": "oklch(0.55 0.25 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
 		// Sidebar

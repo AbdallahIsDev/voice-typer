@@ -1,15 +1,6 @@
 interface LogoProps {
 	size?: number;
 	className?: string;
-	/**
-	 * : when the Logo is wrapped inside a parent that already
-	 * carries the accessible name (e.g. the <button> wrapper used in
-	 * Sidebar's collapsed state), pass `decorative` to demote the
-	 * inner SVG to aria-hidden so the parent's aria-label is the
-	 * single source of truth and ATs don't announce "Voice Typer"
-	 * twice. Defaults to `false` (Logo is self-labeled) to preserve
-	 * existing standalone behavior.
-	 */
 	decorative?: boolean;
 }
 

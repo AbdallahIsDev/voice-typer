@@ -1,8 +1,6 @@
 // Microphone page loading skeleton (full page).
-//
 // Mirrors the loaded Microphone layout (`pages/Microphone.tsx`):
 // page shell → heading → `gap-6` content group with
-//
 //   1. the ActiveMicrophoneCard test card (`rounded-xl border-border/5
 //      bg-(--bg-subtle) p-4 flex flex-col gap-3`: mic icon +
 //      name/description header, the h-1.5 LevelBar track, the

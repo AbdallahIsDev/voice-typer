@@ -1,22 +1,3 @@
-/**
- * Tests for the redesigned Vocabulary page features:
- *
- *   - flat two-column list: no category badges, no group headers, no
- *     Category column in the header
- *   - direct Edit / Delete icon buttons on each row (aria-labels,
- *     no tooltips)
- *   - bulk selection: row checkboxes → floating bulk bar with count,
- *     "Delete selected"
- *   - inline quick-add row (replaces the disconnected Add modal),
- *     duplicate wrong→correct pairs refused
- *   - per-entry "Test this entry" action → inline live-engine result
- *     (applied / no-change / error+retry)
- *   - load-time dedupe of duplicate pairs (merged toast)
- *
- * Mock strategy mirrors Vocabulary-page-improvements.test.tsx: stub
- * usePython / useSnackbar / sonner / hugeicons / next-themes and drive
- * the page through the real components.
- */
 import {
 	cleanup,
 	fireEvent,
@@ -546,9 +527,7 @@ describe("Vocabulary page, inline quick add", () => {
 	});
 });
 
-// NOTE: the standalone free-text "Test corrections" panel was removed
 // (the per-entry Test action covers the same need with one click, no
-// typing), the panel tests that used to live here are gone.
 
 describe("Vocabulary page, test this entry", () => {
 	beforeEach(() => {
@@ -851,7 +830,6 @@ describe("Vocabulary page, test this entry", () => {
 	});
 
 	// The standalone free-text panel (and its client-mirror fallback
-	// notice) was removed, the per-entry Test action surfaces engine
 	// errors via the inline error + Retry path above.
 });
 describe("Vocabulary page, search + sort interactions", () => {
@@ -878,7 +856,6 @@ describe("Vocabulary page, search + sort interactions", () => {
 			expect(screen.getByText("recieve")).toBeTruthy();
 		});
 
-		// The per-page SearchField was removed, the query now flows
 		// through the global title-bar search store. Drive it directly
 		// (the title bar's GlobalSearchBar is not rendered in this
 		// page-level test).

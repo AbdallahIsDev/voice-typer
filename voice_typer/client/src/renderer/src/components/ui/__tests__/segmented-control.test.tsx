@@ -1,16 +1,3 @@
-/**
- * Tests for the SegmentedControl component (both default and tabs variants).
- *
- * Covers:
- * - Rendering both variants with the correct class names
- * - Option labels are visible
- * - onChange fires when clicking an unselected option
- * - Shows animated indicator for the active option
- * - Does NOT fire onChange when clicking the already-active option
- * - Keyboard accessibility (role="radiogroup", role="radio", aria-checked)
- * - Generic type parameter passes through correctly
- * - Works with any number of options (2 through 6)
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -311,13 +298,11 @@ describe("SegmentedControl with many options", () => {
 });
 
 // ── Keyboard navigation (ArrowLeft / ArrowRight) ─────────────────────────
-//
 // The component uses native <input type="radio"> elements, so ArrowLeft /
 // ArrowRight (and Up/Down) navigation is handled by the browser's built-in
 // radio-group behaviour.  In jsdom this should also work, dispatching
 // ArrowRight on a focused radio moves focus (and checked state) to the next
 // radio in the same name group, which triggers our onChange handler.
-//
 // Edge cases tested:
 // - ArrowRight from a mid-group option moves forward
 // - ArrowLeft from a mid-group option moves backward

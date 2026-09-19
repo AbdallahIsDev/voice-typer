@@ -1,8 +1,5 @@
 // src/renderer/src/lib/tauri-bridge/window-namespace.ts
-//
-// ADR-0020 §6.3 (Phase 3 UI port): `window.window_` installer for the
 // Tauri runtime.
-//
 // Basic window controls via Tauri's core window API. Export/dialog APIs
 //( + ) invoke the Rust `export_history` /
 // `export_vocabulary` / `export_templates` / `export_config` commands
@@ -11,14 +8,11 @@
 //   - success → `{success: true, path: string}`
 //   - user canceled → `{success: false}` (no path, no error)
 //   - error → `{success: false, error: string}`
-//
 // The Rust command returns `{canceled: true}` on cancel (mapped to
 // `{success: false}` here) or throws on error (caught and mapped to
 // `{success: false, error}`). This keeps the renderer code (History.tsx,
 // Vocabulary.tsx, Templates.tsx, Settings.tsx export buttons) unchanged
 // on both paths.
-//
-// The previous version duplicated the ~28-line try/catch + canceled/error
 // mapping 4× (exportHistory / exportVocabulary / exportTemplates /
 // exportConfig). `makeExportCommand(cmd)` collapses each call site to a
 // single factory invocation, the four methods now share a single
@@ -44,20 +38,6 @@ type ExportReturn = Promise<{
 	error?: string;
 }>;
 
-/**
- * Build a single export command ( + ). Eliminates the 4×
- * try/catch + canceled/error mapping duplication previously inlined in
- * `exportHistory` / `exportVocabulary` / `exportTemplates` /
- * `exportConfig`.
- *
- * The returned function is structurally assignable to all four
- * `WindowBridge` export slots, for `exportHistory` / `exportVocabulary`
- * the caller always passes the `format` arg (required by the type), for
- * `exportTemplates` / `exportConfig` the caller omits it (the factory's
- * `format?` parameter accepts both call shapes).
- *
- * @param cmd   Rust command name, e.g. `"export_history"`.
- */
 function makeExportCommand(tauri: TauriGlobal, cmd: string) {
 	return async (data: unknown, format?: ExportFormat): ExportReturn => {
 		try {
@@ -86,14 +66,6 @@ function makeExportCommand(tauri: TauriGlobal, cmd: string) {
 	};
 }
 
-/**
- * Build the `window.window_` namespace using Tauri's global API.
- *
- * `onMaximizedChanged` is implemented via `onResized` + `isMaximized()`
- * because Tauri v2 lacks a direct "maximized-changed" event, any
- * resize (including maximize/unmaximize) fires `onResized`, after which
- * we query the current maximized state and forward it to the consumer.
- */
 export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 	const tauriWindow = tauri.window.getCurrentWindow();
 	return {
@@ -216,14 +188,12 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		//(Tauri parity,  / ): forward a
 		// renderer-caught error (e.g. React's `componentDidCatch` in
 		// `ErrorBoundary.tsx`) to the Rust host for persistence.
-		//
 		//implemented at `commands/system_cmds.rs::renderer_log_error`,
 		// registered in `main.rs:244-245` (`renderer_log_error`
 		// entry in the `generate_handler!` list). The Rust command
 		// serializes the payload via `serde_json::to_string` and writes
 		// it to the host file log via `log::error!("[RENDERER_ERROR] {}")`
 		// (rotating 5 MB × 5 file logger in `platform/logging.rs`).
-		//
 		// The `.catch(() => {})` swallow is intentional and matches
 		// the ErrorBoundary's own `logError(...).catch(...)` swallow
 		// pattern: the `console.error("[ErrorBoundary] Caught render
@@ -346,7 +316,6 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// `explorer /select,` on Windows, `open -R` on macOS, the parent
 		// dir on Linux). Missing paths surface as `success: false` with a
 		// message instead of the silent no-op the optional-bridge gap
-		// used to produce.
 		revealStatsImage: async (filePath: string) => {
 			try {
 				const result = await tauri.core.invoke<{

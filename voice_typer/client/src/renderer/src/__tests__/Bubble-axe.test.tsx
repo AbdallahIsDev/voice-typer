@@ -1,28 +1,3 @@
-/**
- * F-17: axe-core automated WCAG scan for the Bubble overlay component.
- *
- * The existing `a11y/axe-core.test.tsx` covers the top-level pages but
- * skips the Bubble overlay entirely (the Bubble runs in a separate,
- * sandboxed BrowserWindow with its own renderer entry, it is not part
- * of the App's render graph). This file fills that gap by mounting the
- * real `<Bubble>` in each of its five `BubbleMode` values and running
- * axe-core against the rendered container.
- *
- * Modes covered:
- *   - `recording`  , default mode; visualiser bars + (when configured)
- *                     the mic/stop/dismiss affordances.
- *   - `transcribing`, "Transcribing…" label + three animated dots.
- *   - `fading`     , brief transition between `transcribing` and the
- *                     exit animation; produced by `onHide` firing while
- *                     the bubble is in `transcribing` mode.
- *   - `idle`       , empty pill with an sr-only "Transcription complete"
- *                     announcement (always_visible mode).
- *   - `error`      , red "⚠ Error" label + retry affordance.
- *
- * The color-contrast rule is disabled because the test environment
- * doesn't load the full Tailwind stylesheet (same approach as
- * `a11y/axe-core.test.tsx`).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import axe from "axe-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

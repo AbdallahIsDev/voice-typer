@@ -1,26 +1,3 @@
-/**
- *  ( High), regression tests for the contrast-picker bugfix
- * ported from the dead theme utility helper module into the live
- * `lib/theme-contrast.ts` consumer.
- *
- * Background: `deriveCustomVars` (in `@/themes`) was fixed in  to
- * pick `--primary-foreground` dynamically (whichever of `#ffffff` /
- * `#000000` has higher WCAG contrast against the user-chosen primary).
- * The live contrast-picker helper in `lib/theme-contrast.ts` was not
- * updated and kept hardcoding `fg: "#ffffff"` for the `--primary` row,
- * so the rendered text (black on a light primary) disagreed with the
- * contrast-picker grid (which still showed white-on-primary), yielding
- * a spurious "fails AA" warning for light-tone primaries that actually
- * render fine, and no warning at all for the inverse case.
- *
- * These tests pin the ported behaviour:
- *   - Light-tone primary  → `#000000` foreground (not `#ffffff`).
- *   - Dark-tone primary   → `#ffffff` foreground.
- *   - The `bg` returned for `--primary` is hex-normalised so the
- *     downstream `contrastRatio` call scores the actual rendered pair.
- *   - `computeRowContrast` no longer surfaces a spurious warning for a
- *     light-tone primary whose dynamically-picked foreground clears AA.
- */
 import { describe, expect, it } from "vitest";
 import { contrastRatio } from "@/lib/color-utils";
 import {

@@ -1,14 +1,11 @@
 // useAsrBackendLoadToast, surfaces the ASR backend background-load
 // outcome (``asr_backend_ready`` / ``asr_backend_load_failed`` push
 // events).
-//
 // The model/backend load runs on a daemon thread AFTER the ``set_config``
 // IPC already acked (its response carries a ``model_loading`` envelope).
 // The renderer's Models-page "Using model" success snack fires on that
 // ack, so when the background load later FAILS, that success toast is a
-// lie the user has no way to notice: the frame was previously dropped at
 // the host's event gate and no renderer surface existed.
-//
 // This hook is the single consumer of both events:
 //   - ``asr_backend_load_failed`` → ONE error toast naming the model +
 //     the server-provided failure reason, with an "Open Models" action.
@@ -20,7 +17,6 @@
 //     failure surface must clear). No success toast is shown: success is
 //     already surfaced by the Models-page snack + the ``status_change``
 //     pill, and a second toast would be pure noise.
-//
 // Cooldown: a short window suppresses re-toast storms from a
 // load-retry loop (the backend emits one failure per attempt). The
 // timestamp lives in `degradationToastStore` (Zustand, in its own
@@ -38,15 +34,6 @@ const LOAD_FAILED_TOAST_ID = "asr-backend-load-failed";
 /** Suppression window for back-to-back load failures (ms). */
 const LOAD_FAILED_TOAST_COOLDOWN_MS = 10_000;
 
-/**
- * Subscribe to the backend-load lifecycle push events and surface the
- * failure case. Call once at the top level of a component (App wires
- * it with the i18n `t` function + a navigate callback).
- *
- * @param t i18n translate function (from useT).
- * @param onOpenModels callback that navigates to the Models page (App
- *   wires ``() => navigate("models")``).
- */
 export function useAsrBackendLoadToast(
 	t: TranslateFn,
 	onOpenModels: () => void,

@@ -1,46 +1,3 @@
-/**
- *  regression tests: `useAudioLevels` rAF loop scheduling gate.
- *
- * Background
- * ----------
- * Pre-: the rAF loop in `useAudioLevels.ts` unconditionally
- * re-scheduled the next frame at the TOP of the `animate` callback:
- *
- *   const animate = () => {
- *     frameRef.current = requestAnimationFrame(animate); // always
- *     if (!visibleRef.current) return;
- *     if (!recordingRef.current) return;
- *     // ... DOM work ...
- *   };
- *
- * Combined with the bubble BrowserWindow's `backgroundThrottling: false`
- * (lifecycle.ts:99), this meant the renderer process never entered an
- * idle/low-power state, the rAF chain kept the process warm at 60 Hz
- * for the entire app lifetime, even when the bubble was hidden (which
- * is ~90 % of the lifetime in `show_on_record` mode, the default).
- *
- * Post-: the scheduling call has moved to the END of the callback,
- * guarded by `if (visibleRef.current && recordingRef.current)`. When
- * either gate closes, the loop STOPS scheduling new frames. A separate
- * `useEffect` watches the `isVisible` prop and (a) cancels the
- * in-flight frame when `isVisible` becomes false, and (b) re-arms the
- * loop via `wake()` when `isVisible` becomes true. The `onShow` /
- * `onSetState` callbacks also call `wake()` to cover the recording-mode
- * re-arm path.
- *
- * These tests verify:
- *   1. `cancelAnimationFrame` IS called when the bubble is hidden
- *      (the in-flight frame is cancelled, not just left to no-op).
- *   2. `requestAnimationFrame` is NOT called again after the bubble is
- *      hidden (the loop stops spinning).
- *   3. `requestAnimationFrame` resumes when the bubble becomes visible
- *      again (re-arm via the `isVisible` watcher effect).
- *
- * The test renders the full `<Bubble />` component (which wires
- * `useAudioLevels` via `useBubbleLifecycle`) so the rAF loop, the
- * recording-mode tracking, and the visibility watcher are all
- * exercised in their real configuration.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -149,10 +106,6 @@ function hideBubble() {
 	});
 }
 
-/**
- * Drain pending rAF callbacks. jsdom implements rAF as `setTimeout(0)`,
- * so flushing the macrotask queue runs all pending frames.
- */
 async function tickFrames(count = 5) {
 	for (let i = 0; i < count; i++) {
 		await act(async () => {
@@ -265,7 +218,6 @@ describe("AB-39: useAudioLevels rAF scheduling gate", () => {
 		// subscription is active.
 		expect(mockBubble._listeners.level.length).toBe(1);
 
-		// Drive setState("blocked"), a mid-flow mode the OLD local
 		// mode tracker silently ignored (it only knew transcribing /
 		// idle / recording / error), so the visualizer kept animating
 		// and the ~50-60 Hz onLevel subscription stayed active behind a

@@ -101,7 +101,6 @@ describe("resolveLinuxWindowButtons", () => {
 	});
 
 	it("partial config merges over the defaults (older sidecars)", () => {
-		// Custom mode: flags come from the (partial) config object.
 		const r = resolveLinuxWindowButtons({
 			mode: "custom",
 			show_close: false,

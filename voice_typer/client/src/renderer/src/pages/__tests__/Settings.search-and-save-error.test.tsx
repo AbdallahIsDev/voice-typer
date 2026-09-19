@@ -1,17 +1,3 @@
-/**
- * + tests for the Settings page.
- *
- *, cross-tab search grouping: when the global query matches
- * Settings rows on OTHER sub-pages, a "Results from other tabs"
- * section lists them grouped by tab; each match is a button that
- * navigates to its tab with a rowHint deep-link. When the query
- * matches nothing anywhere, the existing "No settings match" banner
- * still renders (and the cross-tab section does not).
- *
- *, save-error surface: useSettingsConfig's per-flush `error`
- * string renders as a visible destructive banner (aria-live="polite")
- * under the page heading until the next successful save clears it.
- */
 import {
 	cleanup,
 	fireEvent,

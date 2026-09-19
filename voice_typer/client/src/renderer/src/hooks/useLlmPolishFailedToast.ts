@@ -1,6 +1,5 @@
 // useLlmPolishFailedToast, surfaces backend ``llm_polish_failed``
 // push events as one actionable in-app toast.
-//
 // The optional LLM-polish step post-processes a transcription with the
 // configured LLM provider (grammar / punctuation). When that step
 // raises (provider down, bad key, network error, consent revoked
@@ -8,7 +7,6 @@
 // delivers the RAW transcription (`dictation_pipeline.py`), so without
 // this toast the feature fails SILENTLY: the user just sees unpolished
 // text with no hint that AI cleanup was skipped or why.
-//
 // Cooldown: the backend can emit one event per transcription while
 // polish is broken. A 5-minute wall-clock cooldown (store-backed, HMR
 // safe) keeps the reminder at most ~once per 5 minutes; the fixed
@@ -19,20 +17,8 @@ import type { TranslateFn } from "@/i18n/translate-types";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
-/**
- * Renderer-side cooldown for the polish-failure toast. The failure is
- * non-fatal (raw text still delivered), so re-nagging on every
- * dictation would be noise; five minutes balances "told promptly"
- * against spam while the user goes off to fix their provider settings.
- */
 const LLM_POLISH_TOAST_COOLDOWN_MS = 300_000;
 
-/**
- * Subscribe to ``llm_polish_failed`` push events and render the
- * "delivered raw" toast. Call once at the top level of a component.
- *
- * @param t i18n translate function (from useT).
- */
 export function useLlmPolishFailedToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("llm_polish_failed", (): (() => void) | undefined => {

@@ -1,7 +1,5 @@
 // useDownloadProgressEvent, model-download progress bar state for the
-// Home page, extracted from Home.tsx so the page file stays a thin
 // composition root.
-//
 // Subscribes to `download_progress` events emitted while any model
 // download is in flight (whichever page started it, the Home bar
 // exists to make an in-flight download visible wherever the user is).
@@ -12,7 +10,6 @@
 // `progress`, NOT `percent`, a `percent` read never matched a real
 // event, so the bar could never fill; that read is fixed here together
 // with the lifecycle below.
-//
 // Lifecycle: the bar must render exactly while a download is genuinely
 // in flight (active transfer OR waiting in the pending-download queue)
 // and clear when all downloads finish. The backend ships NO dedicated
@@ -32,7 +29,6 @@
 // the Models page pushes NO event at all, the terminal-armed drain
 // timer (TERMINAL_DRAIN_MS) is the safety net that clears those ghost
 // entries once the stream goes quiet.
-//
 // The percentage also resets to null whenever the recording state
 // leaves "loading" (the state the bar was originally built for) so a
 // stale bar can never linger across a model-load state change; the
@@ -42,14 +38,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
 import type { RecordingState } from "@/types/ipc";
 
-/**
- * Terminal `download_progress` status markers (matched
- * case-insensitively as substrings). Every terminal push from
- * voice_typer/server/service/model/_downloads.py +
- * _download_helpers.py carries one of these; no intermediate status
- * does. Unmatched future terminal strings degrade to the drain timer /
- * recording-state reset, never worse than the pre-fix behavior.
- */
 const TERMINAL_STATUS_MARKERS = [
 	"complete", // "Download of {model} complete" / "Parakeet download complete"
 	"already cached", // "{model} already cached" / "Qwen model already cached"
@@ -59,16 +47,6 @@ const TERMINAL_STATUS_MARKERS = [
 	"huggingface_hub is not installed", // missing-dependency failure message
 ] as const;
 
-/**
- * Grace period a terminal event waits for a follow-up
- * `download_progress` push before the bar is cleared. The queue drain
- * (`download_model`'s `finally` → `_start_next_queued_download`) spawns
- * the next download's thread immediately and its first push ("Starting
- * download…") follows within milliseconds, so a genuine queue chain
- * cancels the timer; only a quiet stream (all done, or a queued model
- * silently cancelled from the Models page, no event exists for that)
- * lets it fire.
- */
 export const TERMINAL_DRAIN_MS = 3000;
 
 function isTerminalProgressEvent(data: Record<string, unknown>): boolean {
@@ -84,14 +62,6 @@ function isTerminalProgressEvent(data: Record<string, unknown>): boolean {
 	return false;
 }
 
-/**
- * Subscribe to `download_progress` and return the current percentage
- * (0-100), or `null` when no download bar should render. Call once at
- * the top level of Home.
- *
- * @param recordingState the store's recording state, the bar resets
- *   whenever it leaves "loading".
- */
 export function useDownloadProgressEvent(
 	recordingState: RecordingState,
 ): number | null {

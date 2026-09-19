@@ -8,23 +8,6 @@ import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { t } from "@/i18n/i18n";
 import type { Page } from "@/types/ipc";
 
-/**
- * Global search bar, lives in the title bar's middle spacer.
- *
- * Fully wired: the query state lives in the shared `useGlobalSearch`
- * store. Each searchable page reads the query from that store and
- * filters/loads its data, and the per-page SearchFields have been
- * removed, this is the ONLY search input in the app.
- *
- * Searchable pages mirror the pages that today render their own
- * per-page SearchField:
- *   - history            → t("history.searchPlaceholder")        "Search History"
- *   - templates          → t("templates.searchPlaceholder")      "Search templates…"
- *   - vocabulary         → t("vocabulary.searchPlaceholderCount") "Search {count} corrections"
- *   - settings* (hub + all section pages) → t("settings.searchPlaceholder") "Search settings…"
- * All other pages (home, models, microphone, analytics, aboutAndPrivacy,
- * onboarding) hide the bar entirely, no search exists there.
- */
 const SEARCHABLE_PAGES: ReadonlySet<Page> = new Set<Page>([
 	"history",
 	"templates",
@@ -37,13 +20,6 @@ function isSettingsPage(page: Page): boolean {
 	return isSettingsSurface(page);
 }
 
-/**
- * Stable group identity for query-reset purposes. The Settings hub and
- * its section pages share one search (and its auto-switch navigates
- * BETWEEN section pages while preserving the query), so the query must
- * NOT reset on section-page navigation, only when leaving the whole
- * Settings group.
- */
 function searchGroup(page: Page): string {
 	if (isSettingsPage(page)) return "settings";
 	return page;

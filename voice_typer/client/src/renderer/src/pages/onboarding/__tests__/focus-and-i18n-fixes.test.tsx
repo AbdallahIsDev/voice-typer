@@ -1,18 +1,9 @@
 /**
  * Focused contracts for the onboarding / focus-ring / i18n fix batch:
- *
  * - onboarding init fallback uses t("errorBoundary.unknownError")
- *   instead of a hardcoded English string (all 8 locales already ship
- *   the key).
- * - onboarding.backendAria is genuinely translated in de/es/fr/hi/ru/zh
- *   (ar already was).
- * - Welcome/Consent share the one HEADING_CLASS from
- *   pages/onboarding/lib/constants (same as Model/Hotkey).
- * - The onboarding init-error card carries a focus-visible ring
+ * instead of a hardcoded English string (all 8 locales already ship
  *   (C-FOCUS-1: the programmatic focus target must stay visible).
- * - MicToggleButton / SearchField clear / CloudProvidersPanel reveal /
  *   ActivityList show-more use ring-1at full opacity (C-FOCUS-2/5),
- *   never the thinner focus-visible:ring-1.
  */
 
 import { readFileSync } from "node:fs";
@@ -199,7 +190,7 @@ describe("source-level contracts for the remaining fix-batch files", () => {
 
 	it("onboarding init-error card carries a focus-visible ring (MO-46)", () => {
 		const src = read("pages", "Onboarding.tsx");
-		expect(src).toMatch(/focus-visible:ring-1focus-visible:ring-ring/);
+		expect(src).toMatch(/focus-visible:ring-1 focus-visible:ring-ring/);
 	});
 
 	it("Home force-cancel button carries a focus-visible ring (MO-47)", () => {
@@ -208,7 +199,7 @@ describe("source-level contracts for the remaining fix-batch files", () => {
 		const idx = src.indexOf("home.forceCancelHint");
 		expect(idx).toBeGreaterThan(-1);
 		const window = src.slice(Math.max(0, idx - 400), idx + 200);
-		expect(window).toMatch(/focus-visible:ring-1focus-visible:ring-ring/);
+		expect(window).toMatch(/focus-visible:ring-1 focus-visible:ring-ring/);
 	});
 
 	it("useOnboardingWizard uses t(errorBoundary.unknownError), no hardcoded English (MO-40)", () => {

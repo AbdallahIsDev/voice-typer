@@ -1,13 +1,8 @@
 // types/ipc/bridge.ts
-//
 // The two preload-exposed bridge interfaces: `PythonBridge` (the
 // `window.python` API surface) and `WindowBridge` (the
 // `window.window_` API surface for the custom title bar + GDPR export
 // helpers + native pickers).
-//
-// Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file, pure structural refactor.
-//
 // Imports `PythonPushEvent` from `./push_events` for the `onEvent`
 // callback signature. The `declare global { interface Window { ... } }`
 // augmentation that exposes these bridges on `window.python` /

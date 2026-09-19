@@ -1,68 +1,10 @@
-/**
- *  regression guard: physical-side Tailwind utilities block RTL
- * mirroring. Logical-property utilities (`ms-*`, `me-*`, `ps-*`, `pe-*`,
- * `text-start`, `text-end`, `start-*`, `end-*`) auto-flip in RTL via the
- * `dir="rtl"` attribute that {@link setLocale} sets on
- * `document.documentElement` for Arabic. Physical utilities
- * (`ml-*`/`mr-*`/`pl-*`/`pr-*`/`text-left`/`text-right`) don't flip —
- * they always render as left/right regardless of document direction,
- * which means an Arabic user sees a broken (LTR-locked) layout for any
- * component that still uses them.
- *
- * This test is a FORWARD-PROGRESS RATCHET: it scans every `.tsx` /
- * `.ts` source file under `src/renderer/src/` (excluding tests, stories,
- * and the `__tests__/` subtrees) for physical-side className utilities
- * and fails if any file OUTSIDE the {@link CURRENTLY_VIOLATING} allowlist
- * is found to use them. Files already in the allowlist are tolerated so
- * the build stays green while their owning agents finish the migration
- * to logical properties. When an allowlisted file is migrated, remove
- * it from the set so a future regression is caught immediately.
- *
- * Rationale for the allowlist pattern (vs. a hard "no physical classes
- * anywhere" rule):
- *   - The original audit cited 30 files; the migration is in progress
- *     across multiple areas. A hard rule would break the build today.
- *   - The allowlist shrinks monotonically: each migration PR removes
- *     one entry. The size-bound assertion below makes any GROWTH a
- *     CI failure so the ratchet direction is enforced.
- *
- * Why this test lives in `i18n/__tests__/`:
- *   - The RTL mirroring contract is owned by the i18n module (it sets
- *     `document.documentElement.dir`).
- *   - Logical-property utilities are downstream of that contract: they
- *     only "do the right thing" because the i18n layer sets `dir`.
- *   - The i18n module owns the RTL contract
- *     end-to-end, so the regression guard belongs here.
- *
- * Platform: Linux sandbox / Windows host / macOS host (the test is a
- * pure static-source check, no runtime CSS evaluation, no platform
- * dependency). Validation:
- *   VALIDATE ON LINUX HOST: cd voice_typer/client && npx vitest run \
- *     src/renderer/src/i18n/__tests__/rtl-physical-css-guard.test.ts
- */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const RENDERER_SRC = resolve(__dirname, "..", "..");
 
-/**
- * Files currently allowed to use physical-side CSS utilities.
- *
- * Each entry is a path relative to `src/renderer/src/`. When a file's
- * owning agent migrates it to logical properties (`ml-*` → `ms-*`,
- * `text-left` → `text-start`, etc.), remove the entry from this set.
- *
- * The size-bound assertion ({@link CURRENTLY_VIOLATING_SIZE_BOUND})
- * ensures the set only shrinks: any growth past the bound is a CI
- * failure (a new file regressed), and any new violation in a file
- * that's already in the set is silently tolerated (the migration is
- * still in progress there).
- *
- * Last audited: 2026-07-27 by the client-root i18n sweep.
- */
 const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
-	// `pages/About.tsx` was previously in this set for `text-right` on a
 	// credits `<span>`. The violation was refactored into
 	// `components/common/ReadonlyRow.tsx` and migrated to `text-end`
 	// (logical property that auto-flips in RTL). Removed from the set so
@@ -77,54 +19,8 @@ const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
 	"components/feedback/Spinner.tsx",
 ]);
 
-/**
- * Hard upper bound on {@link CURRENTLY_VIOLATING}'s size.
- *
- * The set is empty today; the bound is set to 5 to leave room
- * for short-term additions during the migration (e.g. a new file is
- * found to violate the rule and is added to the allowlist pending
- * migration by its owning agent). Once the migration is complete,
- * the set should be empty and the bound can be lowered to 0.
- *
- * If this assertion ever fires, it means the set grew past the bound —
- * either raise the bound (with a comment explaining why) or migrate
- * the offending files instead of allowlisting them.
- */
 const CURRENTLY_VIOLATING_SIZE_BOUND = 5;
 
-/**
- * Regex matching physical-side Tailwind utilities that block RTL
- * mirroring. Captures:
- *
- *   - `ml-N` / `mr-N` / `pl-N` / `pr-N` (margin/padding left/right)
- *   - `text-left` / `text-right` (text alignment)
- *
- * The regex is anchored at the start of the utility (preceding
- * whitespace, quote, or colon-variant delimiter) so it doesn't
- * match substrings of longer identifiers (e.g. `html-` or
- * `template-right`).
- *
- * Variants like `data-inset:pl-9.5` and `has-data-[icon=inline-end]:pr-2.5`
- * are also caught because the leading `:` is one of the allowed
- * boundary characters.
- *
- * NOT flagged (intentionally):
- *   - `mt-*` / `mb-*` (block-axis, physical is fine; vertical doesn't
- *     flip in RTL).
- *   - `px-*` / `py-*` (axis-pair utilities, already direction-agnostic).
- *   - `left-N` / `right-N` (positional utilities for absolute/fixed
- *     positioning, these DO need physical left/right semantics in
- *     many cases, e.g. centering a modal with `left-1/2`). The
- *     original finding did call these out, but the migration is
- *     per-element (not all `left-1/2` should become `start-1/2`),
- *     so they're excluded from this guard. A separate per-component
- *     audit (the existing `nh-rtl-logical-properties.test.tsx`)
- *     covers component-specific migrations.
- *   - Literal substrings inside comments / strings that merely mention
- *     the legacy class name in a migration note (e.g. `"ml-2 → ms-2"`
- *     in a comment). Block comments + line comments are stripped
- *     before matching.
- */
 const PHYSICAL_INLINE_CLASSNAME = /(?:^|[\s":])(?:ml|mr|pl|pr)-\d+(?:\.\d+)?/;
 const PHYSICAL_TEXT_ALIGN = /(?:^|\s)text-(?:left|right)(?=\s|["'`$])/;
 
@@ -133,40 +29,6 @@ function stripComments(src: string): string {
 	return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
 
-/**
- * Extract every string literal that may carry Tailwind class names.
- *
- * Originally this only matched `className="..."` / `className='...'`
- * literals, which silently missed dynamic forms like
- * `className={cn("...")}`, `clsx("...")`, ternaries
- * (`cond ? "a b" : "c d"`), and template literals. That gap
- * let physical-side utilities hide inside `cn()` / `clsx()` calls and
- * ternary branches without triggering the guard. To close it, we now
- * extract EVERY double-quoted, single-quoted, and backtick-delimited
- * string literal from the (comment-stripped) source and rely on the
- * physical-CSS regexes in {@link findViolations} to filter out
- * non-className strings, those simply don't match the patterns.
- *
- * Template literals: `${...}` interpolations are stripped (replaced
- * with a single space) so the static portions between them still
- * anchor the whitespace boundary that {@link PHYSICAL_INLINE_CLASSNAME}
- * and {@link PHYSICAL_TEXT_ALIGN} expect at the start of each Tailwind
- * utility. We don't evaluate the interpolations; in practice, Tailwind
- * utilities live in the static portions.
- *
- * Edge cases NOT handled (intentionally):
- *   - String concatenation across multiple literals, e.g.
- *     `"px-3 " + (cond ? "pl-2" : "pr-2")`. Each literal is extracted
- *     separately (`"px-3 "`, `"pl-2"`, `"pr-2"`). Both `pl-2` and
- *     `pr-2` are flagged, correct behavior. `"px-3 "` matches
- *     neither physical pattern, so no false positive.
- *   - Strings constructed via `String.raw` or other dynamic APIs —
- *     vanishingly rare in className contexts; would need an AST parse.
- *   - Nested template-literal interpolations (e.g. `${`${cond}`}`) —
- *     the simple `${...}` strip uses `[^}]*` and won't recurse into
- *     nested braces; this is a known limitation that doesn't bite any
- *     current source file.
- */
 function extractClassNames(src: string): string[] {
 	const out: string[] = [];
 	// Double-quoted string literals (handles `\"` escapes via `\\.`).
@@ -250,18 +112,6 @@ function collectSourceFiles(): { rel: string; src: string }[] {
 	return out;
 }
 
-/**
- * Check a single file's source for physical-side CSS violations.
- * Returns a list of human-readable violation strings (empty if clean).
- *
- * The `rel` parameter is accepted for symmetry with the caller's
- * (rel, src) tuple shape but is intentionally unused, the violation
- * message embeds the className value (which is what the developer
- * needs to fix), not the file path (the caller adds the path when
- * collecting results). Prefixed with `_` to silence the unused-param
- * lint without dropping the parameter (keeping the call-site shape
- * stable makes future logging changes easier).
- */
 function findViolations(_rel: string, rawSrc: string): string[] {
 	const stripped = stripComments(rawSrc);
 	const classNames = extractClassNames(stripped);

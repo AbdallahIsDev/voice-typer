@@ -1,28 +1,3 @@
-/**
- *  regression test: `MODIFIER_CODE_MAP` is a module-level constant.
- *
- * `HotkeyPicker.tsx` previously called `getModifierCodeMap(IS_MAC)`
- * inside `handleKeyDown` and `handleKeyUp` on every keystroke. Each
- * call allocated a fresh 8-key object literal, at 60–120 keystrokes
- * per second during typing bursts, that was non-trivial GC pressure
- * for no benefit (the map depends only on `IS_MAC`, which is fixed
- * at module load).
- *
- * After : the map is hoisted to module scope as
- * `const MODIFIER_CODE_MAP = getModifierCodeMap(IS_MAC);` and both
- * handlers reference the module-level constant.
- *
- * This test verifies:
- *   1. `getModifierCodeMap` is called EXACTLY ONCE at module load
- *      (not per keystroke). We mock the `hotkey-utils` module to spy
- *      on `getModifierCodeMap`, then render `HotkeyPicker` and
- *      dispatch keydown / keyup events. The spy's call count must
- *      stay at 1.
- *   2. The map's value is stable across renders (snapshot test).
- *      The first call's return value is captured; subsequent renders
- *      must produce the same value (which they do, because the
- *      module-level constant is shared).
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -124,13 +99,11 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 		const baseline = (getModifierCodeMap as ReturnType<typeof vi.fn>).mock.calls
 			.length;
 
-		// Dispatch a modifier keydown + keyup (these used to call
 		// getModifierCodeMap twice per pair, once in handleKeyDown,
 		// once in handleKeyUp).
 		dispatchKey({ code: "AltLeft", key: "Alt", type: "keydown" });
 		dispatchKey({ code: "AltLeft", key: "Alt", type: "keyup" });
 
-		// Dispatch a non-modifier keydown + keyup (these used to call
 		// getModifierCodeMap once per event, handleKeyDown checks
 		// MODIFIER_CODE_MAP to detect modifiers, handleKeyUp does too).
 		dispatchKey({ code: "KeyA", key: "a", type: "keydown" });

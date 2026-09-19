@@ -1,17 +1,3 @@
-/**
- * Toaster position must react to runtime locale changes.
- *
- * Previously the position was computed once at mount from
- * `isRtlLocale(getLocale())`, switching to Arabic at runtime kept the
- * toaster pinned bottom-right until a page reload. The fix subscribes
- * via the i18n module's locale-subscriber registry (useSyncExternalStore),
- * so the position mirrors the ACTIVE locale: bottom-right in LTR,
- * bottom-left in RTL.
- *
- * The `sonner` module is mocked to capture the props the wrapper passes
- * through, letting us assert the position across a simulated locale flip
- * without rendering sonner's portal tree.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

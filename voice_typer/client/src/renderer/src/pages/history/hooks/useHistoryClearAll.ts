@@ -1,11 +1,8 @@
 // History clear-all flow hook.
-//
-// Extracted from `pages/History.tsx` (page-root slimming): the Clear All
 // flow, confirmation-dialog state, the filter-aware short-circuit
 // guards, and the destructive `clear_history` apply, is cohesive event
 // logic that belongs in a named, testable hook instead of the page
 // root.
-//
 // Clear All is ambiguous under an active filter (the visible list is a
 // subset of ALL history). When a filter is active the arm step checks
 // the cached stats count instead of the visible rows (the visible list
@@ -50,10 +47,6 @@ export interface UseHistoryClearAllReturn {
 	confirmClearAll: () => Promise<void>;
 }
 
-/**
- * Clear-all flow for the History page. See the file header for the
- * extraction rationale.
- */
 export function useHistoryClearAll({
 	call,
 	records,

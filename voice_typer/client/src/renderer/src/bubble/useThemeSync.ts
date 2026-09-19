@@ -1,48 +1,3 @@
-/**
- * Bubble overlay package, `useThemeSync` hook.
- *
- * Keeps the bubble's `<html>` in sync with the main app's theme so
- * Tailwind `dark:` variants resolve correctly, and the `dir` attribute
- * tracks the user's UI locale so RTL locales (currently Arabic) flip
- * the pill's logical-property utilities (`ms-*`, `me-*`) on the
- * always-on-top bubble window.
- *
- * The bubble renderer is a SEPARATE `BrowserWindow` from the main
- * app, so `setLocale()` running in the main renderer does NOT
- * propagate `document.documentElement.dir` (or `.lang`) here, the
- * bubble must apply its own `dir` from the same locale signal the
- * main window uses. The inline script in `bubble.html` does the
- * first-paint read from localStorage so the bubble's initial render
- * is in the correct writing direction; this hook keeps `dir` in sync
- * at runtime when the user changes locale from the Settings page
- * (which fires a `bubble:config` push via the Python backend).
- *
- * Theme handling: previously this hook honored ONLY the OS
- * `prefers-color-scheme` media query and an optional `theme_mode`
- * field from `bubble:config`. It never learned the user's
- * `theme_preset` (e.g. "nord", "dracula") or `custom_theme` CSS-var
- * map, so the bubble rendered with the default palette while the
- * main app rendered with the user's chosen preset. Now the hook
- * also reads `theme_preset` and `custom_theme` from the
- * `bubble:config` payload and calls `applyThemeVars()` after
- * toggling `.dark` so the bubble inherits the same preset-derived
- * CSS vars as the main app.
- *
- * First-paint race (theme + dir sync): the `bubble:config` event is
- * fired by the Python backend over the WS bridge and is only
- * received AFTER the React tree mounts + the bubble preload wires
- * `onConfig`. So the very first paint of the bubble uses the
- * inline-script-applied `dir` / `lang` / `.dark` (read from
- * localStorage), and if those localStorage keys are stale or
- * missing (e.g. first run, fresh install, cleared prefs), the
- * bubble paints with browser defaults until the first
- * `bubble:config` arrives ~50-200ms later. The proper fix is for
- * the main process to push `bubble:config` in the bubble window's
- * `did-finish-load` listener (so the config arrives before the
- * React tree mounts), that work is owned by the `main/windows/`
- * side. Until then, the inline-script + this hook's runtime
- * sync provide a best-effort first paint + correct steady state.
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { setLocale } from "@/i18n/i18n";
 import { type Locale, SUPPORTED_LOCALES } from "@/i18n/locale";
@@ -132,7 +87,6 @@ export function useThemeSync() {
 
 	// `bubble:config` listener for theme_mode / theme_preset /
 	// custom_theme / locale / text_size.
-	//
 	// `locale` sync: the bubble renderer's `<html dir>` must match the
 	// user's UI locale so RTL locales (Arabic) flip the pill's
 	// logical-property utilities. The `bubble:config` payload's
@@ -201,7 +155,6 @@ export function useThemeSync() {
 	// The payload is the bare locale code ("en" / "ar" / …); the
 	// `isLocaleValue` guard rejects unknown values so `dir` is never
 	// set from a hostile/garbled payload.
-	//
 	// The handler routes through the PUBLIC `setLocale` (the same
 	// orchestrator the main window uses) so the bubble's i18n runtime
 	// switches wholesale: `_currentLocale`, dynamic translation-table

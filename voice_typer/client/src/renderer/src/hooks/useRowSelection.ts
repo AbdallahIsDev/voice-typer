@@ -1,17 +1,13 @@
 // Generic selection state + bulk-delete-with-undo, shared by the
-// Vocabulary and Templates pages (previously a 1:1 copy-paste fork —
 // useVocabularySelection / useTemplateSelection differed only in the row
 // id-field name, the persist callback, and the i18n message keys).
-//
 // Owns:
 //   - `selectedIds` (Set of row ids) + toggle / select-many / clear
 //   - `bulkDeleteSelected`, instant removal + 6s Undo toast that
 //     restores every deleted row at its original position
-//
 // Kept generic over the row type (`getRowId` accessor) so each page
 // keeps its own data shape (Vocabulary uses `_id`, Templates uses `id`)
 // and its own message keys, the LOGIC is single-sourced here.
-//
 // Kept in a dedicated hook (rather than inside the page data hooks) so
 // the selection Set churn doesn't re-render unrelated consumers.
 

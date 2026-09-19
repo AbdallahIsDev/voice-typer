@@ -1,14 +1,10 @@
 //Test-recording lifecycle hook for the Microphone page ( split).
-//
-// Formerly a 625-LOC monolith; now a thin composition root over three
 // focused hooks (``useMicrophoneLevelMonitor`` /
 // ``useMicrophoneTestSession`` / ``useMicrophonePlayback``) plus the
 // trivial UI-only state (showAdvanced) +
 // ``handlePresetChange`` / ``handleConfigChange`` wrappers + the
 // cross-hook ``testRunningRef`` (synced by the session hook, read by
 // the level monitor). Public return shape unchanged.
-//
-//(1-C Finding 8): the internal ``stopTestRef`` /
 // ``selectMicrophoneRef`` indirection is removed now that all five
 // callbacks are ``useCallback``-stable in their respective sub-hooks.
 
@@ -39,19 +35,7 @@ interface UseMicrophoneTestOptions {
 	setConfig: Dispatch<SetStateAction<VoiceTyperConfig | null>>;
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
 	selectMicrophoneRef: RefObject<(micId: string | null) => Promise<void>>;
-	/**
-	 * consumer-attached ref to the meter wrapper element. The
-	 * level monitor's rAF loop imperatively writes the latest level to
-	 * the ``LevelBar``'s fill div inside this wrapper, bypassing React's
-	 * re-render cycle. ``Microphone.tsx`` creates this ref and attaches
-	 * it to a ``<div>`` wrapping ``<ActiveMicrophoneCard>``.
-	 */
 	meterRef: RefObject<HTMLElement | null>;
-	/**
-	 * Force-pause the level monitor while the active microphone is
-	 * lost (``device_lost``). Passed straight through to
-	 * ``useMicrophoneLevelMonitor``, see its ``paused`` option.
-	 */
 	levelMonitorPaused?: boolean;
 }
 
@@ -136,7 +120,6 @@ export function useMicrophoneTest({
 	// renderer gate and the IPC) opens the unified point-of-use consent
 	// dialog, Allow → persists the consent → restarts the level
 	// monitor; "Open Settings" deep-links to the exact toggle (the
-	// dialog's built-in secondary action, replacing the old snackbar).
 	const handleLevelMonitorConsentRequired = useCallback(
 		(consentField?: string) => {
 			const field = consentField ?? VOICE_BIOMETRIC_CONSENT_FIELD;

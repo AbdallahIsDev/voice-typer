@@ -14,29 +14,6 @@ const CLOUD_BACKENDS = new Set(["openai", "groq", "deepgram"]);
  * main process / fallback download). */
 export const STATS_IMAGE_FILENAME = "voice-typer-stats";
 
-/**
- * Decide whether the "Share stats" button should be visible.
- *
- * Previously the share button in Dashboard.tsx was gated on
- * `data.todayCount > 0`, which hid the button on days when the user
- * hadn't dictated yet BUT had past transcriptions (totalCount > 0).
- * The share image still produces a meaningful summary in that case
- * (lifetime stats, 7-day activity chart, streak, active days), the
- * only zero field is today's WPM/minutes-saved. Hiding the button
- * silently degraded the shareable-moment UX for any user who opens
- * the dashboard before their first dictation of the day.
- *
- * The button should be visible when EITHER:
- *   - the user has dictated today (todayCount > 0), OR
- *   - the user has historical transcriptions (totalCount > 0)
- *
- * This helper centralises that policy so Dashboard.tsx and Home.tsx
- * (and any future share-aware page) don't re-implement it
- * independently and drift out of sync.
- *
- * @example
- *   const showShare = canShareStats({ todayCount: data.todayCount, totalCount: data.totalCount });
- */
 export function canShareStats(opts: {
 	todayCount: number;
 	totalCount: number;
@@ -64,18 +41,6 @@ export interface ShareStatsExtras {
 	device?: string;
 }
 
-/**
- * Pure function: compute shareable stats from today's data + config.
- *
- * This is intentionally a pure function (no hooks, no side effects)
- * so it's easy to test and reuse. All user-visible strings resolve
- * through ``t()`` so the share image renders in the active locale.
- *
- * Zero-data policy (mirrors the Analytics page): when the user has no
- * dictation today, ``wpmDisplay`` shows "—" and ``fasterThanAvg`` is
- * ``null``, the image never claims "0 WPM" or "0% faster than avg"
- * as if they were real stats.
- */
 export function computeShareStats(
 	todayStats: TodayStats,
 	asrBackend: string,
@@ -139,11 +104,6 @@ export function computeShareStats(
 	};
 }
 
-/**
- * Trigger a browser-style download of a PNG data URL via an anchor
- * element. Used as the fallback path when the predecessor bridge is
- * unavailable (Tauri runtime, plain web dev).
- */
 export function triggerAnchorDownload(dataUrl: string, filename: string): void {
 	const link = document.createElement("a");
 	link.download = `${filename}.png`;
@@ -153,41 +113,7 @@ export function triggerAnchorDownload(dataUrl: string, filename: string): void {
 	document.body.removeChild(link);
 }
 
-/**
- * Hook: captures the hidden `StatsShareImage` DOM element and exposes
- * the share actions (download / copy / save-as) that operate on the
- * captured PNG.
- *
- * Capture returns the PNG as a `data:image/png;base64,…` URL. The
- * platform operations (instant save to Downloads, native Save As
- * dialog, clipboard write, reveal in folder) run in the predecessor main
- * process via the `window.window_.saveStatsImage` /
- * `copyStatsImage` / `revealStatsImage` bridge. When the bridge is
- * unavailable (Tauri / browser), the actions degrade to an anchor
- * download / `navigator.clipboard` best-effort fallback.
- *
- * Usage:
- * ```tsx
- * const { imageRef, downloadImage, saveImageAs, copyImageToClipboard } =
- *   useStatsShare({ onError: (msg) => toast.error(msg) });
- *
- * return (
- *   <>
- *     <ShareStatsDialog actions={{ downloadImage, saveImageAs, copyImageToClipboard }} />
- *     <div ref={imageRef} style={{ position: 'fixed', left: -9999, top: 0 }}>
- *       <StatsShareImage stats={...} />
- *     </div>
- *   </>
- * );
- * ```
- */
 export interface UseStatsShareOptions {
-	/**
-	 * Invoked when capture / save / copy fails. The argument is a
-	 * localized error message suitable for surfacing via
-	 * `toast.error`. Callers may pass a custom message to override
-	 * the default.
-	 */
 	onError?: (message: string) => void;
 }
 
@@ -341,8 +267,6 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 		}
 	}, [captureImage, onError]);
 
-	/** Reveal a previously-saved PNG in the OS file manager (best-effort
-	 *, the bridge may be unavailable, e.g. Tauri runtime). */
 	const revealInFolder = useCallback(
 		async (filePath: string): Promise<void> => {
 			await window.window_?.revealStatsImage?.(filePath);

@@ -1,6 +1,4 @@
 // Range-aware activity chart for the Dashboard.
-//
-// Replaces the old 7-day-only bar strip with a proper chart: a y-axis
 // with tick labels + horizontal gridlines, bars scaled to the max value
 // in the range, the count above each bar, a hover tooltip per bar
 // (tChoice, locale-aware plurals), and a clear visual distinction
@@ -9,7 +7,6 @@
 //   - a NO-DATA slot (dashed tick), a future hour on the "Today" view,
 //     or a day OLDER than the oldest record in the history sample
 //     (the sample simply doesn't reach back that far).
-//
 // Accessibility (preserved contract): the whole chart is exposed to AT
 // as a single role="img" with a descriptive aria-label (no dead-end tab
 // stops); each bar is a non-interactive <div> with a title tooltip for

@@ -1,5 +1,4 @@
 // History cache + IPC lifecycle hook.
-//
 // Owns:
 // - ``records`` / ``stats`` / ``loading`` / ``loadingMore`` / ``hasMore``
 //   / ``loadError`` React state
@@ -16,7 +15,6 @@
 // - ``setFilter`` (cheap ref-only update, the page calls this every
 //   render to keep the hook's filter mirror in sync with the page's
 //   ``searchQuery`` / ``favoritesOnly`` state)
-//
 // Cursor pagination: ``loadMore`` now passes
 // ``before_timestamp`` + ``before_id`` (the ``(timestamp, id)`` of the
 // last row currently in ``records``) so the backend can use keyset
@@ -26,14 +24,10 @@
 // row to anchor a cursor on) and for any page where the last row is
 // missing a ``timestamp`` or ``id`` field (defensive, older rows
 // written before the ``id`` column existed can't be cursor-anchored).
-//
 // Pattern mirrors ``useVocabulary`` (sibling hook under
 // ``pages/vocabulary/hooks/useVocabulary.ts``), backend list → React
 // state, error surfaced via ``loadError`` so the page can render a
 // retry EmptyState instead of an ambiguous empty list.
-//
-// Extracted from the former monolithic ``pages/History.tsx`` render
-// function as part of the spaghetti split. The export paging
 // loop lives in ``useHistoryExport``; the client-side sort lives in
 // ``historySort.ts``.
 
@@ -66,16 +60,6 @@ export const HISTORY_PAGE_SIZE = 50;
 // second line of defense against unbounded growth in the UI.
 const HISTORY_MAX_ROWS = 5000;
 
-/**
- * Is ``row`` strictly OLDER than ``anchor`` in the history keyset order
- * (``timestamp DESC, id DESC``)?
- *
- * Both sides come from the same backend ordering contract, so ISO-ish
- * timestamp strings compare chronologically as strings and ``id``
- * breaks exact-timestamp ties. Rows whose fields are missing/untyped
- * (legacy rows written before the ``id`` column existed) are treated as
- * older, the conservative branch never truncates the user's list.
- */
 function isRowOlderThan(row: HistoryRecord, anchor: HistoryRecord): boolean {
 	if (
 		typeof row.timestamp === "string" &&
@@ -90,25 +74,6 @@ function isRowOlderThan(row: HistoryRecord, anchor: HistoryRecord): boolean {
 	return true;
 }
 
-/**
- * Merge a background-refresh response (the newest window of rows, possibly
- * clamped by the backend's per-request row cap) with the rows the user has
- * already paged in, so a refresh during deep browsing UPDATES the head in
- * place instead of truncating the list.
- *
- * The fresh window replaces any existing row with the same ``id`` (its data
- * is newer, an edited row refreshes in place). The existing tail is
- * retained only for rows strictly OLDER than the fresh window's oldest row
- * and not already covered by it, so:
- *   - appended tail rows keep the merged list in keyset order (they are all
- *     older than every fresh row);
- *   - a row deleted inside the fresh window is dropped, not resurrected;
- *   - a row deleted beyond the window lingers (stale) until the next full
- *     ``load``, detecting it would require re-fetching the full depth,
- *     which the server's row cap exists to prevent.
- *
- * Callers cap the result at ``HISTORY_MAX_ROWS``.
- */
 function mergeRefreshedRecords(
 	fresh: HistoryRecord[],
 	existing: HistoryRecord[],
@@ -212,14 +177,6 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	const recordsRef = useRef<HistoryRecord[]>([]);
 	recordsRef.current = records;
 
-	/**
-	 * Derive cursor params from the last row of the current cache.
-	 *
-	 * Returns ``undefined`` when the cache is empty (first load) or when
-	 * the last row is missing a ``timestamp`` / ``id`` field (defensive —
-	 * older rows written before the ``id`` column existed can't be
-	 * cursor-anchored, so the caller falls back to the OFFSET path).
-	 */
 	const deriveCursor = useCallback(deriveHistoryCursor, []);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
@@ -374,7 +331,6 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			// Refresh always re-fetches from the TOP (offset 0, no cursor)
 			//, a background ``transcription_final`` event means a NEW row
 			// was inserted at the head of the list, so we want the freshest
-			// first page, not the next page after the old last row. The
 			// OFFSET path (no cursor) is correct here. Preserve the current
 			// paged-in depth: re-fetch at least as many rows as the user has
 			// already loaded via "Load More". Without this, a background

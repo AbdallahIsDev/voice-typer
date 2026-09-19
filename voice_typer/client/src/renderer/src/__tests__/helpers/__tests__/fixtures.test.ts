@@ -1,33 +1,3 @@
-/**
- * : parity tests for the shared `DEFAULT_CONFIG` fixture.
- *
- * The hand-maintained fixture in `fixtures.ts` has historically drifted
- * from the Python `Config` dataclass defaults. The two most dangerous
- * drifts (silent test breakage) are pinned here so future contributors
- * get a loud vitest failure if they accidentally regress either value:
- *
- *   1. `schema_version` MUST match Python `_CURRENT_SCHEMA_VERSION`
- *      (currently `3`, in `voice_typer/server/config_internals/migrations.py`).
- *      A mismatch causes Python's `Config.load()` to invoke the forward-
- *      migration path on every test invocation, masking schema-bug
- *      regressions and producing flaky tests whenever migration code
- *      changes.
- *
- *   2. `llm_preset` MUST be one of the values in the Python
- *      `Literal["professional", "casual", "email", "code"]` set. The
- *      Python default is `"professional"`. An invalid value here would
- *      cause `Config.validate()` to reject the fixture once the parity
- *      test imports the Python default (TODO: parity test that imports
- *      Python Config defaults via a CI script, out of scope for this
- *      agent's file ownership).
- *
- * These tests do NOT attempt to import Python (vitest runs in Node).
- * They assert the values documented in the fixtures.ts comment block.
- * The "30+ fields" drift the finding mentions is partially intentional
- * (test-determinism overrides for `waveform_bubble`, `autostart`,
- * `volume_duck_enabled`, `noise_filter_enabled`, etc.) so we only pin
- * the two fields whose drift is unambiguously a bug.
- */
 import { describe, expect, it } from "vitest";
 
 import type { VoiceTyperConfig } from "@/types/config";

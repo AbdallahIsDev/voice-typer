@@ -1,24 +1,3 @@
-/**
- * Tests for `RecordingSettingsSection` covering the dictation-key
- * `HotkeyPicker` `mode="single"` fix and the repaste-key presets
- * memoization.
- *
- * Background: the dictation-key picker was previously wired with
- * `mode="combo"` while its dropdown presets came from
- * `getSingleKeyPresets()` (single-key only). In `mode="combo"` the
- * capture validator silently accepted multi-key combos like
- * `<ctrl>+<shift>`, breaking the dropdown's "single keys only" promise.
- * The fix changes the dictation-key picker to `mode="single"` so the
- * capture validator rejects multi-key combos (matching the dropdown).
- *
- * Separately, the repaste-key presets were derived inline via
- * `getComboPresets()` on every render. `getComboPresets()` re-detects
- * the platform on every call (so the macOS Cmd+Shift+V option appears
- * iff the current navigator.userAgent looks like macOS) but it returns
- * a fresh array reference each time, thrashing the `HotkeyPicker`
- * presets prop comparison. The fix wraps `getComboPresets()` in
- * `useMemo` so the array identity stays stable across renders.
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,14 +1,10 @@
 // History global-search debounced reload hook.
-//
-// Extracted from `pages/History.tsx` (page-root slimming): the debounced
 // reload driven by the GLOBAL search store, the 200ms-delayed fresh
 // load whenever the query (or the favorites filter) changes, plus the
 // first-render guard that keeps the mount load from double-firing, is
 // one cohesive concern. The page passes its `runLoad` fresh-load
 // wrapper so a reload also resets the visible-row window exactly like
 // every other fresh load.
-//
-// The pending search timer is cleaned up on unmount here (previously a
 // single page-level effect cleared both this timer and the background
 // refresh timer; each timer now lives with the hook that schedules it).
 
@@ -23,11 +19,6 @@ export interface UseHistorySearchReloadOptions {
 	runLoad: (query?: string, favoritesOnly?: boolean) => Promise<void>;
 }
 
-/**
- * Schedules a debounced fresh reload whenever the global search query
- * or the favorites filter changes. See the file header for the
- * extraction rationale.
- */
 export function useHistorySearchReload({
 	searchQuery,
 	favoritesOnly,

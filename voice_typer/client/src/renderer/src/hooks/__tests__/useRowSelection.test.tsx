@@ -1,6 +1,5 @@
 // Hook-level tests for useRowSelection, the shared selection state
 // machine the Vocabulary and Templates pages run on (via their thin
-// feature wrappers). The hook previously had NO direct tests (only
 // page-level coverage); these pin the state-machine contract for the
 // Wave-5 migration:
 //   - click-select toggle / select-many (select-all) / clear
@@ -9,12 +8,10 @@
 //     6s Undo toast that restores every deleted row at its ORIGINAL
 //     position
 //   - failure rollback (persist throws → rows restored + error snack)
-//
 // Ref semantics modeled after the pages: setRows is the React state
 // setter; the rowsRef mirrors state POST-COMMIT (the pages sync it in
 // a render effect), so the harness only advances the ref when a test
 // explicitly commits.
-//
 // Mocks: sonner toast, the showUndoableToast wrapper (captured so the
 // undo callback can be invoked), and identity-with-params t().
 import { act, renderHook } from "@testing-library/react";

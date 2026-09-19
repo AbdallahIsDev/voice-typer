@@ -1,9 +1,3 @@
-/**
- * "Catppuccin" theme preset, soft warm pastels with mauve, peach, and teal.
- *
- * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
- * are consumed.
- */
 import type { ThemePreset } from "../themes";
 
 export const catppuccinTheme: Omit<ThemePreset, "nameKey"> = {

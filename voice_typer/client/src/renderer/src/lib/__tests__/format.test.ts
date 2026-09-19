@@ -1,33 +1,3 @@
-/**
- * Unit tests for the shared locale-aware formatters in ``lib/format.ts``.
- *
- * ``format.ts`` previously had ZERO unit tests. The module
- * is consumed by ``Dashboard.tsx``, ``StatCards.tsx``,
- * ``DownloadProgressBar.tsx``, and ``pages/Models.tsx``, every
- * stat-card label, every download-progress readout, and every VRAM
- * figure flows through these helpers. A silent regression in any of
- * them (e.g. a locale lookup breaking, a unit threshold off-by-one)
- * would surface only as a visual glitch in the dashboard with no
- * failing test to point at the cause.
- *
- * Coverage:
- *   - ``formatBytes``, null/undefined/(-1) → ``"—"``; ``0`` → reasonable
- *     value (the ``en`` locale produces ``"0 B"``); kilobyte / megabyte
- *     thresholds.
- *   - ``formatDuration``, ``0`` → ``"0m"`` (sub-minute rounds up to 1m
- *     per the legacy StatCards snapshot contract; 0 is a special-case
- *     that returns ``"0m"`` not ``"1m"``).
- *   - ``compactNumber``, ``999`` → ``"999"``; ``1500`` → locale-dependent
- *     compact output (``"1.5K"`` for ``en``).
- *   - ``formatSpeed``, ``0`` → ``"0 B/s"`` for ``en``.
- *   - ``formatVram``, ``0`` → ``"0 MB"`` for ``en``.
- *
- * Mocking strategy: the i18n module is mocked so ``getLocale()``
- * returns ``"en"`` (deterministic, Intl output for compact/byte
- * units is stable across Node versions for the ``en`` locale) and
- * ``t()`` returns the raw key string (matching the "missing key"
- * fallback behavior). This decouples the tests from the locale JSON contents.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the i18n module so the formatters resolve against a deterministic
@@ -46,7 +16,6 @@ vi.mock("@/i18n/i18n", () => ({
 	// produces a non-key string because it builds ```${m}${glyph}``
 	// where ``m`` is a number, so the result is e.g. ``"0hourShort"``
 	//, wait, that's not right).
-	//
 	// Actually, to keep ``formatDuration`` readable in tests, we
 	// provide minimal stubs for the glyphs it falls back to. This
 	// avoids the raw-key leak while still exercising the fallback path.
@@ -86,7 +55,6 @@ describe("formatBytes", () => {
 
 	it("returns '—' for negative values", () => {
 		// Negative bytes are nonsensical (treat as invalid input —
-		// previously this returned "0 B" which was misleading).
 		expect(formatBytes(-1)).toBe("—");
 		expect(formatBytes(-1024)).toBe("—");
 	});
@@ -185,7 +153,6 @@ describe("compactNumber", () => {
 		// 1500 / 1000 = 1.5; Intl compact notation with
 		// maximumFractionDigits: 1 → "1.5K". This is the
 		// locale-dependent compact output the previous fix introduces
-		// (previously: hardcoded "1.5K" via Math.floor arithmetic).
 		expect(compactNumber(1500)).toBe("1.5K");
 	});
 

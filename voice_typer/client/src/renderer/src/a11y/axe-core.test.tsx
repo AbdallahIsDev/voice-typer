@@ -1,44 +1,3 @@
-/**
- * Automated WCAG violation scanning for all pages.
- *
- * Each page is mounted with @testing-library/react and scanned with
- * axe-core. The color-contrast rule is disabled because the test
- * environment doesn't load the full Tailwind stylesheet.
- *
- * Pages that require a backend connection or complex props are
- * wrapped in minimal providers (ErrorBoundary, optional router) and
- * provided with stub props so they render without crashing.
- *
- * Coverage:
- *   - Home (idle state)
- *   - History (empty state)
- *   - Templates (empty state)
- *   - Vocabulary (empty state)
- *   - Models
- *   - Settings (with stub config)
- *   - About
- *   - Microphone
- *   - Onboarding
- *   - Dashboard
- *
- * Interactive-surface scans (second describe block below): the
- * surfaces users actually see beyond the empty page roots —
- * ConsentGateDialog open, HelpOverlay open, ShareStatsDialog open,
- * the app shell (Sidebar + TitleBar/GlobalSearchBar, both sidebar
- * states), a populated History list (rows + date groups), and a
- * cycle through every Settings section page. Radix portals render
- * outside the testing-library container, so portal surfaces are
- * scanned via document.body.
- *
- * Previously 5 of the 9 promised pages
- * (Home, Settings, Models, Microphone, Dashboard) were listed in the
- * header comment but had no `it()` blocks, the file only scanned
- * About, Onboarding, History, Vocabulary, and Templates.  The missing
- * five are added below.  Each new test follows the existing pattern:
- * dynamic import the page, render with stub props, run axe-core
- * against the container, and assert no violations (excluding
- * color-contrast which is unreliable in jsdom's Tailwind-less env).
- */
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
@@ -398,14 +357,6 @@ async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
 	expect(violations).toEqual([]);
 }
 
-/**
- * Page-render helper. Pages use Radix `Tooltip` (via SettingRow and
- * other ui primitives); the real App shell wraps everything in a
- * `TooltipProvider` (App.tsx), so tests mounting pages directly must
- * provide one too, otherwise every Tooltip render throws
- * "Tooltip must be used within TooltipProvider" (surfaced as an
- * unhandled error on the CI Client test run during the axe scans).
- */
 const renderPage = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 describe("axe-core automated WCAG scan, all pages", () => {
@@ -476,7 +427,6 @@ describe("axe-core automated WCAG scan, all pages", () => {
 	});
 
 	it("Dashboard page (empty state): no axe violations", async () => {
-		//previously the Dashboard loading state used
 		// `<div aria-label="Loading dashboard" aria-busy="true">` without a
 		// role attribute, triggering axe's `aria-prohibited-attr` rule. The
 		// fix (add a valid role or drop aria-label) has landed, so the

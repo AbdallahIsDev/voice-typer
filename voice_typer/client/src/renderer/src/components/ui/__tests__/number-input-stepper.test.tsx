@@ -1,12 +1,3 @@
-/**
- * NumberInputStepper tests, covers RTL logical positioning (physical `right-1` /
- * `pr-8` were replaced with logical `inset-e-1` / `pe-8` so the steppers
- * sit at the inline-end edge in both LTR and RTL locales).
- *
- * The tests assert on `className` strings because jsdom has no CSS
- * engine; verifying the logical Tailwind utilities are present (and
- * the physical ones are NOT) is sufficient to confirm the intent.
- */
 import { cleanup, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";

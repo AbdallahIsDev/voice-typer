@@ -1,20 +1,3 @@
-/**
- * Unit tests for `useModelConfig`.
- *
- * Coverage :
- *   - loadConfig parallelized IPC: get_config + get_model_status + get_model_catalog
- *     fired via Promise.allSettled, with config applied first
- *   - config drift detection: the `config_changed` event merges partial payload
- *     into the cached config ref + reapplies active-state
- *   - refreshModelStatus helper: get_model_status IPC + downloaded/depsOk
- *     reconciliation ( STALE-ACTIVE: the backend status is authoritative —
- *     an active model reported as NOT downloaded stays not-downloaded)
- *   - removed refresh surface: refreshing / handleManualRefresh are gone
- *     (the "Last updated / refresh" indicator was removed from the page)
- *   - updateConfig: re-throws on set_config failure (callers can branch)
- *
- * Strategy: renderHook + a captured usePythonEvent subscriber + a mock `call`.
- */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -371,7 +354,6 @@ describe("useModelConfig, refreshModelStatus helper", () => {
 	it("does NOT force the active model to downloaded when the backend reports it missing ( STALE-ACTIVE regression)", async () => {
 		// Config says small.en is the active model, but the backend
 		// (which stats the actual filesystem) reports it as NOT
-		// downloaded, the model was removed out-of-band. The hook must
 		// preserve that truth so the card can offer a restore/clear
 		// affordance instead of a dead-end disabled "Active" tick.
 		const initial = makeConfig({ model_size: "tiny" });
@@ -402,7 +384,6 @@ describe("useModelConfig, refreshModelStatus helper", () => {
 		const tiny = result.current.models.find((m) => m.name === "large-v3-turbo");
 		expect(tiny?.downloaded).toBe(true);
 
-		// refreshModelStatus must also preserve the truth (the old code
 		// re-applied the forced override there too).
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_model_status")

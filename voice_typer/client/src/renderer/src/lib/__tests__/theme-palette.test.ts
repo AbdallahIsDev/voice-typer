@@ -1,15 +1,3 @@
-/**
- * Tests for `lib/theme-palette.ts`, the live-theme palette reader for
- * the share-stats image.
- *
- * Verifies:
- *   1. `readThemePalette` resolves the CSS custom properties currently
- *      applied on `document.documentElement` into a hex palette.
- *   2. Missing / unparseable tokens fall back to the stock palette (the
- *      image must never render broken/transparent colours).
- *   3. `legibleOn` enforces the minimum WCAG contrast: an accent too
- *      close to its background falls back to the legible foreground.
- */
 import { beforeEach, describe, expect, it } from "vitest";
 import { contrastRatio } from "@/lib/color-utils";
 import {

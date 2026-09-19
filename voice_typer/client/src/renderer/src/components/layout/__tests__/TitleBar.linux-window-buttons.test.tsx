@@ -1,16 +1,3 @@
-/**
- * TitleBar, Linux window-button layout (system / custom / KDE square).
- *
- * Covers the `linuxWindowButtons` prop contract added with the
- * linux_window_buttons config field:
- *   1. Default (no prop): right-side trio, circle shells.
- *   2. side "left": the cluster renders at the PHYSICAL left edge
- *      (before the sidebar-toggle toolbar button, the bar is pinned
- *      dir="ltr").
- *   3. Custom visibility: hidden buttons are not rendered at all.
- *   4. KDE square: button shells lose `rounded-full`, gain `rounded-none`.
- *   5. Windows ignores the prop entirely (native fixed convention).
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

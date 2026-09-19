@@ -17,31 +17,6 @@ interface A11yLiveRegionsProps {
 	prevConnectionRef: React.RefObject<ConnectionStatus>;
 }
 
-/**
- * The app shell's three screen-reader live regions.
- *
- * Split into THREE regions with distinct politeness streams:
- *
- *   1. Polite + recording-state stream. Previously a single
- *      aria-atomic region concatenated the recording and connection
- *      streams, so any change in either re-announced the ENTIRE
- *      combined text, meaning a brief `connectionStatus` flicker
- *      caused "Recording started." to be re-announced even though
- *      recording state hadn't changed. Isolating the streams means
- *      each only re-announces when ITS OWN content changes.
- *   2. Assertive + connection-ERROR stream (disconnected,
- *      restarting), these interrupt the user since they indicate a
- *      problem requiring attention. Split from the recovery region so
- *      the recovery announcement stays polite (non-interrupting) and
- *      doesn't yank the user out of what they were doing.
- *   3. Polite + connection-RECOVERY stream (re-connected after an
- *      outage), non-interrupting so the user hears it but isn't
- *      pulled out of what they were doing.
- *
- * Reuses existing i18n keys only (`app.lostConnection`,
- * `app.restartingBackend`, `about.connected`), no new translation
- * keys are required.
- */
 export function A11yLiveRegions({
 	recordingState,
 	currentPage,

@@ -1,9 +1,7 @@
 // ShareStatsDialog, the Share Stats trigger + preview popup.
-//
 // Clicking the Share icon opens a dialog showing a LIVE preview of the
 // exact image that will be exported (no surprises after the fact),
 // plus the export actions and direct social share targets.
-//
 // Preview-fit design: the export is a FIXED 1200×630 image, so the
 // preview frame is sized by CSS `aspect-ratio: 1200 / 630` and the
 // image is scaled to the frame width via a `--preview-scale` custom
@@ -12,7 +10,6 @@
 // fitted from the very first frame, no clipping, no dead space, no
 // delayed transform correcting its own layout. The landscape image
 // stacks the action controls BELOW the preview.
-//
 // Social targets (WhatsApp / Telegram / X / Facebook): the platform
 // share-composer URLs do NOT support attaching an image from a desktop
 // web/predecessor context, every platform's web intent is text/URL-only.

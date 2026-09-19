@@ -6,17 +6,6 @@ interface LiveQualityFeedbackProps {
 	totalSeconds: number;
 }
 
-/**
- * Single test-timer readout: `Recording MM:SS / MM:SS` progressing
- * 00:00 → 00:10. This is THE one time display during a test, the
- * redundant voice-quality status line ("Waiting for voice…"/"Voice
- * Detected"/"Low volume") that used to sit under it was removed: the
- * live LevelBar already communicates input level continuously, so a
- * second textual indicator duplicated it and flickered noisily.
- *
- * The timer is rendered OUTSIDE any aria-live region on purpose, rapid
- * per-second updates would spam screen-reader broadcast channels.
- */
 export function LiveQualityFeedback({
 	isRecording,
 	elapsedSeconds,

@@ -1,18 +1,3 @@
-/**
- * EmptyState unit tests.
- *
- * : EmptyState's title was previously rendered as a <p>, which
- * meant screen-reader users couldn't navigate empty-state cards by
- * heading (the H key in NVDA / VoiceOver rotor). The title is now an
- * <h3> so it sits below the typical page <h1>/<h2> hierarchy and SR
- * users can jump to it.
- *
- *  (related): the destructure ``icon: _icon`` underscore-prefix
- * misuse (the variable WAS used at the icon={...} site, contradicting
- * the convention that underscore-prefixed names are intentionally
- * unused) was renamed back to plain ``icon`` so the code matches its
- * actual usage.
- */
 import { AlertCircleIcon, Mic02Icon } from "@hugeicons/core-free-icons";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

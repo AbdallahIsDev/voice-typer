@@ -212,11 +212,9 @@ export function useOnboardingWizard(
 				// to the backend, clobbering the restored selections.
 				// The saved config is the best available source of the
 				// user's intent.
-				//
 				// The four payloads are fetched in PARALLEL (the
 				// Dashboard pattern, same as
 				// pages/dashboard/hooks/useDashboardData.ts):
-				// previously these were five SEQUENTIAL round-trips,
 				// so the wizard's first-run content waited for the
 				// SUM of all five latencies. `onboarding_start`
 				// stays sequential (it creates the backend
@@ -225,7 +223,6 @@ export function useOnboardingWizard(
 				// semantics: a failed probe resolves to `null`
 				// and the wizard continues without prefill
 				// (the original inner try/catch, preserved).
-				//
 				// The batch settles via `Promise.allSettled`
 				// (not `Promise.all`) so the CONFIG PREFILL is
 				// applied on its own success even when a
@@ -283,7 +280,6 @@ export function useOnboardingWizard(
 				// outer catch — a failure AFTER the prefill
 				// block no longer discards the prefill (state
 				// applied before the throw stays applied,
-				// exactly like the old sequential code).
 				const presets = unwrapContent(presetsOutcome);
 				setHotkeyPresets(presets.presets || []);
 				const models = unwrapContent(modelsOutcome);

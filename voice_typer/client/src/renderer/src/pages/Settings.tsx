@@ -49,21 +49,13 @@ import { useSettingsReset } from "./settings/hooks/useSettingsReset";
 import { useSettingsSearch } from "./settings/hooks/useSettingsSearch";
 import { useSettingsSurfaceScroll } from "./settings/hooks/useSettingsSurfaceScroll";
 
-/**
- * Back affordance for a Settings section page: a compact ghost row that
- * returns to the Settings hub. Deliberately NOT a PageHeading, every
- * section component renders its own `<SettingsSection title>` card
- * header, so a page-level heading would duplicate the title right
- * below it. Top-level (not inline in the page component) so React can
- * skip re-creating the element type on every render.
- */
 function SectionBackButton({ onBack }: { onBack: () => void }) {
 	return (
 		<button
 			type="button"
 			data-testid="settings-back-to-hub"
 			aria-label={t("settings.hub.backToSettings")}
-			className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-(--text-muted) transition-colors duration-150 hover:bg-foreground/5 hover:text-(--text-primary) focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
+			className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-(--text-muted) transition-colors duration-150 hover:bg-foreground/5 hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 			onClick={onBack}
 		>
 			{/* Left-pointing chevron, mirrored in RTL by the shared
@@ -81,12 +73,6 @@ function SectionBackButton({ onBack }: { onBack: () => void }) {
 }
 
 interface SettingsPageProps {
-	/**
-	 * The active Settings surface: `"settings"` (the hub, one card of
-	 * section rows) or one of the section pages (a focused page rendering
-	 * only that domain's cards). The nav store is the source of truth;
-	 * App.tsx's route switch passes the literal. Defaults to the hub.
-	 */
 	page?: Page;
 }
 
@@ -95,7 +81,6 @@ interface SettingsPageProps {
 // (see SettingsHub + settingsSections.ts). Each section page renders
 // only its own domain's cards, so the user edits one concern at a time
 // instead of scrolling a stack of unrelated sections.
-//
 // The per-page SearchField + sticky header are gone, the search query
 // lives in the global `useGlobalSearch` store (title-bar
 // GlobalSearchBar). On the hub a query FILTERS the section rows (and
@@ -467,7 +452,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 														<button
 															key={`${group.sectionPage}-${label}`}
 															type="button"
-															className="rounded-md border border-border/10 bg-(--bg) px-2 py-1 text-xs text-(--text-primary) transition-colors hover:bg-foreground/5 focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
+															className="rounded-md border border-border/10 bg-(--bg) px-2 py-1 text-xs text-(--text-primary) transition-colors hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 															onClick={() =>
 																navigate(group.sectionPage, {
 																	settingsScrollTarget: { rowHint: label },

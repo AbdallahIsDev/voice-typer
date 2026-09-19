@@ -1,37 +1,7 @@
 /**
  * Locale-key parity test: asserts every non-English locale file ships
  * the SAME set of dot-keys as `en.json`.
- *
  * CONSTRAINT C-I18N-1 requires that every user-visible string be added
- * to ALL 8 locale files (`en`, `ar`, `de`, `es`, `fr`, `hi`, `ru`,
- * `zh`). Without this test, a key added to `en.json` but forgotten in
- * (say) `hi.json` silently falls back to English for Hindi users —
- * invisible when only English is exercised by unit tests, and not
- * caught by the existing `t()` dev-mode missing-key warning when the
- * fallback to English succeeds (the warning only fires when the key is
- * missing from BOTH the current locale AND English).
- *
- * This test reads all 8 locale JSON files directly (NOT through the
- * runtime `t()` pipeline, runtime imports would post-process the
- * values via `_withAppName` and cache them, which is irrelevant for
- * key-set comparison; what matters here is the raw key surface area
- * translators see when they edit the JSON files). It flattens each
- * file via the renderer's `flatten()` helper (same dot-key scheme the
- * runtime uses) and asserts `Set(keys(en)) === Set(keys(<locale>))`
- * for every non-English locale.
- *
- * On failure, the test reports the symmetric difference split into
- *   - `missingInLocale`: keys present in `en.json` but absent from
- *     the locale file (translator needs to add these).
- *   - `extraInLocale`: keys present in the locale file but absent
- *     from `en.json` (translator needs to remove these, typically a
- *     stale key whose English counterpart was renamed or deleted).
- * so the developer knows exactly which keys to add or remove without
- * diffing the JSON files by hand.
- *
- * Structure mirrors `themes/__tests__/parity.test.ts` (describe
- * derived from a canonical list of fixtures, one describe-block per
- * fixture, symmetric-difference diagnostics on failure).
  */
 import { describe, expect, it } from "vitest";
 import { flatten } from "@/i18n/store";
@@ -82,7 +52,6 @@ const localeFlats: Record<keyof typeof LOCALES, Map<string, string>> = {
 
 // The mid-flow dictation-bubble aria keys. These announce state changes
 // (blocked / cancelling / microphone permission revoked / paste failed)
-// to screen-reader users. They previously existed in NO locale file —
 // the renderer shipped hardcoded English fallbacks with a hardcoded
 // brand instead (see bubble/helpers.ts). This block pins three
 // properties the generic set-parity check above cannot express on its

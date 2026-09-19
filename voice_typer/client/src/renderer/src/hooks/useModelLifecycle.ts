@@ -1,54 +1,3 @@
-/**
- * useModelLifecycle, facade composing the Models-page sub-hooks.
- *
- *  (monolith split): the former 995-line monolith has
- * been decomposed into 5 cohesive sub-hooks, each owning one concern:
- *
- *   • `useModelConfig`    , config + models + catalog state, the
- *                            `config_changed` subscription, and the
- *                            load / refresh / update actions.
- *   • `useModelSelection` , `selectingModel` / `deleteModelTarget`
- *                            state + the select / request-delete /
- *                            confirm-delete actions.
- *   • `useModelDownload`  , download-progress state machine, the
- *                            `download_progress` subscription, and the
- *                            download / pause / cancel actions. Wired
- *                            to `selectModel` so a successful download
- *                            auto-selects the model.
- *   • `useCloudProviders` , cloud-provider API keys + test results +
- *                            the save-key / set-consent / test-
- *                            connection actions (also owns the 3
- *                            module-level helpers: `consentKeyFor`,
- *                            `apiKeyConfigField`, `safeApiKey`).
- *   • `useModelFolder`    , disk-info + open-folder-IPC probe state
- *                            + the import / open-folder actions.
- *
- * This facade wires the sub-hooks together, forwarding the shared
- * state (`models` / `setModels` / `apiKeys` / `setConfig` /
- * `updateConfig` / `loadConfig`) from `useModelConfig` into the
- * sub-hooks that need it (`refreshModelStatus` is forwarded to
- * `useModelSelection` only, the download sub-hook stopped consuming
- * it when the deps-install flow was removed). It also pulls in
- * the cross-cutting `usePython` / `useSnackbar` hooks so the sub-hooks
- * can stay focused on their own state. (`useLastUpdated` is consumed
- * for its `markUpdated` timestamp bump; its `agoLabel` was removed from
- * the public surface when the "Last updated / refresh" indicator was
- * removed from the Models page.)
- *
- * The return object shape is **identical** to the pre-split hook —
- * `Models.tsx` and its tests consume the same surface (minus the
- * removed `agoLabel`; the "Last updated / refresh" indicator was
- * removed from the page). The 4 internal helpers
- * (`refreshModelStatus`, `updateConfig`, `setConfig`, `setModels`)
- * are destructured out of `useModelConfig`'s return before spreading
- * so they don't leak into the public shape.
- *
- * `ApiTestResult` (the type used by `CloudProvidersPanel`) is re-
- * exported from this module so existing imports
- * (`import type { ApiTestResult } from "@/hooks/useModelLifecycle"`)
- * keep working unchanged.
- */
-
 import { useCallback } from "react";
 import { useCloudProviders } from "@/hooks/models/useCloudProviders";
 import { useModelConfig } from "@/hooks/models/useModelConfig";
@@ -158,7 +107,6 @@ export function useModelLifecycle() {
 
 	// 6. (UI/UX overhaul 2026-08-20, point 4), just-in-time
 	//    HuggingFace-consent gate for downloads. The persistent
-	//    consent banner was removed; consent is checked ONLY at
 	//    the moment the user clicks a model's Download button:
 	//      • consent already granted (or the model doesn't download
 	//        from HuggingFace, e.g. qwen) → proceed immediately;

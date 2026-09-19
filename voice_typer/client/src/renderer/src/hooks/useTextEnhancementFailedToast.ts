@@ -1,7 +1,6 @@
 // useTextEnhancementFailedToast, surfaces backend
 // ``text_enhancement_failed`` push events as one actionable in-app
 // toast.
-//
 // The rule-based AI-enhancement step (Step 7b) post-processes a
 // transcription with local grammar/style rules. When that step raises
 // (a broken rule set, an unexpected input) the dictation pipeline
@@ -9,12 +8,10 @@
 // (`dictation_pipeline/enhancement_steps.py`), so without this toast
 // the failure is invisible: the user just sees un-enhanced text with
 // no hint that AI cleanup was skipped.
-//
 // Distinct from ``useLlmPolishFailedToast``: this hook listens for the
 // RULE-BASED enhancer's event, not the LLM-polish path. The backend
 // publishes the two events under different names so the LLM
 // toast never fires for a local rule failure and vice versa.
-//
 // Cooldown: the backend can emit one event per transcription while
 // enhancement is broken. A 5-minute wall-clock cooldown (store-backed,
 // HMR safe) keeps the reminder at most ~once per 5 minutes; the fixed
@@ -25,20 +22,8 @@ import type { TranslateFn } from "@/i18n/translate-types";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
-/**
- * Renderer-side cooldown for the enhancement-failure toast. The failure
- * is non-fatal (raw text still delivered), so re-nagging on every
- * dictation would be noise; five minutes balances "told promptly"
- * against spam.
- */
 const TEXT_ENHANCEMENT_TOAST_COOLDOWN_MS = 300_000;
 
-/**
- * Subscribe to ``text_enhancement_failed`` push events and render the
- * "delivered raw" toast. Call once at the top level of a component.
- *
- * @param t i18n translate function (from useT).
- */
 export function useTextEnhancementFailedToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("text_enhancement_failed", (): (() => void) | undefined => {

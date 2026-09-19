@@ -7,7 +7,6 @@
 // wizard hook owns the persistence); the user can revoke any consent
 // later in Settings → Privacy (GDPR Art. 7(3), revocation stays as
 // easy as granting).
-//
 // Layout contract (2026-09-14 redesign): the rows are FULL-WIDTH and
 // separated by standard dividing borders (the Settings / Models page
 // pattern, `divide-y` on the rows container + border-b between

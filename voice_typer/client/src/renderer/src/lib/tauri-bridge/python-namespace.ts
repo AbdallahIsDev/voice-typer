@@ -1,8 +1,5 @@
 // src/renderer/src/lib/tauri-bridge/python-namespace.ts
-//
-// ADR-0020 §6.3 (Phase 3 UI port): `window.python` installer for the
 // Tauri runtime.
-//
 // Contract preserved (identical on both Tauri and predecessor paths):
 //   • `window.python.call({type, data}) → Promise<data>`, dispatches
 //     an IPC command to the Python sidecar. On Tauri this routes
@@ -13,8 +10,6 @@
 //     all server-initiated events. On Tauri this listens to the
 //     `python-event` Tauri event (emitted by main.rs:455 with
 //     `{type, data}` envelope).
-//
-// The previous version inlined a 60-line nested cancellation block
 // here because `onEvent` subscribes to THREE Tauri events with a shared
 // `cancelled` flag (the primary `python-event` channel + two relay
 // channels). Using `makeListener` per channel collapses each
@@ -26,13 +21,6 @@ import type { PythonBridge, PythonPushEvent } from "@/types/ipc";
 
 import { makeListener, type TauriGlobal } from "./detect";
 
-/**
- * Build the `window.python` namespace using Tauri's global API.
- *
- * Idempotent at the orchestrator level, `installTauriBridge()` checks
- * `window.python` before calling this. The returned object is a fresh
- * allocation each call (no shared state), so HMR re-imports are safe.
- */
 export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 	return {
 		// `call` → `invoke('dispatch', {cmd, data})`. The Rust `dispatch`
@@ -50,14 +38,12 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		// The Rust host emits `python-event` with `{type, data}` envelope
 		// for every server-initiated event (main.rs:455). This matches
 		// the predecessor's `python-event` IPC channel.
-		//
 		// Also listen for host events
 		// (`supervisor_relaunching`, `supervisor_reconnected`) and synthesize
 		// `python-event` frames so `useConnection` updates the UI during
 		// respawn cycles. Without this, the renderer's connection
 		// status stays "connected" while the sidecar is dead, and the
 		// user sees a frozen UI with no feedback.
-		//
 		//when `supervisor_relaunching` carries
 		// `reason: "backoff_exhausted"` (emitted by `supervisor.rs:495`
 		// right before the full-app `app.restart()`), synthesize an
@@ -70,10 +56,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		// matches the respawn-exhausted sentinel so the user sees the
 		// "Lost connection" screen with the cause instead of an
 		// indefinite "Restarting…" banner.
-		//
-		//the handlers below used to cast the synthesized
 		// event via `as unknown as PythonPushEvent` because the
-		// `PythonPushEvent` union previously lacked `ReconnectingEvent`
 		//and `ReconnectedEvent` members.  has since added both
 		// members, so the object literals now type-check directly —
 		// the stale casts and TODOs were removed. The cast on the

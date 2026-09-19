@@ -60,8 +60,12 @@ cd voice_typer/client && npx lint-staged
 # pre-commit install for contributors who only touch client code.
 cd ../..
 if command -v pre-commit >/dev/null 2>&1; then
-  pre-commit run --hook-stage commit --files $(git diff --cached --name-only --diff-filter=ACMR | tr '\n' ' ') || {
+  # Batch file lists: a single `pre-commit run --files $(git …)` exceeds
+  # Windows argv limits on large commits (~600+ paths → "Argument list too long").
+  # xargs -n 80 runs hooks on each batch; exit non-zero if any batch fails.
+  if ! git diff --cached --name-only --diff-filter=ACMR -z \
+    | xargs -0 -n 80 pre-commit run --hook-stage commit --files; then
     echo "[pre-commit] hook failures — see above"
     exit 1
-  }
+  fi
 fi

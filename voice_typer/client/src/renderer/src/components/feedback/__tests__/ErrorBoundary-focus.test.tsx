@@ -1,21 +1,3 @@
-/**
- * ErrorBoundary focus-management tests.
- *
- * When the boundary triggers (a child throws), the fallback UI is a long
- * ``role="alert"`` region with a description, a <pre> stack trace, and a
- * row of recovery buttons. Without programmatic focus management,
- * keyboard / SR users land at the top of the alert region and must Tab
- * through the whole description before reaching any actionable control.
- *
- * The boundary's ``componentDidUpdate`` moves focus to the primary
- * recovery button ("Reset settings") when ``hasError`` transitions from
- * false → true, so keyboard / SR users land directly on the recommended
- * recovery affordance (mirrors ARIA Authoring Practices guidance for
- * error dialogs).
- *
- * These tests mount the real ``ErrorBoundary``, trigger a render crash
- * via a Thrower child, and assert the Reset button receives focus.
- */
 import { cleanup, render } from "@testing-library/react";
 import { Component } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

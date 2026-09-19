@@ -1,27 +1,3 @@
-/**
- * Focused unit tests for the `useBubbleBridge` hook.
- *
- * Background
- * ----------
- * Pre-refactor, the bubble package registered 11 separate IPC
- * listeners across 3 hooks + 1 component
- * (`useBubbleLifecycle` × 2, `useBubbleStateMachine` × 3,
- * `useAudioLevels` × 3, `useThemeSync` × 1, `Bubble.tsx` × 2). Each
- * subscription was a separate predecessor IPC listener on the
- * BrowserWindow's `webContents`.
- *
- * Post-refactor, the bridge centralises the subscriptions into ONE
- * listener per event channel; consumers register handlers via
- * `bridge.on(event, handler)`.
- *
- * These tests verify:
- *   1. The bridge registers EXACTLY ONE listener per event channel
- *      on `window.bubble` (not 11).
- *   2. The bridge fans out events to ALL registered handlers.
- *   3. `setLevelActive(true/false)` toggles the underlying
- *      `api.onLevel` IPC subscription on/off.
- *   4. The bridge unsubscribes all IPC listeners on unmount.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

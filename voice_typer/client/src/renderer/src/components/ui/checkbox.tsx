@@ -5,21 +5,6 @@ import type * as React from "react";
 
 import { cn } from "#utils";
 
-/**
- * Design-system checkbox (shadcn/ui, radix-luma style, Radix Root
- * + hugeicons glyphs). Shared by every list/row that needs bulk
- * selection so header (select-all) and per-row checkboxes look
- * IDENTICAL in every state:
- *   - unchecked: transparent fill + muted border (matches the action
- *     icons' muted tone, no white fill, no bright accent)
- *   - checked: accent fill + white checkmark
- *   - indeterminate (partial selection): accent fill + white dash
- *
- * NOTE: Radix emits `data-state="checked|unchecked|indeterminate"`,
- * NOT `data-checked`, the raw registry output used `data-checked:`
- * classes that never matched, so this file uses `data-[state=...]:`
- * variants.
- */
 function Checkbox({
 	className,
 	...props
@@ -28,7 +13,7 @@ function Checkbox({
 		<CheckboxPrimitive.Root
 			data-slot="checkbox"
 			className={cn(
-				"relative flex size-4 shrink-0 items-center justify-center rounded-[5px] border border-border/15 bg-transparent transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-1focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=checked]:text-white data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent data-[state=indeterminate]:text-white dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+				"relative flex size-4 shrink-0 items-center justify-center rounded-[5px] border border-border/15 bg-transparent transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=checked]:text-white data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent data-[state=indeterminate]:text-white dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
 				className,
 			)}
 			{...props}

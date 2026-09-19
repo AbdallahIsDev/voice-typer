@@ -1,15 +1,3 @@
-/**
- * Tests for useLastUpdated, focused on the `withRefresh` wrapper
- * invariant: `refreshing` MUST be cleared on BOTH success and error
- * (try/finally contract). Earlier this was implemented through a
- * `setRefreshingRef` indirection; the test pins the behaviour after
- * the refactor that calls `setRefreshing` directly.
- *
- * Also verifies `withRefresh` is referentially stable across
- * re-renders (React guarantees `useState` setters are stable, so
- * the `useCallback` deps array `[setRefreshing]` should produce a
- * stable callback identity).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

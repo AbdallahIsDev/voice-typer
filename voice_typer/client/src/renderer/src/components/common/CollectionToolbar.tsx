@@ -1,9 +1,6 @@
 // CollectionToolbar, the shared toolbar shell (Import / Export / Clear
 // All / Sort + the primary Add action) for collection pages.
-//
-// Extracted from the 1:1 mirror pair VocabToolbar (Vocabulary) /
 // TemplateToolbar (Templates): the two components' layout containers,
-// button variants, icon choices, and class strings are byte-identical;
 // only the i18n keys, the hidden input's `accept` attribute, and three
 // small drift points differ. This shell owns the LAYOUT and the visual
 // tokens (single-row toolbar, secondary cluster left + primary action
@@ -12,30 +9,25 @@
 // The domain (page) owns every label: i18n keys are passed as props and
 // resolved here through `t()`, the same injection pattern the shared
 // `useRowSelection` hook established for the collection-page family.
-//
 // SINGLE-ROW TOOLBAR: the sort control joins the secondary cluster (it
 // is a list-view control, same weight as the other non-primary tools);
 // the primary Add action is pushed to the far right by the parent row's
 // `justify-between` (with an explicit `w-full` so the row always spans
 // the full column width). No divider pipes between buttons, spacing +
 // the primary/secondary split carry the grouping.
-//
 // Full-width note: `justify-between` only distributes space when the
 // flex container is WIDER than its children's combined content. The
 // toolbar therefore MUST be rendered in a full-width parent (a direct
 // child of the page column, NOT inside PageHeading's content-sized,
 // shrink-0 action wrapper).
-//
 // Hidden import input: rendered once and re-used, its `value` is reset
 // after each onChange by the import handler (see
 // useCollectionImportExport) so re-selecting the same file fires the
 // event again.
-//
 // ── Drift decision points (resolve at MIGRATION time, Wave 5) ──────
 // The two pages shipped three toolbar-level drifts; the shell keeps
 // BOTH forms possible via optional props, with defaults chosen as
 // documented. Wave 5 unifies per page as a deliberate decision:
-//
 //   1. Add-button aria-label, Vocabulary has none (the visible text
 //      label is the accessible name); Templates adds
 //      `templates.addNewAria`. Prop `addAriaLabelKey?`, DEFAULT none
@@ -49,7 +41,6 @@
 //      pages' import parsers genuinely differ in capability, a union
 //      default would let Templates users pick CSV files the page cannot
 //      parse).
-//
 // The ROW action-button drift (icon-xs vs icon-sm, title tooltips) is a
 // row-renderer decision, rows stay per-domain by design; see
 // CollectionListHeader's header note for the column-width invariant

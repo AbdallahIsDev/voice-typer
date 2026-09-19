@@ -1,18 +1,3 @@
-/**
- * Tests for the Vocabulary page,  (load-error variant) and
- *  (localised load-failed description).
- *
- * : the load-error EmptyState in Vocabulary.tsx previously used
- * the default ``"info"`` variant, which made a backend-load failure
- * look identical to "you haven't added any words yet".  switches
- * the load-error EmptyState to ``variant="error"`` so the failure is
- * visually distinct (destructive ring + Alert02Icon + role="alert").
- *
- * : the loadError string previously fell back to a hardcoded
- * English "Failed to load vocabulary" when the caught error wasn't an
- * Error instance.  replaces that fallback with the localised
- * ``vocabulary.loadFailedDescription`` i18n key.
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the

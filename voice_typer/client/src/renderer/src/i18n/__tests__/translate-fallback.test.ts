@@ -1,40 +1,3 @@
-/**
- * Tests for the `t()` lookup-chain fallback + dev-mode missing-key
- * warning.
- *
- * Covers two behaviours added to address the i18n silent-fallback gap:
- *
- *   1. Dev-mode warning: when a key is missing from BOTH the current
- *      locale AND the English fallback, `t()` returns the raw key
- *      string (defensive, callers must not crash on a typo) but also
- *      emits a single `console.warn("[renderer:i18n] missing key:", key,
- *      "for locale:", currentLocale)` so the typo is visible during
- *      QA. Production builds skip the warning (`import.meta.env?.DEV`
- *      is `false` in production per Vite). Vitest runs with
- *      `DEV=true`, so the warning fires under test, these tests
- *      spy on `console.warn` to assert the diagnostic shape.
- *
- *   2. Primary-subtag fallback: when the current locale is a regional
- *      variant (contains `-`) and the key is missing from the
- *      regional map, `t()` tries the bare primary subtag's map before
- *      falling back to English. The chain is:
- *
- *        currentLocale → primary subtag → en → raw key
- *
- *      e.g. `zh-CN` → `zh` → `en` → key. A translator adding a
- *      regional override for a handful of keys therefore does not
- *      silently lose the parent language's coverage for the rest.
- *
- * Test isolation: the i18n runtime state (`_translations`,
- * `_resolvedCache`, `_currentLocale`) is module-level and persists
- * across tests in the same file. Each test registers fresh translation
- * tables for the locales it touches, calls `_invalidateResolvedCache`
- * to drop any cached resolved strings, and uses `_setCurrentLocale` to
- * set a regional locale that `setLocale` would reject (because
- * regional variants aren't in `SUPPORTED_LOCALES`). `afterEach`
- * restores the locale to `"en"` and deletes the regional map entry so
- * later tests in the file start from a clean baseline.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { APP_NAME } from "@/branding";
@@ -47,28 +10,10 @@ import {
 } from "@/i18n/store";
 import { _invalidateResolvedCache, t } from "@/i18n/translate";
 
-/**
- * Cast helper: the `Locale` type is a closed union of the 8 shipped
- * locales and does NOT include regional variants like `zh-CN`. At
- * runtime, the i18n store accepts any string as a locale key (the
- * `Map<Locale, ...>` typing is advisory, JavaScript Maps don't enforce
- * key types). Tests that exercise the primary-subtag fallback need to
- * register a regional variant, so we cast through `unknown` to satisfy
- * TypeScript without changing the production `Locale` union.
- */
 function asLocale(s: string): Locale {
 	return s as unknown as Locale;
 }
 
-/**
- * Wrap a synthetic test-fixture key so it takes t()'s dynamic-key
- * (loose) overload. These keys are intentionally absent from the
- * shipped en.json catalog, the tests below register their own
- * translation tables for them at runtime, so the compile-time catalog
- * contract must not apply to them (that guard exists to catch
- * statically written production keys drifting from the catalog).
- * Values pass through unchanged; this is typing-only.
- */
 function fixtureKey(key: string): string {
 	return key;
 }

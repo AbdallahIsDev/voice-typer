@@ -15,10 +15,6 @@ interface StatCardProps {
 	value: string;
 	icon: IconSvgElement;
 	sublabel?: string;
-	/**
-	 * Optional comparison vs the previous period of the same length
-	 * (null = no prior period exists, e.g. the All Time total).
-	 */
 	trend?: StatTrend | null;
 }
 
@@ -64,7 +60,6 @@ export function StatCard({
 		// lift/border change. Layout: a single top row of icon +
 		// label (horizontal, left-aligned, not stacked), then the
 		// main number on its own line below. The value is semibold
-		// (one step up from the old medium) so it stays airy rather
 		// than heavy. The value's `mt-auto` pushes it (and any
 		// trailing sublabel/trend) to the bottom of the stretched
 		// card, the icon+label row stays pinned at the top with

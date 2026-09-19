@@ -22,14 +22,6 @@ import { Button } from "@/components/ui/button";
 import { getLocale, t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
 
-/**
- * Transcriptions longer than this are treated as potentially clamped by
- * the row's line clamp, so the text becomes click-to-expand (when the
- * parent supplies ``onFetchFullText``). Mirrors the threshold used by
- * the Home preview card. Rows ALSO become expandable when the backend
- * flagged the 500-char preview via ``text_truncated``, regardless of
- * length.
- */
 const EXPAND_TEXT_LENGTH_THRESHOLD = 160;
 
 function formatTimestamp(ts: string): string {
@@ -55,39 +47,17 @@ interface ActivityListProps {
 	onViewAll?: () => void;
 	onDelete?: (id: number) => void;
 	onToggleFavorite?: (id: number) => void;
-	/**
-	 * Group the list into one separate card per date ("Today" /
-	 * Yesterday / long date as the card header). Rows then show only
-	 * their TIME, the date lives in the card header. Only meaningful
-	 * for chronologically-sorted lists; the History page disables
-	 * grouping for alphabetical sorts.
-	 */
 	groupByDate?: boolean;
-	/**
-	 * Fetch the FULL text of a record by id (the list payload carries a
-	 * 500-char preview). When provided, clamped rows become
-	 * click-to-expand (keyboard operable, ``aria-expanded`` state).
-	 * Resolve with the full text, or ``null`` on failure.
-	 */
 	onFetchFullText?: (id: number) => Promise<string | null>;
-	/**
-	 * Hide the section header row (title + "View all"). The History page
-	 * renders the list directly under its toolbar, a "Recent Activity"
-	 * heading there would duplicate the page title.
-	 */
 	hideHeader?: boolean;
 }
 
 // ── ActivityListRow ────────────────────────────────────────────────────
-//
-// Extracted from the inline `.map()` body in ActivityList and
-// wrapped in `React.memo`. Previously, every render of ActivityList
 // allocated 3 fresh closure functions per row (`handleItemFavorite`,
 // `handleItemCopy`, `handleItemDelete`), on a 200-row dashboard list
 // that's 600 closure allocations per copy/favorite click (because the
 // click flips `copiedId`, re-rendering the parent and rebuilding every
 // row's handlers).
-//
 // The memo'd row receives:
 //   - `item`             , the HistoryRecord (stable reference unless the
 //                           underlying record changes)
@@ -103,7 +73,6 @@ interface ActivityListProps {
 //   - `onDelete`         , stable useCallback from parent (or undefined)
 //   - `onToggleFavorite` , stable useCallback from parent (or undefined)
 //   - `onFetchFullText`  , stable useCallback from parent (or undefined)
-//
 // All non-primitive props are stable useCallbacks from the parent, so
 // `memo`'s default shallow-equal comparator skips re-renders for every
 // row except the one whose `copied` flag actually toggled.
@@ -228,7 +197,7 @@ const ActivityListRow = memo(function ActivityListRow({
 						onKeyDown={expandable ? handleTextKeyDown : undefined}
 						className={`rounded-md transition-colors ${
 							expandable
-								? "cursor-pointer focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-hidden"
+								? "cursor-pointer focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
 								: ""
 							// Reserve room for the floating bottom-center
 							// button once expanded: without it a long last
@@ -280,7 +249,7 @@ const ActivityListRow = memo(function ActivityListRow({
 									void toggleExpanded();
 								}}
 								onKeyDown={(e) => e.stopPropagation()}
-								className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
+								className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
 							>
 								{loadingText
 									? t("history.loading")
@@ -425,7 +394,6 @@ function ActivityListInner({
 	// row's `memo` shallow-equal comparator keeps them referentially
 	// equal across re-renders.
 
-	// Previously returned ``null`` when ``items`` was empty,
 	// which meant a parent rendering ``<ActivityList items={[]} />``
 	// (e.g. the Home page before any dictation has happened) showed
 	// nothing at all, no heading, no "no recent activity" hint, just

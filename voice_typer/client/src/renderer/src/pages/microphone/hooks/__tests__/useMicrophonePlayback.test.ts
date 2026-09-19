@@ -1,25 +1,3 @@
-/**
- * Unit tests for `useMicrophonePlayback`.
- *
- * Coverage :
- *   - playAudio: sets playingEnhanced / playingOriginal correctly based on
- *     the isEnhanced flag + drives the underlying HTMLAudioElement
- *   - playback pause/resume: calling playAudio while a clip is already
- *     playing pauses the previous audio before starting the new one
- *   - AudioContext cleanup on unmount: the useEffect cleanup pauses any
- *     in-flight audio + clears the audioRef so onended/onerror don't
- *     fire setState on an unmounted component
- *   - stopPlayback: clears all playing flags + pauses the audio element
- *   - onerror / play() rejection: surfaces a snack + clears state
- *
- * Strategy: mock the global `Audio` constructor so we can capture each
- * HTMLAudioElement instance and drive its events (onended / onerror /
- * play()) deterministically. Mock `useSnackbar` for the showSnack calls.
- *
- * NOTE: jsdom DOES implement `Audio` (returns an HTMLMediaElement that
- * no-ops on play/pause), but we replace it with a controllable stub so
- * we can fire onended / onerror synchronously.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -180,7 +158,6 @@ describe("useMicrophonePlayback, playback pause/resume (replace in-flight clip)"
 		});
 		const secondAudio = latestAudio();
 
-		// The first audio was paused (regression: previously the cleanup
 		// only happened on unmount, so the first clip kept playing in
 		// the background while the second clip overlaid it).
 		expect(firstAudio?.pause).toHaveBeenCalledTimes(1);

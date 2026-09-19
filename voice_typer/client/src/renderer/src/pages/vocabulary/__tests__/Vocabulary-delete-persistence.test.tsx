@@ -1,27 +1,3 @@
-/**
- * E2E persistence regression tests for the Vocabulary page, the exact
- * reproduction that exposed the fake-deletion bug:
- *
- *   1. load the page
- *   2. delete an entry (single / bulk / Clear All), or edit it
- *   3. navigate away and back (the page unmounts and re-mounts,
- *      re-fetching `get_vocabulary`)
- *   4. the deleted entry must NOT reappear; the edited value must stick
- *
- * WHY A STATEFUL MINI-BACKEND: the existing tests stub `get_vocabulary`
- * with a STATIC object, so a save that never reaches the backend (or a
- * stale payload) still "passes", the reload would return the same seed
- * either way. This file instead drives a faithful in-memory port of the
- * backend's `save_vocabulary_with_diff`: the user store holds a DIFF
- * against the bundled defaults plus `_deleted` tombstones, and
- * `get_vocabulary` returns the MERGED view computed fresh on every
- * call. A delete that does not persist (no save, failed save, or a
- * stale payload that still contains the row) therefore resurfaces on
- * re-mount exactly as the real bug did.
- *
- * The backend-side half of this regression lives in
- * `tests/test_vocabulary_delete_persistence.py` (real disk reads).
- */
 import {
 	cleanup,
 	fireEvent,
@@ -80,12 +56,6 @@ function emptyCat(cat: Cat): Record<string, string> | Array<[string, string]> {
 	return DICT_CATS.has(cat) ? {} : [];
 }
 
-/**
- * Stateful in-memory backend double. `bundled` is immutable; the user
- * store holds the diff against it (+ `_deleted` tombstones), exactly
- * like the real user vocabulary.json. `merged()` recomputes the view
- * from the store on every call, a "reload" is just a fresh `merged()`.
- */
 function makeMiniBackend(bundled: VocabularyData) {
 	let store: MiniStore = {};
 
@@ -223,11 +193,6 @@ const BUNDLED: VocabularyData = {
 	extra_word_patterns: [],
 };
 
-/**
- * Seed the store the way the renderer would after an add: the FULL
- * merged payload (bundled + new user entries), the renderer always
- * sends the complete list, never a partial one.
- */
 function seedUser(
 	extra: Partial<
 		Record<string, Record<string, string> | Array<[string, string]>>
@@ -405,12 +370,10 @@ describe("Vocabulary page, delete/edit persistence across reload (fake-deletion 
 		remount();
 		// Both cells now read "recieve" (original → corrected), so use
 		// the row's Edit button (aria-label contains the original) as
-		// the presence probe, then confirm the OLD correction value is
 		// gone.
 		await screen.findByRole("button", { name: "Edit: recieve" });
 		expect(screen.getAllByText("recieve").length).toBeGreaterThanOrEqual(2);
 		// the correction value is now "recieve" (saved), the row
-		// renders original → correction, so the old "receive" is gone
 		expect(screen.queryByText("receive")).toBeNull();
 	});
 

@@ -1,9 +1,7 @@
 // src/renderer/src/types/__tests__/config-parity.test.ts
-//
 //(parity guard): static type-level
 // regression tests pinning the TS `VoiceTyperConfig` interface to the
 // Python `Config` dataclass + IPC validator constraints.
-//
 // The Python side (config.py, config_validators.py) is owned by the
 // server-side scope. The cross-language contract is:
 //   • TS `ModelSize` union must mirror Python `ALLOWED_USER_MODELS`.
@@ -29,18 +27,15 @@
 //     REQUIRED (`number | null`); `bubble_scale`/`test_duration_seconds`
 //     are OPTIONAL on the TS side for backward compat with older
 //     config.json files / older sidecars that predate the fields.
-//
 // This file is a TS-only static guard, it doesn't shell out to
 // Python (which would require a Python interpreter in the vitest
 // runner). The Python-side parity is enforced by a separate CI job
 // that runs `python scripts/check_config_parity.py` (added by
 //) which reads the Python dataclass fields
 // and diffs against the TS interface keys extracted via TS MMT.
-//
 // If a future agent adds a field to the Python Config dataclass
 // WITHOUT updating the TS interface, the CI parity script catches
 // the drift. If a future agent adds a field to the TS interface
-// WITHOUT updating the Python dataclass, the TS compile-time guards
 // below catch the drift (because the type assertion fails).
 
 import { describe, expect, it } from "vitest";
@@ -64,8 +59,6 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 		// `voice_typer/server/config_validators.py` now allows exactly
 		// these 5 model values plus the empty sentinel, and this union
 		// mirrors it.
-		//
-		// Compile-time guard: each value must be assignable to `ModelSize`.
 		// If a future contributor removes one from the TS union, the
 		// corresponding assignment fails to compile.
 		const values: ModelSize[] = [
@@ -80,7 +73,6 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 	});
 
 	it("includes the multilingual 'tiny' variant (positive conditional-type guard)", () => {
-		// positive compile-time guard that the multilingual
 		// Whisper variants are present in the TS union. The conditional
 		// resolves to `true` while "tiny" is in `ModelSize`; if a
 		// future contributor removes it, the `true` assignment fails
@@ -91,7 +83,6 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 	});
 
 	it("pruned: removed the multilingual 'small' and 'medium' variants (negative conditional-type guards)", () => {
-		// negative compile-time guards: the pruned sizes must NOT be
 		// assignable to `ModelSize`. The conditional resolves to
 		// `false` while the union excludes them; if a future
 		// contributor re-adds one, the `false` assignment fails to
@@ -105,7 +96,6 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 	});
 
 	it("includes 'large-v3' (restored to the catalog 2026-08-15 at the user's request)", () => {
-		// Compile-time guard: "large-v3" must be assignable to
 		// `ModelSize`. The conditional resolves to `true` while the
 		// union includes "large-v3"; if a future contributor removes
 		// it, the `true` assignment fails to compile.
@@ -123,10 +113,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 		// `Config.load()` v1->v2 migration rewrites stale on-disk
 		// values BEFORE the IPC validator sees them, so the IPC
 		// boundary never accepts either legacy value. The wider TS
-		// union previously let renderer code construct a payload the
 		// server would silently reject.
-		//
-		// Compile-time guards: 'none' / 'recommended' must NOT be
 		// assignable to `audio_preset`. The conditional resolves to
 		// `false` while the union excludes them; if a contributor
 		// re-adds either, the `false` assignment fails to compile.
@@ -191,8 +178,6 @@ describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate
 		// they're NOT on the wire post-v3. The TS interface marks
 		// them as OPTIONAL (`?:`) with `@deprecated` tags, kept in
 		// the type for config-file back-compat only.
-		//
-		// Compile-time guards: each of the three fields must be
 		// `T | undefined` (optional). We use a conditional-type guard:
 		// `undefined extends T ? true : false` resolves to `true` only
 		// when `T` admits `undefined` (i.e. is optional). If a future
@@ -242,8 +227,6 @@ describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture, RUNTIME switc
 		// NOT in the IPC allowlist (renderer `set_config(...)` calls
 		// are rejected by the validator), but they ARE echoed on
 		// `get_config` and the renderer must surface them in the UI.
-		//
-		// Compile-time guard: accessing the fields on a value of type
 		// `VoiceTyperConfig` must type-check (NOT `boolean | undefined`
 		//, they're required). If a future contributor removes either
 		// field from the interface or makes them optional, the
@@ -261,16 +244,13 @@ describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture, RUNTIME switc
 
 describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds, optionality", () => {
 	it("bubble_scale and test_duration_seconds are optional (undefined is assignable)", () => {
-		// Compile-time guard: a minimal `VoiceTyperConfig` literal
 		// WITHOUT bubble_scale / test_duration_seconds must type-check.
 		// bubble_x and bubble_y are REQUIRED (number | null) and must
 		// be included.
-		//
 		//the Python Config dataclass now persists
 		// all four fields; bubble_scale / test_duration_seconds remain
 		// OPTIONAL on the TS side for back-compat with older
 		// config.json files / older sidecars.
-		//
 		// We use `as VoiceTyperConfig` (not `as unknown as`) so the
 		// compiler still checks the OTHER required fields are present.
 		const minimal: VoiceTyperConfig = {
@@ -413,7 +393,6 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds,
 
 describe("GT-37: warn_elevated_paste / warn_password_paste, optional paste-safety toggles", () => {
 	it("both fields are declared on VoiceTyperConfig (compile-time presence guard)", () => {
-		// Compile-time guard: accessing the fields on a value of
 		// type `VoiceTyperConfig` must type-check. If a future
 		// contributor removes either field from the interface, the
 		// property access below fails to compile and CI catches it.
@@ -430,7 +409,6 @@ describe("GT-37: warn_elevated_paste / warn_password_paste, optional paste-safet
 
 describe("GT-F2-3: onboarding_failed / recording_channels / pre_roll_buffer_seconds, optional server-controlled fields", () => {
 	it("all three fields are OPTIONAL (omittable from a literal) and readable", () => {
-		// Compile-time guard: a literal that omits all three must
 		// type-check (proving they're optional). Reading them back
 		// must yield `undefined` (no default at the TS layer).
 		const cfg = {

@@ -1,13 +1,3 @@
-/**
- * Tests for useConnectingProgress (extracted from App.tsx).
- *
- * Contract: subscribe to the backend ``download_progress`` push event
- * and surface the percentage ONLY while the app is not yet connected —
- * updates are skipped while ``connectionStatus === "connected"`` (the
- * screen that reads the value is not rendered), and any transition
- * away from ``"connecting"`` clears the value so a stale percentage
- * can't persist across a disconnect/reconnect flap.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

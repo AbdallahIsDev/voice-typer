@@ -1,19 +1,3 @@
-/**
- *  (session NH) test: ``DialogContent`` renders a visible close (X) button.
- *
- * Before , ``DialogContent`` had NO visible close affordance, only
- * Escape + backdrop click dismissed the dialog. Sighted users without
- * keyboard expertise had no way to close a dialog with the mouse beyond
- * clicking the backdrop (which can be unintuitive for confirm-style
- * dialogs where the user is meant to choose a button).
- *
- * The fix added a ``<DialogPrimitive.Close>`` with an X icon positioned
- * at the inline-end top corner of every ``DialogContent``. This test
- * asserts the close button is present, labelled via ``t("common.close")``,
- * and triggers ``onOpenChange(false)`` when clicked (so callers' existing
- * close handlers receive the event through the same channel as Escape +
- * backdrop).
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

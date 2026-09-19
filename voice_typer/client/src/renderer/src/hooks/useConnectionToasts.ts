@@ -1,33 +1,3 @@
-/**
- * useConnectionToasts, surfaces backend connection-state transitions as
- * sonner toasts AND triggers a theme reload when the backend recovers.
- *
- * Extracted from App.tsx (App.tsx slimming split) to keep
- * App.tsx a pure layout shell. Behaviour is byte-identical to the original
- * inline effect:
- *
- *   - On every `connectionStatus` change, update `prevConnectionRef` and:
- *       - if transitioning INTO "connected" from any non-connected state,
- *         call `reloadThemeFromConfig()` so theme prefs the user changed
- *         during the outage are applied;
- *       - if transitioning INTO "disconnected", fire `toast.error(
- *         app.lostConnection)` with the hint as the description;
- *       - if transitioning INTO "restarting", fire `toast.warning(
- *         app.restartingBackend)` with the hint as the description;
- *       - if transitioning INTO "connected" from any state OTHER than
- *         "connecting" (i.e. a RECOVERY, not the initial connect), fire
- *         `toast.success(about.connected)`. The initial-connect path is
- *         suppressed so the user doesn't get a "Connected!" toast on
- *         every app launch.
- *
- * The hook returns the `prevConnectionRef` so the caller's aria-live
- * region can read the previous value (needed to announce RECOVERIES only,
- * not the initial connecting → connected transition).
- *
- * : original behaviour, toasts reuse existing i18n keys
- * (`app.lostConnection`, `app.restartingBackend`, `about.connected`) so no
- * new translation keys are required.
- */
 import { useEffect, useRef } from "react";
 import type { TranslateFn } from "@/i18n/translate-types";
 import type { ConnectionStatus } from "@/stores/appStore";
@@ -64,13 +34,11 @@ export function useConnectionToasts({
 
 		//surface connection-state transitions as toasts
 		// so the user gets immediate visual feedback when the backend
-		// drops out, restarts, or recovers, previously the only
 		// feedback was the connecting/disconnected/restarting swap
 		// inside the main content area, which a user looking at the
 		// Home mic button could easily miss. Toasts reuse existing
 		// i18n keys (`app.lostConnection`, `app.restartingBackend`,
 		// `about.connected`) so no new translation keys are required.
-		//
 		// Transitions are tracked via the `prev` ref so each toast
 		// fires exactly once per transition (not on every re-render).
 		// The initial mount path (prev === connectionStatus ===

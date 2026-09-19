@@ -1,17 +1,3 @@
-/**
- * Unit tests for the consolidated first-run consent step
- * (`ConsentStep`).
- *
- * Contract under test:
- *   - Renders the Privacy & Consent heading + description.
- *   - Renders a row for EVERY consent-gated field with its
- *     plain-language label (labels are the settings.privacy.* keys,
- *     the single source of truth shared with Settings → Privacy).
- *   - Each row's switch reflects the `consents` prop state.
- *   - Toggling a switch calls onToggleConsent(field, value), the
- *     wizard persists it immediately via set_config.
- *   - "Agree to All" calls onAgreeToAll (single batched grant).
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";

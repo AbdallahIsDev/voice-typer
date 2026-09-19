@@ -1,24 +1,3 @@
-/**
- * , , ,  regression tests for App.tsx.
- *
- * : "Page not found" fallback uses i18n keys + renders a "Go to Home"
- *        recovery button that navigates home on click. The previous version
- *        hardcoded English strings and offered no recovery action.
- *
- * : The `?` help overlay shows the user's ACTUAL configured hotkey
- *        (via formatHotkeyLabel) rather than a hardcoded "Caps Lock" label
- *        that lied whenever the user had rebound the key.
- *
- * : The `?` keydown guard now skips when focus is in a contentEditable
- *        element (rich-text editors, Slate/ProseMirror, etc.). Previously
- *        only <input>/<textarea>/<select> were checked, so typing "?"
- *        inside a contentEditable field popped the overlay and stole focus.
- *
- * SET-4: The `?` keydown listener is registered ONCE (empty deps) and reads
- *        `showHelpOverlay` from a ref. This is implicitly covered by the
- *         test (the listener must still be alive across opens/closes
- *        for the test to pass) but isn't directly asserted here.
- */
 import {
 	cleanup,
 	fireEvent,
@@ -611,14 +590,12 @@ describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 		// override the getter to report the editable div, this lets
 		// the guard's `active?.isContentEditable === true` branch
 		// fire without depending on jsdom's incomplete focus model.
-		//
 		// jsdom also doesn't properly compute `isContentEditable`
 		// from the `contentEditable` property for arbitrary <div>
 		// elements (the IDL attribute is set, but the reflected
 		// `isContentEditable` getter stays undefined). We override
 		// both `document.activeElement` AND `editable.isContentEditable`
 		// so the App's guard sees a contentEditable active element.
-		//
 		// Save the original descriptors (if the objects have own
 		// properties for these) so we can restore them in `finally`.
 		// Without this, a failed assertion would leak the mock into
@@ -760,8 +737,6 @@ describe("BG-25: document.title updates on route change", () => {
 
 		// title updated to the Settings HUB title. Settings is now a
 		// HUB + section pages, `navigate("settings")` keeps the page
-		// on the hub literal (the old redirect to `settingsGeneral`
-		// was removed), so App.tsx's title effect resolves
 		// `t("settings.title")` for the `settings` surface. Expected
 		// string built from the same sources App.tsx uses:
 		// t("settings.title") + ", " + APP_NAME.

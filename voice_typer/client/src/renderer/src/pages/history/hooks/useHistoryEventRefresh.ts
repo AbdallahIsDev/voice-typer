@@ -1,6 +1,4 @@
 // History background-event refresh + manual refresh hook.
-//
-// Extracted from `pages/History.tsx` (page-root slimming): the whole
 // background-refresh pipeline, the 500ms-debounced
 // `transcription_final` / `history_changed` handler, the
 // hidden-window stale flag, the visibilitychange one-shot refresh, the
@@ -9,7 +7,6 @@
 // the page root. The data fetch itself stays in `useHistoryCache`
 // (`refreshFromEvent` / passed-in `runLoad`); this hook only owns WHEN
 // those run.
-//
 // The page must pass its `runLoad` wrapper (the fresh-load path that
 // also resets the visible-row window) so the manual refresh button
 // behaves exactly like the other fresh loads (mount, search, retry).
@@ -31,10 +28,6 @@ export interface UseHistoryEventRefreshReturn {
 	refreshing: boolean;
 }
 
-/**
- * Background-event + manual refresh pipeline for the History page. See
- * the file header for the extraction rationale.
- */
 export function useHistoryEventRefresh({
 	refreshFromEvent,
 	runLoad,

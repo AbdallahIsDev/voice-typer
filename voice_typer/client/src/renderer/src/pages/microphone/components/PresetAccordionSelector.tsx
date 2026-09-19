@@ -1,6 +1,5 @@
 // Accordion-style "Microphone Quality" preset selector, Microphone
 // page only.
-//
 // Collapsed, the header shows the section label + a general help
 // InfoTooltip + the CURRENT selection; expanding reveals a master
 // enable-Switch first, then (while enabled) a RadioGroup of the four
@@ -14,12 +13,10 @@
 // option's description lives in a per-row InfoTooltip instead of being
 // permanently visible, keeps the accordion compact and kills the
 // duplicated header paragraph.
-//
 // Selecting a radio applies the preset immediately (ADR 0007: backend
 // maps preset → filter chain). When the Custom preset is active, the
 // progressive-disclosure Custom-filters toggle + AudioFilterChain render
 // inside the expanded region.
-//
 // The expand/collapse affordance is the shared ui/accordion trigger —
 // its persistent PlusSignIcon stays "+" in both states (app-wide
 // accordion convention).
@@ -48,7 +45,6 @@ import type { VoiceTyperConfig } from "@/types/config";
 
 interface PresetAccordionSelectorProps {
 	preset: AudioPreset;
-	/** Full config, used to read/write the individual noise_filter_* fields. */
 	config: VoiceTyperConfig;
 	/** Whether the Custom-filters panel is expanded. */
 	showAdvanced: boolean;

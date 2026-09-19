@@ -1,17 +1,3 @@
-/**
- * "Amoled" theme preset, true-black backgrounds for OLED displays.
- *
- * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
- * are consumed.
- *
- * light and dark now define the SAME superset of CSS vars.
- * Previously the light map covered only 16 vars while the dark map
- * covered 31, components reading e.g. ``--sidebar-ring`` in light
- * mode fell through to the stylesheet default, producing an
- * inconsistent accent colour when toggling schemes. The light map
- * now mirrors the dark map's var coverage so the visual contract
- * holds in both colour schemes.
- */
 import type { ThemePreset } from "../themes";
 
 export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
@@ -106,7 +92,6 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		"--popover": "oklch(0.04 0 0)",
 		"--popover-foreground": "oklch(0.985 0 0)",
 		// Primary / accent (added --primary + --primary-foreground
-		// so the light/dark var coverage matches; previously the dark map
 		// relied on the stylesheet default for these).
 		"--primary": "oklch(0.546 0.245 262.881)",
 		"--primary-foreground": "oklch(0.97 0.014 254.604)",

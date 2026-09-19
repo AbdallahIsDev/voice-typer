@@ -1,17 +1,3 @@
-/**
- * Tests for hooks/theme/themeApply, the DOM application concern
- * extracted from useTheme.ts.
- *
- * Covers:
- *   1. ``applyThemeToDocument`` toggles the ``dark`` class correctly for
- *      explicit dark/light modes AND for the system mode (driven by the
- *      caller-supplied ``prefersDark.matches``).
- *   2. Preset CSS var overrides are forwarded to ``applyThemeVars`` —
- *      ``null`` custom vars for non-custom presets, derived vars from
- *      the custom colour map for the custom preset (dark vs light core
- *      maps selected by the resolved isDark).
- *   3. ``applyTextScale`` writes ``--font-scale`` (size / 14).
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({

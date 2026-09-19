@@ -1,24 +1,3 @@
-/**
- *  vitest rewrite, behavioral test for `Home.tsx` listener count.
- *
- * Replaces the following string-pattern Python test from
- * `tests/test_feature_hardening_regressions.py`:
- *   - TestHomeRegistersSingleTranscriptionFinalListener::test_only_one_transcription_final_listener
- *
- * The Python test counted occurrences of the literal
- * `usePythonEvent("transcription_final"` (and its single-quote
- * variant) inside Home.tsx source.  This is brittle: it fails on
- * innocent refactors (extracting the handler to a hook, switching to
- * a `useMemo`+`useEffect` pattern, using a constant for the event
- * name) and it passes even when the listener is registered twice
- * via a different syntax.  The vitest version below mocks
- * `usePythonEvent`, mounts the real Home page, and asserts the mock
- * was called with the `"transcription_final"` event name exactly
- * once.
- *
- * The corresponding Python test is skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  It is NOT deleted.
- */
 import { cleanup, render } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -133,7 +112,6 @@ describe("Home transcription_final listener, RW-0 rewrite of test_only_one_trans
 	});
 });
 
-//regression guard: ``handleToggle`` in Home.tsx previously
 // swallowed IPC failures from ``toggle_dictation`` with only a
 // ``console.error``, leaving the user staring at a spinner that
 // disappeared with no explanation. The fix surfaces a localized

@@ -1,5 +1,4 @@
 // Vocabulary state + lifecycle hook.
-//
 // Owns:
 // - ``entries`` / ``loading`` / ``loadError`` / ``saving`` React state
 // - ``entriesRef`` (ref mirror so delete-undo callbacks can read the
@@ -12,8 +11,6 @@
 // (client-side search+sort, mirrors the History/Templates pattern)
 //``instantDeleteEntry`` ( instant delete + 6-second
 // Undo toast, see D2-FIX comment for the ref-based pattern)
-//
-// Extracted from the former monolithic ``pages/Vocabulary.tsx`` render
 // function. The dialog + import/export state has been split into
 // ``useVocabularyDialog`` and ``useVocabularyImportExport`` so each
 // hook owns one concern.
@@ -43,11 +40,6 @@ export interface EntryUsage {
 	last_ts: number;
 }
 
-/**
- * Map key ``${category}::${original}`` → usage stats. Keyed by the
- * pair (not just the original) because the same wrong phrase can exist
- * in multiple categories.
- */
 export type UsageByKey = Map<string, EntryUsage>;
 
 export function usageKey(category: string, original: string): string {
@@ -79,7 +71,6 @@ interface UseVocabularyResult {
 	usageByKey: UsageByKey;
 	// Search + filter + sort (client-side, applied via useMemo).
 	// The search query is READ from the shared global search store
-	// (title-bar search), the per-page search state was removed.
 	searchQuery: string;
 	sortOrder: VocabSortOrder;
 	setSortOrder: (o: VocabSortOrder) => void;
@@ -103,7 +94,6 @@ export function useVocabulary({
 	const [saving, setSaving] = useState(false);
 	// The search query comes from the GLOBAL title-bar search store —
 	// there is no per-page search state anymore (the per-page
-	// SearchField was removed and the title bar owns the only search
 	// input in the app). Reading it here makes the filteredSorted memo
 	// recompute whenever the title-bar query changes.
 	const searchQuery = useGlobalSearch((s) => s.query);
@@ -119,9 +109,7 @@ export function useVocabulary({
 	// for deleted corrections, so the map must track the live entries).
 	const [usageByKey, setUsageByKey] = useState<UsageByKey>(new Map());
 
-	// D2-FIX (b-review Finding 4): ref mirror of `entries` so the
 	// `instantDeleteEntry` undo callback can read the LATEST list at
-	// undo time (potentially seconds after the delete).  Previously the
 	// undo callback closed over `entries` from the render that created
 	// `instantDeleteEntry`, that snapshot STILL INCLUDED the deleted
 	// entry (because `instantDeleteEntry` reads `entries` to compute
@@ -133,7 +121,6 @@ export function useVocabulary({
 	// reappeared TWICE after Undo.  The closure was also stale with
 	// respect to any other vocabulary edits made between the delete and
 	// the Undo click, those edits were silently lost.
-	//
 	// Mirrors the pattern in Templates.tsx:383, which re-reads via
 	// `loadTemplatesFromLocalStorage()` inside the undo callback instead
 	// of closing over a stale snapshot.  We use a ref instead of a
@@ -237,8 +224,6 @@ export function useVocabulary({
 			//fix #8: capture the error message so the render
 			// path can show a retry EmptyState instead of an ambiguous
 			// empty list.
-			//
-			//previously this was a hardcoded English string.
 			// Use the i18n key so the message localises with the UI
 			// locale. If the caught error is a real Error instance we
 			// still surface its .message (which may come from the
@@ -300,12 +285,9 @@ export function useVocabulary({
 	//instant-delete + Undo toast.  Triggered by the trash
 	// icon.  Removes the entry immediately and offers a 6-second Undo
 	// window during which the user can restore it.
-	//
-	// D2-FIX (b-review Finding 4): the undo callback now reads the LATEST
 	// `entries` via `entriesRef.current` (kept in sync by the effect
 	// declared near the state) instead of closing over the render-time
 	// `entries` snapshot.  This fixes two bugs:
-	// 1. The stale-closure bug: `[...entries]` previously still
 	// contained the deleted entry, so `indexOf(entry)` returned the
 	// original index and `splice(idx, 0, entry)` (deleteCount=0)
 	// INSERTED a second copy at that index, the entry reappeared
@@ -314,16 +296,13 @@ export function useVocabulary({
 	// delete and the Undo click were silently reverted because the
 	// restore replaced the current list with the stale pre-delete
 	// snapshot.
-	//
 	// We capture `originalIndex` BEFORE the delete (when entriesRef still
 	// holds the pre-delete array).  At undo time we filter the latest
-	// list defensively (in case the entry was somehow re-added in the
 	// interim) and splice the entry back at the captured index, clamped
 	// to the current length so a shrunken list doesn't get an out-of-
 	// bounds insert.  The filter-then-splice combo guarantees exactly
 	// ONE copy of the entry is restored, regardless of any concurrent
 	// edits.
-	//
 	// Deps no longer include `entries`, the callback reads from the ref,
 	// so its identity is now stable across renders (it only changes when
 	// `persistVocabulary` or `showSnack` change, which themselves only
@@ -344,7 +323,6 @@ export function useVocabulary({
 			const updated = currentEntries.filter((e) => e !== entry);
 			try {
 				// make the delete ACTUALLY instant.
-				// Previously the entry stayed visible during the entire
 				// persistVocabulary IPC round-trip (100-500ms+) because
 				// setEntries(updated) ran AFTER the await. Felt sluggish
 				// and could trigger duplicate-delete clicks. Now we update
@@ -383,7 +361,6 @@ export function useVocabulary({
 	);
 
 	// ── Search + Filter + Sort (client-side) ──────────────────────────
-	//
 	// Applied via useMemo so the filter/sort only re-runs when the
 	// underlying list, search query, category filter, or sort order
 	// changes, not on every keystroke that re-renders the page.

@@ -1,30 +1,3 @@
-/**
- * Parity tests for the bubble theme-token migration.
- *
- * Background
- * ----------
- * Pre-migration: the bubble's className utilities used the raw Tailwind
- * `zinc` / `white` palette (`bg-white dark:bg-zinc-900`,
- * `border-zinc-200 dark:border-white/10`, `text-zinc-600 dark:text-zinc-300`,
- * `bg-zinc-500 dark:bg-zinc-400`, `bg-zinc-900 dark:bg-white`). These do
- * NOT reference the semantic CSS variables (`--card`, `--border`,
- * `--text-muted`, `--text-primary`, `--surface-hover`) that `index.css`
- * defines and the rest of the app consumes via `bg-card` / `border-border` /
- * `text-(--text-muted)` etc. When the user selected any non-default theme
- * preset (Nord, Dracula, Tokyo Night, …) or a custom theme, the main app
- * re-skinned but the bubble kept rendering the default white/zinc palette —
- * the bubble visually clashed with the rest of the app.
- *
- * Post-migration: every bubble className uses semantic tokens. These parity
- * tests assert the raw palette substrings do not leak back in.
- *
- * If a future edit re-introduces a `zinc-` / `bg-white dark:bg-zinc-…`
- * utility anywhere in the bubble package, the test fails LOUDLY at the
- * className-source level (not at the rendered-DOM level, Tailwind purges
- * unused classes, so a DOM-level scan would silently miss a regression in
- * a code path that isn't exercised by the test renderer).
- */
-
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Bubble } from "@/Bubble";

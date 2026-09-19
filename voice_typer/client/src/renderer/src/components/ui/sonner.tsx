@@ -12,25 +12,6 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 import { getLocale, isRtlLocale, subscribeLocale, t } from "@/i18n/i18n";
 
-/**
- * Resolve the current theme for the Sonner toaster.
- *
- * THEME-FIX: previously this used `useTheme()` from `next-themes`, but
- * `next-themes` requires a `<ThemeProvider>` ancestor to actually track
- * theme state, and no such provider is mounted anywhere in the
- * renderer (the app uses a custom `useTheme` hook in `@/hooks/useTheme`
- * that toggles the `dark` class on `<html>`). Without a provider,
- * `next-themes`'s `useTheme()` always returned `{ theme: undefined }`,
- * so Sonner fell back to `theme = "system"` and used the OS-level
- * `prefers-color-scheme` instead of the user's explicit Settings
- * choice. If the user picked "light" on a dark-OS machine, the toaster
- * rendered dark while the rest of the app rendered light.
- *
- * The fix reads the resolved theme directly from the DOM by observing
- * the `dark` class on `document.documentElement` (which `useTheme.ts`
- * toggles). This always matches the app's actual rendered theme,
- * regardless of whether the user chose "system", "light", or "dark".
- */
 function useResolvedTheme(): "light" | "dark" {
 	const [resolved, setResolved] = useState<"light" | "dark">(() => {
 		if (typeof document === "undefined") return "light";
@@ -60,16 +41,6 @@ function useResolvedTheme(): "light" | "dark" {
 	return resolved;
 }
 
-/**
- * React to locale changes live.
- *
- * Subscribes via the i18n module's locale-subscriber registry (the same
- * notification stream that drives `useT()`, fired by `setLocale` /
- * `ensureLocaleLoaded`). The snapshot is a primitive boolean, so
- * `useSyncExternalStore` re-renders the Toaster only when the RTL-ness
- * of the active locale actually flips, e.g. switching English →
- * Arabic moves the toaster corner without a page reload.
- */
 function useRtlLocale(): boolean {
 	return useSyncExternalStore(
 		subscribeLocale,

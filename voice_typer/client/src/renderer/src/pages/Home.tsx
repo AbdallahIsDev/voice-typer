@@ -1,8 +1,6 @@
-// Home.tsx was an 888-line monolith (now 744)
 // mixing layout, data-fetching, business logic, and 4 inline
 // sub-components + 1 inline hook. It is now a thin composition root
 // that imports the extracted pieces from `./home/`:
-//
 //   - `./home/lib/constants.ts`   , cache keys, timing constants, STATUS_COLORS
 //   - `./home/lib/status.ts`      , normalizeHotkey, statusLabelFor, statusKeyFor
 //   - `./home/lib/cache.ts`       , loadCachedRecent/Stats, persistRecent/Stats
@@ -13,23 +11,18 @@
 //   - `./home/hooks/useDictationToggle.ts`, consent-gated dictation toggle
 //   - `./home/components/MicToggleButton.tsx`        , mic toggle button
 //   - `./home/components/RecordingStatusPill.tsx`    , status pill
-//
 // Status is kept minimal: the coloured status pill + a live MM:SS
 // timer appear above the mic button, and a single dynamic line below
 // it swaps between the default hotkey hint, the "Preparing offline
 // engine…" message, and red error text (e.g. "No model selected")
 // based on the current state.
-//
 // The `export default function Home` signature is unchanged so App.tsx
 // routing and existing tests (Home.test.tsx, pages-improvements.test.tsx
-// ) continue to work. Pure structural refactor, no behaviour
 // changes.
-//
 // Wiring note: the `usePythonEvent` subscriptions stay in this
 // composition root (the source-guard regression tests grep Home.tsx for
 // them), except `download_progress` (owned by
 // useDownloadProgressEvent), whose subscription lives inside its hook.
-//
 // contract: `debouncedRefreshFromEvent` is declared via
 // `useCallback` and passed to BOTH the `transcription_final` and
 // `history_changed` `usePythonEvent` subscriptions (single callback
@@ -106,7 +99,6 @@ export default function Home() {
 	// per-second tick state here re-rendered the whole Home tree every
 	// second. See RecordingTimer.tsx.
 	const isRecording = recordingState === "recording";
-	// Per-instance cache refs (replaced the prior module-level
 	// `let _cachedRecent` / `let _cachedStats` mutable bindings).
 	const cachedRecentRef = useRef<HistoryRecord[]>([]);
 	const cachedStatsRef = useRef<TodayStats | null>(null);
@@ -125,7 +117,6 @@ export default function Home() {
 	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
 
 	// ── Extracted event-concern hooks (./home/hooks/) ──
-	// Each call owns one concern that used to live inline in this
 	// root: the download-progress bar, the ephemeral last-
 	// transcription preview (text + quality + auto-clear timer +
 	// card actions), the force-cancel state machine, and the
@@ -195,7 +186,6 @@ export default function Home() {
 
 	// Shared refresh routine, used by both `transcription_final` and
 	// `history_changed` handlers (refresh consolidation).
-	//
 	// declared via `useCallback` and passed to BOTH usePythonEvent
 	// subscriptions below so they share a single callback identity (the
 	// test greps Home.tsx for this declaration).
@@ -269,7 +259,6 @@ export default function Home() {
 	// round-trips (~15-150ms) to one (~5-50ms). Each call updates its
 	// own state as soon as it settles (so e.g. `cfg`/`hotkey` aren't
 	// blocked on a slow `get_history`), and `Promise.allSettled` is
-	// used to mark the load complete once all three have settled —
 	// mirroring the parallel-fetch pattern in `handleManualRefresh`.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
@@ -368,7 +357,6 @@ export default function Home() {
 	// `get_config` fetch: the hotkey only changes when Settings
 	// saves, not on every recording-state transition. The initial
 	// hotkey is loaded by the mount-time effect above.
-	//
 	// Also refreshes ``cfg`` (the full config snapshot) so the
 	// GDPR ``voice_biometric_consent`` gate in ``handleToggle`` can
 	// never go stale, e.g. consent granted in Settings must unblock
@@ -424,7 +412,6 @@ export default function Home() {
 
 	// Stable callback for ActivityList's `onViewAll` so the
 	// memo'd ActivityList (default export, React.memo) doesn't
-	// re-render on every parent re-render. Previously the inline
 	// `onViewAll={() => navigate("history")}` allocated a fresh
 	// closure per render, defeating ActivityList's memo.
 	const handleViewAllHistory = useCallback(() => {
@@ -461,7 +448,6 @@ export default function Home() {
 	// explanation for why the button is unresponsive. The hint also
 	// doubles as the `disabledReason` passed to MicToggleButton so
 	// screen readers announce the same explanation on focus.
-	//
 	// - `transcribing` → "Transcribing… please wait"
 	// - `loading` + download percentage arriving → the progressbar
 	//   below takes over (inline hint suppressed to avoid duplication).
@@ -514,7 +500,6 @@ export default function Home() {
 	// (no model selected, or a recording error with a message), the pill
 	// flips to the `error` state instead of staying in the underlying
 	// state (e.g. "Ready" while the page is actually broken).
-	//
 	// PILL/DESCRIPTION INVARIANT: the pill (`key`) and the description
 	// line (`hint`) MUST be derived from the same underlying state pair
 	// (`recordingState` + `lastError`, hydrated atomically by
@@ -556,7 +541,7 @@ export default function Home() {
 				<button
 					type="button"
 					onClick={forceCancel.handleForceCancel}
-					className="rounded-sm text-xs text-warning hover:text-warning/80 hover:underline transition-colors focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
+					className="rounded-sm text-xs text-warning hover:text-warning/80 hover:underline transition-colors focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 					aria-label={t("home.forceCancelHint")}
 				>
 					{t("home.forceCancelHint")}

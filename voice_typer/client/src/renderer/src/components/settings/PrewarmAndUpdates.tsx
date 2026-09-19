@@ -1,32 +1,23 @@
 // Prewarm cache status + offline update notice.
 //
 // History: an earlier revision of this component hosted an in-app
-// "Check for Updates" button that fired a `fetch()` against the
-// GitHub releases API (a remote HTTPS endpoint). The "Check for
-// Updates" button was removed because the offline-by-default UX
 // was preferred; if a future iteration wants to add it back
 // (user-initiated GitHub API check), C-DATA-1 permits it under
-// the auto-update category, see docs/auto-update-feature.md.
 // The Updates section now shows the installed version plus a
 // static message directing the user to open the GitHub releases
 // page in their browser.
 //
-// The prewarm cache status surface is unaffected: it queries the
 // Python sidecar over the local IPC bridge (in-process, no network).
 //
 // (RESTORED 2026-08-14): the Cache Status card + `get_prewarm_status`
 // / `open_prewarm_log` IPC calls were restored verbatim from commit
 // 5a319872, the card is a user-facing product feature, not prewarm
 // machinery (plan §6.3 addendum). The "Run Prewarm Now" button was
-// ALSO restored the same day (§6.3 addendum second half), wired to the
 // re-implemented `run_prewarm` IPC: the Python handler no longer
-// spawns the deleted standalone-prewarm subprocess, it re-runs the
 // worker's warm phase in-process (warm_imports_for_worker on a daemon
 // thread) and refreshes the status file, so the button re-warms the OS
 // standby cache on demand. Two things were NOT restored, in lockstep
-// with the Python side:
 //   * the `prewarm_running` field, it tracked that subprocess via
-//     the deleted process-tracker machinery; the restored status
 //     response carries `enabled` instead. The button's "running"
 //     state is tracked locally (`runPrewarmLoading`) + via a short
 //     poll of `last_run` after starting.
@@ -58,11 +49,9 @@ import type { IsVisibleFn } from "./types";
 const APP_VERSION = pkg.version as string;
 
 // Static anchor URL for the "View Changelog" button. This is NOT a
-// renderer-initiated network call, it is an `<a href>` element the
 // user explicitly clicks, which predecessor routes to the system browser
 // (or a new BrowserWindow depending on config). The C-DATA-1 rule
 // forbids automated network calls from the production code path; a
-// user-clicked external link is the user's browser making the call,
 // not Voice Typer.
 const RELEASES_URL = "https://github.com/AbdallahIsDev/voice-typer/releases";
 
@@ -113,7 +102,6 @@ function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
 // Status rows render via the shared `ReadonlyRow` primitive (default
 // `value-emphasized` variant: muted label + prominent value), see
 // `@/components/common/ReadonlyRow` for the rationale and the contrast
-// with `SettingRow` (which emphasises the LABEL for editable controls).
 
 export interface PrewarmAndUpdatesProps {
 	/** Search-filter predicate. Optional, defaults to "always visible"
@@ -170,7 +158,6 @@ export default function PrewarmAndUpdates({
 	);
 	const [prewarmLoading, setPrewarmLoading] = useState(false);
 	// "Run Prewarm Now" button state. runPrewarmLoading is true while
-	// the run_prewarm IPC is in flight (RESTORED 2026-08-14 §6.3
 	// addendum 2nd half).
 	const [runPrewarmLoading, setRunPrewarmLoading] = useState(false);
 
@@ -180,7 +167,6 @@ export default function PrewarmAndUpdates({
 			const status = await call<PrewarmStatus>("get_prewarm_status");
 			setPrewarmStatus(status);
 		} catch (e) {
-			// Best-effort: leave the previous status (or null) in place.
 			// The card renders an "Unknown" placeholder when null.
 			console.warn(
 				"[renderer:PrewarmAndUpdates] get_prewarm_status failed:",
@@ -191,7 +177,6 @@ export default function PrewarmAndUpdates({
 		}
 	};
 
-	// Open the prewarm log file in the OS default text editor. Calls the
 	// open_prewarm_log IPC handler which uses os.startfile (Windows), open
 	// (macOS), or xdg-open (Linux). Shows a toast if the log file doesn't
 	// exist or can't be opened. (RESTORED 2026-08-14, the handler now
@@ -255,7 +240,6 @@ export default function PrewarmAndUpdates({
 	// On mount: fetch prewarm status only. No network call is ever
 	// fired from this component (the prewarm status call is a local
 	// IPC bridge to the Python sidecar, not a network call).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		let cancelled = false;
 		const load = async () => {
@@ -274,7 +258,7 @@ export default function PrewarmAndUpdates({
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [callRef]);
 
 	return (
 		<>

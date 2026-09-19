@@ -10,16 +10,12 @@ interface LevelBarProps {
 }
 
 // ── Centralised audio-quality thresholds ──────────────────────────────
-//
 // Both ``LevelBar`` and
 // ``LiveQualityFeedback`` need to classify the current RMS / peak pair
-// into a qualitative band.  Previously each component hard-coded its
 // own thresholds (``lvl > 0.7`` here, ``peak > 0.9`` there, etc.) so
 // the two UIs could disagree about whether the user was clipping.
-//
 // ``getVolumeTier`` is the single source of truth.  The thresholds
 // were chosen to preserve every existing visual / textual behaviour:
-//
 //   - "loud"    ⇒ clipping risk.  Triggered when peak > 0.9 (matches
 //                 LiveQualityFeedback.tooLoud) OR level > 0.7 (the
 //                 former LevelBar colour ladder's destructive band —
@@ -31,7 +27,6 @@ interface LevelBarProps {
 //   - "silent"  ⇒ effectively no input.  level ≤ 0.005 (matches
 //                 LiveQualityFeedback.volumeVeryLow when no voice).
 //   - "low"     ⇒ faint signal, user should speak up.
-//
 // The FILL stays solid primary at every level; clipping is signaled
 // only via the warning glyph + tier word in aria-valuetext, never by
 // recoloring the fill, so the bar reads as a full-width meter with no
@@ -40,7 +35,6 @@ interface LevelBarProps {
 export type VolumeTier = "silent" | "low" | "good" | "loud";
 
 // ── Fill appearance ─────────────────────────────────────────────────
-//
 // The fill is always solid primary. Clipping is communicated via
 // aria-valuetext + the warning glyph, never via fill colour (a
 // separate paint band would desync from the announcement bands, e.g.
@@ -118,7 +112,6 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 				)}
 				style={
 					{
-						// ``Math.max(1, …)`` previously pinned an empty bar to 1%
 						// even when the user was totally silent, visually lying
 						// that there's "some" signal. Use ``Math.max(0, …)`` on the
 						// scale factor so a silent input renders a truly empty

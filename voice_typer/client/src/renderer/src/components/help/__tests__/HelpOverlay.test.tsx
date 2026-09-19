@@ -1,26 +1,3 @@
-/**
- * HelpOverlay unit tests.
- *
- * : HelpOverlay's Modal previously set only `className="w-110"`
- *, a fixed 28rem width with NO scroll container. The Modal body
- * holds 12 shortcut <li> items + a PunctuationCheatSheet that renders
- * up to 19 entries + a search field. On a small viewport the content
- * overflowed with no scroll, clipping the lower shortcut entries and
- * the "press Esc to close" hint.
- *
- * Fix: the Modal caps at `max-h-[85vh]` and the panel itself is
- * `overflow-hidden` so the inner scroll wrapper clips to the rounded
- * shape; the body scrolls in that wrapper when content exceeds 85%
- * of the viewport height.
- *
- * The overlay previously mounted PunctuationCheatSheetButton (a
- * second `?` that opened its OWN cheat-sheet popup) at the top of
- * the body while ALSO rendering the full PunctuationCheatSheet at
- * the bottom, two cheat sheets from one help overlay. The button
- * is removed: the only help affordance is the title-bar `?` which
- * opens exactly this overlay, and the cheat sheet section renders
- * once at the bottom.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

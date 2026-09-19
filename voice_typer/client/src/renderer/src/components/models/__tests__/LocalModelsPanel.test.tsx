@@ -1,26 +1,3 @@
-/**
- * LocalModelsPanel unit tests,  /  /
- *
- * Coverage:
- *   1. : the low-disk-space warning banner uses the CORRECT i18n
- *      keys (models.disk.lowSpaceTitle + models.disk.lowSpaceBody) and
- *      the new models.disk.freeSpace interpolation, NOT the unrelated
- *      depsRequired / hfConsent.blockedHint keys it was reusing before.
- *   2. : the "Open models folder" button uses
- *      models.openFolder.label + models.openFolder.aria, NOT the
- *      misleading models.import.importModel* keys.
- *   3.  line 261: the per-model insufficient-disk badge uses
- *      models.status.insufficientDisk (not depsRequired).
- *   4. Conditional rendering: open-folder button only renders when
- *      modelsFolderSupported=true; low-disk banner only when
- *      free_bytes < 1GB.
- *   5. (UI/UX overhaul point 4) the HuggingFace consent banner is GONE
- *     , the panel never renders persistent consent UI (consent moved
- *      to a just-in-time toast at download time).
- *   6. the panel forwards `modelName`, `error`, and `onRetry` to
- *      <DownloadProgressBar> so the inline error UI + Retry button
- *      render.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -77,8 +54,6 @@ vi.mock("@/components/models/ModelCardActions", () => ({
 
 // Capture the props forwarded to <DownloadProgressBar> so we can
 // assert that `modelName`, `error`, and `onRetry` are wired through.
-// Previously the panel forwarded only 9 of
-// the 12 props, the inline error UI + Retry button were dead code.
 vi.mock("@/components/models/DownloadProgressBar", () => ({
 	DownloadProgressBar: (props: Record<string, unknown>) => (
 		<div
@@ -253,7 +228,6 @@ describe("LocalModelsPanel, HuggingFace consent is NOT a persistent banner", () 
 	afterEach(() => cleanup());
 
 	it("never renders the consent banner (consent moved to the shared dialog at download time)", () => {
-		// The persistent consent banner was REMOVED (UI/UX overhaul
 		// point 4): consent is now checked only at the moment the user
 		// clicks a model's Download button
 		// (`useModelLifecycle.handleDownloadModel`), which opens the
@@ -425,7 +399,6 @@ describe("LocalModelsPanel, insufficient-disk badge per model", () => {
 		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
 		expect(screen.getByText("Insufficient disk space")).toBeInTheDocument();
-		// The old wrong key (depsRequired) must NOT be rendered as the
 		// disk badge (it's still legitimately used for dep-required models).
 		const badges = screen.getAllByText("Insufficient disk space");
 		expect(badges.length).toBeGreaterThanOrEqual(1);
@@ -442,13 +415,10 @@ describe("LocalModelsPanel, insufficient-disk badge per model", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 // The panel forwards `modelName`, `error`, and `onRetry` to
 // <DownloadProgressBar> so the inline error UI + Retry button render.
-// Previously the panel forwarded only 9 of
 // the 12 props, the inline retry affordance was dead code in
 // production.
-// ─────────────────────────────────────────────────────────────────────
 describe("LocalModelsPanel, forward error/modelName/onRetry to DownloadProgressBar", () => {
 	afterEach(() => cleanup());
 

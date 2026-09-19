@@ -1,16 +1,3 @@
-/**
- * Custom sun/moon "auto theme" icon, a 24×24 SVG glyph representing
- * "follow the OS default" (light/dark auto). Used as the system-mode
- * icon in the ThemeSwitch (title bar) and the Settings Appearance
- * SegmentedControl, replacing the previous ModernTvIcon.
- *
- * The icon (source: the standard SunMoon glyph): a sun with rays in
- * the top-right, a crescent moon in the bottom-left.
- *
- * Exported as an `IconSvgElement` (the hugeicons icon data format) so
- * it can be rendered through the shared `HugeiconsIcon` component
- * without any special-case branching.
- */
 import type { IconSvgElement } from "@hugeicons/react";
 
 export const SunMoonIcon: IconSvgElement = [

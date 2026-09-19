@@ -1,12 +1,3 @@
-/**
- * Behavioral tests for StatCard (Analytics top-row stat cards).
- *
- * POLISH round: the value carries `mt-auto` so the number is pushed to
- * the bottom of the min-h-24 card, keeping the icon+label row pinned at
- * the top with breathing room between them. The trailing sublabels were
- * pruned at the call sites (Dashboard.tsx), this file verifies the card
- * itself still renders sublabel/trend when a caller supplies them.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

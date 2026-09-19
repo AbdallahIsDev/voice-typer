@@ -1,11 +1,9 @@
 // Vocabulary import / export, domain adapter over the shared
 // :func:`useCollectionImportExport` round-trip skeleton.
-//
 // The skeleton owns the import/export FLOW (hidden-input ref → file.text()
 // → domain parse → de-duplicated merge → persist → success/error toasts →
 // input reset; export items → IPC bridge → saved/not-available/rejected
 // toast mapping). THIS hook supplies only the Vocabulary domain specifics:
-//
 //   - ``parseImportedVocabulary`` (bare-array JSON, backend-shape
 //     VocabularyData, or CSV, see lib/importExport.ts)
 //   - pair-based de-dup key (``original|correction``, with categories
@@ -20,14 +18,12 @@
 //   - the vocabulary i18n message keys
 //   - the backend duplicate-rejection detector (``isDuplicateEntryError``)
 //     so a duplicate save surfaces the targeted toast
-//
 // Kept in its own hook (rather than in ``useVocabulary``) so the
 // import-file event handler doesn't re-create when the entries list
 // changes (which would re-render the hidden ``<input>`` and reset its
 // value mid-flight). The hidden ``<input type="file">`` ELEMENT renders
 // inside the shared CollectionToolbar shell; this hook owns the ref it
 // attaches to, so re-selecting the same file fires onChange again.
-//
 // A rejected export (IPC returned ``success: false``) toasts the failure
 // (``notifyOnExportRejected``): a failed export must not be silent, the
 // user clicked the button and otherwise gets no feedback at all.
@@ -51,11 +47,6 @@ interface UseVocabularyImportExportArgs {
 
 interface UseVocabularyImportExportResult {
 	importInputRef: React.RefObject<HTMLInputElement | null>;
-	/**
-	 * Export entries. When *entries* is given (bulk "Export selected")
-	 * those exact rows are exported; otherwise the full list is
-	 * fetched from the backend and exported.
-	 */
 	doExport: (format: ExportFormat, entries?: VocabRow[]) => Promise<void>;
 	handleImportFile: (file: File | undefined | null) => Promise<void>;
 	handleImportClick: () => void;
@@ -97,7 +88,6 @@ export function useVocabularyImportExport({
 	// full list is fetched from the backend. Either way the payload
 	// shape is identical, and ``category`` is included so re-importing
 	// (or importing on another machine) preserves the user's category
-	// assignments. Previously the export stripped category, which
 	// meant an imported entry fell back to auto-detect, silently
 	// undoing the user's manual categorisation.
 	const getExportItems = useCallback(

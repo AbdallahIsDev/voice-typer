@@ -1,18 +1,9 @@
-// TroubleshootingSettingsSection, the "Troubleshooting" block of the
 // Settings → Privacy tab.
 //
-//extracted from src/renderer/src/pages/Settings.tsx (which was
 // a 1125-line monolith). This component owns the six-button
-// "Diagnostic tools, help, and support" section: Open Log Folder,
-// Diagnostics, Help & FAQ, Report a Bug, Re-run setup wizard, and
-// Reset to Defaults. Behaviour is identical to the previous inline
-// implementation, including the `isVisible`-based search filter so the
 // whole section hides when no row inside it matches the active query.
 //
-// The "Reset to Defaults" flow uses a parent-owned ConfirmDialog (the
-// dialog itself lives in Settings.tsx so the page can coordinate the
 // `resetToDefaults` async handler with the page-level `config` state
-// and `updateConfig` callback). This component just calls
 // `onResetClick` to request the dialog.
 
 import {
@@ -83,7 +74,6 @@ export const TroubleshootingSettingsSection = memo(
 		const reRunWizardLabel = t("settings.troubleshooting.reRunWizard");
 		const resetToDefaultsLabel = t("settings.troubleshooting.resetToDefaults");
 		// Keyboard Shortcuts button, opens the shared HelpOverlay
-		// (same overlay the title-bar `?` opens). Label reuses the
 		// existing `help.title` key ("Keyboard Shortcuts").
 		const keyboardShortcutsLabel = t("help.title");
 		const resetAccessibilityLabel = t(
@@ -102,16 +92,11 @@ export const TroubleshootingSettingsSection = memo(
 
 		// Finding #919 part b: on a CONFIRMED stale Accessibility grant
 		// (``AXIsProcessTrusted()`` returned False) the backend echoes
-		// the runtime ``tccutil`` reset command so the section can
-		// surface it next to the Reset button. Mount-only probe —
-		// ``suggest_reset`` / ``reset_command`` are both optional in the
-		// response, so missing fields (or an IPC failure, e.g. the
 		// command still being decommissioned on an older backend) must
 		// silently mean "no suggestion".
 		const [staleResetCommand, setStaleResetCommand] = useState<string | null>(
 			null,
 		);
-		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 		useEffect(() => {
 			if (!isMac) return;
 			let cancelled = false;
@@ -138,9 +123,8 @@ export const TroubleshootingSettingsSection = memo(
 			return () => {
 				cancelled = true;
 			};
-		}, [isMac]);
+		}, [isMac, callRef]);
 
-		// Section-level hide-when-empty: hide the whole section unless the
 		// title OR at least one button label matches the active search query.
 		const sectionVisible =
 			isVisible(title, description, title) ||
@@ -180,14 +164,11 @@ export const TroubleshootingSettingsSection = memo(
 		};
 
 		// Re-run the onboarding wizard: synchronously flip
-		// `onboarding_completed` to false (so App.tsx's route guard lets the
 		// user land on the wizard page) then navigate. The toast confirms
-		// the action.
 		//
 		//also call the `onboarding_reset` IPC so the backend clears
 		// its `.onboarding_started` marker (otherwise the auto-heal in
 		// `startup_sequence.py` would treat onboarding as already-complete
-		// and skip the wizard). Previously this IPC handler + its
 		// `reset_onboarding_complete` Python function were dead code.
 		const handleReRunWizard = async () => {
 			try {
@@ -205,7 +186,6 @@ export const TroubleshootingSettingsSection = memo(
 
 		// Reset a stale macOS Accessibility TCC entry: the backend runs
 		// `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at
-		// runtime, so the command matches the actually-running host —
 		// predecessor or Tauri) and re-opens System Settings so the user can
 		// re-grant. The success toast surfaces the RUNTIME-RESOLVED
 		// command the backend actually ran (finding #127 part b /
@@ -249,10 +229,6 @@ export const TroubleshootingSettingsSection = memo(
 		};
 
 		// Reset a stale Linux polkit authorization: the backend restarts
-		// the polkit daemon via pkexec (pkaction enumerates the Voice
-		// Typer actions, pkcheck verifies the post-reset state) so the
-		// next "Grant permission" re-prompts. Mirrors the macOS reset —
-		// the success toast surfaces the command that was run.
 		const handleResetLinuxPermissions = async () => {
 			try {
 				const result = (await call("reset_linux_permissions")) as {
@@ -439,12 +415,9 @@ export const TroubleshootingSettingsSection = memo(
 							>
 								<HugeiconsIcon
 									//use a trash/delete icon
-									// for the destructive Reset to Defaults
 									// action so it's visually distinct from
-									// the non-destructive "Re-run Wizard"
 									// button (ArrowTurnBackwardIcon). The
 									// previous RefreshIcon was too similar
-									// to a benign "reload" affordance.
 									icon={Delete02Icon}
 									strokeWidth={2}
 									className="h-4 w-4"

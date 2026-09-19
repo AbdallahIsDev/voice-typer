@@ -1,22 +1,3 @@
-/**
- * Tests for the 2026-09-14 onboarding overhaul (ONB-1 … ONB-5):
- *
- * - 4-step essentials flow: Welcome → Consent → Model → Hotkey.
- *   The Microphone / Permissions / Done summary steps are GONE.
- * - ONB-1: the Back button is hidden on step 1 and rendered from
- *   step 2 onward; the top-right step-title span above the progress
- *   bar is removed (it duplicated the card title).
- * - ONB-3: there is NO Skip button / confirm dialog anywhere
- *   (onboarding is mandatory); the final step's primary button is
- *   "Get started" and clicking it calls `onboarding_apply`.
- * - ONB-5: the Model step renders the Models-page SegmentedControl
- *   + family accordion with per-model rows; selecting a row fires
- *   `onboarding_set_model`; per-item Download fires `download_model`;
- *   there is no HF checkbox and no standalone Download button.
- *
- * All IPC is mocked via the shared stableMocks preamble.
- */
-
 import {
 	cleanup,
 	fireEvent,
@@ -227,7 +208,6 @@ describe("Onboarding 4-step essentials flow", () => {
 		await screen.findByText("Step 2 of 4");
 		// The card heading "Privacy & Consent" is rendered exactly
 		// ONCE (the sr-only h1 carries the "Step 2 of 4: " prefix, and
-		// the old top-right span that duplicated the title is removed).
 		expect(screen.getAllByText("Privacy & Consent")).toHaveLength(1);
 	});
 

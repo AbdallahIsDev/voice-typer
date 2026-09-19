@@ -1,79 +1,3 @@
-/**
- * Renderer performance source-guard regression tests for the page
- * components.
- *
- * The runtime behaviour these guards protect (referential stability of
- * `useMemo` results, `React.memo` wrapping, `React.lazy` chunk
- * splitting, memoized derived data) is fully determined by the static
- * call sites in the source. A source-level check is more reliable than
- * a behavioural test that would have to instrument React internals
- * (e.g., spy on `React.createElement` to capture prop identity, or
- * count child re-renders via a mocked child), both of which are flaky
- * under React 19's concurrent renderer and add significant test setup
- * boilerplate. The source grep also fails fast and points the reviewer
- * directly at the regression if a future refactor removes the
- * `useMemo` / `memo` / `lazy` wrapper.
- *
- * Covered invariants:
- *
- *  (a) Settings, `sectionProps` is wrapped in `useMemo` with
- *      `[config, updateConfig, updateConfigDebounced, _filter_settings]`
- *      deps so it has a stable identity across re-renders when those
- *      deps are unchanged. Previously a fresh object literal was built
- *      every render, which broke referential equality for every
- *      `{...sectionProps}` spread into a `*SettingsSection` child,
- *      causing every section component to re-render on every Settings
- *      page render. Also guards: the empty-state visibility derivation
- *      is keyed on the query (not recomputed per render) and
- *      `resetToDefaults` is a stable `useCallback` (ConfirmDialog's
- *      `onConfirm` benefits), both derivations now live in the
- *      extracted settings hooks (`settings/hooks/useSettingsSearch.ts`
- *      / `settings/hooks/useSettingsReset.ts`) after the page-root
- *      slimming, and are asserted at their new homes.
- *
- *  (b) Home, the status pill, mic toggle button, last-transcription
- *      preview, and recording timer are extracted into their own files
- *      under `pages/home/components/` and each is wrapped in
- *      `React.memo` (`export default memo(Name)` over a named function,
- *      preserving DevTools displayName), so they only re-render when
- *      their props change. Also guards the shared event-handler
- *      stability contract: `debouncedRefreshFromEvent` is a
- *      `useCallback` passed by reference to the `history_changed`
- *      subscription (and reused inside `transcription_final`) so those
- *      events don't churn handler identities on every render.
- *
- *  (c) Home hotkey reload, the per-`status_change` `get_config` fetch
- *      moved to the `config_changed` event. `status_change` fires on
- *      every recording → transcribing → idle transition, so a
- *      per-event config round-trip was wasted IPC; the hotkey only
- *      changes when Settings saves (`config_changed`), which is where
- *      it is now re-fetched.
- *
- *  (d) Home initial load, `initialLoading`'s initializer reads the
- *      stats/recent caches through the component-scoped ref-memoized
- *      loaders (`loadCachedStats(cachedStatsRef)` /
- *      `loadCachedRecent(cachedRecentRef)`), so repeated calls never
- *      hit localStorage more than once per mount. The pre-fix form
- *      (module-level mutable cache bindings + repeated raw reads) must
- *      stay gone.
- *
- *  (e) Route switching, the secondary pages' lazy-import registry
- *      lives in ONE shared module (router/pageLoaders.ts: the
- *      `PAGE_LOADERS` loaders + `LAZY_PAGES` components consumed by
- *      both router/PageSwitch.tsx and router/prefetch.ts). Secondary
- *      pages are `React.lazy(() => import(...))` for route-level code
- *      splitting while `Home` stays eager (default landing page), and
- *      the routed content renders inside `<Suspense>` with a real
- *      fallback component so first-time navigation shows a spinner
- *      instead of a blank frame.
- *
- *  (f) Dashboard, the derived render values (period stats, activity
- *      chart bars, correction stats) are computed inside `useMemo`s in
- *      the `useDashboardData` hook keyed on the history sample and the
- *      selected range, and the page consumes the memoized values rather
- *      than rebuilding them inline per render.
- */
-
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -84,23 +8,10 @@ function readSrc(relPath: string): string {
 	return readFileSync(resolve(RENDERER_SRC, relPath), "utf8");
 }
 
-/**
- * Remove whole-line `// …` comments so prose mentions of an API (e.g.
- * "the previous `get_config` fetch") don't trip code-shape assertions.
- * Only lines whose first non-whitespace token is `//` are dropped —
- * inline trailing comments and string contents stay intact.
- */
 function stripLineComments(src: string): string {
 	return src.replace(/^[ \t]*\/\/.*$\r?\n?/gm, "");
 }
 
-/**
- * Slice out the body of a `usePythonEvent("<type>", ...)` call from the
- * given source (line comments stripped). Returns everything from the
- * call start up to (but not including) the next top-level
- * `usePythonEvent(` occurrence, good enough to assert on what a
- * specific subscription's handler does without parsing balanced parens.
- */
 function sliceUsePythonEventBlock(src: string, type: string): string | null {
 	const clean = stripLineComments(src);
 	const startRe = new RegExp(`usePythonEvent\\(\\s*["']${type}["']\\s*,`);
@@ -127,7 +38,6 @@ describe("Settings page keeps sectionProps referentially stable via useMemo", ()
 		// and the filter predicate. Missing any one of these would
 		// cause the memo to return a stale object when the omitted dep
 		// changed, silently breaking the section components.
-		//
 		// We use a multiline regex so the deps array can span
 		// multiple lines (Biome may wrap it).
 		const depsMatch = src.match(

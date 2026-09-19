@@ -1,28 +1,3 @@
-/**
- *  regression tests: `useAudioLevels` rAF loop is gated on
- * `mode === "recording"`.
- *
- * The rAF loop in `bubble-components.tsx` previously ran at 60 fps
- * whenever the bubble was visible, even in `always_visible` idle /
- * transcribing / error mode (where the visualizer bars aren't
- * mounted). Per-frame it called `getComputedStyle(document.
- * documentElement)` + 2 `getPropertyValue(...).trim()` calls + a
- * 7-iteration loop writing `el.style.backgroundColor` per dot —
- * ~1.8–3 % of one core continuously while the bubble was visible.
- *
- * After :
- *   - The loop early-returns when `recordingRef.current === false`
- *     (mirrored from `useBubbleStateMachine` via `onSetState`).
- *   - `getComputedStyle` is called ONCE on first frame + on theme
- *     change (via a `MutationObserver` on `document.documentElement`
- *     class/style), NOT per-frame.
- *   - `el.style.backgroundColor` is applied via `applyBarColor` (a
- *     `useEffect`-driven helper), NOT per-frame.
- *
- * This test verifies the gating by spying on `window.getComputedStyle`
- * and asserting the spy is NOT called per-frame after the bubble
- * transitions to idle mode.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -119,13 +94,6 @@ function setBubbleState(state: string) {
 	});
 }
 
-/**
- * Advance several animation frames. jsdom's `requestAnimationFrame` is
- * implemented as a 0-ms `setTimeout`, so flushing the macrotask queue
- * via `vi.runAllTimersAsync()` runs all pending rAF callbacks. We wrap
- * in `act()` so React flushes any state updates triggered by the rAF
- * loop's DOM writes (none in this case, but the wrapper is defensive).
- */
 async function tickFrames(count = 5) {
 	for (let i = 0; i < count; i++) {
 		await act(async () => {
@@ -229,7 +197,6 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 		// React; once the rAF loop runs, each bar is prepared at the full
 		// box height (`MAX_HEIGHT`, 22px) and animated via an inline
 		// `transform: scaleY(...)` write.
-		//
 		// Selector: the bars are the 7 `<span>` children of the
 		// `gap-0.75` wrapper div in BubbleVisualizer (same stable
 		// selector Bubble.test.tsx uses). The bar color class moved to

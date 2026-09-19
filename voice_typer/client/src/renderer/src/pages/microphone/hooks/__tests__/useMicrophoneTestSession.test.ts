@@ -1,26 +1,3 @@
-/**
- * Unit tests for `useMicrophoneTestSession`.
- *
- * Coverage :
- *   - session lifecycle: startTest → countdown timer armed + testRunning=true,
- *     stopTest → microphone_test_stop IPC + recorded snack
- *   - fixed test duration: the start payload always carries the module-level
- *     MICROPHONE_TEST_DURATION_SEC constant (no user configurability)
- *   - transcription passthrough: backend transcription /
- *     transcription_unavailable fields surface as testTranscription /
- *     testTranscriptionUnavailable and reset on a new test
- *   - device-swap handling: selectMicrophone cancels an in-flight test,
- *     sends set_config with the new micId, surfaces "usingMic" snack
- *   - microphone_test_complete event drives stopTest when the backend
- *     finishes recording
- *   - selectMicrophoneRef is assigned the latest stable closure so the
- *     sibling useMicrophoneData hook can invoke it on hot-swap
- *   - unmount cleanup cancels the in-flight test + clears timers
- *
- * Strategy: renderHook with mocked `call` + captured `usePythonEvent`
- * subscriber. The hook receives its deps as plain args (no React context
- * needed), the composition hook normally passes them in.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -708,7 +685,6 @@ describe("useMicrophoneTestSession, device-swap handling (selectMicrophone)", ()
 		// selectMicrophone call cancels the in-flight test; the
 		// useEffect cleanup may fire an additional cancel when
 		// testRunning transitions true → false because the cleanup
-		// closure captured the prior `testRunning=true` state).
 		const cancelCalls = callMock.mock.calls.filter(
 			(c) => c[0] === "microphone_test_cancel",
 		);

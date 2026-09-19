@@ -7,42 +7,13 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 
-/**
- * The large circular mic toggle button. Pulses while recording. A
- * spinner overlay is shown while `toggling` is true (the IPC round-trip
- * to `toggle_dictation` is in flight). The button is disabled during
- * `transcribing` so clicks aren't silently swallowed by the backend.
- *
- * When `error` is true (the last recording attempt failed), the idle
- * treatment swaps from the solid destructive glow to a hollow
- * destructive surface with an alert glyph, a distinct state that
- * reads as "the last attempt errored", announced politely to screen
- * readers.
- *
- *  / : extracted from Home.tsx so the page file stays a
- * thin composition root. Behaviour + props are preserved byte-for-byte.
- */
 export interface MicToggleButtonProps {
 	isRecording: boolean;
 	toggling: boolean;
 	disabled: boolean;
 	onClick: () => void;
 	label: string;
-	/**
-	 * Why the button is currently disabled. When `disabled` is true
-	 * and `disabledReason` is provided, it replaces `label` as the
-	 * `aria-label` and `title` so screen readers / hover tooltips
-	 * explain why the action is unavailable (e.g. "Transcribing…
-	 * please wait") instead of repeating the now-unusable action
-	 * label. When `disabled` is false this prop is ignored.
-	 */
 	disabledReason?: string;
-	/**
-	 * The last recording attempt failed. Renders the idle button with a
-	 * distinct hollow-destructive treatment + alert glyph and exposes
-	 * `aria-live="polite"` so the transition is announced. Ignored while
-	 * recording (the active recording state takes precedence).
-	 */
 	error?: boolean;
 }
 
@@ -91,7 +62,7 @@ export function MicToggleButton({
 				className={cn(
 					"press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full",
 					"transition-all duration-200 ease-out",
-					"focus:outline-none focus-visible:ring-1focus-visible:ring-ring",
+					"focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
 					"hover:scale-105",
 					isRecording
 						? "bg-foreground/15 hover:bg-foreground/25"

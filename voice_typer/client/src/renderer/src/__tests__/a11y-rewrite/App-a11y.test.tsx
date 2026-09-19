@@ -1,22 +1,3 @@
-/**
- *  vitest rewrite, behavioral tests for `App.tsx` accessibility.
- *
- * Replaces the following string-pattern Python tests from
- * `tests/test_ux_components.py`:
- *   - TestAppHasSkipToMainContentLink::test_app_has_skip_link
- *   - TestAppAnnouncesRecordingStartStopWithAriaLive::test_app_has_aria_live
- *
- * The Python tests asserted on substring presence inside `App.tsx`
- * (e.g. `"a11y.skipToMain" in src`, `"#main-content" in src`,
- * `"aria-live" in src`).  These pass even when the link is rendered
- * with the wrong href or when the aria-live region never announces
- * useful text.  The vitest versions below mount the real App and
- * assert the actual DOM: the skip-link `<a>` exists, points at
- * `#main-content`, and the aria-live region is present.
- *
- * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  They are NOT deleted.
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -267,14 +248,12 @@ describe("App aria-live region, RW-0 rewrite of test_app_has_aria_live", () => {
 	// text actually changes when `recordingState` changes.  The
 	// App.tsx live region (see App.tsx:608-636) renders one of six
 	// i18n strings depending on the current `recordingState`:
-	//
 	//   recording     → t("a11y.recordingStarted")  = "Recording started."
 	//   transcribing  → t("a11y.transcribingAudio") = "Transcribing audio…"
 	//   idle          → t("a11y.ready")             = "Ready."
 	//   error         → t("a11y.errorOccurred")     = "Error occurred."
 	//   loading       → t("a11y.loadingModel")      = "Loading model…"
 	//   cancelling    → t("a11y.cancelling")        = "Cancelling…"
-	//
 	// Double-announce trim: on the HOME page the coarse
 	// transcribing/loading strings are SUPPRESSED, Home's dynamic
 	// status line (its single specific live region) already
@@ -284,14 +263,12 @@ describe("App aria-live region, RW-0 rewrite of test_app_has_aria_live", () => {
 	// dynamic line isn't mounted). The transcribing/loading tests
 	// below cover BOTH branches: non-Home keeps the coarse text,
 	// Home omits it.
-	//
 	// Each test below mocks one `recordingState` value, renders
 	// App, and asserts the FIRST polite live region's textContent
 	// includes the expected translated string.  This catches
 	// regressions where the live region exists but renders the
 	// wrong string (or no string at all) for a given state, the
 	// most common silent failure mode for aria-live regions.
-	//
 	// The App.tsx live region is the FIRST `[aria-live="polite"]`
 	// in document order (Home's `<output aria-live="polite">` is
 	// rendered inside the mocked Home stub and so doesn't exist

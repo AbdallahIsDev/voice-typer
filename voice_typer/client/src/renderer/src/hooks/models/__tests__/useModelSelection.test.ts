@@ -1,19 +1,3 @@
-/**
- * Unit tests for `useModelSelection`.
- *
- * Coverage :
- *   - selectModel success: persists asr_backend + model_size via updateConfig,
- *     optimistically flips isActive in the local list, calls refreshModelStatus,
- *     surfaces "usingModel" snack
- *   - selectModel model-switch ordering: depsOk guard fires first (deps required),
- *     downloaded guard fires second (not downloaded), active model state unchanged
- *   - selectModel error: re-thrown from updateConfig surfaces "selectFailed" snack;
- *     setModels is NOT invoked
- *   - requestDeleteModel: refuses active model while it's on disk; ALLOWS
- *     deleting an active-but-missing (stale) model; stashes other targets
- *   - confirmDelete: fires delete_model IPC, updates local state, surfaces snack
- *     (failure reasons map to locale keys, unknown reasons fall back)
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -331,7 +315,6 @@ describe("useModelSelection, requestDeleteModel + confirmDelete", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
 
-		// Active + downloaded: false → the model was removed from disk
 		// out-of-band while the config still points at it. Deleting it is
 		// the only way to clear the phantom "Active" state (the backend
 		// switches to another model), so the confirm dialog MUST open.

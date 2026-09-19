@@ -1,5 +1,4 @@
 // Locale constants, labels, and browser-locale detection.
-//
 //Internationalization support.
 // Supported locales: Arabic (ar), German (de), English (en), Spanish (es), French (fr),
 // Hindi (hi), Russian (ru), Chinese/Mandarin (zh).
@@ -7,7 +6,6 @@
 //   1. Create a new JSON file in translations/ (e.g., translations/ar.json)
 //   2. Add the locale to SUPPORTED_LOCALES below
 //   3. Import and register it via registerTranslations() (see store.ts).
-//
 //when no locale is saved in localStorage, the user's preferred
 // browser/OS language (navigator.languages) is matched against
 // SUPPORTED_LOCALES so first-run users see their language automatically.
@@ -44,9 +42,6 @@ const LOCALE_LABELS: Record<Locale, string> = {
 	hi: "हिन्दी",
 };
 
-/**
- * Get the human-readable label for a locale.
- */
 export function getLocaleLabel(locale: Locale): string {
 	return LOCALE_LABELS[locale] ?? locale;
 }
@@ -55,7 +50,6 @@ export function getLocaleLabel(locale: Locale): string {
 // against SUPPORTED_LOCALES. Returns the matched locale or "en" as the
 // fallback. Used only on first run (when no locale is saved in
 // localStorage).
-//
 // We consider both the full tag (e.g. "pt-BR") and the primary subtag
 // (e.g. "pt") so a user with browser language "zh-CN" still matches our
 // "zh" locale. We also normalise casing and ignore tags we don't ship.

@@ -1,16 +1,3 @@
-/**
- * Focused tests for `scrollToRowWithHighlight`, the shared Settings
- * deep-link "scroll to a row and ring it" machinery extracted from the
- * two near-twin effects in `useSettingsDeepLinks`.
- *
- * Pins the byte-identical behavior contract:
- *   - first attempt on a 0ms timer, bounded retries 50ms apart (max 60),
- *   - one-shot per target via the shared scrolledTarget guard,
- *   - `scrollIntoView({ behavior: "smooth", block: "center" })` on find,
- *   - ring lifetime starts at FOUND time (not at effect time),
- *   - a previously armed highlight timer is cleared before re-arming,
- *   - the cleanup cancels pending retries (stale scrollIntoView no-op).
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { scrollToRowWithHighlight } from "@/pages/settings/lib/scrollToRowWithHighlight";

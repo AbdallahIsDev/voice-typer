@@ -1,11 +1,3 @@
-/**
- * Tests for the Zustand appStore.
- *
- * BACKLOG-004: The store provides a single source of truth for
- * connection status, recording state, and config. These tests verify
- * the store's state transitions and merge logic.
- */
-
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { isRecoveringStatus, useAppStore } from "@/stores/appStore";

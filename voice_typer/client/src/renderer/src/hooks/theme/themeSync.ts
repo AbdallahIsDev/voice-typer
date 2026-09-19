@@ -1,20 +1,3 @@
-/**
- * themeSync.ts, the backend→store sync concern of the theme subsystem,
- * split out of ``hooks/useTheme.ts``. Owns:
- *
- * 1. ``reloadThemeFromConfig``, the initial (and on-demand) config
- *    read that seeds the store + localStorage from the backend.
- * 2. ``handleConfigChanged``, the stable ``config_changed`` push
- *    handler shared by every ``useTheme`` consumer.
- * 3. ``ensureThemeSideEffects``, the initOnce guard that runs the
- *    side-effecting setup (initial reload + ``beforeunload`` flush
- *    listener) EXACTLY ONCE per app load, no matter how many
- *    ``useTheme`` callers mount.
- *
- * All state updates go through the shared store in ``themeStore.ts``
- * (the internal state-only setters, the change came FROM the backend,
- * so round-tripping it would be a feedback loop).
- */
 import { setSoundFeedbackEnabled } from "@/lib/sound-manager";
 import {
 	LS_CUSTOM_THEME,
@@ -36,9 +19,7 @@ import { useThemeStore } from "./themeStore";
 let themeInitStarted = false;
 
 // ── reloadThemeFromConfig (module-level singleton) ───────────────────
-//
 // Pulled out of the hook body so it can run EXACTLY ONCE per app load
-// (via ``ensureThemeSideEffects``). Previously each ``useTheme`` caller
 // ran its own mount effect that called ``reloadThemeFromConfig``, so
 // opening Settings fired a second ``get_config`` IPC round-trip. Now
 // only the first caller triggers the reload; subsequent callers read
@@ -96,7 +77,6 @@ export function reloadThemeFromConfig(): Promise<void> {
 			}
 			// SOUND-FIX-REWRITE: sync the sound_feedback_enabled
 			// flag from config to localStorage on every config
-			// load.  Previously the localStorage flag was only
 			// written when the user toggled the switch in
 			// Settings, which caused drift on fresh installs
 			// and after clearing localStorage.  Now the flag
@@ -121,13 +101,11 @@ export function reloadThemeFromConfig(): Promise<void> {
 }
 
 // ── config_changed handler (module-level singleton) ──────────────────
-//
 // The handler invoked by the ``usePythonEvent("config_changed", ...)``
 // subscription. Kept as a module-level STABLE function reference so
 // the ``usePythonEvent`` hook's internal ``handlerRef`` always points
 // at the same identity (no re-subscription needed when consumers
 // re-render).
-//
 // Both ``useTheme`` callers register their own ``usePythonEvent``
 // entry in the dispatcher's ``typeSubscribers`` Map, but the
 // dispatcher holds a SINGLE ``api.onEvent`` subscription (it
@@ -177,7 +155,6 @@ export function handleConfigChanged(
 }
 
 // ── ensureThemeSideEffects (initOnce guard) ──────────────────────────
-//
 // Called from the ``useTheme`` hook's mount ``useEffect``. Sets
 // ``themeInitStarted = true`` on the first call and runs the
 // side-effecting setup (initial ``reloadThemeFromConfig``,
@@ -202,11 +179,9 @@ export function ensureThemeSideEffects(
 	themeInitStarted = true;
 
 	// 1. Initial reload from config (single ``get_config`` IPC call
-	//    app-wide, was previously 2 with dual-instance pattern).
 	void reloadThemeFromConfig();
 
 	// 2. ``beforeunload`` flush listener (single listener app-wide,
-	//    was previously 2, the second was an idempotent no-op but
 	//    still consumed an event-listener slot).
 	installBeforeUnloadFlush();
 }

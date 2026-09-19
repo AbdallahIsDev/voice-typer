@@ -3,14 +3,6 @@ import type { HistoryRecord } from "@/types/ipc";
 
 export type HistorySortOrder = "newest" | "oldest" | "az" | "za";
 
-/**
- * Sort history records by the given order.
- *
- * `newest` / `oldest` sort by `timestamp` (descending / ascending).
- * `az` / `za` sort by the transcription text using locale-aware collation
- * (ascending / descending). When text is empty or equal, falls back to
- * `timestamp` so the order is deterministic.
- */
 export function sortRecords(
 	records: HistoryRecord[],
 	order: HistorySortOrder,
@@ -49,12 +41,6 @@ export function sortRecords(
 	}
 }
 
-/**
- * Runtime type guard for `HistorySortOrder`.
- *
- * Returns the value verbatim when it is one of the four valid sort orders;
- * otherwise falls back to `"newest"` (the backend default).
- */
 export function parseHistorySortOrder(value: unknown): HistorySortOrder {
 	if (
 		value === "newest" ||

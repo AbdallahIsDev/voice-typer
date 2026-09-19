@@ -1,15 +1,5 @@
 import type { VoiceTyperConfig } from "@/types/config";
 
-/**
- * Compute a stable string key from the audio-related config fields so
- * the page can detect "filters changed since last test" and prompt the
- * user to re-run the test.
- *
- * The key is a JSON-serialised subset of ``config``, every field that
- * influences the post-test filter chain. Compared against the snapshot
- * taken at ``startTest`` time (``filtersSinceLastTest``) to decide
- * whether to show the "filters changed, retest" notice.
- */
 export function computeAudioKey(config: VoiceTyperConfig | null): string {
 	if (!config) return "";
 	return JSON.stringify({

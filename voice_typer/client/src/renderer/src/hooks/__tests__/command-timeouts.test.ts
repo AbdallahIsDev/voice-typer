@@ -1,17 +1,3 @@
-/**
- * Unit tests for the per-command timeout table ().
- *
- * : previously a blanket 120s `setTimeout` was applied to every
- * IPC call (in the predecessor main's `sendToPython` and the Rust
- * `dispatch` command). A `get_status` call that hangs took 120s to
- * surface an error; the 120s timer was created even for trivial
- * commands.
- *
- * The fix adds a per-command timeout table in `usePython.ts` so the
- * renderer-side `call` function races the underlying bridge call
- * against a command-specific deadline. These tests pin the table
- * values so a future refactor can't silently regress the timeouts.
- */
 import { describe, expect, it } from "vitest";
 
 import { getTimeout, parseTauriErrorEnvelope } from "@/hooks/usePython";
@@ -46,7 +32,6 @@ describe("per-command timeout table (getTimeout)", () => {
 		// legitimate downloads: the backend kept downloading while the
 		// renderer showed a false failure + Retry, and Retry started a
 		// duplicate backend download.
-		//
 		// The renderer-side value stays 5s BELOW the host cap so the
 		// renderer surfaces a command-specific timeout error before
 		// the host's generic reject. A genuinely hung download is
@@ -56,7 +41,6 @@ describe("per-command timeout table (getTimeout)", () => {
 
 	it("returns 3_595_000ms for `import_model` (just under the Rust 1h download cap)", () => {
 		// Importing a multi-GB local file goes through the same
-		// long-running dispatch path; the old implicit 30s default
 		// rejected large imports while the backend was still copying.
 		expect(getTimeout("import_model")).toBe(3_595_000);
 	});
@@ -91,7 +75,6 @@ describe("VP-6: Tauri rejection-string envelope parsing (parseTauriErrorEnvelope
 		// The Rust `dispatch` command (sidecar_cmds/dispatch.rs)
 		// rejects the invoke promise with the JSON-serialized
 		// `{type:"error", data:{code, message}}` envelope. On Tauri
-		// this arrives as a raw STRING, pre-VP-6 it became
 		// `new Error(wholeJSON)` with no `.code`, so callers branching
 		// on the failure class silently fell through on Tauri.
 		const raw = JSON.stringify({
@@ -105,7 +88,6 @@ describe("VP-6: Tauri rejection-string envelope parsing (parseTauriErrorEnvelope
 	});
 
 	it("stamps a bare Rust dispatch-cap code (data_too_large / pending_full)", () => {
-		// VP-5 codes are carried on the same envelope; the renderer's
 		// `switch (code)` must be able to branch on them on Tauri too.
 		const err = parseTauriErrorEnvelope(
 			JSON.stringify({

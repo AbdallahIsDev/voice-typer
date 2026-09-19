@@ -1,16 +1,3 @@
-/**
- * "Sepia" theme preset, warm amber tones and cream backgrounds.
- *
- * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
- * are consumed.
- *
- * light and dark now define the SAME superset of CSS vars.
- * Previously the dark map defined ``--destructive``, ``--destructive-foreground``,
- * ``--scrollbar-thumb``, ``--scrollbar-thumb-hover``, ``--surface-page``,
- * and ``--text-primary`` that the light map did not, components
- * reading those vars in light mode silently fell back to the
- * stylesheet default. Both maps now cover the same key set.
- */
 import type { ThemePreset } from "../themes";
 
 export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
@@ -117,7 +104,6 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--input": "oklch(0.54 0.02 40)",
 		"--ring": "oklch(0.7 0.08 60)",
 		// Destructive (added --destructive-foreground so dark
-		// matches light coverage; previously only --destructive was set.)
 		"--destructive": "oklch(0.55 0.25 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
 		// Sidebar

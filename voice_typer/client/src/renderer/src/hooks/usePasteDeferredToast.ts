@@ -1,6 +1,5 @@
 // usePasteDeferredToast, surfaces the ``paste_deferred`` push event
 // (auto-paste skipped, transcription safe on the clipboard).
-//
 // After a dictation the pipeline writes the text to the clipboard and
 // synthesizes a paste keystroke into the focused app. Two real-world
 // conditions make that keystroke impossible: the target app activated
@@ -10,13 +9,11 @@
 // clipboard, but the user sees no text appear where they expect it,
 // and without this toast they have no way to know their words are one
 // manual paste away.
-//
 // This hook is the single consumer of the event. It shows ONE warning
 // toast stating the actual state (auto-paste skipped, text on the
 // clipboard) with a reason-specific hint naming WHY the keystroke was
 // dropped (Secure Input vs IME composition) so the user knows pasting
 // manually is safe and expected to work.
-//
 // Cooldown: the secure-input emitter already dedupes to once per
 // session server-side, but the IME-composition path can defer one
 // paste per dictation while a composition stays open, a 10s window
@@ -40,13 +37,6 @@ const PASTE_DEFERRED_HINT_KEYS: Record<string, string> = {
 	ime_composition: "degradation.pasteDeferredHintIme",
 };
 
-/**
- * Subscribe to ``paste_deferred`` push events and show the
- * clipboard notice. Call once at the top level of a component (App
- * wires it with the i18n `t` function).
- *
- * @param t i18n translate function (from useT).
- */
 export function usePasteDeferredToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("paste_deferred", (data): (() => void) | undefined => {

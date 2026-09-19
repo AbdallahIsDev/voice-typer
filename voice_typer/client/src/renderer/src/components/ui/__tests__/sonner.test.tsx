@@ -1,12 +1,3 @@
-/**
- * Sonner Toaster tests, covers  (Toaster position must update on
- * runtime locale change).
- *
- * Strategy: mock the `sonner` module so we can capture the `position`
- * prop passed to the underlying Toaster on each render. Switch the
- * locale via `setLocale` and assert the captured prop reflects the new
- * locale's direction.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ToasterProps } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

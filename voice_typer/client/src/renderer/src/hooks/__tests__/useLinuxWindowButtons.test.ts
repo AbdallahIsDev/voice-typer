@@ -1,11 +1,3 @@
-/**
- * Tests for useLinuxWindowButtons (extracted from App.tsx).
- *
- * Contract: read the user's ``linux_window_buttons`` config + the
- * sidecar's read-only system snapshot via FIELD-level selectors and
- * resolve the effective layout once per change (stable identity for
- * the memoized TitleBar prop).
- */
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 

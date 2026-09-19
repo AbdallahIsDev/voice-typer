@@ -70,7 +70,6 @@ export const Decorative: Story = {
 // <output aria-live="polite"> when the loading state IS the primary
 // status message for the page (e.g. ConnectionStatusScreen while the
 // backend is starting). The wrapper restores the polite live-region
-// announcement the Spinner used to provide by default.
 
 export const WithLiveRegion: Story = {
 	render: (): ReactElement => (

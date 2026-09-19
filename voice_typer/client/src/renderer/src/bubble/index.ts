@@ -1,22 +1,3 @@
-/**
- * Bubble overlay package, public surface.
- *
- * The legacy `../bubble-components.tsx` module now just does
- * `export * from "./bubble";` so existing consumers (e.g. `Bubble.tsx`)
- * keep working without churn.
- *
- * Public API:
- *   - constants: `BubbleMode`, `AnimState`, `BubbleAction`,
- *     `DOT_COUNT`, `MIN_HEIGHT`, `MAX_HEIGHT`, `DOT_WEIGHTS`,
- *     `DOT_INDICES`, `TRANSCRIBING_DOT_COUNT`, `FADEOUT_DURATION_MS`,
- *     `BUBBLE_BUTTON_CLASS`
- *   - helpers: `tf`, `rmsToNorm`, `getBubbleAriaLabel`
- *   - hooks: `useThemeSync`, `useAudioLevels`, `useBubbleLifecycle`,
- *     `useBubbleStateMachine` (+ `BubbleStateMachine` interface)
- *   - components: `BubbleVisualizer`, `BubbleMicButton`,
- *     `BubbleStopButton`, `BubbleDismissButton`, `BubbleModeContent`
- */
-
 export { BubbleDismissButton } from "./BubbleDismissButton";
 export { BubbleMicButton } from "./BubbleMicButton";
 export { BubbleModeContent } from "./BubbleModeContent";

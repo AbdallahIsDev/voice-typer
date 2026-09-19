@@ -1,9 +1,3 @@
-/**
- * "Dracula" theme preset, rich purples and deep magentas.
- *
- * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
- * are consumed.
- */
 import type { ThemePreset } from "../themes";
 
 export const draculaTheme: Omit<ThemePreset, "nameKey"> = {

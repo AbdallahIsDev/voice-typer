@@ -1,17 +1,8 @@
 /**
  * Pins the bubble entrypoint's observability installs (MO-102 + MO-105).
- *
  * The bubble is a SEPARATE BrowserWindow / JS context from the main
  * renderer. Under predecessor the main process captured console output and
- * crashes from BOTH webviews; under Tauri each entrypoint must install
- * the shared sinks itself. `installGlobalErrorHandlers()` and
- * `installConsoleCapture()` are both idempotent and reuse the same
- * `window_.logError` path — no new bridge method, no new capability
  * grant (SEC-026: observability OUT only).
- *
- * Source-pin (same pattern as `main-dynamic-tauri-bridge.test.ts`):
- * importing `bubble-main.tsx` boots React, which is not what we want
- * here.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -32,7 +23,6 @@ describe("bubble-main.tsx installs both host-log sinks", () => {
 	});
 
 	it("imports and calls installConsoleCapture (MO-105 bubble context)", () => {
-		// Previously only main.tsx installed the console sink; the bubble
 		// entrypoint's `console.warn`/`console.error` were lost under
 		// Tauri (separate JS context, no predecessor console-message hook).
 		expect(BUBBLE_SRC).toMatch(

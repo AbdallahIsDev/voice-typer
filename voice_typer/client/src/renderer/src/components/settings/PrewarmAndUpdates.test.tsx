@@ -1,28 +1,8 @@
 /**
  * Tests for PrewarmAndUpdates, Cache Status + offline Updates surfaces.
- *
  * History: an earlier revision hosted an in-app "Check for Updates"
  * button that fired a renderer `fetch()` to the GitHub releases API.
  * C-DATA-1 (the offline guarantee) forbids ANY network call in the
- * production code path, including an explicit user click, so the
- * button + handler + latestVersion state were removed. The Updates
- * section now shows the installed version + a static offline message
- * + a user-clicked external link to the GitHub releases page.
- *
- * (RESTORED 2026-08-14): the Cache Status card was restored verbatim
- * from commit 5a319872 (plan §6.3 addendum, user-facing feature).
- * The "Run Prewarm Now" button was NOT restored (its IPC command
- * `run_prewarm` stayed removed with the deleted standalone-prewarm
- * subprocess machinery), so the action-buttons test below asserts it
- * is absent while "View prewarm log" is present.
- *
- * These tests verify the contract:
- *   - Cache Status + Updates sections render (headings + action buttons)
- *   - prewarm cache status is fetched on mount and the badge renders
- *   - NO `fetch()` is ever called from this component (mount, click,
- *     unmount, or otherwise), the offline guarantee is absolute
- *   - the "Check for Updates" button is NOT rendered (removed)
- *   - the offline message + "View Changelog" link ARE rendered
  */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,7 +62,6 @@ describe("PrewarmAndUpdates", () => {
 	});
 
 	// C-DATA-1 regression guard: NO network call may leave this
-	// component. The previous implementation fired
 	// `fetch("https://api.github.com/...")` inside a mount-time
 	// `useEffect` (auto-fire), leaking the user's public IP, request
 	// timestamp, and predecessor User-Agent to GitHub on EVERY Settings

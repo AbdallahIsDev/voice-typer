@@ -1,7 +1,5 @@
 // PostProcessingSettingsSection, the Post-Processing section of the
 // Settings surface.
-//
-// Extracted from the former ModelSettingsSection (which stacked the
 // Post-Processing and LLM Polishing cards on one page) so each domain
 // gets its own focused section page (settingsTranscription for this
 // card). Renders one SettingsSection block: "Post-Processing"

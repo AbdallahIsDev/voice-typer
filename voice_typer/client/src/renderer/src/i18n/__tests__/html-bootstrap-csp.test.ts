@@ -1,42 +1,9 @@
 /**
  * @vitest-environment node
- *
  * Guards for the inline i18n-locale bootstrap scripts and the CSP meta
  * tags shipped in ``index.html`` and ``bubble.html``.
- *
- * These HTML files are the FIRST thing the renderer loads (before the
- * React tree mounts), so two invariants must hold:
- *
- *   1. The inline bootstrap script (which reads localStorage for the
- *      saved UI locale and sets ``document.documentElement.lang`` /
- *      ``.dir`` before first paint) MUST use block-scoped ``let`` /
- *      ``const`` declarations, no ``var``. ``var`` would leak to the
- *      global ``window`` scope and pollute the renderer's global
- *      namespace before the React app has a chance to set up its own
- *      module boundaries.
- *
- *   2. The strict production CSP meta tag MUST NOT grant
  *      ``connect-src https://api.github.com``. C-DATA-1 forbids any
- *      network call in the production code path, Voice Typer is an
- *      OFFLINE application. The previous ``https://api.github.com``
  *      grant was a latent C-DATA-1 violation (the explicit "Check for
- *      Updates" button would still phone home to GitHub on a user
- *      click); it has been removed. Update checks must route through
- *      the Python sidecar instead of a renderer-direct HTTPS call.
- *
- * Belt-and-suspenders: the HTTP-header CSP in
- * ``src/main/bootstrap.ts::_buildCsp()`` already restricts
- * ``connect-src`` to ``'self'`` and takes precedence over the meta
- * tag at runtime (CSP spec: HTTP headers win). This test pins the
- * meta tag itself so it stays in lockstep with the HTTP-header policy
- * and is no longer a backdoor if the HTTP-header route ever fails to
- * fire (e.g. an predecessor upgrade changes file:// header handling, or
- * the page is opened outside predecessor).
- *
- * Platform: Linux sandbox / Windows host / macOS host (pure static
- * file read, no DOM, no jsdom). Validation:
- *   VALIDATE ON LINUX HOST: cd voice_typer/client && npx vitest run \
- *     src/renderer/src/i18n/__tests__/html-bootstrap-csp.test.ts
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -146,7 +113,6 @@ describe("HTML inline i18n bootstrap scripts", () => {
 				}
 				const script = scriptMatch[0];
 				// C-STYLE-1: no task IDs in source code (including comments).
-				// The known historical prefix that previously appeared here
 				// was a previous task ID; we accept any uppercase-prefix-plus-digits
 				// pattern as a regression guard.
 				expect(script).not.toMatch(/\/\/\s*[A-Z]{1,4}-\d+\s*:/);

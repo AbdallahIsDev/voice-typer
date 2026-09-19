@@ -1,21 +1,15 @@
 // Templates page, thin shell.
-//
-// Split from the former monolithic ``pages/Templates.tsx`` (1069 lines)
 // into:
 //   - ``./templates/lib/``       , pure helpers (types, storage, transform, sanitize)
 //   - ``./templates/hooks/``     , state + handlers (useTemplates, useTemplateDialog, useTemplateImportExport)
 //   - ``./templates/components/``, presentational (TemplateListRow, TemplateDialog)
-//
 // The Toolbar / BulkBar / ListHeader render through the SHARED
 // collection-page family (components/common/Collection*.tsx), the page
 // injects its i18n keys + drift-decision props (the replacement for the
 // former per-page TemplateToolbar / TemplateBulkBar / TemplateListHeader
-// mirrors, which were byte-identical except for those keys).
-//
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / dialog wiring). All state + business logic lives in the hooks;
 // all rendering lives in the components. Behaviour is preserved
-// byte-for-byte, this is a pure structural refactor.
 import { AlertCircleIcon, File02Icon } from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 

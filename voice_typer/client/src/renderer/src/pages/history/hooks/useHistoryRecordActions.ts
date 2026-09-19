@@ -1,12 +1,9 @@
 // History per-row record actions hook.
-//
-// Extracted from `pages/History.tsx` (page-root slimming): the three
 // per-row event flows, delete-with-undo, favorite toggle, and the
 // lazy full-text fetch for expandable rows, are cohesive IPC-backed
 // event logic that belongs in a named, testable hook instead of the
 // page root. The list rendering (ActivityList wiring) stays in the
 // page; this hook owns the handlers it wires up.
-//
 // All state mutations go through the passed-in callbacks (`setRecords`
 // / `load` from useHistoryCache), so the hook stays a pure handler
 // factory, the page keeps owning the data.
@@ -38,10 +35,6 @@ export interface UseHistoryRecordActionsReturn {
 	handleFetchFullText: (id: number) => Promise<string | null>;
 }
 
-/**
- * Per-row record actions for the History page. See the file header for
- * the extraction rationale.
- */
 export function useHistoryRecordActions({
 	call,
 	records,

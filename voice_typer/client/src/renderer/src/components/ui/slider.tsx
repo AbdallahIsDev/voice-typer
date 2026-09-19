@@ -11,19 +11,7 @@ export interface SliderProps
 	rangeClassName?: string;
 	/** Additional class name for each thumb element */
 	thumbClassName?: string;
-	/**
-	 * Labels for each thumb, forwarded as aria-label so
-	 * screen readers announce the thumb's purpose. Takes
-	 * precedence over a global aria-label when present.
-	 */
 	thumbLabels?: string[];
-	/**
-	 * Callback for generating the aria-valuetext on each thumb.
-	 * Receives the thumb's current numeric value and its index and
-	 * should return a human-readable string (e.g. "3 decibels").
-	 * Screen readers announce this at the focused thumb, which is
-	 * the correct ARIA surface for slider value readouts.
-	 */
 	getThumbAriaValueText?: (value: number, index: number) => string;
 }
 
@@ -105,7 +93,7 @@ function Slider({
 							: undefined
 					}
 					className={cn(
-						"block size-4 rounded-full bg-white border border-border/5 shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:border-ring focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-hidden active:scale-105",
+						"block size-4 rounded-full bg-white border border-border/5 shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden active:scale-105",
 						thumbClassName,
 					)}
 				/>

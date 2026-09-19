@@ -1,23 +1,3 @@
-/**
- * Tests for hotkey-utils, preset safety invariants.
- *
- * The most important invariant: `<win>+<space>` must NEVER appear in
- * the combo presets on Windows. Win+Space is reserved by the OS for the
- * input-language switcher; offering it as a paste shortcut would silently
- * break language switching. Linux `<super>+<space>` is OK because Linux
- * does not reserve that combo.
- *
- * We also smoke-test that the HotkeySettingsSection renders both the
- * dictation (single-mode) and the re-paste (combo-mode) pickers via the
- * same HotkeyPicker component, so the paste shortcut reuses the same
- * accessible capture UI as the dictation key.
- *
- * ISSUE-8: the preset lists are now exposed via getter functions
- * `getSingleKeyPresets()` / `getComboPresets()` that re-detect the
- * platform on every call. The tests below call the getters directly
- * after stubbing `navigator.userAgent` so the platform branch under
- * test is exercised deterministically.
- */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 // `hotkey-utils.ts` reads `navigator.userAgent` to derive IS_WIN /
@@ -100,7 +80,6 @@ describe("HotkeyPicker, reusable for both recording and paste shortcuts", () => 
 	// section. A full render test already lives in Settings.test.tsx;
 	// here we just guard against regressions where the paste shortcut
 	// might be silently switched to a bespoke picker.
-	//
 	// Note: no afterEach with vi.resetModules() here, the platform-
 	// detection tests in the describe block above need module isolation
 	// (they stub navigator.userAgent), but this test does not. Keeping
@@ -109,7 +88,6 @@ describe("HotkeyPicker, reusable for both recording and paste shortcuts", () => 
 	it("HotkeySettingsSection imports HotkeyPicker (shared component for both modes)", async () => {
 		// The RecordingSettingsSection now contains both the dictation key
 		// and re-paste key pickers (the standalone HotkeySettingsSection
-		// was removed since it only had one setting). We import the
 		// RecordingSettingsSection and confirm it resolves to a defined,
 		// renderable component.
 		const sectionMod = (await import(

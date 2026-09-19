@@ -1,13 +1,3 @@
-/**
- * MicrophoneListItem unit tests, the "System Default" badge token.
- *
- * The badge sits on `bg-accent`, and `--accent` maps to `var(--primary)`
- * in every theme block (light, dark, custom presets). Its foreground
- * must therefore be the paired `text-accent-foreground` token: a
- * hardcoded `text-white` is unreadable whenever the accent/primary is a
- * light color (e.g. light theme), while `--accent-foreground` always
- * resolves to the contrast-safe companion of the active accent.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

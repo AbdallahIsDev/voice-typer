@@ -1,33 +1,3 @@
-/**
- * Tests for the `flashCopied` timer cleanup in `ErrorBoundary.tsx`.
- *
- * Background: `flashCopied` schedules a 2-second `window.setTimeout` that
- * flips the "Copied!" button label back to "Copy error". Previously the
- * timer was not stored, so:
- *
- *   - Calling `flashCopied` twice in quick succession left the FIRST timer
- *     running. When it fired it would set `copied: false` even though the
- *     user had just copied again, the "Copied!" feedback vanished
- *     instantly instead of staying visible for 2s after the latest copy.
- *
- *   - If the boundary unmounted while the timer was pending (e.g. the
- *     error was recovered via "Try Again"), the timer would fire
- *     `setState` on an unmounted component, a React 19 warning + a latent
- *     leak if the boundary was re-mounted shortly after.
- *
- * The fix mirrors the `copyTimeoutRef` pattern in `ActivityList.tsx`
- * (): store the timer in an instance field (`copiedTimer`),
- * clear it before setting a new one in `flashCopied`, and clear it on
- * unmount via `componentWillUnmount`.
- *
- * These tests drive `flashCopied` directly via a ref to the class
- * instance (avoids the async clipboard path that `handleCopyError`
- * traverses, the clipboard mock is fragile under jsdom + fake timers,
- * and the unit under test here is the timer bookkeeping, not the
- * clipboard integration). `window.setTimeout` / `globalThis.clearTimeout`
- * are replaced with `vi.fn()` mocks so we can assert on the call args
- * without actually arming real timers.
- */
 import { cleanup, render } from "@testing-library/react";
 import { createRef, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -133,7 +103,6 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		(ref.current as ErrorBoundary).flashCopied();
 		expect(clearTimeoutMock).toHaveBeenCalledTimes(1);
 		// The clearTimeout call must use the FIRST timer's id (the
-		// one that was previously tracked). This is the core
 		// guarantee of the clear-before-set pattern.
 		expect(clearTimeoutMock.mock.calls[0]?.[0]).toBe(firstId);
 

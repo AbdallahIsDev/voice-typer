@@ -1,20 +1,3 @@
-/**
- * Tests for hooks/theme/themeSync + themeBridge, the backend→store
- * sync concern extracted from useTheme.ts.
- *
- * Covers:
- *   1. ``ensureThemeSideEffects``, the initOnce guard: the initial
- *      config reload and the ``beforeunload`` flush listener run
- *      EXACTLY ONCE across repeated calls; the bridge references are
- *      refreshed on every call.
- *   2. ``reloadThemeFromConfig``, seeds the store + localStorage from
- *      the backend, syncs the sound-feedback flag, and flips
- *      ``hasInitialReloadCompleted`` even on failure.
- *   3. ``handleConfigChanged``, merges backend-pushed partials into
- *      the app config cache + the theme store.
- *   4. The ``_resetThemeStoreForTest`` seam in ``hooks/useTheme.ts``
- *      fully resets the singleton state so the guard re-arms.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({

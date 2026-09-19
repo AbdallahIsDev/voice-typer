@@ -1,16 +1,3 @@
-/**
- * Tests for useLastResortUnloadedToast.
- *
- * Contract: subscribe to the backend ``asr_last_resort_unloaded`` push
- * event and surface a sonner warning pointing at the Models page, with an
- * "Open Models" action that calls the injected navigation callback. The
- * toast is rate-limited in TWO layers: a per-backend 15-min cooldown
- * (mirroring the server's ModelManager ``_LAST_RESORT_NOTIFY_COOLDOWN_SECS``)
- * so a permanently-unloaded backend re-notifies at most ~4x/hour, plus a
- * short GLOBAL dedupe window (``LAST_RESORT_TOAST_DEDUPE_MS`` = 10s) so
- * rapid genuine transitions across DIFFERENT backends collapse to one
- * visible notification instead of stacking a toast per backend.
- */
 import { renderHook } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

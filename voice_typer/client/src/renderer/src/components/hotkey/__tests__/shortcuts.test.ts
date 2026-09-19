@@ -1,15 +1,3 @@
-/**
- * Contract tests for the SHORTCUTS catalog, the single source of
- * truth for the app's keyboard-shortcut strings.
- *
- * TitleBar, Sidebar, the Help overlay, and the About page all render
- * from this catalog. These tests pin the canonical values so a
- * binding change is a deliberate, visible edit, and keep the pynput
- * forms in lockstep with the display strings (formatHotkey(pynput)
- * must equal keys on Windows/Linux, the only platform where the
- * display string is the literal text HotkeyChips renders).
- */
-
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type {
 	InAppShortcutId,

@@ -1,44 +1,8 @@
 /**
  * Dead-export "stays removed" guard (renderer + main + Rust host).
- *
  * Mirrors the Python-side guard pattern
  * (`tests/test_dead_code_stays_removed.py`): when a dead symbol, module,
- * or orphaned i18n key is deleted, this file pins its absence so a
- * future refactor cannot quietly resurrect it. Each assertion below
- * documents WHY the symbol was dead when it was removed:
- *
- *  - `install_parakeet_deps` / `installDeps` / `installingDepsModel`:
- *    the "Download Deps" flow called an IPC command that existed in NO
- *    backend layer (Python registry, Rust allowlist, TS
- *    ALLOWED_COMMANDS, PythonRequest union, zero server matches), and
- *    its UI gate (`depsOk === false`) could never hold in steady state
- *    because the backend hardcodes `deps_ok: true` for every engine.
- *    The whole flow (hook action + state + the "Download Deps" UI
- *    branch + its tests + the orphaned snack/download i18n keys) was
- *    deleted.
- *  - `lib/semver.ts`: whole module was production-dead, only its own
- *    test imported it (the docstring cited an About.tsx comparison
- *    that no longer existed client-side).
- *  - `refreshTrayAvailableCache`: zero references; its docstring
- *    claimed a Python-sidecar IPC caller that does not exist.
- *  - `ONBOARDING_MIC_TEST_DURATION_SEC`: zero references; the mic test
  *    duration is fixed at 10s elsewhere (C-MIC-18).
- *  - Rust `csv_escape`: `#[allow(dead_code)]` allocation-returning twin
- *    of `csv_escape_into`, production (`json_to_csv`) only ever calls
- *    the in-place variant; the twin existed solely so tests could
- *    assert on a returned `String`. Tests now wrap `csv_escape_into`.
- *
- * i18n: the removal deleted `models.snack.depsInstalled`,
- * `models.download.deps`, and `models.download.depsAria` from ALL
- * locales (complete removal, no partial locale edits). The keys that
- * REMAIN live (`models.snack.depsRequiredName`, the select-guard
- * snack; `models.download.oneAtATime`, the pinned hint key) are
- * asserted present so this guard also catches accidental
- * over-removal.
- *
- * NOTE: `isModelActive` (lib/utils/models.ts) was verified LIVE at
- * removal time (called by `applyActiveState` and `getActiveFamilyId`)
- * and is intentionally NOT listed here, it must stay.
  */
 
 import { existsSync, readFileSync } from "node:fs";

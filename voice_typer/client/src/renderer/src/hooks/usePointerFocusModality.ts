@@ -1,7 +1,6 @@
 // Pointer-modality focus tracking, the SINGLE shared implementation of
 // the C-FOCUS-3 contract, consumed by the shared text-input primitives
 // (`components/ui/input.tsx` and `components/ui/textarea.tsx`).
-//
 // WHY THIS EXISTS: browsers match `:focus-visible` for TEXT BOXES on
 // BOTH click and keyboard (MDN :focus-visible: "when a text box needing
 // user input has focus, focus is indicated"), so the full-opacity
@@ -9,7 +8,6 @@
 // `focus-ring-contrast.test.tsx`) paints on every mouse click into a
 // text field. Pure CSS cannot separate mouse from keyboard on text
 // inputs, the modality must be tracked in JS:
-//
 //   • a `pointerdown` sets pointer-modality → the heavy ring is
 //     suppressed (the caret already marks the field active) and a
 //     subtle border tint takes its place;
@@ -19,11 +17,8 @@
 //     users; only the pointer path is suppressed);
 //   • `blur` resets the modality so the next keyboard focus gets the
 //     full ring even after a previous pointer interaction.
-//
 // The class pair below is shared so Input and Textarea render the exact
-// same suppression/keyboard classes (previously duplicated verbatim in
 // both files, a future contract fix would have had to land twice).
-//
 // OVERRIDE SEMANTICS (C-FOCUS-4-adjacent): consumers spread
 // `pointerFocusProps` BEFORE `{...props}`, so a caller-supplied
 // `onPointerDown`/`onKeyDown`/`onBlur` REPLACES the modality handler
@@ -40,7 +35,7 @@ export const POINTER_FOCUS_CLASSES = {
 	pointer: "focus:border-ring/60 focus-visible:ring-0",
 	/** Keyboard/AT focus: the clear full-opacity ring (WCAG 1.4.11 3:1). */
 	keyboard:
-		"focus-visible:border-ring focus-visible:ring-1focus-visible:ring-ring",
+		"focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring",
 } as const;
 
 /** The handler trio the consumer spreads onto its <input>/<textarea>. */
@@ -50,13 +45,6 @@ export interface PointerFocusProps {
 	onBlur: () => void;
 }
 
-/**
- * Tracks whether the current focus session was entered via a pointing
- * device. Returns the modality flag plus the event handlers that drive
- * the state machine, spread `pointerFocusProps` on the field element
- * BEFORE the caller `{...props}` spread (see override semantics above)
- * and branch the focus classes on `pointerActive`.
- */
 export function usePointerFocusModality(): {
 	pointerActive: boolean;
 	pointerFocusProps: PointerFocusProps;

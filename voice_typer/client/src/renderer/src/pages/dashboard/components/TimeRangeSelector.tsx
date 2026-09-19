@@ -1,5 +1,4 @@
 // Time-range selector for the Dashboard.
-//
 // A single control (Today / 7 Days / 30 Days / All Time) that drives
 // the stat cards AND the activity chart together, no more "each card
 // silently uses a different fixed window". Built on the shared

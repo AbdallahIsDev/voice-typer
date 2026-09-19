@@ -12,11 +12,6 @@ export interface ShareStats {
 	modeDisplay: string;
 	/** Human-readable mode detail. */
 	modeDetail: string;
-	/**
-	 * e.g. "100% faster than avg typer". `null` when there is no
-	 * today activity, the image must never claim "0% faster" as if
-	 * it were a real stat.
-	 */
 	fasterThanAvg: string | null;
 	/** True when the user has dictated today (today's count > 0). */
 	hasTodayActivity: boolean;

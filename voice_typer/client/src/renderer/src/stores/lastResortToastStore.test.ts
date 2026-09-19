@@ -1,11 +1,3 @@
-/**
- * Tests for the Zustand lastResortToastStore.
- *
- * The per-backend ``asr_last_resort_unloaded`` toast cooldown timestamps
- * live in this store (not a module-level ``Map`` in the hook) so Vite
- * HMR / hot-reload of the hook module can't reset them. These tests
- * verify the store's state transitions and the test-seam reset.
- */
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useLastResortToastStore } from "@/stores/lastResortToastStore";

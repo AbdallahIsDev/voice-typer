@@ -1,13 +1,10 @@
 // Microphone page, thin composition root.
-//
-//Formerly a 1193-line monolith (). Split into a
 // ``pages/microphone/`` package: this file wires the three hooks
 // (``useMicrophoneData`` / ``useMicrophonePermission`` /
 // ``useMicrophoneTest``) and renders the three sub-components
 // (``MicrophonePermissionBanner`` / ``ActiveMicrophoneCard`` /
 // ``AvailableMicrophonesList``). All business logic lives in the
 // hooks; all layout lives in the components.
-//
 // The default export signature is preserved so ``App.tsx`` routing is
 // unaffected.
 

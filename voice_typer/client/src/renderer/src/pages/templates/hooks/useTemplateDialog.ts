@@ -1,11 +1,9 @@
 // Add/Edit template dialog state + handlers.
-//
 // Owns:
 //   - dialog open/close + the row currently being edited
 //   - the form fields (``trigger`` / ``expansion`` / ``matchMode``)
 //   - openAddDialog / openEditDialog / saveTemplate / handleCloseDialog
 //     / handleTriggerChange / handleExpansionChange / handleMatchModeChange
-//
 // ``saveTemplate`` reads from the dialog fields + ``templatesRef`` (so
 // it can splice the new value into the latest committed list) + calls
 // back into ``loadRows`` (provided by ``useTemplates``) to refresh
@@ -88,7 +86,6 @@ export function useTemplateDialog({
 			//read from the React-state ref mirror (always
 			// the latest committed list) instead of from
 			// `loadTemplatesFromLocalStorage()`.  The localStorage
-			// read used to race with in-flight IPC saves and could
 			// disagree with what the user was seeing on screen;
 			// the ref read guarantees we mutate the same list the
 			// user just edited.
@@ -121,7 +118,6 @@ export function useTemplateDialog({
 			}
 			//await the IPC save BEFORE loadRows() so the
 			// reload is guaranteed to see the just-saved state.
-			// Previously `saveTemplates` was fire-and-forget on
 			// the IPC leg, so `loadRows()` could re-fetch the
 			// pre-save list and briefly render stale data.
 			// NOTE: the success toast fires AFTER the await so

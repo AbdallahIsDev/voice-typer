@@ -1,5 +1,4 @@
 // Templates page loading skeleton (full page).
-//
 // Mirrors the loaded Templates layout (`pages/Templates.tsx`), which
 // shares Vocabulary's page shell, CollectionToolbar and single
 // columned list card. Row internals follow TemplateListRow instead:

@@ -1,18 +1,3 @@
-/**
- * Unit tests for the shared audio-preset data registry
- * (`lib/utils/audioPresets.ts`), the single source of truth for the
- * microphone-quality preset VALUES and their i18n label/description
- * keys, consumed by both live preset presentations (the Settings →
- * Audio Select and the Microphone page's accordion selector).
- *
- * Integrity contract under test:
- *   - the five canonical preset values, in display order, no duplicates;
- *   - every label and description key resolves in ALL 8 locale
- *     catalogues (a missing key in one locale would render the raw key
- *     string in that language's UI);
- *   - each preset has a DISTINCT description key (presets must not fall
- *     back to echoing their own label as the description).
- */
 import { describe, expect, it } from "vitest";
 
 import ar from "@/i18n/translations/ar.json";

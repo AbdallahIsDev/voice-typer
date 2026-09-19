@@ -1,16 +1,3 @@
-/**
- * LastUpdatedIndicator, refresh micro-interaction contract.
- *
- * Pins the fix for the refresh click glitch: while a refresh is in
- * flight the SAME icon spins in place (``animate-spin`` on the
- * unchanged h-3.5 glyph). Swapping in a different element (e.g. a
- * border-2 Spinner at a different box size) reads as a size/color
- * jump on every click; rotating the mounted icon keeps the box,
- * stroke, and color identical so the only motion is the rotation.
- *
- * Also pins that the button's accessible name survives both states.
- */
-
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

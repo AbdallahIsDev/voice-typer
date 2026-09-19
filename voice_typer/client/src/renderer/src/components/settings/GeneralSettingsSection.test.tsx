@@ -1,23 +1,3 @@
-/**
- * Tests for GeneralSettingsSection, locale re-rendering (B-REVIEW-3).
- *
- * b-review Finding 3 documented that the 10 *_LABEL / *_INFO
- * translation constants used to live at module scope, so they were
- * FROZEN to whatever locale was active on first import. Switching the
- * locale at runtime therefore left the General section showing the
- * OLD locale's labels until a full ``window.location.reload()``
- * re-imported the module.
- *
- * The fix moved the constants INSIDE the component body and the
- * section subscribes to locale changes via the ``useT()`` hook
- * (useSyncExternalStore over i18n's ``subscribeLocale``). ``setLocale``
- * notifies subscribers, so the section re-renders with the CURRENT
- * locale WITHOUT a full page reload. These tests verify that:
- *   1. The section renders English labels when the locale is "en".
- *   2. After ``setLocale("ar")`` the labels switch to Arabic, WITHOUT
- *      ``window.location.reload()`` (the reload was removed entirely).
- *   3. The round-trip ar -> en also re-renders in-place.
- */
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -213,7 +193,6 @@ describe("GeneralSettingsSection, B-REVIEW-3 locale re-rendering", () => {
 	beforeEach(() => {
 		// Spy on window.location.reload so we can assert it's NOT
 		// called during the in-test locale switch, the whole
-		// point of B-REVIEW-3 is that the section re-renders
 		// WITHOUT a reload.
 		// jsdom's window.location.reload is a no-op stub; replace
 		// it with a spy so we can assert call count.
@@ -276,7 +255,6 @@ describe("GeneralSettingsSection, B-REVIEW-3 locale re-rendering", () => {
 		expect(screen.getByText("Launch at Login")).toBeTruthy();
 
 		// Switch the locale to Arabic, this is the action that
-		// USED TO require a full page reload to take effect on
 		// this section.
 		act(() => {
 			setLocale("ar" as Locale);
@@ -305,7 +283,6 @@ describe("GeneralSettingsSection, B-REVIEW-3 locale re-rendering", () => {
 		});
 
 		// CRITICAL: the locale switch must NOT have triggered a
-		// full page reload, the whole point of B-REVIEW-3 is
 		// that the section re-renders in-place.
 		expect(window.location.reload).not.toHaveBeenCalled();
 	});

@@ -1,9 +1,7 @@
 // lib/errors/userFacingErrorMessage.ts
-//
 // Maps KNOWN structured error codes from a failed `usePython().call()`
 // to localized, user-actionable messages. Everything else falls back to
 // the caller's contextual message.
-//
 // Why this exists (HP-6): `usePython.call` stamps structured fields onto
 // thrown Errors, `.code` (the server's error-envelope code or the
 // predecessor main's `_code`: ``command_timeout`` /
@@ -14,7 +12,6 @@
 // into words; callers keep their context-specific fallback so unknown
 // codes never lose their surrounding story ("Failed to start microphone
 // test").
-//
 // Raw backend messages are intentionally NOT echoed here: they are
 // English developer text (exception strings, field paths), which would
 // leak into non-English UIs. Only codes with a curated localized body
@@ -51,12 +48,6 @@ const RATE_LIMITED_CODES = new Set([
 	"cloud_rate_limited",
 ]);
 
-/**
- * Read the structured `code` off any thrown value. The bridge stamps
- * `.code` on real Error instances; non-Error rejections (raw Tauri
- * string envelopes are already normalized by the bridge, but defensive
- * reads cost nothing) may carry it on plain objects.
- */
 function errorCode(err: unknown): string | null {
 	if (err instanceof Error) {
 		const code = (err as { code?: unknown }).code;
@@ -78,17 +69,6 @@ function errorListLength(err: unknown): number {
 	return 0;
 }
 
-/**
- * Return a localized user-facing message for a failed IPC call.
- *
- * @param err the caught rejection (any shape).
- * @param t i18n translate function.
- * @param fallback the caller's contextual localized message, used for
- *   every code WITHOUT a curated mapping. Never undefined, callers
- *   must supply their own story so context survives ("Failed to start
- *   microphone test", "Failed to reset settings", …).
- * @returns the localized message to show.
- */
 export function userFacingErrorMessage(
 	err: unknown,
 	t: TranslateFn,

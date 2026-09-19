@@ -1,6 +1,4 @@
 // OnboardingPage, composition root for the first-run wizard.
-//
-// This file was an 884-line monolith with 6 inline step components,
 // wizard state, and a permissions-probe lifecycle all living in one
 // component. It has been decomposed into dedicated modules; the page
 // now owns layout + wiring only:
@@ -9,7 +7,6 @@
 //   - onboarding/hooks/usePermissionsProbe → test-hotkey listener
 //   - onboarding/components/<Step>         → step renderers
 //   - onboarding/lib/{types,constants}.ts  → shared contracts
-//
 // 2026-09-14 onboarding overhaul (user decisions):
 //   - 4-step essentials flow: Welcome → Consent → Model → Hotkey.
 //     The Microphone step (System Default until changed in Settings →
@@ -27,7 +24,6 @@
 //     sidebar is hidden entirely on this page (App.tsx), including
 //     under RTL (the sidebar is pinned left in App.tsx, so hiding it
 //     can't shift the onboarding column).
-//
 // Cancelled-flag contract (async effects): every async effect in this
 // wizard follows the canonical guard pattern so no setState lands after
 // unmount. The init effect lives in `./onboarding/hooks/useOnboardingWizard.ts`.
@@ -125,7 +121,7 @@ export default function OnboardingPage({
 				<div
 					ref={initErrorRef}
 					tabIndex={-1}
-					className="flex w-full flex-col gap-4 rounded-xl border border-destructive/40 bg-destructive/5 p-8 text-center outline-hidden focus-visible:ring-1focus-visible:ring-ring"
+					className="flex w-full flex-col gap-4 rounded-xl border border-destructive/40 bg-destructive/5 p-8 text-center outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
 				>
 					<h2 className="text-lg font-semibold text-(--text-primary)">
 						{t("errorBoundary.title")}

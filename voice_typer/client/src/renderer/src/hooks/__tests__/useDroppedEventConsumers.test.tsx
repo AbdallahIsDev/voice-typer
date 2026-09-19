@@ -1,26 +1,3 @@
-/**
- * Tests for the previously-dropped-event consumer hooks:
- *   - `useAsrBackendLoadToast` (``asr_backend_ready`` /
- *     ``asr_backend_load_failed``)
- *   - `useMicPermissionRevokedToast` (``microphone_permission_revoked``)
- *   - `useMicrophoneDisconnectedToast` (``microphone_disconnected``)
- *   - `useTrayFallbackToast` (``tray_fallback_notification``)
- *
- * These events were published by the Python sidecar but dropped at the
- * host's event allowlist gate (or delivered with no subscriber), so the
- * documented consumer contracts were dead end-to-end. Each test pins
- * the LIVE contract: the hook subscribes to the event name, surfaces
- * the right toast shape, and rate-limits repeat emissions.
- *
- * Cooldown state lives in `degradationToastStore` (Zustand, outside the
- * hook modules, HMR-safe), so the reset seam is the store's
- * `resetForTest`, exercised in `beforeEach`.
- *
- * Mock strategy mirrors `useLastResortUnloadedToast.test.tsx`:
- * `@/hooks/usePython` is mocked to CAPTURE the registered handlers
- * (so tests can fire them directly) and `sonner` is mocked so the
- * toast calls are asserted, not rendered.
- */
 import { renderHook } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

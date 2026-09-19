@@ -1,9 +1,6 @@
 // GeneralSettingsSection, the General section of the Settings surface.
-//
-// Extracted from src/renderer/src/pages/Settings.tsx. Renders one
 // SettingsSection block: "General" (Launch at Login, Fast Startup,
 // Offline Engine Pack, App Language, Notifications, Tray Click).
-// The Overlay card that used to be rendered beneath it moved to its own
 // component (OverlaySettingsSection.tsx) and its own section page
 // (settingsOverlay). Behaviour is identical to the previous combined
 // implementation, including the per-row search-filter visibility via the
@@ -48,11 +45,9 @@ const LOCALE_OPTIONS = SUPPORTED_LOCALES.map((locale) => ({
 	label: getLocaleLabel(locale),
 }));
 
-// B-REVIEW-3 (Finding 3): the *_LABEL / *_INFO constants below USED TO
 // live at module scope. Because ``t()`` is a plain function that reads a
 // module-level ``_currentLocale`` variable, evaluating them at import time
 // FROZE the strings to whatever locale was active on first import.
-//
 // They are now computed INSIDE the component body, so each render
 // re-resolves them against the CURRENT locale. The locale switcher no
 // longer calls ``window.location.reload()``: ``setLocale`` (i18n.ts)
@@ -74,7 +69,6 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 
-	// B-REVIEW-3: resolve label/info strings INSIDE the component
 	// body so they follow the current locale. Module-level consts
 	// froze them at import time.
 	const LAUNCH_AT_LOGIN_LABEL = t("settings.launchAtLogin");

@@ -1,12 +1,3 @@
-/**
- * Regression guard for the Templates page's incremental "Show more"
- * reveal (mirrors Vocabulary.tsx's DISPLAY_CAP pagination).
- *
- * The list renders at most `DISPLAY_CAP` (200) rows until the user
- * clicks "Show more", which reveals another batch of 200. This keeps
- * very large template collections from mounting thousands of DOM rows
- * at once. The button disappears once every row is visible.
- */
 import {
 	cleanup,
 	fireEvent,

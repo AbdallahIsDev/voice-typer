@@ -1,27 +1,3 @@
-/**
- * Non-blocking lint-test: detect local `function makeConfig` declarations
- * outside this `helpers/` folder.
- *
- * Background (see the  finding in `review.md` and the ADOPTION
- * STATUS note at the top of `fixtures.ts`): the canonical fixture is
- * `helpers/fixtures.ts → makeConfig(overrides)`. Historically, ~9 test
- * files each declared their own local `function makeConfig(...)` (or
- * `const baseConfig = { ... }`) to avoid importing the helper. That
- * duplication causes config drift: when a field is added upstream, every
- * local copy goes stale until an unrelated test fails.
- *
- * Migrating the existing 9 files is a large mechanical change that is
- * intentionally deferred (out of scope for this fix). This lint-test
- * guards against NEW violations: it scans every renderer test file
- * outside `__tests__/helpers/` for a top-level `function makeConfig`
- * declaration and, if any are found, prints a `console.warn` listing
- * them. The test PASSES unconditionally, emitting the warning is the
- * only signal, so it does not break the build (the existing 9 files
- * would otherwise turn this red on every CI run until migrated).
- *
- * If/when the deferred migration is complete, flip this to a hard
- * `expect(...).toBe(0)` assertion so the convention is enforced.
- */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -106,22 +82,6 @@ describe("lint: no local `function makeConfig` outside helpers/", () => {
 	});
 });
 
-/**
- * Hard regression test for the XA-15-2 fix: the two Settings test files
- * that previously rolled their own ~120-140-line `const baseConfig: VoiceTyperConfig = { ... }`
- * literal MUST now import `makeConfig` from `@/__tests__/helpers/fixtures`
- * and use the factory call instead.
- *
- * The broader "no local baseConfig literal" convention is still a
- * non-blocking warning (above) because other test files have legitimate
- * reasons to declare a small ad-hoc config. The Settings test files,
- * however, were specifically called out in XA-15-2 as the high-value
- * migration target (largest literals, most drift-prone), so we hard-pin
- * them here to prevent a regression that reintroduces the drift hazard.
- *
- * If a future refactor renames `baseConfig` or moves the import, update
- * the assertions below rather than weakening them.
- */
 describe("lint: Settings test files use shared makeConfig (XA-15-2 regression)", () => {
 	// __dirname = .../src/renderer/src/__tests__/helpers/__tests__/
 	// Settings test files live at .../src/renderer/src/pages/__tests__/, so

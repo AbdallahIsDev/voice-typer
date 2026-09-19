@@ -38,10 +38,7 @@ import {
 } from "./history/utils/historySort";
 
 //NOTE: App.tsx prop passing will be removed by
-//(BACKLOG-004): HistoryPage now obtains `navigate` via the
 // useNavigation hook directly, eliminating the `onNavigate` prop drill.
-//
-//(spaghetti split): the cache + IPC lifecycle (load / loadMore /
 // event refresh) lives in `useHistoryCache`, the export paging loop
 // lives in `useHistoryExport`, and the client-side sort lives in
 // `historySort.ts`. This file is the thin view component.
@@ -80,7 +77,6 @@ export default function HistoryPage() {
 	// reload (load + background event refresh), so the count refetches
 	// with the list; a failure keeps the previous value and the footer
 	// degrades to the "…" placeholder below, never to "N+".
-	//
 	// `call` is mirrored into a ref (the useDashboardData pattern) so
 	// the effect is keyed on `stats` alone, a fresh `call` identity
 	// under test mocks would otherwise re-fire it every render.
@@ -371,7 +367,6 @@ export default function HistoryPage() {
 								onFetchFullText={handleFetchFullText}
 								hideHeader
 							/>
-
 							{/*once the visible window reaches BOTH the end of the
                                                         loaded cache AND the 200-row display cap while the
                                                         backend still reports more available (`hasMore`),
@@ -383,7 +378,9 @@ export default function HistoryPage() {
                                                         still unrevealed), the Load More button stays useful:
                                                         each click fetches the next page AND widens the visible
                                                         window to include it.
+/**
                                                 */}
+							*/
 							{records.length >= HISTORY_DISPLAY_CAP &&
 							visibleCount >= records.length &&
 							hasMore ? (

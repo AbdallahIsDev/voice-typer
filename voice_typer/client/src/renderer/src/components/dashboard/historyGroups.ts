@@ -1,12 +1,10 @@
 // History date-grouping helpers.
-//
 // Pure, React-agnostic helpers that turn the flat (already-sorted)
 // history record list into per-day sections for the History page's
 // grouped list view. Bucketing reuses the shared UTC-timestamp parsing
 // (`parseUtcTimestamp`) + local-calendar day keys (`localDateKey` from
 // `@/lib/format`) so a group header can never disagree with the
 // Dashboard's day-bucketed stats for the same record.
-//
 // Records arrive in the page's sort order (newest→oldest for the
 // default sort, oldest→newest when the user flips it); groups are
 // emitted in FIRST-ENCOUNTER order so section headers follow the
@@ -39,14 +37,6 @@ export function recordDayKey(timestamp: string | undefined): string {
 	}
 }
 
-/**
- * Localized section heading for a day key.
- *
- * Today / Yesterday reuse the ``analytics.today`` / ``analytics.yesterday``
- * keys (shipped in all 8 locales by the dashboard). Older days render
- * as a locale-aware long date, month + day, plus the year when the
- * entry is not from the current year (history routinely spans years).
- */
 export function dayGroupHeading(key: string): string {
 	if (!key) return "";
 	const now = new Date();
@@ -65,12 +55,6 @@ export function dayGroupHeading(key: string): string {
 	return date.toLocaleDateString(getLocale(), opts);
 }
 
-/**
- * Chunk records into per-day groups, preserving the caller's order.
- * Records with missing/unparseable timestamps share one trailing-key
- * bucket (key "" / empty label) that the renderer lists without a
- * section header instead of crashing or silently dropping rows.
- */
 export function groupRecordsByDate(
 	records: HistoryRecord[],
 ): HistoryDateGroup[] {
@@ -89,11 +73,6 @@ export function groupRecordsByDate(
 	return groups;
 }
 
-/**
- * Locale-aware time-of-day for a history timestamp ("05:54 PM").
- * Rows in a grouped list show ONLY the time, the date lives in the
- * section header. Falls back to the raw string when unparseable.
- */
 export function formatRecordTime(timestamp: string | undefined): string {
 	if (!timestamp) return "";
 	try {

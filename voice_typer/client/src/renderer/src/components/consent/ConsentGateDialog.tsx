@@ -1,9 +1,7 @@
 // src/renderer/src/components/consent/ConsentGateDialog.tsx
-//
 // Unified point-of-use consent dialog ("This sends your audio to Groq.
 // Allow? [Allow / Cancel]"). Mounted ONCE in App.tsx; any consent-
 // gated flow opens it via `openConsentGate()` (see lib/consentGate.ts).
-//
 // Behaviour:
 //   - Allow → persists the consent field via the allowlisted
 //     `set_config` IPC (SEC-002), then invokes the request's `onAllow`
@@ -14,7 +12,6 @@
 //   - Cancel → closes. No consent is granted.
 //   - "Open Settings" → deep-links to the exact consent row
 //     (Settings consumes the `consentField` navigate option), closes.
-//
 // The OS-level equivalent (clickable native toast → Settings) is the
 // backend's `notification` event with `click_consent_field`; both
 // paths land on the same Settings row.

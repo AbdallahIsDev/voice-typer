@@ -1,9 +1,3 @@
-/**
- * Tests for useOnboardingComplete (extracted from App.tsx, EO-28).
- *
- * Contract: on completion, navigate to home, then re-apply the theme
- * from the freshly-fetched config. Non-fatal on get_config failure.
- */
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useOnboardingComplete } from "@/hooks/useOnboardingComplete";

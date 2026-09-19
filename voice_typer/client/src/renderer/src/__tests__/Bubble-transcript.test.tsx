@@ -1,27 +1,3 @@
-/**
- * Tests for the bubble overlay's live-transcript display (XA-6-2) +
- * in-bubble stop / retry affordances (XA-6-1, XA-6-13, XA-6-19).
- *
- * Coverage:
- *   - Live partial-transcript text rendered inside the pill when the
- *     `bubble:set-state` payload carries a `transcript` field and the
- *     bubble is in `transcribing` (or `fading`) mode. Forward-
- *     compatible with the existing string-only payload, when no
- *     `transcript` is provided, the pill renders only the
- *     "Transcribing" label + animated dots (existing tests still pass).
- *   - Transcript truncation at 60 characters with an ellipsis.
- *   - Transcript preserved across the transcribing → fading transition
- *     so the partial text fades out smoothly with the pill.
- *   - Transcript cleared when leaving transcribing mode for any other
- *     non-fading state (recording / idle / error).
- *   - Stop button (recording mode) calls `toggleDictation` IPC.
- *   - Retry button (error mode) calls `toggleDictation` IPC.
- *
- * Mock pattern mirrors `Bubble.test.tsx` / `bubble-fixes.test.tsx` —
- * the listener arrays are populated by the `onSetState` / `onShow` /
- * `onHide` / `onConfig` mock subscriptions and driven by the helpers
- * below.
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

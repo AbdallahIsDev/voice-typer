@@ -1,19 +1,3 @@
-/**
- * Unit tests for the Home page's localStorage cache helpers
- * (`pages/home/lib/cache.ts`).
- *
- * Focus: the per-entry validation added to `loadCachedRecent`. A
- * corrupted / hand-edited / older-schema `vt_home_recent_cache` payload
- * previously flowed straight into the render tree as `HistoryRecord[]`
- *, `ActivityList` reads `item.text.length`, `item.timestamp`, and
- * `item.id` unguarded, so a single malformed entry crashed Home's
- * mount. The guard mirrors `loadCachedStats`' shape sanity-check, but
- * applied per-entry (the payload is a list): invalid entries are
- * filtered out and a fully-invalid payload degrades to an empty list.
- *
- * `loadCachedStats` / `persistRecent` round-trips are covered too so
- * the shared `RefObject` plumbing stays pinned.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HistoryRecord, TodayStats } from "@/types/ipc";

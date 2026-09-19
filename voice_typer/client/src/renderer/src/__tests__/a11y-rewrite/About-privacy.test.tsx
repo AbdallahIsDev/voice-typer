@@ -1,25 +1,3 @@
-/**
- * vitest rewrite, behavioral test for the privacy disclosure.
- *
- * Replaces the following string-pattern Python test from
- * `tests/test_consent_and_privacy.py`:
- *   - TestAboutPageHasPrivacyDisclosure::test_about_page_has_privacy_section
- *
- * The Python test asserted on substring presence inside `About.tsx`
- * (or `en.json`) for the literals "Audio processing", "Model weights",
- * "HuggingFace", "Cloud ASR", "Voice biometrics", and "BIPA".  These
- * pass even when the privacy section is conditionally hidden, when
- * the i18n keys are mistyped, or when the disclosure is rendered in
- * a non-user-visible way.  The vitest version below mounts the real
- * page and asserts each disclosure heading is rendered into
- * the DOM as visible text.
- *
- * IA merge: About (product identity) and Privacy (the disclosure)
- * now share ONE page, this test mounts `@/pages/AboutAndPrivacy`.
- *
- * The corresponding Python test is skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  It is NOT deleted.
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -91,7 +69,6 @@ describe("Privacy disclosure, rewrite of test_about_page_has_privacy_section", (
 		// "Model weights", "HuggingFace", "Cloud ASR",
 		// "Voice biometrics", "BIPA".  Behavioral: each
 		// heading is rendered into the DOM as visible text.
-		//
 		// The merged page renders these via i18n keys
 		// (about.audioProcessingTitle, etc.) whose en.json
 		// values are "Audio processing", "Model weights",

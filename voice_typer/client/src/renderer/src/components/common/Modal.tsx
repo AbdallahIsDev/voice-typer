@@ -1,24 +1,3 @@
-/**
- * Modal, accessible dialog with focus trap and backdrop dismissal.
- *
- * Wraps the Radix Dialog primitive to provide consistent focus management
- * across all dialogs in the app. Features:
- *   - Automatic focus trap (Radix built-in)
- *   - Escape key closes
- *   - Backdrop click closes
- *   - Focus restored to trigger element on close
- *   - Proper aria-modal / aria-labelledby / aria-describedby
- *   - Center-aligned with the same sizing across all call sites
- *
- * Usage:
- *   <Modal open={isOpen} onClose={() => setOpen(false)} title="Delete?">
- *     <p>Are you sure?</p>
- *     <ModalFooter>
- *       <Button variant="ghost" onClick={...}>Cancel</Button>
- *       <Button variant="destructive" onClick={...}>Delete</Button>
- *     </ModalFooter>
- *   </Modal>
- */
 import { useCallback, useEffect, useRef } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import {
@@ -32,13 +11,6 @@ import {
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
-/**
- * Fired when the user attempts to close the dialog (Escape, backdrop
- * click, or the corner close button) BEFORE the close completes.
- * Return `false` (or a promise resolving to `false`) to veto the
- * close, e.g. to first confirm discarding unsaved edits. Returning
- * `true`/`undefined` lets the close proceed.
- */
 export type ModalCloseIntentVeto = () => boolean | Promise<boolean>;
 
 interface ModalProps {
@@ -46,11 +18,6 @@ interface ModalProps {
 	open: boolean;
 	/** Called when the user dismisses the dialog (Escape, backdrop click, Cancel) */
 	onClose: () => void;
-	/**
-	 * Optional veto gate evaluated on every user-initiated close
-	 * attempt BEFORE the dialog closes. While the gate is pending
-	 * (async) the dialog stays open. Rejections are treated as a veto.
-	 */
 	onCloseIntent?: ModalCloseIntentVeto;
 	/** Dialog title (sets aria-labelledby). */
 	title?: string;
@@ -131,12 +98,6 @@ export function Modal({
 	);
 }
 
-/**
- * ConfirmDiscardDialog, thin ConfirmDialog preset for the "you have
- * unsaved edits" veto flow. Centralizes the copy keys so every dialog
- * that gates its close intent presents the same confirm/discard
- * choice.
- */
 interface ConfirmDiscardDialogProps {
 	open: boolean;
 	onDiscard: () => void;
@@ -162,14 +123,4 @@ export function ConfirmDiscardDialog({
 	);
 }
 
-/**
- * ModalFooter, thin re-export of {@link DialogFooter} so call sites that
- * already import `Modal` don't need a second import from
- * `@/components/ui/dialog`. Production code that needs more control
- * should import `DialogFooter` directly.
- *
- * Previously this was a zero-value shim that just forwarded props to
- * `DialogFooter`; the re-export below preserves the public API while
- * removing the duplicated wrapper code.
- */
 export { DialogFooter as ModalFooter };

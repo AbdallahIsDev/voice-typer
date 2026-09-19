@@ -1,13 +1,3 @@
-/**
- * Dark-mode `--input` / `--sidebar-border` contrast tokens.
- *
- * WCAG 1.4.11 (Non-Text Contrast, 3:1), the base `.dark` block in
- * index.css must define these tokens as OPAQUE values, matching the
- * opaque values every per-preset dark theme already carries (so the
- * base fallback == preset treatment). The previous alpha-composited
- * values (white at 15% / 10% over a near-black background) computed
- * to ~1.5:1.
- */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";

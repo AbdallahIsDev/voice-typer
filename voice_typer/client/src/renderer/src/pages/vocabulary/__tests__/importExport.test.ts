@@ -1,16 +1,3 @@
-/**
- * Tests for ``parseImportedVocabulary`` in
- * ``vocabulary/lib/importExport.ts``.
- *
- * Covers:
- *   - Bare-array import shape (the new export format).
- *   - Backend-shape VocabularyData import (the legacy / sync format).
- *   - CSV import (with / without header, with / without category column,
- *     with quoted fields, RFC 4180).
- *   - Invalid shape → throws an Error whose message is the localised
- *     ``vocabulary.importInvalidShape`` string (not a hardcoded
- *     English fallback).
- */
 import { describe, expect, it } from "vitest";
 
 import { parseImportedVocabulary } from "../lib/importExport";

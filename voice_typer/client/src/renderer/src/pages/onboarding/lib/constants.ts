@@ -1,5 +1,3 @@
-// shared constants extracted from Onboarding.tsx.
-
 // Fix 14: localized step title for the sr-only <h1>.
 // 4-step essentials flow (2026-09-14): Welcome → Consent → Model →
 // Hotkey. The Microphone / Permissions / Done steps were removed; the
@@ -17,7 +15,6 @@ export const STEP_TITLE_KEY: Record<string, string> = {
 export const FINAL_STEP_NAME = "Hotkey";
 
 // Fix 17: renderer default must match `OnboardingController.selected_hotkey`
-// (`<caps_lock>`), previously `<f2>`, which silently overrode the backend.
 // The constant itself now lives in `components/hotkey/hotkey-utils.ts`
 // (next to `formatHotkey` and `configHotkeyLabels`, so config-driven
 // hotkey defaults and their label computation share one module);

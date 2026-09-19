@@ -1,17 +1,3 @@
-/**
- * SelectableRow, the shared "whole row is clickable" wrapper the
- * collection pages' ListRows render through. Previously untested in
- * isolation (only exercised via the page suites); these tests pin the
- * a11y + skip-nested-control contract the collection-page family
- * depends on:
- *   - a click anywhere on the row (that didn't originate on an ignored
- *     nested control) selects the row
- *   - clicks originating on a nested control listed in
- *     `ignoreClicksFrom` are left to that control (no double-fire)
- *   - clicks on nested controls NOT listed still select the row (rows
- *     whose nested controls stopPropagation themselves pass none)
- *   - rest props (className, data-testid, ...) pass straight through
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

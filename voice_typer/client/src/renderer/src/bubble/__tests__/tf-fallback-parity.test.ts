@@ -1,12 +1,3 @@
-/**
- * Guard: every `tf(key, fallback)` literal in BubbleModeContent.tsx
- * must match the en.json value for that key.
- *
- * The `tf()` fallbacks exist for dictionary-load failure only. Without
- * this guard, a copy edit to en.json silently leaves the hardcoded
- * fallback contradicting the live translation (two sources of truth).
- */
-
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

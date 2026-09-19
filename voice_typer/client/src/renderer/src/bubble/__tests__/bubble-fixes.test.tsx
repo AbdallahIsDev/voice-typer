@@ -1,35 +1,9 @@
-/**
- * Tests for the bubble overlay's accessibility + state-machine
- * behaviour introduced by the  fix batch:
- *
- *   - `prefers-reduced-motion: reduce` short-circuits the rAF loop
- *     (bars rendered ONCE at a fixed mid-height, no further frames
- *     scheduled). Mirrors the CSS-side `@media (prefers-reduced-motion:
- *     reduce)` block in `index.css`.
- *   - `bubble:config` payload with a `locale` field flips
- *     `document.documentElement.dir` so RTL locales (Arabic) flip the
- *     pill's logical-property utilities at runtime.
- *   - `bubble:set-state` payload can carry a richer
- *     `{ state: string; message?: string }` shape (forward-compatible
- *     with the typed `(state: string) => void` callback) and the
- *     `message` is surfaced in the error pill.
- *   - Error mode auto-hides after `ERROR_AUTO_HIDE_MS` (7s) when the
- *     bubble is in `show_on_record` behavior; stays sticky in
- *     `always_visible`.
- *   - Recording state interrupts the fading→exit transition (zeroes
- *     exitTick, restores enter animation, switches mode to recording).
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Bubble } from "@/Bubble";
 import { MAX_HEIGHT } from "@/bubble/constants";
 
-/**
- * Parse the scaleY factor out of an inline `transform: scaleY(s)` write.
- * The visualizer animates bars by scaling a full-height (MAX_HEIGHT) box,
- * so the VISUAL bar height is `s * MAX_HEIGHT`.
- */
 function parseScaleY(transform: string): number {
 	const m = transform.match(/scaleY\(([\d.eE+-]+)\)/);
 	return m?.[1] ? Number.parseFloat(m[1]) : Number.NaN;

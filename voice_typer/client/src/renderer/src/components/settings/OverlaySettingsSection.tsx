@@ -1,6 +1,4 @@
 // OverlaySettingsSection, the Overlay section of the Settings surface.
-//
-// Extracted from the former GeneralSettingsSection (which stacked the
 // General and Overlay cards on one page) so the Overlay domain gets its
 // own focused section page (settingsOverlay). Renders one SettingsSection
 // block: "Overlay" (Bubble Behavior, Bubble Position, Show on App Startup,
@@ -147,8 +145,8 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 			)}
 
 			{/*mic button toggle, only visible when Always Visible is
-                selected. Lets the user disable the clickable mic button
-                (reverting the bubble to non-interactive). */}
+                	selected. Lets the user disable the clickable mic button
+                	(reverting the bubble to non-interactive). */}
 			{config.bubble_behavior === "always_visible" && (
 				<GatedSettingRow
 					isVisible={isVisible}

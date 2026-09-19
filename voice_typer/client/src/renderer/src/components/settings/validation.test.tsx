@@ -1,16 +1,3 @@
-/**
- * tests: AiEnhancementSettingsSection cross-slider clamping and
- * LlmPolishingSettingsSection LLM API URL validation.
- *
- * Cross-slider contract: the two confidence sliders (0..1) can touch
- * but never cross, dragging the suggest threshold ABOVE the auto-apply
- * threshold clamps it to the auto-apply value, and dragging auto-apply
- * BELOW the suggest threshold clamps it up to the suggest value.
- *
- * URL contract: typing is never blocked; the inline error appears on
- * blur while the value is not an absolute http(s) URL (empty is valid —
- * the input falls back to the default endpoint).
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

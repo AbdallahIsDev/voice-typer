@@ -1,5 +1,4 @@
 // OS-level microphone-permission banner.
-//
 //(Fix 3): renders a destructive banner with platform-specific
 // guidance + a deep-link button to the OS privacy settings when the
 // renderer can prove the OS has denied microphone access
@@ -7,7 +6,6 @@
 // not render the banner, ``"prompt"`` is the user's first-run chance
 // to grant, ``"unknown"`` means the API is unavailable (e.g. Linux
 // WebKitGTK) and a false-positive banner would be worse than silence.
-//
 // Platform detection is via ``navigator.userAgent``: macOS and Windows
 // expose a deep-link URL scheme to the OS privacy settings; Linux has
 // no equivalent standard, so the button is omitted (the message text

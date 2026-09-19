@@ -1,14 +1,3 @@
-/**
- * Tests for useForceCancel (extracted from Home.tsx).
- *
- * Contract: the "Force cancel" availability state machine, reveal the
- * affordance only after FORCE_CANCEL_DELAY_MS inside "transcribing",
- * reset on every other status, stay in sync with the store's
- * recordingState, and run the `force_cancel_transcription` IPC with
- * success/failure toasts. The reveal/reset semantics are
- * consent/privacy-sensitive surface wiring and must match the original
- * inline Home.tsx implementation exactly.
- */
 import { act, renderHook } from "@testing-library/react";
 import { toast } from "sonner";
 import type { Mock } from "vitest";

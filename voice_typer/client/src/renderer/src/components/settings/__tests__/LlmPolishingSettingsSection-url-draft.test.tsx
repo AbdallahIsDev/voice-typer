@@ -1,15 +1,3 @@
-/**
- * LlmPolishingSettingsSection, the LLM API URL draft resets when the
- * committed `llm_api_url` changes EXTERNALLY (reset-to-defaults,
- * config_changed push), while typed-while-focused edits are protected
- * from our own debounced save echo.
- *
- * Pinned contract:
- *  - Unfocused + committed value change → draft dropped, input shows
- *    the new committed value.
- *  - Focused (user typing) → draft survives, even when our own echo
- *    lands mid-typing.
- */
 import {
 	act,
 	cleanup,

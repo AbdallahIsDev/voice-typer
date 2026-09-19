@@ -1,21 +1,3 @@
-/**
- * Regression test for : `usePythonEvent` must (re-)subscribe to the
- * Python event stream when `window.python` becomes available AFTER the
- * hook has already mounted.
- *
- * Previously the effect's only dependency was `[type]`, and the effect
- * body early-returned when `window.python` was undefined. So if the
- * bridge was installed late (e.g. by the Tauri `installTauriBridge()`
- * auto-install on first import, or by the predecessor preload under slow
- * HMR), the subscription was never re-attempted and events were
- * silently dropped for the entire session.
- *
- * The fix adds a `useBridgeReady()` hook (backed by
- * `useSyncExternalStore`) that polls `window.python` presence every
- * 100ms. Including `bridgeReady` in the effect's dependency array
- * causes the effect to re-run when the bridge comes online, so the
- * subscription is created lazily on first bridge availability.
- */
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -72,8 +54,6 @@ describe("useBridgeReady + usePythonEvent lazy subscription", () => {
 		const onEvent = vi.fn(() => () => {});
 		//`usePythonEvent` is now generic over
 		// `PythonPushEvent["type"]`. Use the real `"state_changed"`
-		// variant (was previously the non-existent `"status_changed"`
-		// string, a typo the old `type: string` signature silently
 		// accepted, causing the subscription to never fire in
 		// production). The handler takes no args; `state_changed`'s
 		// data is `Record<string, unknown>` (ignored here).

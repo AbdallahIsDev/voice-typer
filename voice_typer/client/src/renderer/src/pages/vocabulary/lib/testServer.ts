@@ -22,12 +22,6 @@ export type EntryTestResult =
 	| { status: "done"; output: string; applied: boolean }
 	| { status: "error" };
 
-/**
- * Run a phrase through the authoritative server correction engine
- * (``test_vocabulary_correction`` IPC → ``apply_to_text``). Throws on
- * failure, callers decide whether to fall back (panel) or surface an
- * error (per-entry row action).
- */
 export async function testPhraseOnServer(
 	call: PythonCall,
 	text: string,

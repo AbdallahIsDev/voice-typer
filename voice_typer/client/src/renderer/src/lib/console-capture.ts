@@ -1,38 +1,3 @@
-/**
- * Renderer console capture (review.md MO-105).
- *
- * predecessor captured BOTH of its webviews' console output in the main
- * process (`windows/renderer-telemetry.ts` + `windows/bubble/console-forwarder.ts`),
- * with this level routing:
- *
- * | Chromium level | predecessor action |
- * |---|---|
- * | 0 (VRB) | dropped (too noisy) |
- * | 1 (INFO) | host stdout only, never the file |
- * | 2 (WARN) | host log WARN |
- * | 3+ (ERROR) | host log ERROR **+ the error sink** |
- *
- * Under Tauri there is no main-process console listener at all (the
- * bridge is dispatch/listen only), so a UI-side warning or error that
- * never reaches React's error boundary left no trace in
- * `voice-typer-rust.log`. This module restores the routing that matters
- * for support triage:
- *
- * - `console.warn` / `console.error` are forwarded to the host's
- *   `renderer_log_error` sink (scope `console`), which renders them as
- *   canonical C-LOG-1 lines (MO-106).
- * - INFO/DEBUG are NOT forwarded: the host file is WARN-only by default
- *   (MO-114), and the volume contract must stay intact.
- * - Volume is bounded by {@link MAX_FORWARDS_PER_WINDOW} forwarded records
- *   per {@link CAPTURE_WINDOW_MS}, so a render loop that logs every frame
- *   cannot flood the file. The first suppression of a window is reported
- *   as one extra record, so a truncated burst is visible in the log
- *   instead of silently disappearing.
- * - The original console methods always run first and are never
- *   replaced with a no-op, so DevTools output is byte-identical to
- *   before.
- */
-
 /** Max console records forwarded to the host per {@link CAPTURE_WINDOW_MS}. */
 export const MAX_FORWARDS_PER_WINDOW = 20;
 
@@ -65,15 +30,6 @@ const state: CaptureState = {
 
 let installed = false;
 
-/**
- * Test seam: the bridge call the capture path uses.
- *
- * The payload matches the shared `WindowBridge.logError` contract and
- * the Rust `renderer_log_error` parser: `level` selects the log level
- * (canonical C-LOG-1 label) and `kind` renders as the `scope=` fragment,
- * so a captured console record lands as e.g.
- * `[renderer-warn] Some UI problem scope=console.warn`.
- */
 export const _captureForTests = {
 	send: (level: Level, message: string): Promise<void> | undefined =>
 		window.window_?.logError?.({ level, kind: `console.${level}`, message }),
@@ -98,13 +54,6 @@ function formatArgs(args: unknown[]): string {
 		: joined;
 }
 
-/**
- * Whether this record may be forwarded right now, updating the budget.
- *
- * Returns `allowed: false` together with `notice: true` exactly once per
- * window, at the moment the first record is suppressed, so the caller can
- * emit a single truncation notice instead of a silent gap.
- */
 export function _takeForwardBudget(
 	now: number,
 	bucket: CaptureState = state,
@@ -156,13 +105,6 @@ function send(level: Level, message: string): void {
 	});
 }
 
-/**
- * Install the console capture. Idempotent.
- *
- * Call once from the renderer entry (`main.tsx`) AFTER (or before)
- * `installGlobalErrorHandlers`; order does not matter, they are
- * independent sinks.
- */
 export function installConsoleCapture(): void {
 	if (installed) return;
 	installed = true;

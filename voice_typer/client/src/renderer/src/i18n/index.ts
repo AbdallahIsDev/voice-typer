@@ -1,22 +1,16 @@
 // i18n package public surface + explicit initialization entrypoint.
-//
-//the 745-LOC ``i18n.ts`` monolith has been split into focused
 // modules (locale / rtl / store / translate / hooks / push). This file
 // re-exports the public API so existing consumers can keep importing
 // from ``@/i18n/i18n`` (or update to ``@/i18n``) without touching call
 // sites.
-//
 // The module-load side effects that
-// used to run at i18n.ts import time (read localStorage, detect
 // browser locale, set DOM dir/lang, kick off async chunk load) are
 // now wrapped in ``initI18n()``. The function is:
-//
 //   - exported here so ``main.tsx`` (and test setup) can call it
 //     explicitly at a known point in the boot sequence; AND
 //   - auto-called on first import of this module so existing behavior
 //     (i18n initializes itself when any consumer first touches the
 //     package) is preserved.
-//
 // The auto-call is idempotent, subsequent calls (from ``main.tsx``
 // or tests) are no-ops.
 
@@ -41,7 +35,6 @@ export {
 	SUPPORTED_LOCALES,
 } from "./locale";
 // push.ts, tray-label resolver + IPC push helpers.
-//
 // `pushLocaleToMainProcess` and `pushLocaleToPythonBackend` are
 // exported for testability (the setLocale-propagation test spies on
 // the bridge surfaces these helpers call). They are still considered
@@ -76,59 +69,6 @@ export type {
 
 let _initCalled = false;
 
-/**
- * Initialize the i18n runtime: restore the user's saved locale (or
- * auto-detect from the browser), set the document's ``dir`` / ``lang``
- * attributes, and kick off the async dynamic-import of the selected
- * locale's translation table.
- *
- * This replaces the module-load
- * side effects that used to live at the top of i18n.ts (the
- * localStorage restore + browser-detect + DOM dir/lang set + async
- * load kickoff). The function is:
- *
- *   - Idempotent: subsequent calls are no-ops (so it's safe for both
- *     ``main.tsx`` and individual test files to call it).
- *   - Auto-called on first import of this module: preserves the prior
- *     behavior where any consumer touching the i18n package triggers
- *     initialization. Consumers that want explicit control can call
- *     ``initI18n()`` from their entrypoint, the auto-call will then
- *     no-op.
- *
- * Side effects (all wrapped in try/catch so a missing DOM / localStorage
- * doesn't crash callers in SSR / sandboxed contexts):
- *   - Read ``localStorage["voice-typer-ui-locale"]`` and validate
- *     against {@link SUPPORTED_LOCALES}.
- *   - If no saved locale (or saved value invalid), fall back to
- *     {@link detectBrowserLocale} ().
- *   - Set ``document.documentElement.dir`` to ``"rtl"`` for RTL
- *     locales (currently Arabic) or ``"ltr"`` otherwise (F-4 / ).
- *   - Set ``document.documentElement.lang`` to the locale code so
- *     screen readers pronounce content in the user-selected UI locale
- *     ().
- *   - For non-English locales, fire-and-forget
- *     {@link ensureLocaleLoaded} so the dynamic-import chunk is
- *     in-flight by the time the first ``t()`` call happens ().
- *
- * NOTE: this function does NOT call {@link setLocale} because that
- * would persist the locale back to localStorage (redundant, we just
- * read it) and push to IPC bridges (which may not be installed yet at
- * module-init / boot time). It writes ``_currentLocale`` directly via
- * the internal ``_setCurrentLocale`` mutator and applies the DOM +
- * async-load side effects itself.
- *
- * Initialization timing: the auto-call at the bottom of this module
- * (see "Auto-initialization" below) is INTENTIONAL and stays for
- * backwards compatibility, any consumer that imports the i18n package
- * gets a working ``t()`` immediately, even before ``main.tsx`` runs.
- * ``main.tsx`` SHOULD still call ``initI18n()`` explicitly at the top
- * of its render sequence for deterministic ordering (so the locale is
- * restored + DOM ``dir``/``lang`` are set BEFORE the first React
- * commit, not after). The function is idempotent, so the second call
- * from ``main.tsx`` is a no-op, the auto-call only protects consumers
- * that import the package outside the React tree (tests, dev tools,
- * early ``window``-bridge shims).
- */
 export function initI18n(): void {
 	if (_initCalled) return;
 	_initCalled = true;
@@ -190,18 +130,15 @@ export function initI18n(): void {
 }
 
 // ── Auto-initialization (preserves prior behavior) ───────────────
-//
 // The explicit-init design asked for the side-effect
 // orchestration to move into ``initI18n()`` called explicitly from
 // ``main.tsx`` / test setup. We do BOTH:
-//
 //   - Auto-call ``initI18n()`` here so any consumer that imports the
 //     i18n package (the existing pattern) still gets initialized
 //     i18n for free, no behavior change.
 //   - Export ``initI18n`` so ``main.tsx`` (and tests) can call it
 //     explicitly. The function is idempotent so the second call is a
 //     no-op.
-//
 // The auto-call below is INTENTIONAL and stays even after
 // ``main.tsx`` begins calling ``initI18n()`` explicitly. It protects
 // consumers that import the package outside the React tree (tests,

@@ -1,12 +1,3 @@
-/**
- * Tests for the centralized SoundManager.
- *
- * Verifies the four bug fixes documented in sound-manager.ts:
- *  1. Failed init is retried (not permanently stuck).
- *  2. localStorage flag is read with safe fallback.
- *  3. setSoundFeedbackEnabled persists to localStorage.
- *  4. playSoundCue is gated by the enabled flag.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGlobalLocalStorage } from "./helpers/local-storage-stub";
 
@@ -203,7 +194,6 @@ describe("SoundManager", () => {
 });
 
 // ── Web Audio synthesis parity (per-kind cue table) ─────────────────────
-//
 // playViaAudioContext schedules each cue from the CUE_SPECS table. These
 // tests pin the EXACT automation calls (values + absolute times + call
 // order) that the implementation must produce, so any change to the
@@ -253,7 +243,6 @@ class RecordingGain {
 		this.connectCalls.push(node);
 		// Return a chainable stub so multi-hop chains
 		// (osc → gain → master → destination) keep working, the empty
-		// object previously broke the third .connect() call.
 		const chainable = {
 			connect: (next: unknown) => {
 				this.connectCalls.push(next);

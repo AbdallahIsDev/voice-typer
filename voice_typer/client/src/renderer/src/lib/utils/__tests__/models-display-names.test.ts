@@ -1,14 +1,3 @@
-/**
- * Unit tests for the display-layer model naming helpers added in the
- * UI/UX overhaul (point 5):
- *   • `formatModelDisplayName`, hyphenated internal slug →
- *     human-readable capitalized label (hyphens treated as word
- *     separators for display ONLY; the slug itself is untouched);
- *   • `getModelVariantDisplayName`, backend display_name priority +
- *     the Whisper family prefix ("Whisper Tiny", "Whisper Large V3").
- *   • `requiresHuggingFaceConsent`, which models are gated on HF
- *     download consent (point 4).
- */
 import { describe, expect, it } from "vitest";
 import {
 	formatModelDisplayName,

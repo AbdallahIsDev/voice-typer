@@ -1,40 +1,3 @@
-/**
- * Regression tests: `useAudioLevels` reduced-motion rAF stop.
- *
- * Background
- * ----------
- * Pre-fix: the `animate()` callback's reduced-motion branch called
- * `renderReducedMotion()` (writes the static mid-height scale + opacity
- * to the 7 dot elements) and then UNCONDITIONALLY scheduled the next
- * frame via `frameRef.current = requestAnimationFrame(animate)`. The
- * loop spun at 60 fps writing the SAME static styles every frame —
- * pure waste (the bars are motionless, so re-writing the transform /
- * opacity to the same values 60 times per second costs CPU + keeps the
- * renderer process out of idle).
- *
- * Post-fix: the reduced-motion branch calls
- * `renderReducedMotion()` ONCE and then `return`s WITHOUT scheduling
- * the next frame. The loop re-arms via `wake()` when a gate flips
- * (visibility-watching effect on `isVisible → true`, `api.onShow` /
- * `api.onSetState` on recording-mode transitions). `wake()` itself
- * calls `renderReducedMotion()` before scheduling, so a re-arm
- * produces exactly one frame (which then stops again).
- *
- * These tests verify:
- *   1. When `prefers-reduced-motion: reduce` matches, the rAF loop
- *      does NOT schedule additional frames after the initial
- *      `renderReducedMotion()` call. (Spy on
- *      `requestAnimationFrame`, count calls after the first frame —
- *      should be 0.)
- *   2. The bars ARE rendered at the static mid-height (the one
- *      `renderReducedMotion()` call DID fire, not a no-op).
- *
- * NOTE: this file is `.ts` (not `.tsx`) per the task spec. The
- * existing `useAudioLevels-reduced-motion.test.tsx` covers the
- * broader reduced-motion behavior (mount-time render, runtime toggle,
- * no-false-positive). This file focuses on the specific
- * "loop stops after one frame" assertion.
- */
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -128,11 +91,6 @@ afterEach(() => {
 	delete (window as unknown as Record<string, unknown>).bubble;
 });
 
-/**
- * Flush pending macrotasks. jsdom implements `requestAnimationFrame`
- * as `setTimeout(0)`, so flushing the macrotask queue runs all
- * pending rAF callbacks.
- */
 async function flushMacrotasks(count = 5) {
 	for (let i = 0; i < count; i++) {
 		await act(async () => {

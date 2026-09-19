@@ -1,39 +1,3 @@
-/**
- * Capture-session state machine for ``HotkeyPicker``.
- *
- * The hook now uses ``useReducer(hotkeyCaptureReducer, ...)`` for
- * the visible UI state (status / error / secondsRemaining /
- * heldModifiersLabel). The reducer is a pure function exported from
- * ``hotkey-utils.ts`` so it can be unit-tested in isolation.
- *
- * Side effects (calling ``onChange``, ``onCaptureStart``/``onCaptureEnd``,
- * starting/stopping the 30s countdown interval, clearing the session
- * refs) live in the hook, NOT in the reducer.
- *
- * Refs retained for genuine mutable state NOT in the reducer:
- *   - containerRef, timeoutRef, countdownIntervalRef (DOM + timers)
- *   - heldModifiersRef, heldNonModifiersRef (release detection)
- *   - sessionModifiersRef, sessionNonModifiersRef (sticky session set)
- *   - unsupportedComboRef, escPressedRef (capture-session flags)
- *   - capturingRef (mirrors ``state.status === "capturing"`` so the
- *     always-attached DOM listeners can short-circuit when idle; needed
- *     because ``state.status`` is stale inside the listener closure)
- *   - commitModifierOnlyRef, commitFullComboRef (inline-updated every
- *     render so ``handleKeyUp`` can stay stable, the commit logic
- *     depends on unstable parent props ``mode``/``value``/
- *     ``occupiedHotkeys``/``onChange``)
- *
- * Removed (vs. pre-):
- *   - recordingRef sync effect (replaced by capturingRef sync effect on
- *     ``state.status``)
- *   - handleKeyDownRef / handleKeyUpRef (handlers are now stable thanks
- *     to stable ``dispatch`` + commit-function refs)
- *   - cancelRecordingRef (``cancelRecording`` is now stable)
- *   - onCaptureEndRef / onCaptureStartRef (the parent passes stable
- *     ``useCallback`` callbacks, so they can be used directly in deps)
- *   - the "Track latest callbacks into refs after every render" effect
- */
-
 import type { RefObject } from "react";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
@@ -52,7 +16,6 @@ import {
 
 // hoist the per-platform modifier-code lookup table to module
 // scope. `getModifierCodeMap` returns a fresh 8-key object literal on
-// every call, previously allocated inside `handleKeyDown` /
 // `handleKeyUp` on every keystroke (60–120 calls/sec during typing
 // bursts). `IS_MAC` is a module-load constant (it never changes at
 // runtime, the platform is fixed for the lifetime of the renderer
@@ -64,27 +27,8 @@ export interface UseHotkeyCaptureParams {
 	value: string;
 	mode: "single" | "combo";
 	onChange: (hotkey: string) => void;
-	/**
-	 * optional callback invoked when capture mode starts.
-	 * Used by the parent to pause the global ESC cancel hotkey in the
-	 * backend so that pressing Escape during capture doesn't trigger
-	 * recording cancellation. Should be a stable ``useCallback`` so
-	 * the transition effect doesn't re-fire.
-	 */
 	onCaptureStart?: () => void;
-	/**
-	 * optional callback invoked when capture mode ends
-	 * (user pressed Escape, selected a key, or clicked the button
-	 * again).  Used by the parent to resume the global ESC cancel
-	 * hotkey in the backend. Should be a stable ``useCallback``.
-	 */
 	onCaptureEnd?: () => void;
-	/**
-	 * hotkey strings that are already occupied by other
-	 * settings. When the user tries to set this picker to a value that's
-	 * already in use, an error is shown and the change is rejected.
-	 * This prevents two settings from having the same hotkey.
-	 */
 	occupiedHotkeys?: string[];
 }
 
@@ -95,11 +39,6 @@ export interface UseHotkeyCaptureResult {
 	heldModifiersLabel: string;
 	startRecording: () => void;
 	cancelRecording: () => void;
-	/**
-	 * Exposed so the presentational shell's preset-dropdown
-	 * ``onSelect`` handler can surface conflict / validation errors
-	 * through the same error state the capture session uses.
-	 */
 	setError: (error: string | null) => void;
 	containerRef: RefObject<HTMLDivElement | null>;
 }
@@ -245,7 +184,6 @@ export function useHotkeyCapture({
 	}, []);
 
 	// ── Commit functions (assigned to refs every render) ─────────────
-	//
 	//the duplicated validate-then-conflict-check sequence is
 	// extracted into ``tryCommitHotkey`` (hotkey-utils.ts). Each commit
 	// function reduces to: validate via tryCommitHotkey → on failure
@@ -358,7 +296,6 @@ export function useHotkeyCapture({
 	}, []);
 
 	// ── Keydown handler (stable, only depends on stable helpers) ────
-	//
 	// each pressed key is added to the appropriate
 	// ``held*`` set and the sticky ``session*`` set. No commit happens
 	// here, the candidate is finalized only when all keys are released
@@ -439,7 +376,6 @@ export function useHotkeyCapture({
 	);
 
 	// ── Keyup handler (stable, reads commit fns via refs) ───────────
-	//
 	// committing on keyUP (not keyDOWN)
 	// eliminates the capture-triggers-recording race where the backend
 	// sees the still-held key as a fresh press.
@@ -504,7 +440,6 @@ export function useHotkeyCapture({
 
 	// ── Transition effect: fire onCaptureStart / onCaptureEnd on
 	// status changes. Also clears the countdown when leaving "capturing".
-	//
 	// The parent passes stable ``useCallback`` callbacks for
 	// onCaptureStart / onCaptureEnd (verified in
 	// RecordingSettingsSection.tsx), so this effect only re-fires on
@@ -519,7 +454,6 @@ export function useHotkeyCapture({
 	}, [state.status, onCaptureStart, onCaptureEnd, clearCountdown]);
 
 	// always-attached keyboard listener, NEVER re-register,
-	// avoiding the race window where listeners are removed and re-added.
 	// handleKeyDown / handleKeyUp are stable (dispatch-only deps), so
 	// this effect runs once on mount.
 	useEffect(() => {

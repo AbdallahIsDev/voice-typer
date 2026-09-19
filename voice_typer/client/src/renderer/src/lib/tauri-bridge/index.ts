@@ -5,7 +5,6 @@
 // This module is the public entry point of the `@/lib/tauri-bridge`
 // package. It exports `installTauriBridge()` and the namespace
 // factories but DOES NOT auto-invoke `installTauriBridge()` at module
-// load. The auto-install side effect was split out into a sibling
 // `install.ts` module so callers that import `@/lib/tauri-bridge` for
 // its named exports (e.g. `createPythonNamespace`, `isTauri`,
 // `makeListener`) do not trigger a side effect that mutates
@@ -20,7 +19,6 @@
 //Internal layout ( split, see review.md):
 //   • `detect.ts`          , `isTauri()` + `TauriGlobal` types + the
 //                              `makeListener()` factory (eliminates the
-//                              8× listener boilerplate previously
 //                              duplicated across the namespace installers).
 //   • `python-namespace.ts`, `createPythonNamespace(tauri): PythonBridge`
 //                              (call dispatch + onEvent subscription with
@@ -75,7 +73,6 @@
 //     `result as T` after the (predecessor-only) error-envelope checks
 //     pass, so the success shape is consistent across runtimes.
 //
-// The previous "works on both paths" framing was false: on Tauri BOTH
 // in-code checks are unreachable (the `await api.call(...)` throws
 // first). They remain in the source because the same `usePython.ts`
 // bundle ships under both hosts, they're harmless no-ops on Tauri and

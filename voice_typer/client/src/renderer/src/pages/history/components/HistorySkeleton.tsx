@@ -1,5 +1,4 @@
 // History page loading skeleton (list area only).
-//
 // History renders its heading + toolbar immediately (they are static)
 // and swaps ONLY the activity list while records load, so this
 // skeleton replaces just the list slot (`pages/History.tsx` inline

@@ -1,11 +1,9 @@
 // Templates import / export, domain adapter over the shared
 // :func:`useCollectionImportExport` round-trip skeleton.
-//
 // The skeleton owns the import/export FLOW (hidden-input ref → file.text()
 // → domain parse → de-duplicated merge → persist → success/error toasts →
 // input reset; export items → IPC bridge → saved/not-available/rejected
 // toast mapping). THIS hook supplies only the Templates domain specifics:
-//
 //   - ``parseImportedTemplates`` (bare-array JSON or the ``{templates:
 //     [...]}`` export shape, see lib/transform.ts)
 //   - the ``trigger|output|match_mode`` de-duplication key (re-importing
@@ -17,7 +15,6 @@
 //   - ``notifyOnExportRejected``, a rejected export (IPC returned
 //     ``success: false``) toasts the failure so the button is never a
 //     silent dead control
-//
 // Kept in its own hook (rather than in ``useTemplates``) so the
 // import-file event handler doesn't re-create when the templates list
 // changes (which would re-render the hidden ``<input>`` and reset its

@@ -1,12 +1,10 @@
 // lib/theme-palette.ts, resolve the app's live theme tokens into
 // concrete hex colours for the share-stats image.
-//
 // The stats image is captured via html-to-image, which serializes the
 // DOM into an SVG foreignObject. Chromium's SVG-as-image context
 // cannot parse oklch() values, and the app's theme presets store their
 // tokens as oklch() strings (see `themes/`), so the image must render
 // with RESOLVED hex colours, not `var(--…)` references.
-//
 // Single source of truth: the CSS custom properties currently applied
 // on `document.documentElement`, the same tokens every themed surface
 // in the app renders with (theme presets set them via `applyThemeVars`,
@@ -58,14 +56,6 @@ export const FALLBACK_THEME_PALETTE: StatsThemePalette = {
 	charts: ["#60a5fa", "#f472b6", "#34d399", "#fbbf24", "#a78bfa"],
 };
 
-/**
- * Read the currently-applied theme tokens into a hex palette.
- *
- * Pure DOM read (no React) so it can be called from tests and from
- * non-component code. Falls back to `FALLBACK_THEME_PALETTE` per-token
- * when a variable is missing or unparseable, the image must never
- * render with `transparent`/broken colours because a token is absent.
- */
 export function readThemePalette(): StatsThemePalette {
 	const style =
 		typeof document !== "undefined"
@@ -112,18 +102,6 @@ export function readThemePalette(): StatsThemePalette {
 	};
 }
 
-/**
- * React hook: the resolved palette for the CURRENTLY ACTIVE theme.
- *
- * Subscribes to the `vt:theme-applied` event that `applyThemeVars`
- * dispatches after every theme-application run (preset switch, custom
- * theme edit, mode flip, revert-to-default) so the returned palette
- * object is stable across unrelated re-renders and refreshes exactly
- * when the applied CSS variables change. The palette is read from the
- * live CSS variables on `document.documentElement`, the same tokens
- * every themed surface renders with, so the ground truth is the
- * applied on-screen state, not a cached config value.
- */
 export function useThemePalette(): StatsThemePalette {
 	// Bump on every theme-applied event; used as the memo key so the
 	// palette re-reads exactly when the CSS variables change.
@@ -143,14 +121,6 @@ export function useThemePalette(): StatsThemePalette {
 	return useMemo(() => readThemePalette(), [version]);
 }
 
-/**
- * Return `accent` when it clears the given minimum WCAG contrast ratio
- * against `background`, otherwise `fallback`. Used for accent-coloured
- * stat values on themed surfaces, if a theme's primary colour happens
- * to be too close to its card background, the value degrades to the
- * (guaranteed-legible) foreground colour instead of becoming unreadable.
- * Minimum for large text / UI is 3:1 (WCAG 1.4.11).
- */
 export function legibleOn(
 	accent: string,
 	background: string,

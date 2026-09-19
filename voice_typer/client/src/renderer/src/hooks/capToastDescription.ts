@@ -1,6 +1,5 @@
 // capToastDescription, bounds backend-provided strings that flow
 // into sonner toast descriptions.
-//
 // Backend payloads (``failure_reason``, tray ``title``/``message``,
 // cloud ``reason`` …) are free-form exception text with no length
 // guarantee; the cloud emitter truncates to 200 chars server-side,
@@ -14,11 +13,6 @@
  * backend's 200-char truncation of cloud failure reasons). */
 export const TOAST_DESCRIPTION_MAX_CHARS = 200;
 
-/**
- * Cap a backend-provided string to the toast-description budget.
- * Strings within the budget pass through unchanged; longer strings
- * are sliced to 199 chars + a single ellipsis character (200 total).
- */
 export function capToastDescription(text: string): string {
 	if (text.length <= TOAST_DESCRIPTION_MAX_CHARS) {
 		return text;

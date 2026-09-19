@@ -1,29 +1,3 @@
-/**
- * XA-8, ARIA accessibility regression tests for the renderer's feedback /
- * common / UI primitives.
- *
- * Scope: every XA-8 sub-item gets at least one assertion. Already-fixed
- * sub-items (H1 / M1 / M2 / M3 / M4 / M5 / L1 / L2 / L3 / L6 / L7) are
- * pinned here so a future regression can't silently re-introduce the
- * gap. The remaining sub-items (M6 / L5) are exercised against the
- * actual fix landed in this same task.
- *
- * Test map (mirrors the task spec):
- *   1. EmptyState: role="alert" on error variant, role="status" otherwise.
- *   2. ErrorBoundary: renders localized strings (mock t() → marker).
- *   3. KeyringStatusBadge: does NOT carry a redundant aria-label when
- *      the visible text + TooltipContent already provide the accessible
- *      name (compact mode still exposes a short generic label).
- *   4. sonner Toaster: containerAriaLabel + closeButtonAriaLabel are
- *      wired through t("a11y.notifications") / t("a11y.close").
- *   5. Slider / Switch / Button: dev-mode console.warn fires when an
- *      accessible name is missing (icon-only button, no aria-label).
- *   6. InfoTooltip: SVG has NO <title> element (redundant with the
- *      wrapping button's aria-label).
- *   7. LastUpdatedIndicator: the dynamic "Last updated X ago" label is
- *      wrapped in an aria-live="polite" region.
- *   8. Spinner: decorative={true} renders <div aria-hidden="true">.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { Component } from "react";
 import type { ToasterProps } from "sonner";
@@ -65,9 +39,7 @@ afterEach(() => {
 	cleanup();
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Test 1, EmptyState roles
-// ────────────────────────────────────────────────────────────────────
 describe("XA-8-H1: EmptyState role", () => {
 	it("uses role=alert when variant='error'", () => {
 		render(
@@ -103,9 +75,7 @@ describe("XA-8-H1: EmptyState role", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Test 2, ErrorBoundary renders localized strings
-// ────────────────────────────────────────────────────────────────────
 // Mock the i18n surface so every t() call returns a stable marker that
 // encodes the key. ErrorBoundary's fallback UI uses several t() calls
 // (title / description / copyError / openLogs / resetSettings / tryAgain
@@ -182,9 +152,7 @@ describe("XA-8-M2: ErrorBoundary renders localized strings", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Test 3, KeyringStatusBadge: no redundant aria-label
-// ────────────────────────────────────────────────────────────────────
 describe("XA-8-M3: KeyringStatusBadge redundant aria-label", () => {
 	const availableStatus: KeyringStatus = {
 		available: true,
@@ -224,9 +192,7 @@ describe("XA-8-M3: KeyringStatusBadge redundant aria-label", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Test 4, sonner Toaster localized aria-labels
-// ────────────────────────────────────────────────────────────────────
 // Capture the most recent props passed to the mocked Sonner so each
 // test can assert on the aria-label props after a render.
 let lastToasterProps: ToasterProps | null = null;
@@ -267,9 +233,7 @@ describe("XA-8-M6: sonner Toaster localized aria-labels", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Test 5, Slider / Switch / Button dev-mode a11y warn
-// ────────────────────────────────────────────────────────────────────
 describe("XA-8-L1/L2/L3: Slider / Switch / Button dev-mode a11y warn", () => {
 	it("Slider warns when aria-label / aria-labelledby / thumbLabels are all absent", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -312,9 +276,7 @@ describe("XA-8-L1/L2/L3: Slider / Switch / Button dev-mode a11y warn", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Test 6, InfoTooltip: the help glyph carries no redundant accessible name
-// ────────────────────────────────────────────────────────────────────
 describe("XA-8-L3: InfoTooltip glyph has no redundant <title>", () => {
 	it("renders the icon glyph aria-hidden with no <title> descendant (button aria-label is the source of truth)", () => {
 		const { container } = render(
@@ -347,9 +309,7 @@ describe("XA-8-L3: InfoTooltip glyph has no redundant <title>", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Test 7, LastUpdatedIndicator wrapped in aria-live=polite
-// ────────────────────────────────────────────────────────────────────
 describe("XA-8-L5: LastUpdatedIndicator aria-live region", () => {
 	it("wraps the dynamic 'Last updated' label in an aria-live=polite region", () => {
 		const { container } = render(
@@ -371,9 +331,7 @@ describe("XA-8-L5: LastUpdatedIndicator aria-live region", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Test 8, Spinner decorative prop
-// ────────────────────────────────────────────────────────────────────
 describe("XA-8-L6: Spinner decorative prop", () => {
 	it("decorative={true} renders <div aria-hidden=true> with no role and no aria-label", () => {
 		const { container } = render(<Spinner decorative />);

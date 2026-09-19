@@ -1,12 +1,9 @@
 // useDictationToggle, the mic button's dictation toggle with the
-// GDPR point-of-use consent gate, extracted from Home.tsx so the page
 // file stays a thin composition root. Behaviour is preserved
 // statement-for-statement, the gate's order of operations
 // (attempt-flag BEFORE the consent check) is privacy-contract surface
 // and must not be reordered.
-//
 // Owns:
-//
 //   - `hasAttemptedDictation`, set the moment the user presses the
 //     dictation toggle. The "Preparing offline engine…" banner (gated
 //     on `!packReady && hasAttemptedDictation` in the page root) may
@@ -33,16 +30,6 @@ import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import type { VoiceTyperConfig } from "@/types/config";
 
-/**
- * Own the consent-gated dictation toggle. Call once at the top level
- * of Home.
- *
- * @param call the Python bridge `call` function (from `usePython()`).
- * @param cfg the page's config snapshot, the gate reads
- *   `voice_biometric_consent` from it; `null` (config not loaded yet)
- *   skips the gate exactly as before (the backend backstop still
- *   enforces consent for hotkey/tray dictation).
- */
 export function useDictationToggle(
 	call: PythonCall,
 	cfg: VoiceTyperConfig | null,

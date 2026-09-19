@@ -1,10 +1,3 @@
-/**
- * Unit tests for the consolidated download-progress pure helpers.
- *
- * These helpers own the field mapping for `download_progress` events,
- * the progress-reset field set, and the React `Object.is` bailout that
- * the single-state consolidation depends on.
- */
 import { describe, expect, it } from "vitest";
 
 import {

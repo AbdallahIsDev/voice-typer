@@ -1,5 +1,4 @@
 // Templates state + lifecycle hook.
-//
 // Owns:
 //   - ``templates`` / ``loading`` / ``loadError`` React state
 //   - ``templatesRef`` (ref mirror so delete-undo callbacks can read the
@@ -10,8 +9,6 @@
 //     memo (client-side search+sort, mirrors the History/Vocabulary pattern)
 //``instantDeleteTemplate`` ( / R7-F10 instant delete +
 //6-second Undo toast, see  comment for the ref-based pattern)
-//
-// Extracted from the former monolithic ``pages/Templates.tsx`` render
 // function. The dialog + import/export state has been split into
 // ``useTemplateDialog`` and ``useTemplateImportExport`` so each hook
 // owns one concern.
@@ -117,10 +114,8 @@ export function useTemplates({
 	// so `saveTemplate` and the `instantDeleteTemplate` undo callback
 	// can read the LATEST list at undo time (potentially seconds after
 	// the delete, during which the user may have added/edited/deleted
-	// OTHER templates).  Previously both call sites re-read from
 	// `loadTemplatesFromLocalStorage()`, which:
 	//   1. Could disagree with React state if a `saveTemplates()` call
-	//      was still in flight (the old `saveTemplates` was fire-and-
 	//      forget on the IPC leg).
 	//   2. Used the `tmpl.index` captured at delete time against the
 	//      fresh localStorage list, if other operations had shifted
@@ -138,7 +133,6 @@ export function useTemplates({
 	// On first run after upgrade, if the backend has no templates but
 	// localStorage does, push the localStorage data to the backend so the
 	// user doesn't lose their pre-existing templates.
-	//
 	//distinguish "no templates exist" (valid empty array
 	// from backend) from "load failed" (backend unreachable or
 	// returned malformed data). If the backend IPC fails AND the
@@ -209,8 +203,6 @@ export function useTemplates({
 			// from localStorage (or migration), surface a load error
 			// so the user knows to retry. Otherwise the empty list
 			// would be indistinguishable from "no templates exist".
-			//
-			//previously this was a hardcoded English string.
 			// Use the i18n key so the message localises with the UI
 			// locale.
 			if (backendFailed && backendTemplates.length === 0) {
@@ -246,7 +238,6 @@ export function useTemplates({
 	// was unreachable dead code and has been removed; all deletes
 	// now go through this instant-delete + Undo toast path, which is
 	// faster and recoverable (6-second undo window).
-	//
 	//the delete + undo now read from `templatesRef.current`
 	// (the latest committed React state) instead of from
 	// `loadTemplatesFromLocalStorage()`.  We capture `originalIndex`
@@ -254,11 +245,9 @@ export function useTemplates({
 	// array).  At undo time we re-read `templatesRef.current` (which
 	// may reflect add/edit/delete operations performed in the 6s
 	// undo window), defensively filter out any item matching the
-	// removed one (in case it was re-added in the interim), and
 	// splice it back at the captured index CLAMPED to the current
 	// length.  This guarantees exactly ONE copy is restored,
 	// regardless of concurrent edits, mirroring Vocabulary.tsx's
-	// D2-FIX pattern.  Previously the undo re-read from localStorage
 	// (which could disagree with React state if a save was in
 	// flight) and used the un-clamped `tmpl.index`, so concurrent
 	// operations could shift indices and land the restore at the
@@ -281,7 +270,6 @@ export function useTemplates({
 				const removed = items.splice(tmpl.index, 1)[0];
 				// Optimistic UI update: remove the row from React
 				// state BEFORE awaiting the IPC save so the list
-				// updates instantly.  Previously the UI stayed
 				// stale for the entire 100-500ms saveTemplates
 				// round-trip (plus another round-trip from
 				// loadRows below), which felt sluggish and could
@@ -302,7 +290,6 @@ export function useTemplates({
 								// and the Undo click).
 								const latest = rowsToTemplates(templatesRef.current);
 								// Defensively filter out any item matching
-								// the removed one (in case it was re-added
 								// in the interim) so we don't end up with
 								// a duplicate after the splice.
 								const filtered = latest.filter(
@@ -353,7 +340,6 @@ export function useTemplates({
 	);
 
 	// ── Search + Sort (client-side) ─────────────────────────────────
-	//
 	// Applied via useMemo so the sort/filter only re-runs when the
 	// underlying list, search query, or sort order changes, not on
 	// every keystroke that re-renders the page.

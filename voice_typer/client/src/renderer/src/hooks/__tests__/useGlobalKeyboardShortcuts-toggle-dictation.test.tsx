@@ -1,24 +1,3 @@
-/**
- * Focused tests for the Ctrl+Shift+M toggle-dictation renderer binding
- * in `useGlobalKeyboardShortcuts`.
- *
- * The binding is catalog-driven (`SHORTCUTS.toggleDictation` →
- * `IN_APP_BINDINGS` with the "ctrlShiftCmd" modifier profile) and its
- * action reuses the exact `toggle_dictation` IPC the Home mic button
- * fires, so the keyboard path can never drift from the click path.
- *
- * Covered here:
- *   1. Ctrl+Shift+M (and Cmd+Shift+M) fires `call("toggle_dictation")`.
- *   2. A rejection surfaces `toast.error` (no silent swallow, same
- *      contract as the Home mic button path).
- *   3. The binding is NOT suppressed while typing (dictating INTO the
- *      focused field is the point of the shortcut) and NOT
- *      modal-gated.
- *   4. Guard correctness: without Shift (plain Ctrl+M) the binding
- *      must NOT fire (the "ctrlCmd" profile of the other bindings
- *      explicitly excludes Shift, and "M" belongs to this binding's
- *      eventKeys, only the ctrlShiftCmd profile may trigger it).
- */
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sonnerMock, stableMocks } from "@/__tests__/helpers/stableMocks";

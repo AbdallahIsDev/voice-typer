@@ -1,26 +1,7 @@
-/**
- * Tests for `lib/external-links.ts` (MO-118).
- *
- * The helper is the ONE route every external https link uses. Under
- * Tauri it must invoke the bridge's `openExternalUrl` (the Rust
- * `open_external_url_command`, which enforces https-only and opens the
- * OS default browser); when the bridge is absent (tests, bubble
- * runtime) it must fall back to the classic `window.open` behavior so
- * nothing regresses on a runtime that omits the namespace.
- */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { openExternalUrl } from "@/lib/external-links";
 
-/**
- * Install a PARTIAL bridge stub.
- *
- * `window.window_` is typed as the full `WindowBridge`; these tests only
- * need the one method they exercise, so the holder is narrowed to
- * `unknown` rather than asserting a complete bridge shape (a
- * `as unknown as WindowBridge` cast would silently accept a typo'd or
- * missing method on every other test in this file).
- */
 function setBridge(stub: unknown): void {
 	(window as unknown as { window_?: unknown }).window_ = stub;
 }

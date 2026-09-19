@@ -1,12 +1,8 @@
 // CollectionBulkBar, the shared floating bulk-action bar for
 // collection pages (appears when 1+ rows are selected).
-//
-// Extracted from the 1:1 mirror pair VocabBulkBar (Vocabulary) /
-// TemplateBulkBar (Templates): the two components are byte-identical
 // except for the i18n keys and the `data-testid`. This shell owns the
 // LAYOUT and visual tokens; the domain injects the label keys and the
 // `data-testid` (page-unique, used by the pages' own test suites).
-//
 // Sticky at the bottom of the viewport. The bar is a DIRECT child of
 // the page column (a full-height flex column) and uses `mt-auto` to
 // push itself to the column's bottom edge, plus `sticky bottom-4` to
@@ -19,11 +15,9 @@
 // centered on the CONTENT (`mx-auto`) in both sidebar states, it
 // shifts right with the content when the sidebar opens, exactly like
 // the table.
-//
 // Contains the selected count, "Delete selected", "Export selected"
 // (JSON/CSV format menu), and an explicit "Deselect all" (X) button —
 // clicking the header checkbox again also clears the selection.
-//
 // No drift decision points in this pair, the two BulkBars differed
 // ONLY in i18n keys and data-testid (verified by diffing both), so the
 // shell is fully parameterized with required label keys + `testId`.
@@ -81,7 +75,6 @@ export function CollectionBulkBar({
 	return (
 		<div
 			data-testid={testId}
-			// Border is exactly 1px, the old `ring-1 ring-foreground/5`
 			// stacked a second outline on top of the border and read as a
 			// thicker/inconsistent stroke. Background matches the search
 			// input / table container surface (--bg-subtle) so the bar
@@ -138,7 +131,7 @@ export function CollectionBulkBar({
 				onClick={onClearSelection}
 				aria-label={t(deselectAllKey)}
 				title={t(deselectAllKey)}
-				className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
+				className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 			>
 				<HugeiconsIcon
 					icon={Cancel01Icon}

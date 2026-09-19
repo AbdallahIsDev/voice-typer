@@ -1,25 +1,3 @@
-/**
- *  (session NH) test: physical Tailwind properties
- * (``ml-``, ``mr-``, ``pl-``, ``pr-``) don't auto-flip in RTL, only
- * logical-property classes (``ms-``, ``me-``, ``ps-``, ``pe-``) do.
- *
- * The renderer sets ``document.documentElement.dir = "rtl"`` for Arabic
- * (see ``i18n.ts:326-337``). Tailwind logical utilities respect this
- * attribute, but physical utilities (``ml-4``, ``pr-8``, etc.) don't —
- * they always render as left/right margin/padding regardless of the
- * document direction.
- *
- * This test asserts the production files in scope for  use ONLY
- * logical-property utilities for inline-axis margin/padding. We use the
- * same static-source-check strategy as ``Dashboard.test.tsx`` /
- * ``accessibility.test.tsx`` because the contracts are visible in the
- * source text (no React render needed).
- *
- * Scope: every file the finding explicitly listed as needing the fix
- * (the PermissionsStep.tsx mentioned by earlier iterations was
- * removed with the 2026-09-14 onboarding overhaul).
- */
-
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -68,7 +46,6 @@ describe("NH-11: physical Tailwind properties are replaced with logical (RTL fli
 				// regex deliberately matches the utility prefix so it also
 				// catches compound selectors like ``data-inset:pl-9.5`` and
 				// ``has-data-[icon=inline-end]:pr-2.5``.
-				//
 				// Edge cases that should NOT be flagged:
 				//   - ``mt-*`` / ``mb-*`` (block-axis, physical is fine,
 				//     vertical doesn't flip in RTL).

@@ -1,36 +1,3 @@
-/**
- * regression test: the Tauri-bridge install gate MUST stay a
- * RUNTIME-GATED DYNAMIC ``import()``, never a static top-level import.
- *
- * Background: the original code had ``import "./lib/tauri-bridge/install"``
- * as a static top-level import in both entrypoints. Under predecessor the
- * preload script (``src/preload/index.ts:19-117``) already installs
- * ``window.python`` / ``window.bubble`` / ``window.window_`` via
- * ``contextBridge.exposeInMainWorld``, so the ``install.ts`` module
- * was shipped but never executed under predecessor, pure bundle bloat.
- *
- * The gate now lives in ONE shared module,
- * ``lib/tauri-bridge/ensure.ts`` (``ensureTauriBridgeInstalled()``) —
- * previously the gate block and its rationale comment were duplicated
- * in ``main.tsx`` and ``bubble-main.tsx``. The entrypoints import the
- * ensure module statically (it is dependency-light: it only imports
- * ``./detect``) and call ``await ensureTauriBridgeInstalled()`` at
- * top level. The ensure module does the gated dynamic import:
- *
- *   if (isTauri()) {
- *       await import("./install");
- *   }
- *
- * Vite emits ``install.ts`` as a SEPARATE async chunk, fetched only
- * when the renderer runs inside a Tauri WebView. Under predecessor the
- * gate is false and the chunk is never fetched.
- *
- * This test does a STATIC source analysis (reads the files as text and
- * regex-matches) rather than importing the entrypoints, importing
- * ``main.tsx`` would boot React inside a unit test, which is not what
- * we want here.
- */
-
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";

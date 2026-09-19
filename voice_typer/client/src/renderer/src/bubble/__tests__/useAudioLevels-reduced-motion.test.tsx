@@ -1,34 +1,3 @@
-/**
- * Reduced-motion gating regression tests for the bubble visualizer rAF.
- *
- * Background
- * ----------
- * Pre-fix: `useAudioLevels.ts` drove the 7-bar bubble visualizer via
- * `requestAnimationFrame` and directly mutated `el.style.height` and
- * `el.style.opacity` at 60fps. There was NO check for
- * `window.matchMedia("(prefers-reduced-motion: reduce)").matches`, the
- * CSS `@media (prefers-reduced-motion: reduce)` rule only affects CSS
- * animations/transitions and CANNOT suppress JS-driven rAF DOM mutation.
- * Vestibular/motion-sensitive users (≈35% of population) could not
- * disable the bubble's animated bars, WCAG 2.1 SC 2.3.3 "Animation
- * from Interactions" violation.
- *
- * Post-fix: `useAudioLevels` reads `reducedMotionRef.current` (set once
- * on mount from `window.matchMedia("(prefers-reduced-motion: reduce)")`
- * + re-evaluated on the media query's `change` event). In `animate()`,
- * when reduced-motion is set, the per-bar height/opacity mutation is
- * SKIPPED, and the bars are rendered once at a static mid-height with
- * opacity 0.5 so the visualizer is still visible but motionless.
- *
- * These tests verify:
- *   1. When `prefers-reduced-motion: reduce` matches at mount, the bars
- *      are rendered at the static mid-height with opacity 0.5, NOT at
- *      the animated level-driven heights.
- *   2. The rAF loop still spins (so we can react to visibility /
- *      recording gates + the `change` event), no regression of
- *   3. Toggling reduced-motion at runtime (firing the `change` event)
- *      snaps the bars to the static mid-height.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

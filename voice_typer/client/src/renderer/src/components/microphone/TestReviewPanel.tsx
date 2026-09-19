@@ -32,30 +32,11 @@ interface TestReviewPanelProps {
 	onStop: () => void;
 	onRetest: () => void;
 	hasFiltersEnabled: boolean;
-	/**
-	 * Optional callback wired to ``handlePresetChange`` in the
-	 * parent. When provided, KNOWN detected-noise issues render a
-	 * one-click "Apply Noisy Room preset" CTA alongside the
-	 * recommendation text. When absent, only the recommendation text
-	 * is shown for known issues. Unknown future backend strings render
-	 * their translated-or-raw label with no recommendation and no CTA
-	 * (fallback contract, never a crash).
-	 */
 	onApplyPreset?: (preset: AudioPreset) => void;
 	/** Current preset so the CTA can disable when already applied. */
 	currentPreset?: AudioPreset;
 }
 
-/**
- * Fix 16: map backend `detected_issues` literal strings to i18n keys.
- *
- * The backend (`voice_typer/server/level_monitor/test_recording.py`) emits a fixed set
- * of human-readable English strings for each detected issue. Without
- * this map, non-English users saw raw English issue text under the
- * "Detected Issues" heading. The map covers every backend-emitted
- * string; unknown strings fall through to the raw value (so future
- * backend additions don't render as empty/missing).
- */
 const DETECTED_ISSUE_LITERALS: Record<string, string> = {
 	"High background noise": "microphoneTest.detectedIssueCodes.high_noise",
 	"Moderate background noise":
@@ -69,42 +50,12 @@ const DETECTED_ISSUE_LITERALS: Record<string, string> = {
 		"microphoneTest.detectedIssueCodes.no_voice",
 };
 
-/**
- * Translate a backend `detected_issues` literal into the user's locale.
- * Falls back to the raw string when the literal is not in the known map
- * (e.g. a newer backend emits a code we haven't catalogued yet), this
- * preserves whatever information the backend did send rather than
- * dropping it silently.
- */
 function translateDetectedIssue(raw: string): string {
 	const key = DETECTED_ISSUE_LITERALS[raw];
 	if (key) return t(key);
 	return raw;
 }
 
-/**
- * Per-issue recommendation + optional one-click CTA. Maps each
- * known detected-issue code to:
- *   • ``text``, the actionable recommendation (always rendered).
- *   • ``applyPreset``, when present AND the parent wired
- *     ``onApplyPreset``, the row renders a one-click CTA button that
- *     invokes the parent's preset-applier (e.g. "Apply Noisy Room
- *     preset" for ``high_noise``).
- *
- * Recommendations are deliberately concrete actions ("try the Noisy Room
- * preset", "speak closer to the microphone", "lower your input gain") —
- * the original panel surfaced the issue label alone, leaving the user
- * with no actionable next step. Every KNOWN-issue recommendation is a
- * single actionable sentence. Unknown future backend strings have no
- * recommendation (``getIssueRecommendation`` returns null): the row
- * renders the label only, with no recommendation text and no CTA.
- *
- * Lookup is keyed by the canonical i18n-issue-code KEY (the
- * ``microphoneTest.detectedIssueCodes.*`` suffix), NOT by the backend's
- * raw English literal, that way the recommendation lookup is locale-
- * independent (the same code resolves in every locale) and survives a
- * backend rewording.
- */
 interface IssueRecommendation {
 	text: string;
 	applyPreset?: AudioPreset;

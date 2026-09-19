@@ -1,26 +1,3 @@
-/**
- * Unit tests for `useModelDownload`.
- *
- * Coverage :
- *   - download_progress event updates progress / status / byte counters / speed / ETA / isPaused
- *   - downloadModel success path: marks model downloaded, surfaces success snack, clears state
- *   - downloadModel failure path: success=false records failedDownload, fires sonner toast with Retry
- *   - downloadModel thrown-error path: records failedDownload with formatted error message
- *   - downloadModel QUEUED path: the backend's queued outcome surfaces an info
- *     snack, does NOT mark the model downloaded, and leaves the ACTIVE
- *     download's bar state intact (a concurrent request never steals the
- *     single progress-bar slot).
- *   - downloadModel already-active path: a re-click of the ACTIVE model warns
- *     and keeps the live bar mounted.
- *   - handleCancelDownload: invokes cancel_model_download IPC, clears state regardless of IPC outcome
- *   - handleCancelDownload(modelName): the queued-model cancel forwards the
- *     model name in the IPC payload; a queue removal leaves the active
- *     transfer's state intact (only the active-cancel paths clear state).
- *   - retryDownload: clears failedDownload then re-invokes downloadModel
- *
- * Strategy: renderHook with a mocked `call` IPC fn + a captured `usePythonEvent`
- * subscriber. Sonner is mocked so we can assert on the Retry toast.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -203,7 +180,6 @@ describe("useModelDownload, download_progress event subscription", () => {
 		expect(result.current.speedBps).toBe(100);
 		expect(result.current.etaSeconds).toBe(5);
 
-		// A transition event clears them, the old measurement window
 		// is over. Guards against stale speed/ETA clinging to a
 		// finished download.
 		act(() => {

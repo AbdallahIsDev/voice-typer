@@ -1,39 +1,3 @@
-/**
- * Integration tests for the App shell, D1-FIX (b-review Finding 1).
- *
- * Scenario under test: the "Re-run setup wizard" button in Settings calls
- * `updateConfig({ onboarding_completed: false })` then
- * `onNavigate("onboarding")`.  Before the D1 fix, `updateConfig` only
- * updated Settings.tsx's LOCAL config state and queued a backend `set_config`
- * IPC, it did NOT touch the Zustand `appStore.config` snapshot that
- * App.tsx's route guard reads:
- *
- *   // App.tsx:42-46
- *   useEffect(() => {
- *     if (currentPage === "onboarding" && config?.onboarding_completed === true) {
- *       navigate("home");  // ← bounces the user back to home
- *     }
- *   }, [currentPage, config, navigate]);
- *
- * Because the appStore only learned about the change later (via the async
- * `config_changed` push event handled in useTheme.ts), the route guard fired
- * on the very next render, saw the stale `true` value, and bounced the user
- * back to home, the onboarding wizard was never shown.
- *
- * The D1 fix calls `useAppStore.getState().mergeConfig(updates)` synchronously
- * inside `updateConfig` so the route guard sees `onboarding_completed: false`
- * immediately.  The unit test in pages/__tests__/Settings.test.tsx verifies
- * Settings.tsx actually calls `mergeConfig`; this integration test verifies
- * that App.tsx's route guard cooperates: when the wizard button is clicked,
- * the Onboarding page is shown (not bounced back to Home).
- *
- * To keep the integration test focused on the App-level routing behaviour,
- * all child pages are mocked as trivial stubs.  The Settings stub simulates
- * the real SettingsPage's post-fix wizard-button behaviour: it calls
- * `useAppStore.getState().mergeConfig({ onboarding_completed: false })` then
- * `props.onNavigate?.("onboarding")`, exactly what the real page does after
- * the D1 fix.
- */
 import {
 	act,
 	cleanup,
@@ -446,7 +410,6 @@ describe("App-wide shortcuts, zoom via the mounted App (keydown + wheel)", () =>
 		// Zoom out: the hook's textSizeRef advances SYNCHRONOUSLY inside
 		// bumpTextSize (so rapid wheel bursts accumulate correctly), so
 		// after the zoom-in above the ref is 15 and a deltaY>0 wheel
-		// computes 15 → 14 (not 14 → 13 as the old closure-based test
 		// assumed).
 		dispatchWheel(100, { ctrlKey: true });
 		await waitFor(() => {

@@ -1,9 +1,7 @@
 /**
  * Unit tests for the chunked mic-test audio transport.
- *
  * Pins the 3-byte-aligned IPC slice size (C-MIC-21), the bounded
  * multi-chunk assembly loop, failure propagation, and the single-flight
- * dedupe so concurrent same-path fetches share one request burst.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

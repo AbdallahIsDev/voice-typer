@@ -1,13 +1,3 @@
-/**
- * PageSwitch, the route→component mapping extracted from App.tsx.
- *
- * Verifies, per route literal:
- *   - the mapped page component mounts (lazy chunks resolve through
- *     the internal Suspense boundary),
- *   - the onboarding wizard receives its completion callback,
- *   - an unknown page value falls back to the i18n page-not-found UI
- *     with a working "go home" action.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

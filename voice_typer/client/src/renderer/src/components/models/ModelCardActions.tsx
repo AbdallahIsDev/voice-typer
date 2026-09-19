@@ -1,56 +1,3 @@
-/**
- * ModelCardActions, pure presentational button row for a single model.
- *
- * Extracted from `pages/Models.tsx`'s 60-line nested ternary (the
- * `model.isActive ? <>...</> : !model.downloaded && ... ? <Download/>
- * : <><Select/><Delete/></>)` block). This component takes a `ModelInfo`
- * + handler callbacks and renders one of three visual states without any
- * IPC or state coupling, making it independently testable and reusable.
- *
- * Wrapped in `React.memo` so the row only re-renders when its own props
- * change (mirrors the TemplateListRow / ActivityListRow pattern): the
- * parent (LocalModelsPanel) passes the page-level callbacks by reference
- * (`onSelect(model)` / `onDownload(model)` / …), so a download-progress
- * tick that re-renders the panel skips every unchanged row.
- *
- * Visual states:
- *   1. Active model, available (downloaded) →
- *      disabled "Active" tick + Delete icon. Deleting the active model
- *      is allowed: the backend removes the files and reassigns the
- *      selection (first other downloaded model, or the "no model
- *      selected" state when none exists), the old refuse-and-switch
- *      flow dead-ended users with a single downloaded model.
- *   2. Not downloaded → "Download" button (ENABLED while another model's
- *      transfer is in flight, the backend QUEUES the request instead of
- *      refusing it; disabled only while THIS model is downloading (the
- *      "Downloading…" spinner state) or a deps install is in flight). NO
- *      Delete icon, a model that isn't on
- *      disk has nothing to delete; showing a trash affordance next to
- *      a not-installed model (e.g. the default `tiny` before the
- *      user ever downloads anything) misleads the user into thinking
- *      something is installed. The backend would only answer "Model
- *      not downloaded" / "nothing to delete".
- *      While the model sits in the pending download queue, the button
- *      shows the "Queued" state (label + position tooltip) and a Cancel
- *      affordance beside it removes the model from the queue.
- *   3. Downloaded → "Select" button + Delete icon (the trash
- *      affordance is exactly the "installed model can be removed"
- *      signal).
- *
- * A11y in-flight treatment (Select / Download):
- *   • Select button: `aria-busy` while a selection is in flight + an
- *     aria-label swap to the "Selecting…" state so screen-reader users
- *     hear the in-progress status (not the stale "Select {name}" label).
- *   • Download button: `aria-busy={isDownloadingThis}`, aria-label swaps
- *     to "Downloading…" when in-flight.
- *   • Select uses `Tick02Icon`, Select is a "mark active" affordance,
- *     not a "play media" one.
- *   • Disabled Download buttons get a `title` attribute sourced from
- *     `models.download.oneAtATime` so users hovering over the disabled
- *     button know WHY it's disabled (instead of just seeing a greyed-out
- *     control). With the download queue, the button stays ENABLED while
- *     another model transfers (the request queues).
- */
 import {
 	Cancel01Icon,
 	Delete01Icon,
@@ -67,7 +14,6 @@ import { cn } from "@/lib/utils";
 import { formatModelSize, type ModelInfo } from "@/lib/utils/models";
 
 // ── Fixed width for model-size download buttons ───────────────────────
-//
 // (2026-08-21): every "Download <size>" button uses ONE shared width so
 // the buttons line up identically across models regardless of the size
 // shown ("75 MB", "3 GB", "809 MB", all fit). Apply this token to the Download button in Branch 2.
@@ -113,21 +59,10 @@ export interface ModelCardActionsProps {
 	onDelete: (model: ModelInfo) => void;
 }
 
-/**
- * Returns the "one download at a time" tooltip text.
- * The key is verified present in every locale catalogue.
- */
 function oneAtATimeTitle(): string {
 	return t("models.download.oneAtATime");
 }
 
-/**
- * Native `title` tooltips never fire on a disabled Button: button.tsx
- * applies `disabled:pointer-events-none`, and a pointer-events:none
- * element is never hit-tested, the hint was dead on arrival. The hint
- * must live on a WRAPPER that keeps pointer events. The button keeps
- * its `title` attribute too (tests assert its presence there).
- */
 function DisabledHintTooltip({
 	hint,
 	children,
@@ -143,11 +78,6 @@ function DisabledHintTooltip({
 	);
 }
 
-/**
- * aria-label for the Select button. While a selection is in-flight,
- * screen readers should announce the "Selecting…" state instead of the
- * stale "Select {name}" label.
- */
 function selectAriaLabel(model: ModelInfo, isSelectingThis: boolean): string {
 	if (isSelectingThis) {
 		// Use the existing "Selecting…" translation; the model name is
@@ -173,12 +103,10 @@ export const ModelCardActions = memo(function ModelCardActions({
 	onDelete,
 }: ModelCardActionsProps) {
 	// ── Branch 1: Active model, available ───────────────────────────
-	//
 	// Renders only when the active model is actually usable (downloaded).
 	// The Delete icon is PRESENT: deleting the active model is allowed —
 	// the backend removes the files and reassigns the selection (first
 	// other downloaded model, or the "no model selected" state when none
-	// exists). The old refuse-and-switch flow was a dead-end for users
 	// with a single downloaded model.
 	if (model.isActive && model.downloaded) {
 		return (
@@ -203,13 +131,10 @@ export const ModelCardActions = memo(function ModelCardActions({
 	}
 
 	// ── Branch 2: not downloaded → Download ────────────────────────
-	//
 	// The button exposes `aria-busy` while the download is in-flight
 	// and swaps its `aria-label` to "Downloading…" so SR users hear the
-	// in-progress state (previously only the visible text swapped, the
 	// stale per-model aria-label was announced throughout the entire
 	// download).
-	//
 	// NO Delete icon here: the model isn't installed, so there is
 	// nothing to remove. (Even when this model is the configured active
 	// model, e.g. the default `tiny` before the user downloads
@@ -222,7 +147,6 @@ export const ModelCardActions = memo(function ModelCardActions({
 		// time" hint, which would contradict the accepted state.
 		const isQueued = queuePosition != null && queuePosition > 0;
 		// One tooltip/aria string for the queued state, computed
-		// once and shared by the aria-label and title (previously a
 		// verbatim duplicate).
 		const queuedLabel = isQueued
 			? t("models.download.queuedPosition", { position: String(queuePosition) })
@@ -343,7 +267,6 @@ export const ModelCardActions = memo(function ModelCardActions({
 	}
 
 	// ── Branch 3: downloaded → Select + Delete ─────────────────────
-	//
 	//#9: Select now uses `Tick02Icon` (was `PlayIcon`) —
 	// Select is a "mark active" affordance, not a "play media" one.
 	// Destructive control sits LEFT of the primary action, same
@@ -378,7 +301,6 @@ export const ModelCardActions = memo(function ModelCardActions({
 });
 
 // ── Sub-component: Delete icon button ─────────────────────────────────
-//
 // Extracted because it appears in Branch 1 (Active) and Branch 3
 // (Downloaded), a verbatim duplicate in the original 60-line ternary.
 

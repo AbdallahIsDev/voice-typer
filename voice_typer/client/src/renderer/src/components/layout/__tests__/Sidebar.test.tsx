@@ -1,23 +1,3 @@
-/**
- *  vitest suite, covers , , ,
- * for the Sidebar component.
- *
- * - : active nav item uses a 2px left accent bar + soft accent
- *   background (replacing the weak full-border treatment).
- * - : nav items are grouped (header-less Main group + System group)
- *   with visible section labels.
- * - : aria-keyshortcuts is exposed on Home ("Control+h") and
- *   Settings ("Control+,") since App.tsx binds those shortcuts.
- *   Items without a shortcut omit the attribute entirely.
- * - : the sidebar branding header (logo + app-name) was REMOVED —
- *   the nav is the sidebar's first content, in both collapsed and
- *   expanded states, and no theme switch renders inside the sidebar
- *   (the theme control moved to the TitleBar).
- *
- * The existing `components/__tests__/Sidebar.test.tsx` covers the
- * basic nav-label + aria-current behavior; this suite focuses on the
- * new fixes only and avoids duplicating those assertions.
- */
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -98,7 +78,6 @@ describe("Sidebar", () => {
 		// The legacy left-accent-bar borders are gone from ALL nav buttons.
 		expect(cls).not.toContain("border-s-2");
 		expect(cls).not.toContain("border-s-transparent");
-		// The old accent dash (before:bg-accent) is gone.
 		expect(cls).not.toContain("before:bg-accent");
 		// Active background matches the page background (--bg), and the
 		// old soft-accent tint is gone.
@@ -119,7 +98,6 @@ describe("Sidebar", () => {
 		// Settings surface is active the leaf takes the SAME standard
 		// card treatment as every other active page: the shared card
 		// border token + the card surface + primary text at medium
-		// weight. The old calm-foreground parent exemption no longer
 		// exists.
 		// NOTE: the isSettingsSurface fallback in SidebarInner carries
 		// the roving tab stop (tabIndex=0) to the Settings leaf on every
@@ -226,7 +204,6 @@ describe("Sidebar", () => {
 			name: /^About & Privacy/,
 		});
 		expect(merged.length).toBe(1);
-		// No button carries the former standalone "About" or "Privacy"
 		// label as its full accessible name.
 		const plainLabels = screen
 			.getAllByRole("button")
@@ -342,7 +319,6 @@ describe("Sidebar", () => {
 		const nav = screen.getByRole("navigation", { name: "Main navigation" });
 		// The nav's scroll container must be the first child of the
 		// <aside>, no branding header precedes it, so the navigation
-		// fills the space the branding previously occupied.
 		const aside = nav.closest("aside");
 		expect(nav.parentElement).toBe(aside?.children[0]);
 	});

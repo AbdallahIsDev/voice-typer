@@ -1,27 +1,3 @@
-/**
- * InfoTooltip unit tests.
- *
- * The ``contextLabel`` prop was
- * introduced so screen-reader users can distinguish multiple
- * InfoTooltips on the same page (e.g. a Settings tab may have a dozen
- * rows each with an InfoTooltip, without ``contextLabel`` they all
- * announce as "More info", which is useless when tabbing through them).
- *
- * When ``contextLabel`` is provided, the trigger button's accessible
- * name is composed as ``t("a11y.moreInfoAbout", { label: contextLabel })``
- *, e.g. "More info about VAD aggressiveness". When omitted, the
- * trigger falls back to ``t("a11y.moreInfo")`` ("More info").
- *
- * Production callers SHOULD pass ``contextLabel`` to disambiguate
- * (SettingRow does, see SettingRow.test.tsx). These tests verify the
- * InfoTooltip-side contract so callers can rely on it.
- *
- * : the per-caller ``<TooltipProvider>`` was removed from
- * InfoTooltip so a single provider mounted at the App root can own
- * delayDuration / skipDelayDuration for the whole tree. Tests mount
- * the component inside a ``<TooltipProvider>`` so Radix Tooltip's
- * context requirement is satisfied in isolation.
- */
 import {
 	cleanup,
 	fireEvent,

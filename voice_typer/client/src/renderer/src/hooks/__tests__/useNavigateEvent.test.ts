@@ -1,11 +1,3 @@
-/**
- * Tests for useNavigateEvent (extracted from App.tsx).
- *
- * Contract: subscribe to the backend ``navigate`` push event and route
- * it through the shared navigation store, validating the page against
- * the route table, deep-linking Settings consent rows to the Privacy
- * sub-page, and warning (without routing) on unknown paths.
- */
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

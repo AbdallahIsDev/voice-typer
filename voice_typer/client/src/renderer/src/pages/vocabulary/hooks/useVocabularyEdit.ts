@@ -1,17 +1,13 @@
 // Inline vocabulary EDIT state + handlers.
-//
 // The ADD path lives in the inline quick-add row
 // (``useVocabularyQuickAdd``) and the EDIT path uses the SAME inline
 // row treatment (``VocabInlineForm`` rendered in place of the edited
-// row), the old edit MODAL (VocabDialog) was removed so create and
 // modify are one consistent pattern.
-//
 // Owns:
 //   - the row currently being edited (``editingEntry``)
 //   - the form fields (``trigger`` / ``replacement`` / ``category``)
 //   - openEdit / saveEdit / closeEdit / handleTriggerChange
 //     / handleReplacementChange
-//
 // ``saveEdit`` reads from the form fields + the latest ``entries``
 // (provided by ``useVocabulary``) so it can splice the edited entry in
 // place (preserving its existing ``_id``, React re-uses the DOM node

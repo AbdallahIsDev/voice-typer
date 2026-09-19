@@ -9,19 +9,6 @@ interface SettingRowProps {
 	info?: string;
 	children: ReactNode;
 	align?: "start" | "center";
-	/**
-	 * Optional `htmlFor` to associate this row's visible label with a
-	 * specific form control rendered as a child. When provided, the
-	 * label is rendered as a real `<label htmlFor={htmlFor}>` element
-	 * (clicking the label focuses the control, WCAG 2.4.13 + SC 1.3.1
-	 * + SC 4.1.2). When omitted, the label is rendered as a `<span>`
-	 * (existing behavior, the child must provide its own accessible
-	 * name via `aria-label` / `aria-labelledby` / a wrapping `<label>`).
-	 *
-	 * Callers that pass a child without its own accessible name AND
-	 * without `htmlFor` will get a dev-mode console warning (see the
-	 * useEffect below) so the omission is caught during development.
-	 */
 	htmlFor?: string;
 }
 
@@ -66,7 +53,6 @@ export function SettingRow({
 			// no accessible name and must not trip the warning. The
 			// same applies to `type="hidden"` inputs and any control
 			// under an aria-hidden ancestor.
-			//
 			// Radix Slider's bubble input (SliderBubbleInput) is
 			// hidden via `style: { display: "none" }`, no aria-hidden,
 			// no type="hidden", so a computed-style check is required

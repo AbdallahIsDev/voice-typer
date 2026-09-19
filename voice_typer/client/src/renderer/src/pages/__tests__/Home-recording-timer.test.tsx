@@ -1,27 +1,3 @@
-/**
- * Behavioral + performance regression tests for the extracted
- * `RecordingTimer` component (`pages/home/components/RecordingTimer.tsx`).
- *
- * The MM:SS timer previously lived inline in Home.tsx: its
- * elapsed-seconds state + 1s `setInterval` sat in the page component,
- * so EVERY per-second tick re-rendered the entire Home tree (stat
- * cards, activity list, share image, …) just to bump two digits.
- *
- * The extraction moves the interval + state into a `React.memo`'d leaf:
- *
- *   1. Rendered output is unchanged, role="timer",
- *      aria-live="off" (explicit), the localized
- *      "Recording duration: MM:SS" aria-label, zero-padded MM:SS text.
- *   2. The per-second tick re-renders ONLY the timer, the parent's
- *      render count must stay flat while the displayed time advances
- *      (render-counting pattern from
- *      components/dashboard/__tests__/stats-share-image-memo.test.tsx,
- *      using the i18n `t()` call count as the render proxy plus a
- *      parent probe component).
- *   3. The memo gates unrelated parent re-renders (same `isRecording`
- *      → no timer re-render; changed `isRecording` → timer re-renders,
- *      NEVER-DOWNGRADE).
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

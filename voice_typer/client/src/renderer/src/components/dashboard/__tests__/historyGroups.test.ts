@@ -1,6 +1,5 @@
 // Unit tests for the History page's date-grouping helpers
 // (components/dashboard/historyGroups.ts).
-//
 // Covers the happy path (multiple days → ordered sections), the
 // Today/Yesterday label overrides, the long-form year-aware date
 // fallback, first-encounter group ordering (caller's sort direction is

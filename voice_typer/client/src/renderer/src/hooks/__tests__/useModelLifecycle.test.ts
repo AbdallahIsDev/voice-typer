@@ -1,51 +1,3 @@
-/**
- * unit tests for `hooks/useModelLifecycle.ts`, the facade composing
- * the Models-page sub-hooks (split from the former App-level
- * monolith).
- *
- * The facade wires 5 sub-hooks together:
- *   1. `useModelConfig`     → config + models + catalog + apiKeys + 4
- *                              internal helpers (refreshModelStatus,
- *                              updateConfig, setConfig, setModels)
- *   2. `useModelSelection`  → receives setModels + refreshModelStatus +
- *                              updateConfig
- *   3. `useModelDownload`   → receives setModels + reconcileAfterDownload
- *                              + onDownloaded (auto-select wiring)
- *   4. `useCloudProviders`  → receives setConfig + config + apiKeys +
- *                              updateConfig + call
- *   5. `useModelFolder`     → receives loadConfig
- *
- * The 4 internal helpers from `useModelConfig` are destructured OUT of the
- * public return shape (they're not part of the pre-split facade contract).
- * The merged return is `{ ...configRest, ...download, ...selection,
- * ...cloud, ...folder, cloudProviders }`, `agoLabel` was removed when the
- * "Last updated / refresh" indicator was removed from the Models page.
- *
- * Coverage:
- *   1. Lifecycle ordering: sub-hooks are invoked in the order
- *      useModelConfig → useModelSelection → useModelDownload →
- *      useCloudProviders → useModelFolder (selection before download:
- *      the download's auto-select needs `selectModel`).
- *   2. Cancel-mid-download wiring: `useModelDownload` receives
- *      `setModels` AS THE SAME REFERENCE returned by
- *      `useModelConfig`. When the download sub-hook's
- *      `handleCancelDownload` calls `setModels(prev => ...)`, it mutates
- *      the SAME state owned by `useModelConfig`, without this referential
- *      equality, cancel-state-reset would silently no-op.
- *   3. Args wiring: `useModelDownload` receives `setModels` and
- *      `reconcileAfterDownload` (full config re-fetch after a
- *      successful download), and does NOT receive `refreshModelStatus`
- *      (the download sub-hook stopped consuming it when the deps-install
- *      flow was removed; the facade forwards it to `useModelSelection`
- *      only).
- *   4. The 4 internal helpers (refreshModelStatus, updateConfig,
- *      setConfig, setModels) are NOT in the public return shape.
- *   5. The return shape is the merged set of sub-hook returns + the
- *      static `cloudProviders` array (`agoLabel` removed with the
- *      refresh indicator).
- *   6. `ApiTestResult` type re-export still resolves (back-compat with
- *      CloudProvidersPanel.tsx and its tests).
- */
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -223,7 +175,6 @@ describe("useModelLifecycle, facade composition ", () => {
 			renderHook(() => useModelLifecycle());
 
 			// Order matters because each subsequent sub-hook
-			// receives helpers destructured from the prior one's
 			// return (e.g. useModelDownload needs setModels from
 			// useModelConfig and selectModel from useModelSelection
 			// for the download auto-select).
@@ -267,8 +218,6 @@ describe("useModelLifecycle, facade composition ", () => {
 				markUpdated?: unknown;
 			};
 			expect(cfgArgs.markUpdated).toBe(mockMarkUpdated);
-			// agoLabel was REMOVED from the public return shape when the
-			// "Last updated / refresh" indicator was removed from the
 			// Models page, the facade must not re-add dead surface.
 			expect(
 				(result.current as Record<string, unknown>).agoLabel,
@@ -285,13 +234,11 @@ describe("useModelLifecycle, facade composition ", () => {
 			// Referential equality is the contract: cancel-mid-
 			// download cleanup calls `setModels(prev => ...)`,
 			// which mutates the SAME state owned by useModelConfig.
-			// Without this, cancel-state-reset silently no-ops.
 			expect(dlArgs.setModels).toBe(configHookReturn.setModels);
 		});
 
 		it("useModelDownload does NOT receive `refreshModelStatus` (dead facade plumbing removed)", () => {
 			// The download sub-hook stopped consuming refreshModelStatus when
-			// its only consumer (the deps-install flow) was removed; the facade
 			// forwards it to useModelSelection only. Reintroducing the
 			// pass-through MUST fail this test.
 			renderHook(() => useModelLifecycle());

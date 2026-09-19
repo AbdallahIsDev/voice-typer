@@ -1,5 +1,4 @@
 // One row of the vocabulary list, a clean two-column pairing.
-//
 // Simplified for scannability:
 //   - leading checkbox (bulk selection)
 //   - the wrong→correct pairing as two labeled text spans ("Heard as"
@@ -15,14 +14,12 @@
 //     working independently
 //   - responsive: on narrow widths the corrected half stacks below the
 //     original instead of overflowing
-//
 // The row action buttons use the app-wide compact row-button language
 // (shared with the History/ActivityList and Models rows, and the
 // TemplateListRow): `size="icon-xs"` (24×24, the WCAG 2.5.8 AA target
 // minimum) + text-only `hover:text-*` color shifts, no hover background
 // washes. 24px also leaves the fixed 6.25rem actions column comfortable
 // slack for three buttons (3×24 + 2×2px gaps = 76px).
-//
 // The row is memoized, the parent passes stable useCallback handlers
 // so a search keystroke (which re-renders the page but changes no row
 // props) skips every row's render. ``testResult`` is ``null`` for every
@@ -65,19 +62,9 @@ interface VocabListRowProps {
 	onToggleSelect: (id: string) => void;
 	onEdit: (entry: VocabRow) => void;
 	onDelete: (entry: VocabRow) => void;
-	/**
-	 * "Test this entry", runs the entry's wrong phrase through the
-	 * LIVE server correction engine (``test_vocabulary_correction``
-	 * IPC → ``VocabularyManager.apply_to_text``).
-	 */
 	onTest: (entry: VocabRow) => void;
 	/** Inline result of the live-engine test for THIS row (null when idle). */
 	testResult: EntryTestResult | null;
-	/**
-	 * Server-tracked usage for THIS entry (null/undefined when the
-	 * correction never fired or usage data isn't available). Renders a
-	 * subtle "Used N× · last used …" line under the wrong phrase.
-	 */
 	usage?: EntryUsage | null;
 }
 
@@ -115,7 +102,6 @@ export const VocabListRow = memo(function VocabListRow({
 	// cluster and the header's "Corrected to" label would sit to the
 	// right of the row values (the invariant lives in the shared
 	// CollectionListHeader's header note).
-	//
 	// The row is clickable as a whole (toggle selection), that's what
 	// the hover background implies. Action buttons and the checkbox
 	// stop propagation so they don't double-toggle.

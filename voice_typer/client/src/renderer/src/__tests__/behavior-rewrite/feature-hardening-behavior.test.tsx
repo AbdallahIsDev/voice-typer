@@ -1,28 +1,3 @@
-/**
- *  vitest rewrite, behavioral tests for feature-hardening invariants.
- *
- * Replaces the following string-pattern Python tests from
- * `tests/test_feature_hardening_regressions.py`:
- *   - TestPagesUseSharedSnackbarHook::test_settings_uses_shared_hook
- *   - TestPagesUseSharedSnackbarHook::test_microphone_uses_shared_snackbar_hook
- *   - TestAppValidatesRecordingStateBeforeCast::test_no_unvalidated_as_recording_state_cast
- *   - TestAppValidatesRecordingStateBeforeCast::test_runtime_validator_exists
- *   - TestUsePythonOmitsMisleadingIsReadyFlag::test_use_python_does_not_return_is_ready
- *   - TestUsePythonOmitsMisleadingIsReadyFlag::test_app_does_not_use_is_ready
- *
- * The Python tests regex/string-parsed the TS/TSX source and asserted on
- * substring presence/absence (e.g. `"const { showSnack } = useSnackbar()"
- * in src`, `"isReady" not in code`, `"as RecordingState"` not in App.tsx
- * source outside a validator).  These are brittle: they fail on innocent
- * format refactors (Biome quote-style changes, line wrapping, extracting
- * to a helper) and pass even when the runtime behavior differs.  The
- * vitest versions below exercise the actual runtime behavior: real hook
- * returns, real component renders, real snackbar delegation via sonner.
- *
- * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  They are NOT deleted.
- */
-
 import {
 	cleanup,
 	fireEvent,
@@ -33,20 +8,12 @@ import {
 } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-/**
- * Page-level render helper. Pages like Settings mount Radix Tooltip
- * (via SettingRow / ui primitives); the real App shell wraps everything
- * in a TooltipProvider (App.tsx), so tests mounting pages directly must
- * provide one too, otherwise every Tooltip render throws "Tooltip must
- * be used within TooltipProvider" and the page mounts empty.
- */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
-//
 // vi.mock factories are hoisted by vitest and execute before any
 // module-level const/let, so any value the factory closes over must be
 // allocated via vi.hoisted().
@@ -181,7 +148,6 @@ import type { VoiceTyperConfig } from "@/types/config";
 import type { RecordingState } from "@/types/ipc";
 
 // ── Compile-time invariants on hook return types ────────────────────
-//
 // Each `const` below has a literal-`true` annotation.  If the type on
 // the left of `=` doesn't reduce to `true`, the file fails to compile
 // (caught by `tsc --noEmit`).  This is the type-level half of the
@@ -199,8 +165,7 @@ const _noSnackbarComponent: HasSnackbarComponent extends false ? true : false =
 
 // ── Shared test fixtures ────────────────────────────────────────────
 
-/** A complete, valid VoiceTyperConfig used to seed Settings + Microphone.
- *  Mirrors the fixture in pages/__tests__/Settings.test.tsx. */
+/** Mirrors the fixture in pages/__tests__/Settings.test.tsx. */
 const baseConfig: VoiceTyperConfig = {
 	schema_version: 1,
 	fast_startup: true,
@@ -362,10 +327,8 @@ function removePythonBridgeMock() {
 	delete (window as unknown as { python?: unknown }).python;
 }
 
-// ────────────────────────────────────────────────────────────────────
 // 1. usePython hook, does not return isReady
 //    Python: TestUsePythonOmitsMisleadingIsReadyFlag::test_use_python_does_not_return_is_ready
-// ────────────────────────────────────────────────────────────────────
 
 describe("usePython, rewrite of test_use_python_does_not_return_is_ready", () => {
 	beforeEach(() => {
@@ -396,11 +359,9 @@ describe("usePython, rewrite of test_use_python_does_not_return_is_ready", () =>
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // 2. useSnackbar hook, returns { showSnack, clearSnack } (no Snackbar component)
 //    Python: implicit in TestPagesUseSharedSnackbarHook (asserts
 //    "<Snackbar" not in src and "const { showSnack } = useSnackbar()" in src).
-// ────────────────────────────────────────────────────────────────────
 
 describe("useSnackbar, rewrite (DX-013: no Snackbar component returned)", () => {
 	afterEach(() => {
@@ -419,7 +380,6 @@ describe("useSnackbar, rewrite (DX-013: no Snackbar component returned)", () => 
 
 		// Runtime: render the real hook and verify the returned object's
 		// keys are exactly ['clearSnack', 'showSnack'], no Snackbar
-		// component (which was removed in the rewrite).
 		const { result } = renderHook(() => useSnackbar());
 		expect(Object.keys(result.current).sort()).toEqual([
 			"clearSnack",
@@ -446,10 +406,8 @@ describe("useSnackbar, rewrite (DX-013: no Snackbar component returned)", () => 
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // 3. Settings page, uses the shared useSnackbar hook (not inline state)
 //    Python: TestPagesUseSharedSnackbarHook::test_settings_uses_shared_hook
-// ────────────────────────────────────────────────────────────────────
 
 describe("Settings, rewrite of test_settings_uses_shared_hook", () => {
 	let originalWindow_: unknown;
@@ -522,10 +480,8 @@ describe("Settings, rewrite of test_settings_uses_shared_hook", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // 4. Microphone page, uses the shared useSnackbar hook (not inline JSX)
 //    Python: TestPagesUseSharedSnackbarHook::test_microphone_uses_shared_snackbar_hook
-// ────────────────────────────────────────────────────────────────────
 
 describe("Microphone, rewrite of test_microphone_uses_shared_snackbar_hook", () => {
 	beforeEach(() => {
@@ -610,10 +566,8 @@ describe("Microphone, rewrite of test_microphone_uses_shared_snackbar_hook", () 
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // 5. App, does not destructure isReady from usePython()
 //    Python: TestUsePythonOmitsMisleadingIsReadyFlag::test_app_does_not_use_is_ready
-// ────────────────────────────────────────────────────────────────────
 
 describe("App, rewrite of test_app_does_not_use_is_ready", () => {
 	beforeEach(() => {
@@ -650,11 +604,9 @@ describe("App, rewrite of test_app_does_not_use_is_ready", () => {
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // 6. App, handles all 6 RecordingState values without crashing (no unvalidated cast)
 //    Python: TestAppValidatesRecordingStateBeforeCast::test_no_unvalidated_as_recording_state_cast
 //            TestAppValidatesRecordingStateBeforeCast::test_runtime_validator_exists
-// ────────────────────────────────────────────────────────────────────
 
 describe("App recording state, rewrite of test_no_unvalidated_as_recording_state_cast + test_runtime_validator_exists", () => {
 	beforeEach(() => {
@@ -681,7 +633,6 @@ describe("App recording state, rewrite of test_no_unvalidated_as_recording_state
 	// status_change payloads before they reach the store.  App consumes
 	// the already-typed RecordingState value from the store and renders
 	// the matching a11y announcement, no cast needed.
-	//
 	// The behavioral test below verifies App handles every backend-emitted
 	// state without crashing AND renders the correct announcement.  If a
 	// future refactor reintroduces an unvalidated `as RecordingState`

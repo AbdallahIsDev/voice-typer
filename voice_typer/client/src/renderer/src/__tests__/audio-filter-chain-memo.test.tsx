@@ -1,29 +1,3 @@
-/**
- *  regression test: `AudioFilterChain` labels are memoised.
- *
- * The component previously called `t(...)` ~80 times per render
- * (once per label + InfoSearch key, plus inline per-row Info / Aria
- * lookups). At 1–5 Settings interactions/sec, that was 0.5–5 ms/sec
- * of wasted i18n dictionary lookups + string allocations.
- *
- * After :
- *   - All label constants are wrapped in `useMemo` keyed on
- *     `[locale]` (locale subscribed via `useSyncExternalStore`).
- *   - The `set` helper is wrapped in `useCallback` keyed on
- *     `[onConfigChange]`.
- *
- * This test verifies:
- *   1. On the FIRST render, `t()` is called ~80 times (initial
- *      label resolution).
- *   2. On a SUBSEQUENT render with the SAME props, `t()` is NOT
- *      called for label resolution (the memo cache hits). The
- *      per-row inline `t("...Info")` / `t("...Aria")` calls still
- *      happen (they're not part of the labels memo, they're passed
- *      as JSX props on `SettingRow` / `RangeSlider`), but the
- *      label-constant cluster is memoised.
- *   3. When `locale` changes, the labels memo re-resolves (call
- *      count jumps back up).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -199,7 +173,6 @@ describe("TY-37: AudioFilterChain labels are memoised", () => {
 		// `set("noise_filter_highpass", v)`. The arrow's identity
 		// changes every render (it's a fresh closure), but the `set`
 		// it captures is the useCallback-stable one.
-		//
 		// Verifying `set`'s identity directly would require exposing
 		// it; instead, we verify the observable consequence: when
 		// `onConfigChange` identity is stable across re-renders, the

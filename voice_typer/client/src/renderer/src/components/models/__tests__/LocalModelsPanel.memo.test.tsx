@@ -1,34 +1,3 @@
-/**
- * LocalModelsPanel / ModelCardActions, React.memo re-render gating
- * during download-progress ticks.
- *
- * Every `download_progress` event updates the consolidated download
- * state in `useModelDownload` (progress / bytes / speed / ETA), which
- * re-renders the Models page and this panel ~2-10× per second. The
- * panel MUST re-render (the active row's DownloadProgressBar needs the
- * fresh progress), but the per-model action rows that did not change
- * must NOT re-render, previously every one of them re-rendered on
- * every tick (ModelCardActions had no memo() while every settings
- * section did).
- *
- * The memo() + stable-handler contract under test:
- *   1. A progress-only prop change re-renders ONLY the active
- *      download's progress bar (its Pause/Cancel buttons re-render);
- *      unrelated model rows' buttons do NOT re-render.
- *      (Counting mocked `<Button>` renders is a faithful proxy —
- *      ModelCardActions and DownloadProgressBar render exclusively
- *      through the shared Button, and Button is not memo'd. Same
- *      technique as `components/layout/__tests__/sidebar-memo.test.tsx`.)
- *   2. A real prop change (model data changes) still re-renders the
- *      row, guards against an over-aggressive memo freezing stale UI.
- *
- * Stable handler refs matter: the panel forwards the page-level
- * callbacks (onSelectModel / onDownloadModel / ...) straight through to
- * the memo'd rows, so a shallow-equal prop comparison succeeds across
- * renders only because the callbacks keep their identity (the
- * useModelLifecycle handlers are useCallback'd). The test passes the
- * SAME function refs across rerenders, mirroring the page.
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

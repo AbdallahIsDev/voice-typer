@@ -1,14 +1,3 @@
-/**
- * Footer Cancel routes through the unsaved-edits gate.
- *
- * Previously the footer Cancel button called `onClose` directly,
- * bypassing the Modal `onCloseIntent` veto, an explicit Cancel click
- * after edits silently discarded them, inconsistent with Esc / overlay
- * / corner-X which open the discard confirm. Pinned contract:
- *   - Clean form → Cancel closes immediately.
- *   - Form with edits → Cancel opens the discard confirm instead.
- *   - Confirming the discard closes the dialog.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

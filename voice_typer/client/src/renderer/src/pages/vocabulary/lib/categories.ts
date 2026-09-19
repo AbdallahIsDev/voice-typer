@@ -1,12 +1,10 @@
 // Backend vocabulary categories.
-//
 // Categories are part of the persisted data layer ONLY, the UI no
 // longer surfaces them (the Vocabulary page is a flat two-column
 // correction list). This module keeps the canonical category list the
 // flatten/rebuild transforms and the import parser need, plus the
 // auto-detect heuristic that assigns new entries to a sensible bucket
 // so saved data stays well-formed for the backend.
-//
 // ``getCategoryLabels`` / ``CATEGORY_META`` were removed when the
 // category UI (badges, group headers, filter, picker, bulk move) was
 // deleted, see archive/deleted_files.txt.
@@ -25,18 +23,6 @@ export const CATEGORIES = [
 
 export type VocabCategory = (typeof CATEGORIES)[number];
 
-/**
- * Frontend pre-check for the quick-add row: find an existing entry
- * whose wrong phrase collides with *original* (case-insensitive,
- * whitespace-collapsed, the same rule the backend enforces
- * authoritatively in ``save_vocabulary_with_diff``).
- *
- * This is a CONVENIENCE layer only: the authoritative check that
- * blocks the write lives in the backend write path, so every entry
- * point (quick-add, edit dialog, import) is covered even if this
- * pre-check is bypassed. Returns the first colliding entry, or
- * undefined when the phrase is new.
- */
 export function findDuplicate(
 	entries: ReadonlyArray<
 		Pick<VocabRow, "original" | "correction" | "category">

@@ -1,30 +1,3 @@
-/**
- * CloudModelsPanel, cloud ASR providers tab content for the Models page.
- *
- * (UI/UX overhaul 2026-08-20): rebuilt to follow the SAME
- * structural pattern as the Local Models tab:
- *   • Each provider (OpenAI, Groq, Deepgram) is a collapsible group
- *     header inside the shared `ModelGroupList` accordion primitives
- *     (same icon, name, spacing, hover behavior as the local-model
- *     families).
- *   • Expanding a provider group reveals its API model as a list row
- *     (name + metadata tags) with a "Configure" action that reveals
- *     the API key input + Save Key + Test Connection controls —
- *     the existing API-key-entry UI, now triggered from within the
- *     consistent group/list pattern instead of being permanently
- *     visible in a separate card style.
- *   • Tab renamed "Cloud Providers" → "Cloud Models"; the
- *     heading + description below the tab switcher match.
- *
- * The visual language (borders, spacing, backgrounds, icons,
- * typography) is fully unified with Local Models because BOTH tabs
- * compose the same `ModelGroupList` components, future style updates
- * happen in one place.
- *
- * Pure presentational, receives all state + handlers as props from
- * `useModelLifecycle`.
- */
-
 import {
 	Loading03Icon,
 	Settings01Icon,
@@ -201,8 +174,6 @@ export const CloudProvidersPanel = memo(function CloudProvidersPanel({
 });
 
 // ── Sub-component: API-key entry + test + consent form ────────────────
-//
-// The existing API-key-entry UI (extracted from the pre-overhaul
 // provider card), triggered by the Configure action.
 
 interface ProviderConfigFormProps {
@@ -275,7 +246,7 @@ function ProviderConfigForm({
 					<button
 						type="button"
 						onClick={() => setRevealKey((v) => !v)}
-						className="absolute inset-e-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-1focus-visible:ring-ring"
+						className="absolute inset-e-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 						aria-label={
 							revealKey
 								? t("models.cloud.apiKeyHideAria", {
@@ -414,6 +385,5 @@ function ProviderConfigForm({
 }
 
 // ── Local helpers ─────────────────────────────────────────────────────
-//
 // `consentKeyFor` is imported from the hook (single source of truth) —
 // a local duplicate drifted if a provider was ever added.

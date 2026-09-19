@@ -1,26 +1,3 @@
-/**
- * Bubble overlay package, `useAudioLevels` hook (60fps direct-DOM
- * animation, paused when hidden).
- *
- * rAF scheduling gate: the next-frame `requestAnimationFrame` call
- * sits at the END of the callback and is gated on
- * `visibleRef.current && recordingRef.current`. When either gate is
- * closed, the loop STOPS scheduling new frames entirely. The loop is
- * re-armed (via `wake()`) from the initial mount, the `api.onShow`
- * callback, the `api.onSetState` callback, and a separate `useEffect`
- * that watches the `isVisible` prop. The visibility-watching effect
- * also cancels the in-flight frame when `isVisible` becomes false.
- *
- * `prefers-reduced-motion`: when the user has reduced motion enabled
- * (vestibular disorders, motion sensitivity, or preference), the rAF
- * loop is short-circuited, bars are rendered ONCE at a fixed
- * mid-height and no further frames are scheduled. This matches the
- * CSS-side `@media (prefers-reduced-motion: reduce)` block in
- * `index.css` that disables CSS animations: the JS-driven bar
- * animation is the bubble's most motion-heavy element, so it gets the
- * same treatment. `wake()` is also gated so a stale `onShow` callback
- * can't re-arm the loop behind the user's back.
- */
 import { type RefObject, useCallback, useEffect, useRef } from "react";
 import { DOT_COUNT, DOT_WEIGHTS, MAX_HEIGHT, MIN_HEIGHT } from "./constants";
 import { rmsToNorm } from "./helpers";
@@ -32,7 +9,6 @@ import { useBubbleBridge } from "./useBubbleBridge";
 const REDUCED_MOTION_HEIGHT = (MIN_HEIGHT + MAX_HEIGHT) / 2;
 
 // ── Transform-based bar animation (compositor-only writes) ─────────
-//
 // The per-frame rAF loop animates each bar by writing
 // ``transform: scaleY(...)``, NOT ``height``. A per-frame ``height``
 // write forces a layout pass on the bubble pill every frame; a scale
@@ -40,12 +16,10 @@ const REDUCED_MOTION_HEIGHT = (MIN_HEIGHT + MAX_HEIGHT) / 2;
 // contract (``components/feedback/LevelBar.tsx``): the loop writes the
 // transform (plus the cap-radius CSS var and the compositor-only
 // ``opacity``), never layout-inducing geometry.
-//
 // Geometry preservation: each bar element is prepared ONCE at its FULL
 // box height (``MAX_HEIGHT``) with a default (center) transform origin.
 // The visualizer wrapper is a fixed-height flex container that centers
 // its children, so a centered ``scaleY(h / MAX_HEIGHT)`` renders the
-// same centered ``h``-pixel bar the old height write produced, at every
 // level, with no re-anchoring.
 
 // Half the dot's 3px width (``w-0.75`` in BubbleVisualizer.tsx). Kept as
@@ -54,15 +28,6 @@ const REDUCED_MOTION_HEIGHT = (MIN_HEIGHT + MAX_HEIGHT) / 2;
 // below must divide by the exact cap radius.
 const BAR_CAP_RADIUS_PX = 1.5;
 
-/**
- * Prepare a bar element for transform-based animation: reserve the full
- * layout-box height and install the counter-scaled cap radius.
- *
- * Idempotent and cheap to re-check: a re-mounted element (React
- * re-applies its 5px inline height on mount) is re-prepared on the next
- * frame. Returns ``true`` when the element was (re)initialized, so the
- * caller resets its per-dot easing state to ``MIN_HEIGHT``.
- */
 function prepareBarElement(el: HTMLElement): boolean {
 	const baseHeight = `${MAX_HEIGHT}px`;
 	if (el.style.height === baseHeight) return false;
@@ -78,12 +43,6 @@ function prepareBarElement(el: HTMLElement): boolean {
 	return true;
 }
 
-/**
- * Write a bar's current visual height as a compositor-only transform
- * (plus the cap-radius CSS var that the prepared border-radius calc
- * consumes, a style/paint-level write, geometry stays fixed).
- * ``opacity`` is a compositor-only property and rides along.
- */
 function writeBarLevel(el: HTMLElement, height: number, opacity: number): void {
 	const scale = height / MAX_HEIGHT;
 	el.style.transform = `scaleY(${scale})`;
@@ -124,7 +83,6 @@ export function useAudioLevels(
 	);
 	// `wake` function ref (re-armed by the recording-mode effect).
 	const wakeRef = useRef<(() => void) | null>(null);
-	// rAF handle used to debounce `refreshBarColor` writes so a burst of
 	// `MutationObserver` callbacks (e.g. theme switch flipping multiple
 	// classes) coalesces into a single `getComputedStyle` read.
 	const colorRefreshFrameRef = useRef<number | null>(null);
@@ -158,7 +116,6 @@ export function useAudioLevels(
 	// coalesces into a single `getComputedStyle` read.
 	// `getComputedStyle` forces layout, so batching is important when
 	// the observer fires repeatedly.
-	//
 	//NOTE: the original  spec called for `requestAnimationFrame`
 	// here, but jsdom's rAF fires at a 60 Hz `setInterval` (≈16ms)
 	// rather than `setTimeout(0)`. That breaks the existing
@@ -200,7 +157,6 @@ export function useAudioLevels(
 	}, [refreshBarColor, scheduleColorRefresh]);
 
 	// Combined recording-mode tracking + rAF setup + onLevel subscription.
-	//
 	// (Single source of truth): the bubble's `mode` is NO LONGER
 	// tracked in a local closure here. `useBubbleBridge` owns the
 	// authoritative mode ref, kept in lockstep with the show / hide /
@@ -216,9 +172,7 @@ export function useAudioLevels(
 	// construction. This also means the visualizer + onLevel
 	// subscription correctly stop for ALL non-recording modes,
 	// including `blocked` / `cancelling` / `permission_revoked` /
-	// `paste_failed` (which the old local tracker silently ignored,
 	// leaving the bars animating behind a non-recording pill).
-	//
 	// IPC subscriptions: this hook registers handlers on the shared
 	// `useBubbleBridge` emitter (one of N consumers) instead of
 	// calling `api.onShow` / `api.onSetState` / `api.onLevel`
@@ -228,7 +182,6 @@ export function useAudioLevels(
 	// underlying IPC listener when no consumer is interested in
 	// audio-peak events (currently only this hook subscribes to
 	// `level`).
-	//
 	// Mitigation applied here: the `onLevel` IPC subscription is
 	// DYNAMICALLY gated on the mode being `"recording"`. Audio-peak
 	// IPC events fire at ~50-60 Hz from the Python backend while the

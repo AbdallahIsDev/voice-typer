@@ -1,32 +1,3 @@
-/**
- * : Accessibility tests for the predecessor UI.
- *
- * The finding: Config UI not verified with screen reader. ARIA
- * attributes are present in code but never validated by automated
- * accessibility scanning.
- *
- * This module uses source-inspection + DOM structural verification
- * to check ARIA roles, labels, and live regions. For full runtime
- * a11y scanning, see the @axe-core integration used by the renderer
- * test setup.
- *
- * The previous version of this file pointed
- * at stale paths for ConfirmDialog (`components/ConfirmDialog.tsx`)
- * and ErrorBoundary (`components/ErrorBoundary.tsx`) and guarded the
- * reads with `fs.existsSync`, so when the files moved into
- * `components/common/` and `components/feedback/` the tests silently
- * no-op'd. The guards are removed so a future move breaks the test
- * loudly instead of silently passing.
- *
- * The "All Switch components" test was a
- * source-pattern scan that only looked at `pages/{Home,Settings,
- * Models,About}.tsx`, but the actual Switch call sites live in
- * `components/settings/*Section.tsx` (28 of 29 Switches were
- * untested). Replaced with a behavioral test that mounts each
- * Section + AudioFilterChain and uses `getAllByRole("switch")` +
- * `toHaveAccessibleName()`.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { act, cleanup, render, screen } from "@testing-library/react";
@@ -289,7 +260,6 @@ vi.mock("@/components/ui/sonner", () => ({
 // (which would pull in heavy transitive deps).  The @/pages/Home stub
 // includes a `data-testid="home-page"` so the App test can wait for
 // the home route to mount before asserting the aria-live region.
-//
 // The behavioral Home test (below) uses `vi.importActual("@/pages/Home")`
 // to bypass this stub and load the real Home component.
 vi.mock("@/pages/Home", () => ({
@@ -510,7 +480,6 @@ function makeSectionProps() {
 }
 
 describe("NEW-UX-012: Accessibility ARIA patterns", () => {
-	//finding 13: the previous test was a brittle source-pattern
 	// scan that counted occurrences of the literal strings "SelectTrigger"
 	// and "aria-label" in `pages/Settings.tsx`.  But Settings.tsx itself
 	// doesn't use SelectTrigger at all, the Selects live in the
@@ -518,7 +487,6 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// PostProcessingSettingsSection, LlmPolishingSettingsSection,
 	// RecordingSettingsSection, ThemeSettingsSection).  Since both counts
 	// were zero, the test passed trivially (`0 >= 0`).
-	//
 	// The behavioral replacement below mounts each Section that uses
 	// SelectTrigger and asserts every rendered combobox (Radix Select's
 	// implicit role) has an accessible name.  This catches a regression
@@ -631,7 +599,6 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 		});
 	});
 
-	//finding 7 (App.tsx): the previous test was a brittle
 	// source-pattern scan that asserted `App.tsx` source contains the
 	// literal string "aria-live".  This passes even when the live region
 	// is in a comment, removed in a refactor, or rendered with the wrong
@@ -639,7 +606,6 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// real App (with mocked child pages / Sidebar / TitleBar to keep the
 	// render light) and asserts the rendered DOM contains at least one
 	// `[aria-live]` region.
-	//
 	// App-level aria-live region behavior is exhaustively covered in
 	// `__tests__/a11y-rewrite/App-a11y.test.tsx` (one test per
 	// RecordingState value); this test is a smoke check that the region
@@ -656,20 +622,16 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
 	});
 
-	//finding 7 (Home.tsx): the previous test was a brittle
 	// source-pattern scan that asserted `Home.tsx` source contains
 	// `aria-live`, `role="status"`, or `role='status'`.  It currently
 	//PASSES only because a comment (": removed
 	// `aria-live=\"polite\"` from this `<output>`…") contains the
 	// literal string "aria-live", i.e. the test passes for the wrong
 	// reason.
-	//
 	// The behavioral replacement below mounts the real Home page with
 	// a mocked `usePythonEvent` that captures the `transcription_final`
 	// handler, dispatches a synthetic event through it, and asserts the
-	// transcribed text is NOT rendered (the preview card was removed
 	// 2026-09-13; transcriptions live in History, Home shows no text).
-	//
 	//Flipped from `it.fails` to `it` during the shared icon-mock
 	// migration (helpers/hugeicons-mock.ts): the test was marked
 	// expected-to-fail because this file's per-file icon stub subset
@@ -883,13 +845,11 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 });
 
 describe("NEW-UX-012: Dialog accessibility", () => {
-	// The previous version pointed at
 	// `components/ConfirmDialog.tsx` and `components/ErrorBoundary.tsx`
 	// and guarded with `fs.existsSync`, so when the files moved into
 	// `components/common/` and `components/feedback/` the tests silently
 	// no-op'd.  The guards are removed so a future move breaks the test
 	// loudly instead of silently passing.
-	//
 	// ConfirmDialog itself doesn't carry a literal `role="dialog"` —
 	// it delegates to Radix UI's AlertDialog primitive (see
 	// components/ui/alert-dialog.tsx), which sets `role="alertdialog"`
@@ -978,8 +938,6 @@ describe("index.css declares user-preference @media blocks", () => {
 // button, button, button, button, button, button").  Each stat card
 // must have an accessible name so AT users hear "Dictations today: 5"
 // rather than just "5".
-//
-// The chart was extracted from pages/Dashboard.tsx into
 // pages/dashboard/components/SevenDayActivityChart.tsx, where the
 // production fix landed: the container carries role="img" + an
 // aria-label built from the analytics.sevenDayActivityChartAria i18n
@@ -1029,14 +987,12 @@ describe("Dashboard a11y, heatmap role + stat card names", () => {
 	});
 });
 
-// TitleBar.tsx previously rendered
 // `<title>` elements inside `aria-hidden` SVGs (the MinimizeIcon,
 // MaximizeIcon, RestoreIcon, and CloseIcon helper components).  A
 // `<title>` inside an `aria-hidden` SVG is INACCESSIBLE to assistive
 // tech (silently dropped by screen readers) and redundant, the
 // wrapping <button> already carries an `aria-label`, so the SVG
 // title would never be announced even if the SVG weren't hidden.
-//
 // The dead `<title>` elements were removed (all six icon glyphs,
 // including the back/forward arrows). This test is now a regular
 // `it` regression spec: any future <title> inside an aria-hidden SVG
@@ -1066,22 +1022,17 @@ describe("TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs", () =>
 	});
 });
 
-//finding 10: Modal focus-management a11y coverage ──────────
-//
 // Modal.tsx (in components/common/) wraps Radix Dialog to provide a
-//consistent focus-managed dialog primitive.   finding 10 notes
 // that NO test covers Modal's focus-management behavior, the existing
 // ConfirmDialog + ErrorBoundary source-pattern tests above only check
 // for the presence of role attributes / aria-live strings in source
 // code; they never mount a Modal and assert what a screen-reader user
 // actually experiences.
-//
 // F12 owns Modal.tsx and is adding
 // `components/common/__tests__/Modal.test.tsx` with full behavioral
 // coverage (focus trap cycling, restore-focus, backdrop click, etc.).
 // To avoid duplicating F12's tests, this describe block covers only
 // the a11y-specific invariants that are most likely to regress:
-//
 //   1. The rendered dialog has `role="dialog"` (Radix sets this on the
 //      Content primitive).  NOTE: Radix Dialog v1.x no longer emits
 //      `aria-modal="true"`, the ARIA working group debated its
@@ -1094,7 +1045,6 @@ describe("TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs", () =>
 //      prop is provided (via aria-describedby pointing at
 //      DialogDescription).
 //   4. Escape key dismisses the dialog (the `onClose` prop is fired).
-//
 // These are a11y invariants, not general focus-trap behavior, they
 // complement (not duplicate) F12's Modal.test.tsx.
 describe("BG-R19 #10: Modal focus-management a11y invariants", () => {

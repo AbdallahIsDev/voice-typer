@@ -1,44 +1,3 @@
-/**
- * Regression tests: `useMicrophoneLevelMonitor` rAF loop pauses
- * on idle (no `mic_level` events for 500ms) and re-arms via `wake()`.
- *
- * Background
- * ----------
- * Before the fix: the rAF callback unconditionally re-scheduled the next
- * frame on EVERY gate-closed branch (hidden / not monitoring /
- * playing) "so the loop can react to gate flips without a remount".
- * When the Microphone page was mounted but the user wasn't actively
- * testing / monitoring (the common case, user navigates to the page
- * and reads / scrolls), the loop ticked at ~60 Hz doing 3 ref reads +
- * visibility check + a no-op reschedule, keeping the renderer's
- * compositing thread awake on battery-constrained laptops.
- *
- * After the fix: the loop adopts the bubble's `useAudioLevels`
- * wake-on-event pattern (`useAudioLevels.ts:286-305`):
- *   - The `mic_level` push handler updates `lastLevelEventAtRef.current`
- *     and calls `wakeRef.current?.()` on every event.
- *   - The rAF callback checks `performance.now() - lastLevelEventAtRef.current
- *     > IDLE_TIMEOUT_MS` (500ms). If idle, it returns WITHOUT
- *     scheduling the next frame, the loop pauses.
- *   - The next `mic_level` event re-arms via `wake()`.
- *
- * These tests verify:
- *   1. After mount, the loop starts (initial wake), `requestAnimationFrame`
- *      is called once.
- *   2. When `performance.now()` returns a time > 500ms after the last
- *      `mic_level` event, the loop pauses, `requestAnimationFrame` is
- *      NOT called again on the next tick.
- *   3. A `mic_level` event re-arms the loop, `requestAnimationFrame`
- *      is called again after the event.
- *
- * The test renders a Probe that mounts `useMicrophoneLevelMonitor`
- * with stubbed refs + a `meterRef` pointing at a real DOM tree
- * (`<div><div role="progressbar"><div /></div></div>`) so the
- * selector-based DOM write path is exercised. `requestAnimationFrame`
- * is spied on so we can count calls + fire callbacks synchronously.
- * `performance.now()` is stubbed to return a controllable value so the
- * idle threshold can be crossed deterministically.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode, RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -239,7 +198,6 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 		expect(fill?.style.transform).toContain("scaleX(0.5");
 		// The fill colour is LevelBar's static ``bg-primary`` class —
 		// the rAF loop must NOT write an inline ``backgroundColor``
-		// (the old per-tier colour ladder is gone).
 		expect(fill?.style.backgroundColor).toBe("");
 		// `levelRef` should also reflect the new value (the push
 		// handler mutates the ref).

@@ -1,12 +1,8 @@
 // types/ipc/history.ts
-//
 // History-domain IPC contracts: the data shape of a single history row,
 // the per-day stats aggregate, and the response-data shapes for the two
 // on-demand history endpoints (`get_history_count` and
 // `get_transcription_text`).
-//
-// Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file, pure structural refactor.
 
 // ── History data shapes (from Python history_db) ───────────────────
 
@@ -42,13 +38,11 @@ export interface TodayStats {
 }
 
 // ── Response data shapes for the on-demand history endpoints ──────
-//
 // ``HistoryCountData`` is the ``data`` field of the
 // ``history_count`` response (returned by ``get_history_count``);
 // ``TranscriptionTextData`` is the ``data`` field of the
 // ``transcription_text`` response (returned by
 // ``get_transcription_text``).
-//
 // The corresponding request interfaces live in ``./requests.ts``.
 
 export interface HistoryCountData {

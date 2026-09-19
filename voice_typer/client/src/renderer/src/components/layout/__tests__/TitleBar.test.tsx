@@ -1,57 +1,3 @@
-/**
- *  vitest suite, covers  for the TitleBar component.
- *
- * - : window-control icons render at `size-2.5` (10px), the native
- *   Windows glyph proportions, and use
- *   `text-(--text-primary) dark:text-white` (PURE #fff white in dark
- *   mode, where the theme presets would otherwise tint the glyphs
- *   off-white/gray via --text-primary → --foreground). All four
- *   glyphs are FILLED outline paths with NO stroke attribute, they
- *   are the exact outlines of Windows' own caption glyphs
- *   (`Segoe Fluent Icons`: ChromeClose E8BB, ChromeMinimize E921,
- *   ChromeMaximize E922, ChromeRestore E923) scaled to a 10px em, so
- *   every covered pixel renders full currentColor (no sub-pixel
- *   0.5px-stroke antialiasing wash).
- * - : the WHOLE title bar is FOCUS-AWARE: full brightness while the
- *   window is focused; while unfocused the bar CONTAINER drops to
- *   `opacity-60`, dimming every element (sidebar/back/forward/help +
- *   window controls) uniformly. Opacity (not a dim color) is
- *   theme-agnostic, it scales whatever colors the active theme
- *   resolves, so light/dark/custom themes are all safe and the
- *   pure-white glyph pins stay untouched. Driven by the DOM
- *   `focus`/`blur` events on `window` (no IPC; fires in both predecessor
- *   Chromium and the Tauri webviews).
- * - : the close button hover is PLATFORM-CONVENTION-DEPENDENT:
- *   Windows uses the native red (`hover:bg-[#e81123]` + `dark:`
- *   twins, red in EVERY theme), while Linux (GNOME/KDE) uses the same
- *   neutral hover as minimize/maximize, never red. The dedicated
- *   `IS_WIN-pinned` / `IS_LINUX-pinned` tests assert BOTH halves of
- *   the coupling: the UA→constant derivation AND the close-variant
- *   gate (`IS_WIN ? "close" : "default"`), using the constants from
- *   the same fresh module registry the loaded component saw.
- * - : the window-control GLYPHS are IDENTICAL on Windows and Linux —
- *   minimize = horizontal bar (`<rect>` at y=4.5), maximize/restore =
- *   outlined squares, close = X. The BUTTON differs: Windows uses
- *   square 46×36 hit targets with a transparent resting background;
- *   Linux (GNOME/Adwaita-style) uses CIRCULAR 28×28 buttons with an
- *   always-visible subtle circle (`bg-foreground/5`) that deepens on
- *   hover/focus/active. (The old Linux minimize filled-dot glyph was
- *   removed 2026-08-24, the icons no longer branch on IS_LINUX.)
- * - : aria-keyshortcuts="Control+B" on the sidebar toggle.
- * - : aria-keyshortcuts="?" on the help button.
- *
- * Platform note: `IS_WIN` / `IS_LINUX` / `IS_MAC` are module-load
- * constants derived from `navigator.userAgent` (hotkey-utils.ts).
- * jsdom's DEFAULT UA is Linux, so the Windows assertions below stub a
- * Windows UA and re-import the module (same pattern as the macOS
- * block). The static `TitleBar` import used by the XA-1 block runs on
- * the jsdom Linux UA, which is fine, those assertions are
- * platform-neutral (focus rings, hover parity of non-window-control
- * buttons).
- *
- * The WindowBridge is stubbed so the component can mount in jsdom
- * without the predecessor preload present.
- */
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -113,18 +59,6 @@ interface LoadedTitleBar {
 	IS_MAC: boolean;
 }
 
-/**
- * Load a fresh TitleBar module with the given platform UA stubbed.
- * `IS_WIN` / `IS_LINUX` / `IS_MAC` are module-load constants computed
- * from `navigator.userAgent`, so the module cache must be wiped and
- * the component re-imported for the constants to re-evaluate.
- *
- * The returned object ALSO carries the platform constants, imported
- * from the same fresh registry (both imports run after the same
- * `vi.resetModules()` call), so tests can pin the rendered behavior
- * to the exact `IS_WIN` / `IS_LINUX` / `IS_MAC` values the loaded
- * component instance resolved.
- */
 async function loadTitleBarFor(ua: string): Promise<LoadedTitleBar> {
 	vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(ua);
 	vi.resetModules();
@@ -665,14 +599,12 @@ describe("TitleBar, Linux window controls (GNOME/KDE neutral close hover)", () =
 		);
 		const minBtn = screen.getByLabelText("Minimize");
 		// The minimize icon is the SAME sharp filled bar path on BOTH
-		// platforms (the old GNOME/Adwaita filled-dot glyph was removed,
 		// 2026-08-24). The circle vs square difference lives on the
 		// BUTTON, not the icon.
 		const bar = minBtn.querySelector("path");
 		expect(bar).toBeTruthy();
 		expect(bar?.getAttribute("d")).toBe("M0.00 5.00H10.00V6.00H0.00Z");
 		expect(bar?.getAttribute("d")).not.toContain("L");
-		// The old dot must NOT be present.
 		expect(minBtn.querySelector("circle")).toBeNull();
 		const svg = minBtn.querySelector("svg[aria-hidden='true']");
 		expect(svg?.getAttribute("class")).toContain("fill-current");
@@ -863,7 +795,6 @@ describe("TitleBar, XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 		);
 		const toggle = screen.getByLabelText("Toggle sidebar (Ctrl+B)");
 		const cls = toggle.className;
-		// Previously the toggle was the only TitleBar button missing
 		// rounded corners + a hover background. The fix brings it in
 		// line with its sibling back/forward/help buttons.
 		expect(cls).toContain("rounded");
@@ -945,7 +876,6 @@ describe("TitleBar, theme control (icon-only, moved from sidebar)", () => {
 			"Current theme: Light. Click to switch to Dark.",
 		);
 		expect(themeBtn).toBeTruthy();
-		// No visible text label, the span that used to say "Light",
 		// "Dark", or "System" is gone.
 		expect(themeBtn.textContent).not.toMatch(/Light|Dark|System/);
 	});

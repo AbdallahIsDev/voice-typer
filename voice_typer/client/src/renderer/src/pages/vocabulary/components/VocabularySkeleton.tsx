@@ -1,5 +1,4 @@
 // Vocabulary page loading skeleton (full page).
-//
 // Mirrors the loaded Vocabulary layout (`pages/Vocabulary.tsx`): page
 // shell → heading → CollectionToolbar (import/export/clear + sort
 // pills left, Add pill right) → ONE `overflow-clip rounded-xl

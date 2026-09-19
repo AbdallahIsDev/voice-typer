@@ -1,28 +1,3 @@
-/**
- * @vitest-environment node
- *
- *  regression test: `main.tsx` (and `bubble-main.tsx`) MUST
- * call `installGlobalErrorHandlers()` BEFORE `ReactDOM.createRoot().render()`.
- *
- * The global error / `unhandledrejection` handlers in
- * `globalErrorHandler.ts` are the only safety net for async errors
- * that escape React's `ErrorBoundary` (e.g. unhandled promise
- * rejections in `useEffect`, top-level `await` failures in dynamically
- * imported modules). Without the install call, these errors are
- * SILENTLY swallowed, the exact regression the module was written to
- * prevent. `ErrorBoundary` only catches render-phase errors; it
- * cannot catch async ones.
- *
- * This test string-matches the source so the regression cannot recur
- * even if someone refactors the import statement or accidentally
- * removes the call. Reading the source (rather than importing the
- * module) is intentional: importing `main.tsx` would execute the
- * render pipeline and side-effects (React mount, `window.bubble`
- * access, etc.) which we don't want in a unit test.
- *
- * The test runs in a `node` environment (no jsdom) because it only
- * does `fs.readFileSync` + string assertions, no DOM access needed.
- */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";

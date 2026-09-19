@@ -1,12 +1,3 @@
-/**
- * Tests for the useSoundFeedback hook.
- *
- *  (sound consolidation): verifies that the hook delegates cue
- * playback to the canonical implementation in ``@/lib/sound-manager`` —
- * NOT to a parallel implementation inside the hook file. This is the
- * regression guard that prevents the dead-code duplication from
- * sneaking back in.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

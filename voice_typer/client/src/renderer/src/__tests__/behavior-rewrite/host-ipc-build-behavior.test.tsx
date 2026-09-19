@@ -1,90 +1,3 @@
-/**
- *  Behavioral tests for renderer TS source files plus project-metadata
- * invariants that used to live in string-pattern Python tests.
- *
- * Sections 1–4 cover renderer TS/TSX source files (export-handler
- * wiring, restart-request removal, non-null-assertion absence).
- *
- * Sections 5–12 extend the rewrite to cover the remaining
- * string-pattern tests in the same Python file: build-config /
- * project-metadata invariants read via Node.js `fs` (package.json,
- * voice-typer.spec, pyproject.toml,
- * .github/workflows/build.yml, CHANGELOG.md, standard project files,
- * generate-icons.mjs, voice_typer/__init__.py).  These are not
- * React-component behavior tests, they are project-metadata
- * invariants, but they CAN run in vitest (Node.js `fs` is available
- * even under the jsdom environment), so porting them keeps all
- * coverage in one runner and removes the Python↔Node split for
- * config-string invariants.
- *
- * PORT candidates covered here (full list):
- *
- * Renderer TS source (Sections 1–4):
- *   - test_window_bridge_type_includes_export_methods
- *   - test_settings_has_export_buttons
- *   - TestRestartRequestRemoved::test_restart_request_not_in_types
- *   - TestTypeScriptNonNullAssertions::test_history_no_non_null_assertion_on_path
- *   - TestTypeScriptNonNullAssertions::test_vocabulary_no_non_null_assertion_on_path
- *   - TestTypeScriptNonNullAssertions::test_main_tsx_no_non_null_assertion
- *   - TestTypeScriptNonNullAssertions::test_bubble_main_tsx_no_non_null_assertion
- *
- * package.json metadata (Section 5):
- *   - TestTypeScriptWebConfigClean::test_package_json_typecheck_includes_web_config
- *   - TestTypeScriptWebConfigClean::test_typecheck_web_script_exists
- *   - TestPackageJsonDeclaresKeywords::test_has_keywords
- *   - TestPackageJsonDeclaresKeywords::test_has_engines
- *   - TestPackageJsonDropsUndeclaredBiome::test_no_biome_scripts
- *   - TestPackageJsonDropsUndeclaredBiome::test_python_dev_script_cross_platform
- *   - TestPackageJsonDropsUndeclaredBiome::test_package_json_is_valid_json
- *
- * generate-icons.mjs (Section 6):
- *   - TestIconsScriptPutsProjectVenvFirst::test_project_venv_is_first_candidate
- *   - TestIconsScriptPutsProjectVenvFirst::test_legacy_venv_path_is_last_resort
- *   - TestIconScriptFallsBackAcrossPythonPaths::test_script_has_fallback_chain
- *   - TestIconScriptRenamesRootToClientDir::test_no_confusing_root_variable
- *
- * voice-typer.spec (Section 8):
- *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_parakeet_engine
- *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_qwen_engine
- *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_transformers
- *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_ctranslate2
- *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_huggingface_hub
- *   - TestPyinstallerSpecExcludesTkinter::test_tkinter_in_excludes
- *
- * pyproject.toml (Section 9):
- *   - TestPyprojectHasStandardMetadataFields::test_has_license
- *   - TestPyprojectHasStandardMetadataFields::test_has_classifiers
- *   - TestPyprojectHasStandardMetadataFields::test_has_project_urls
- *   - TestPyprojectHasStandardMetadataFields::test_has_readme
- *   - TestNoBlanketResourceWarningFilter::test_no_blanket_resource_warning_filter
- *   - TestEntryPointImportable::test_pyproject_entry_point_points_to_ipc_server
- *
- * .github/workflows/build.yml (Section 10):
- *   - TestCiRunsRuffCoverageAndPipAudit::test_ci_has_ruff
- *   - TestCiRunsRuffCoverageAndPipAudit::test_ci_has_coverage
- *   - TestCiRunsRuffCoverageAndPipAudit::test_ci_has_pip_audit
- *   - TestCiRunsRuffCoverageAndPipAudit::test_ci_tests_multiple_python_versions
- *   - TestCiVerifiesVersionSync::test_ci_has_version_check_job
- *   - TestCiVerifiesVersionSync::test_ci_verifies_tag_matches_installer
- *
- * Standard project files (Section 11):
- *   - TestStandardProjectFilesExist::test_license_exists
- *   - TestStandardProjectFilesExist::test_contributing_exists
- *   - TestStandardProjectFilesExist::test_security_exists
- *   - TestStandardProjectFilesExist::test_editorconfig_exists
- *   - TestStandardProjectFilesExist::test_issue_templates_exist
- *   - TestStandardProjectFilesExist::test_pr_template_exists
- *
- * Version metadata + changelog (Section 12):
- *   - TestVersionReadsFromPackageMetadata::test_init_py_uses_importlib
- *   - TestVersionReadsFromPackageMetadata::test_sync_versions_script_exists
- *   - TestChangelogHasCurrentTestCount::test_changelog_has_current_count
- *
- * Behavior that needs a real Python runner (importing Python modules or
- * introspecting Python source via `inspect.getsource`) stays in the
- * pytest suite, that is out of scope for a TS-string test.
- */
-
 import {
 	cleanup,
 	fireEvent,
@@ -95,24 +8,12 @@ import {
 import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-/**
- * Page-level render helper. Pages like Settings mount Radix Tooltip
- * (via SettingRow / ui primitives); the real App shell wraps everything
- * in a TooltipProvider (App.tsx), so tests mounting pages directly must
- * provide one too, otherwise every Tooltip render throws "Tooltip must
- * be used within TooltipProvider" and the page mounts empty.
- */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PythonRequest, WindowBridge } from "@/types/ipc";
 
-// ────────────────────────────────────────────────────────────────────
-// Section 1: Type-level guards for `types/ipc.ts`
-// ────────────────────────────────────────────────────────────────────
-//
-// `types/ipc.ts` exports ONLY TypeScript types/interfaces, there are
 // no runtime values, so the assertions here are COMPILE-TIME checks
 // bound to runtime `const`s. If a future contributor removes
 // `exportTemplates`/`exportConfig` from `WindowBridge` or re-adds the
@@ -132,7 +33,6 @@ const _hasExportConfig: HasExportConfig = true;
 // `RestartRequest` would have `type: "restart"`, it must NOT be a
 // member of `PythonRequest`. The conditional resolves to `true` only
 // if `{ type: "restart" }` is assignable to `PythonRequest` (i.e. the
-// dead type was re-added). Today the union has been pruned, so it
 // resolves to `false` and the assignment of `false` is legal.
 type WouldBeRestartRequest = { type: "restart" };
 type RestartGuard = WouldBeRestartRequest extends PythonRequest ? true : false;
@@ -140,7 +40,6 @@ const _noRestartRequest: RestartGuard = false;
 
 describe("WindowBridge type includes export methods (rewrite of test_window_bridge_type_includes_export_methods)", () => {
 	it("WindowBridge declares exportTemplates", () => {
-		// Compile-time guard above; runtime assertion is a tautology
 		// that ensures the test actually runs and shows up in CI.
 		expect(_hasExportTemplates).toBe(true);
 	});
@@ -152,16 +51,12 @@ describe("WindowBridge type includes export methods (rewrite of test_window_brid
 
 describe("RestartRequest dead-type removal (rewrite of test_restart_request_not_in_types)", () => {
 	it("PythonRequest union does NOT include a `restart` variant", () => {
-		// Compile-time guard above; if `RestartRequest` is re-added
 		// with `type: "restart"`, the file fails to compile.
 		expect(_noRestartRequest).toBe(false);
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 2-4: Shared mocks for renderer component tests
-// ────────────────────────────────────────────────────────────────────
-//
 // PrivacySettingsSection, History, and Vocabulary all use the
 // `usePython` hook (for `call`) and the `sonner` toast library. We
 // hoist a single `mockCall` + `mockShowSnack` + `toastSuccess` and
@@ -336,17 +231,13 @@ function makeConfig(
 
 const alwaysVisible = () => true;
 
-// ────────────────────────────────────────────────────────────────────
 // Section 2: PrivacySettingsSection export buttons
-// ────────────────────────────────────────────────────────────────────
-//
 // The Python test asserted on substring presence inside
 // `PrivacySettingsSection.tsx` for the i18n keys
 // `t("settings.privacy.exportTemplates")`,
 // `t("settings.privacy.exportConfig")`, and
 // `t("settings.privacy.exportAllDataLabel")`. These pass even when
 // the button is broken, when the wrong callback is bound, or when the
-// button silently no-ops. The vitest version below mounts the real
 // PrivacySettingsSection and asserts:
 //   1. The "Export all data (GDPR Art. 15/20)" label is rendered.
 //   2. The "Export Templates" and "Export Config" buttons are present
@@ -451,10 +342,7 @@ describe("PrivacySettingsSection export buttons (rewrite of test_settings_has_ex
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 3: History.tsx + Vocabulary.tsx null-safe path handling
-// ────────────────────────────────────────────────────────────────────
-//
 // The Python tests asserted on the ABSENCE of `result.path!` (non-null
 // assertion) in the export flows. These pass even when the export
 // silently crashes on an undefined path. The vitest version below
@@ -609,10 +497,7 @@ describe("Vocabulary export null-safe path handling (rewrite of test_vocabulary_
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 4: main.tsx + bubble-main.tsx null-check behavior
-// ────────────────────────────────────────────────────────────────────
-//
 // The Python tests asserted on the ABSENCE of `getElementById('root')!`
 // (non-null assertion) and the PRESENCE of `if (!rootEl)` in the
 // bootstrap files. These pass even when the null check is dead code or
@@ -620,7 +505,6 @@ describe("Vocabulary export null-safe path handling (rewrite of test_vocabulary_
 // behavior: when the root element is missing, importing the bootstrap
 // module throws a CLEAR error message (proving the explicit null check
 // is in place and functional).
-//
 // We use `vi.doMock` (NOT top-level `vi.mock`) for react-dom/client +
 // App + Bubble + ErrorBoundary so the mocks only apply to these
 // bootstrap-import tests, the RTL-based component tests above keep
@@ -743,15 +627,11 @@ describe("bubble-main.tsx null-check (rewrite of test_bubble_main_tsx_no_non_nul
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 5: package.json metadata
-// ────────────────────────────────────────────────────────────────────
-//
 // Ports:
 //   - TestTypeScriptWebConfigClean (2 tests)
 //   - TestPackageJsonDeclaresKeywords (2 tests)
 //   - TestPackageJsonDropsUndeclaredBiome (3 tests)
-//
 // These read `voice_typer/client/package.json` and assert on the
 // parsed JSON shape.  Vitest can read+parse JSON natively; no jsdom
 // or mocked IPC required.
@@ -826,15 +706,11 @@ describe("package.json drops undeclared biome + cross-platform python:dev (rewri
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 6: generate-icons.mjs
-// ────────────────────────────────────────────────────────────────────
-//
 // Ports:
 //   - TestIconsScriptPutsProjectVenvFirst (2 tests)
 //   - TestIconScriptFallsBackAcrossPythonPaths (1 test)
 //   - TestIconScriptRenamesRootToClientDir (1 test)
-//
 // These read `voice_typer/client/scripts/generate-icons.mjs` and
 // assert on substring presence + the candidates-array structure.
 
@@ -878,14 +754,10 @@ describe("generate-icons.mjs renames root → clientDir (rewrite of TestIconScri
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 8: voice-typer.spec (PyInstaller)
-// ────────────────────────────────────────────────────────────────────
-//
 // Ports:
 //   - TestPyinstallerSpecHasAsrHiddenImports (5 tests)
 //   - TestPyinstallerSpecExcludesTkinter (1 test)
-//
 // Reads `scripts/build/voice-typer.spec` (PyInstaller spec) as plain
 // text and asserts on substring presence.
 
@@ -923,10 +795,7 @@ describe("voice-typer.spec excludes tkinter (rewrite of TestPyinstallerSpecExclu
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 9: pyproject.toml
-// ────────────────────────────────────────────────────────────────────
-//
 // Ports:
 //   - TestPyprojectHasStandardMetadataFields (4 tests)
 //   - TestNoBlanketResourceWarningFilter (1 test)
@@ -978,10 +847,7 @@ describe("pyproject.toml entry-point points to ipc_server:main (rewrite of test_
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 10: .github/workflows/build.yml
-// ────────────────────────────────────────────────────────────────────
-//
 // Ports:
 //   - TestCiRunsRuffCoverageAndPipAudit (4 tests)
 //   - TestCiVerifiesVersionSync (2 tests)
@@ -1024,7 +890,6 @@ describe("CI verifies version sync (rewrite of TestCiVerifiesVersionSync)", () =
 	});
 
 	it("version-check job runs sync_versions.py --check", () => {
-		// The old `MyAppVersion` / `$installerVersion` NSIS tokens are
 		// gone with the retired builder config. The current CI gate is
 		// `python scripts/build/sync_versions.py --check` inside the
 		// `version-check` job (see .github/workflows/build.yml).
@@ -1034,13 +899,9 @@ describe("CI verifies version sync (rewrite of TestCiVerifiesVersionSync)", () =
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 11: Standard project files
-// ────────────────────────────────────────────────────────────────────
-//
 // Ports:
 //   - TestStandardProjectFilesExist (6 tests)
-//
 // Pure file-existence checks; vitest uses Node.js `fs.existsSync`.
 
 describe("standard project files exist (rewrite of TestStandardProjectFilesExist)", () => {
@@ -1080,10 +941,7 @@ describe("standard project files exist (rewrite of TestStandardProjectFilesExist
 	});
 });
 
-// ────────────────────────────────────────────────────────────────────
 // Section 12: Version metadata + changelog
-// ────────────────────────────────────────────────────────────────────
-//
 // Ports:
 //   - TestVersionReadsFromPackageMetadata::test_init_py_uses_importlib
 //   - TestVersionReadsFromPackageMetadata::test_sync_versions_script_exists

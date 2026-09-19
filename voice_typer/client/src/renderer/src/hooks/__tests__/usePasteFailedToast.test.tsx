@@ -1,10 +1,3 @@
-/**
- * Tests for usePasteFailedToast (extracted from App.tsx, EO-28).
- *
- * Contract: subscribe to the backend ``paste_failed`` push event and
- * surface a sonner warning. With a ``recovery_path`` the toast carries
- * a "Copy path" action that writes the path to the clipboard.
- */
 import { renderHook } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

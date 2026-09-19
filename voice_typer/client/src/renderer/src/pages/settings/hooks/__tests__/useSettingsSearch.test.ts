@@ -1,18 +1,3 @@
-/**
- * Focused tests for `useSettingsSearch`, the extracted Settings search
- * derivations + label-based auto-switch hook.
- *
- * Pins the ONE-match-predicate contract: a label matches when the LABEL
- * contains the query (case-insensitive substring), and the SAME predicate
- * feeds the empty-banner sentinel, the cross-section result groups, and
- * the auto-switch. Also pins the memoized label universe: the
- * PrewarmAndUpdates row labels are folded into the Advanced page's set so
- * queries like "prewarm" route to the page where that component lives.
- *
- * The hook takes `query` / `activeSection` / `navigate` as plain params,
- * so these tests drive it directly via rerender, no store or routing
- * mocks required.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,7 +24,6 @@ describe("searchLabelMatches (the ONE shared match predicate)", () => {
 	});
 
 	it("does NOT match the superstring direction (query contains the label)", () => {
-		// The old split semantics navigated on q.includes(label); the
 		// unified strict semantic must not.
 		expect(searchLabelMatches("Theme", "the theme settings rows")).toBe(false);
 	});

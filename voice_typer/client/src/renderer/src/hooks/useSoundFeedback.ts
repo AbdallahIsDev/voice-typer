@@ -1,61 +1,10 @@
 /**
  * useSoundFeedback, App-level hook that plays start/stop recording cues.
- *
- *  (sound consolidation): previously this file contained a parallel
  * AudioContext / playSoundCue implementation that DUPLICATED the canonical
  * implementation in ``@/lib/sound-manager``. The duplicate was dead in
- * production in the sense that *tests* only exercised ``sound-manager.ts``,
- * while the *runtime* only exercised this file, so test runs and prod
- * ran different code. Strategy A: the hook now delegates every cue to the
- * canonical implementation in ``sound-manager.ts`` (which has the
- * HTMLAudioElement fallback, the gesture-listener resume, and the
- * retry-on-failed-init fix). The re-exports below preserve the public
- * surface for any external importer.
- *
- * SOUND-: previously the recording_started / recording_stopped
- * event subscriptions lived inside ``Home.tsx``, so the cue only played
- * when the user was on the Home page.  Moving the subscription to the
- * App root ensures the cue fires regardless of which page is currently
- * mounted (Settings, Microphone, Models, etc.) or whether the main
- * window is hidden to the tray.
- *
- * Cross-platform: uses the Web Audio API (OscillatorNode + GainNode)
- * which is provided by Chromium on every platform, no platform-specific
- * audio libraries required, no asset files needed.
- *
  * There is NO success/complete audio cue (C-SOUND-1). The only
- * dictation lifecycle sounds are ``start`` (hotkey press to begin
- * recording) and ``stop`` (hotkey press to end recording). Do not
- * reintroduce a success chime on ``transcription_final``.
- *
- * ── Deaf-accessibility visual mirror ──────────────────────────────
- *
- * The audio cues (``start`` / ``stop`` / ``error``) are useless to
- * deaf / hard-of-hearing users, the original analysis considered
- * sighted+hearing users only. When the App passes an ``onVisualCue``
- * callback, this hook ALSO invokes that callback per cue type so the
- * App can flash the status pill / title-bar / tray icon with a
- * distinct color pulse:
- *
- *   - ``start``    → green pulse   (recording started)
- *   - ``stop``     → red pulse     (recording stopped)
- *   - ``complete`` → blue pulse    (transcription finalized, ready to paste)
- *   - ``error``    → orange pulse  (backend / transcription error)
- *
  * ``complete`` remains a VISUAL-only cue (no audio); see C-SOUND-1.
- *
- * The actual visual rendering is owned by ``App.tsx`` (it owns the
- * status-pill / title-bar / tray-icon state). This hook's job is only
- * to expose the per-cue callback. The App decides whether to pass the
- * callback at all (typically gated on ``isVisualFeedbackEnabled()``
- * from ``@/lib/sound-manager`` so the visual mirror is opt-in via
- * Settings → Accessibility). The cue fires in addition to the audio
- * cue, NOT instead of it, sighted+hearing users who enable the visual
- * mirror for redundancy still hear the sound.
- *
  * No network calls (C-DATA-1): the ``onVisualCue`` callback is a
- * pure renderer-side callback invocation; the App's implementation is
- * responsible for keeping its visual rendering local.
  */
 import { useEffect } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
@@ -77,22 +26,6 @@ export { initAudioContext, isSoundFeedbackEnabled, playSoundCue };
 export type SoundCueType = "start" | "stop" | "complete" | "error";
 
 export interface UseSoundFeedbackOptions {
-	/**
-	 * Deaf-accessibility visual mirror. When provided, the hook
-	 * invokes this callback for every cue type (in addition to
-	 * playing the audio cue) so the App can render a distinct
-	 * color pulse per cue type.
-	 *
-	 * The App is the visual-rendering owner, this hook only
-	 * exposes the per-cue event. The App decides whether to pass
-	 * the callback at all (typically gated on
-	 * ``isVisualFeedbackEnabled()`` from ``@/lib/sound-manager``).
-	 *
-	 * The callback fires AFTER ``playSoundCue`` is called so the
-	 * audio cue is scheduled first (audio has higher latency to
-	 * the user's ear than the visual pulse has to the eye —
-	 * scheduling audio first minimises the perceived AV skew).
-	 */
 	onVisualCue?: (cueType: SoundCueType) => void;
 }
 
@@ -100,13 +33,6 @@ export interface UseSoundFeedbackOptions {
  * App-level hook that subscribes to recording_started / recording_stopped
  * / transcription_final / error events and plays the corresponding cue.
  * Mount this once at the App root so it stays active regardless of which
- * page is currently shown.
- *
- * : also subscribes to ``error`` events so the user gets an
- * audible alert when the backend reports a recording/transcription
- * failure. The error cue is a short low buzz (see ``sound-manager.ts``).
- *
- * ``transcription_final`` still fires the visual ``complete`` cue
  * (deaf-accessibility mirror) but NEVER an audio cue — C-SOUND-1.
  */
 export function useSoundFeedback(options?: UseSoundFeedbackOptions): void {
@@ -117,8 +43,6 @@ export function useSoundFeedback(options?: UseSoundFeedbackOptions): void {
 	// event handler invocation.)
 	const onVisualCue = options?.onVisualCue;
 	//gate AudioContext construction on the enabled flag.
-	//
-	// Previously this effect called ``initAudioContext()`` unconditionally
 	// on App mount, so the AudioContext was constructed and (after first
 	// user gesture) transitioned to "running" state even when the user
 	// had ``sound_feedback_enabled=false`` in config. The ``playSoundCue``
@@ -126,7 +50,6 @@ export function useSoundFeedback(options?: UseSoundFeedbackOptions): void {
 	// creation but did NOT close the already-alive AudioContext. Each
 	// AudioContext in "running" state holds the audio output device open
 	// and runs an internal audio-thread.
-	//
 	// The fix:
 	//   - On mount: only call ``initAudioContext()`` if sound feedback is
 	//     currently enabled. If disabled, the AudioContext is never
@@ -156,7 +79,6 @@ export function useSoundFeedback(options?: UseSoundFeedbackOptions): void {
 	// every config write (Settings → Recording's toggle, config
 	// import, CLI tool). When the payload carries
 	// ``sound_feedback_enabled``, close / re-init the AudioContext
-	// right away, previously toggling the feature off at runtime
 	// kept the already-alive AudioContext (and its audio thread)
 	// held until the next app restart (a documented limitation,
 	// now fixed). Reading the flag from the PAYLOAD (not

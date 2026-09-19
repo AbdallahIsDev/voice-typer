@@ -1,29 +1,3 @@
-/**
- * Bubble overlay package, `BubbleStopButton`.
- *
- * The stop '■' / retry '↻' affordance shown at the trailing edge of
- * the pill. In `recording` mode it is always rendered (independent of
- * `always_visible`) and clicking it sends `bubble:toggle-dictation`,
- * which the main process forwards to the Python `toggle_dictation`
- * command, the same channel `BubbleMicButton` uses. When recording,
- * `toggle_dictation` stops the recording and triggers transcription.
- *
- * This is the highest-impact stop affordance: previously the only way
- * to stop a recording was the global hotkey, which is invisible to a
- * user who has forgotten the binding. The pill's `focusable: false`
- * BrowserWindow means a keyboard handler is impossible, so a visible
- * mouse-only button is the only viable in-bubble affordance.
- *
- * In `error` mode the same component is rendered with a refresh icon
- * and a different aria-label so the user can retry the failed
- * transcription. The i18n keys fall back to English when the
- * dictionaries have not yet been updated (`tf` helper).
- *
- * A11Y: same `focusable: false` trade-off as `BubbleDismissButton` —
- * the button is mouse-only in the shipped app; `aria-label` and
- * `title` are populated so AT users navigating via screen-reader
- * cursor can still discover it.
- */
 import { BUBBLE_BUTTON_CLASS } from "./constants";
 import { tf } from "./helpers";
 

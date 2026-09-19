@@ -1,24 +1,3 @@
-/**
- * Skeleton loading placeholder for settings sections.
- *
- * BACKLOG-008: Settings sections previously returned `null` when config
- * was null (still loading from backend). This caused a visual flash where
- * the section content popped in. The skeleton provides a visible loading
- * state that matches the section's layout.
- *
- * The skeleton replaces a whole `<SettingsSection>` (sections return it
- * instead of their content while config loads), so it renders the same
- * two-part shape: the `flex flex-col gap-4` section with its
- * heading block (h2 `text-lg` → h-7, description `text-sm` → h-5) and
- * the ONE `rounded-lg border-border/5 bg-(--bg-subtle) divide-y
- * divide-border/5` card of `px-4 py-2` rows (`items-start
- * justify-between gap-6`), each with a text-sm label + InfoTooltip dot
- * on the left and the row's control on the right. The control
- * placeholder is switch-shaped (`h-5 w-11`, ui/switch's real box)
- * because toggles are the dominant control; sections can pass
- * `control="select"` for rows whose real control is an h-8 select.
- */
-
 import { SwitchSkeleton } from "@/components/feedback/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { t } from "@/i18n/i18n";

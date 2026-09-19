@@ -1,16 +1,13 @@
 // Available-microphones list.
-//
 // ONE unified RadioGroup: the first row is "System Default" (value
 // maps to ``null``), followed by every reported device, INCLUDING the
 // currently-active one, rendered checked. Radix radio groups need the
 // active item present and checked so arrow-key navigation and the
 // checked visual work for the whole set; there are no per-row "Use"
 // buttons anymore, selection IS the radio.
-//
 // While a test is running the items carry a real ``disabled`` attribute
 // (keyboard + AT safe; CSS-only pointer blocking was a keyboard hole)
 // and rows dim via opacity.
-//
 // Falls back to an ``EmptyState`` (``MicOff01Icon``) when the backend
 // reports zero microphones.
 
@@ -26,12 +23,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { t } from "@/i18n/i18n";
 import type { MicrophoneDevice } from "@/types/config";
 
-/**
- * Sentinel RadioGroup value for the OS-default device, Radix radio
- * values are strings, but the backend's "system default" state is
- * ``config.microphone === null``, so the sentinel maps to ``null`` in
- * the selection handler.
- */
 export const SYSTEM_DEFAULT_MIC_VALUE = "__system_default__";
 
 export interface AvailableMicrophonesListProps {

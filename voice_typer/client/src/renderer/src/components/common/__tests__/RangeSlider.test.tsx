@@ -1,23 +1,3 @@
-/**
- *  (RangeSlider deferApply commit test).
- *
- * RangeSlider supports a `deferApply` prop that defers the real
- * `onChange` callback to a "commit" event. The implementation attaches
- * exactly two commit handlers (see JSDoc):
- *
- *   - `onPointerUp`, commits after a mouse/touch/pen drag.
- *   - `onBlur`     , commits after the user Tabs away from the slider
- *                     (covers keyboard-only arrow-key steps which never
- *                     produce a pointerup).
- *
- * Rather than drive Radix Slider's internal pointer-capture state
- * machine (which jsdom does not fully support, `hasPointerCapture` is
- * not implemented), we mock `@/components/ui/slider` with a thin pass-
- * through that exposes the props RangeSlider passes to it. The mock
- * renders a single `<input type="range">` and forwards onValueChange
- * (mapped from the native `onChange`) so tests can drive it without
- * pulling in Radix's pointer-capture code path.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

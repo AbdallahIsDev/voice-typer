@@ -1,70 +1,8 @@
-/**
- * Aggregator for individual theme-preset modules.
- *
- * Lazy theme registry: the 10 non-default/non-custom preset
- * modules are loaded ON DEMAND via a dynamic ``import()`` registry
- * instead of being statically imported at module load. Only ``default``
- * and ``custom`` (the fallback pair, both are no-ops with empty
- * light/dark maps) remain statically imported so the renderer always
- * has a valid preset to fall back to without an async fetch.
- *
- * Each preset lives in its own file under ``./themes/`` so a caller can
- * dynamically ``import()`` only the theme it needs (rather than pulling
- * in the whole catalogue). Vite emits each preset as a SEPARATE async
- * chunk; the initial renderer bundle no longer contains the 10 preset
- * light/dark var maps (~20 KB of CSS strings).
- *
- * This module re-aggregates every preset back into the original shapes
- * consumed by ``themes.ts``:
- *
- * - ``THEME_PRESETS``, a ``Record<string, ThemePreset>`` keyed by id.
- * - ``THEMES``, the canonical ordered ``ThemePreset[]`` (matches the
- *   pre-refactor array literal in ``themes.ts`` exactly).
- *
- * ``themes.ts`` re-exports both, so existing consumers that import
- * from ``@/themes`` continue to work unchanged.
- *
- * ── lazy-load contract ─────────────────────────────────────
- *
- * ``THEMES`` is a 12-entry array whose entries carry FULL metadata
- * (``id`` / ``name`` / ``nameKey`` / ``swatch``) so the Settings
- * dropdown renders without a Suspense fallback. The 10 lazy entries
- * start with EMPTY ``light`` / ``dark`` maps; ``loadThemePreset(id)``
- * dynamically ``import()``s the preset file and POPULATES the entry
- * IN PLACE (mutating the same object reference so ``THEMES.find(...)``
- * and ``THEME_PRESETS[id]`` both see the populated vars). The
- * ``default`` and ``custom`` entries are full from the start (static
- * import).
- *
- * ``theme-bootstrap.ts`` calls ``await loadThemePreset(presetId)`` before
- * ``applyThemeVars(presetId, ...)`` so the bootstrap path applies the
- * correct CSS vars before React mounts (top-level await in the
- * bootstrap module guarantees ordering).
- *
- * Runtime callers of ``applyThemeVars`` (``useTheme.ts``,
- * ``useThemeSettings.ts``, ``useThemeSync.ts``) read
- * ``THEMES.find(t => t.id === presetId)`` which returns the (now
- * populated) entry. For the active preset this is always populated
- * (the bootstrap ran first). For presets the user SWITCHES to at
- * runtime, ``loadThemePreset`` is idempotent and cached, so the
- * caller can ``await loadThemePreset(newId)`` before
- * ``applyThemeVars(newId, ...)``. The bootstrap's background pre-fetch
- * (in ``theme-bootstrap.ts``) populates the cache for all presets
- * shortly after first paint so runtime switching works without
- * per-caller changes.
- *
- * The parity test (``themes/__tests__/parity.test.ts``) and the
- * status-tokens test (``themes/__tests__/status-tokens.test.ts``)
- * were updated to ``await loadThemePreset(id)`` for each lazy preset
- * before asserting light/dark var coverage (the source TODO called
- * this out).
- */
 import type { ThemePreset } from "../themes";
 import { customTheme } from "./custom";
 import { defaultTheme } from "./default";
 
 // ── Static metadata for the 10 lazy presets ───────────────────────────
-//
 // Each lazy preset's ``id`` / ``name`` / ``swatch`` is duplicated here
 // (the canonical source is the individual preset file) so the Settings
 // dropdown can render the full preset list WITHOUT loading any of the
@@ -72,7 +10,6 @@ import { defaultTheme } from "./default";
 // documented: the metadata is ~3 string fields per preset, while the
 // full preset (light + dark var maps) is ~60 fields per preset. Loading
 // 60 fields eagerly to avoid duplicating 3 is a bad trade.
-//
 // When a preset's ``name`` / ``swatch`` changes in its source file,
 // update the entry here too. The ``loadThemePreset`` function below
 // ignores the loaded module's ``name`` / ``swatch`` (it only copies
@@ -161,16 +98,6 @@ const LAZY_PRESETS: LazyPresetMetadata[] = [
 	},
 ];
 
-/**
- * Lazy-loader registry: maps preset id → ``() => Promise<Omit<ThemePreset,
- * "nameKey">>``. Each loader dynamically ``import()``s the preset file
- * and extracts the named export (e.g. ``amoledTheme``).
- *
- * Vite statically analyses each ``import("./amoled")`` call in the
- * ``LAZY_PRESETS`` array literal and emits a SEPARATE chunk per preset
- * file. The chunk is only fetched when ``loadThemePreset(id)`` is
- * actually called for that id.
- */
 export const lazyThemeLoaders: Record<
 	string,
 	() => Promise<Omit<ThemePreset, "nameKey">>
@@ -186,13 +113,11 @@ export const lazyThemeLoaders: Record<
 );
 
 // ── In-place population cache ─────────────────────────────────────────
-//
 // ``loadThemePreset`` mutates the ``THEMES`` entry in place so that
 // ``THEMES.find(t => t.id === id).light`` reflects the loaded vars
 // WITHOUT requiring callers to thread the loaded preset through. This
 // keeps ``applyThemeVars`` in ``themes.ts`` (which reads ``THEMES``
 // directly) unchanged.
-//
 // The ``loaded`` set guards against redundant re-imports: once a
 // preset is loaded, subsequent ``loadThemePreset(id)`` calls are
 // instant no-ops (the dynamic ``import()`` is cached by the module
@@ -200,17 +125,6 @@ export const lazyThemeLoaders: Record<
 // the module).
 const loadedLazyPresets = new Set<string>();
 
-/**
- * Dynamically ``import()`` the preset file for ``id`` and populate the
- * corresponding ``THEMES`` / ``THEME_PRESETS`` entry's ``light`` /
- * ``dark`` maps in place. Idempotent, safe to call multiple times.
- *
- * No-op for ``default`` and ``custom`` (already full from static
- * imports) and for unknown ids (defensive, logs a warning).
- *
- * @returns A Promise that resolves when the entry is populated (or
- *   immediately for ``default`` / ``custom`` / unknown ids).
- */
 export async function loadThemePreset(id: string): Promise<void> {
 	// ``default`` and ``custom`` are statically imported, always full.
 	if (id === "default" || id === "custom") return;
@@ -243,14 +157,6 @@ export async function loadThemePreset(id: string): Promise<void> {
 	}
 }
 
-/**
- * Dynamically load a preset by id and return the full ``ThemePreset``
- * (with ``nameKey`` injected). Use this when you need the preset object
- * itself (not just the side effect of populating ``THEMES``).
- *
- * Calls ``loadThemePreset(id)`` internally so the ``THEMES`` entry is
- * also populated as a side effect.
- */
 export async function getThemeByIdLazy(id: string): Promise<ThemePreset> {
 	await loadThemePreset(id);
 	const entry = THEMES.find((t) => t.id === id);
@@ -260,11 +166,9 @@ export async function getThemeByIdLazy(id: string): Promise<ThemePreset> {
 }
 
 // ── Build the THEMES array ────────────────────────────────────────────
-//
 // ``default`` and ``custom`` are full entries (static import). The 10
 // lazy presets start with EMPTY ``light`` / ``dark`` maps —
 // ``loadThemePreset(id)`` populates them in place on demand.
-//
 // The array order matches the pre-refactor literal in ``themes.ts``
 // exactly so the Settings dropdown, default fallback (``THEMES[0]``),
 // and any index-sensitive callers continue to behave identically.
@@ -285,15 +189,6 @@ function makeLazyThemeEntry(meta: LazyPresetMetadata): ThemePreset {
 	};
 }
 
-/**
- * raw preset list (no ``nameKey``, injected below). The ``default``
- * and ``custom`` entries are full (static import); the 10 lazy entries
- * are metadata-only (light/dark empty until ``loadThemePreset`` runs).
- *
- * The list below is the source of both ``THEME_PRESETS`` (record) and
- * ``THEMES`` (ordered array), keeping them in sync is enforced by
- * deriving both from the same constant.
- */
 // LAZY_PRESETS is a static literal whose length is known at compile
 // time (10 entries, indices 0-9). The indexed access is in-bounds by
 // construction; under noUncheckedIndexedAccess TypeScript widens
@@ -316,58 +211,17 @@ const RAW_THEMES: Omit<ThemePreset, "nameKey">[] = [
 	makeLazyThemeEntry(LAZY_PRESETS[9] as LazyPresetMetadata), // solarized
 ];
 
-/**
- * inject ``nameKey: `theme.preset.${id}` `` for every preset.
- * Consumers (``ThemeSettingsSection.tsx``) render the localised preset
- * name via ``t(preset.nameKey)``, falling back to the hardcoded English
- * ``name`` only when the locale file is missing the key. The parity
- * test in ``themes/__tests__/parity.test.ts`` asserts every preset
- * carries a ``nameKey`` matching this exact shape and that the key
- * exists in every locale file.
- */
 const THEMES_WITH_NAME_KEY: ThemePreset[] = RAW_THEMES.map((t) => ({
 	...t,
 	nameKey: `theme.preset.${t.id}`,
 }));
 
-/**
- * All built-in theme presets keyed by their ``id``.
- *
- * Use this when you need O(1) id → preset lookup. The order of keys is
- * not guaranteed, use ``THEMES`` if you need the canonical display
- * order.
- *
- * NOTE: for lazy presets, the entry's ``light`` / ``dark`` maps are
- * empty until ``loadThemePreset(id)`` is called. Callers that need
- * the full var maps should ``await loadThemePreset(id)`` first.
- */
 export const THEME_PRESETS: Record<string, ThemePreset> = Object.fromEntries(
 	THEMES_WITH_NAME_KEY.map((t) => [t.id, t]),
 );
 
-/**
- * Canonical ordered list of all built-in theme presets.
- *
- * Order matches the pre-refactor array literal in ``themes.ts`` so the
- * Settings dropdown, default fallback (``THEMES[0]``), and any other
- * index-sensitive callers continue to behave identically.
- *
- * NOTE: for lazy presets (all except ``default`` and ``custom``), the
- * entry's ``light`` / ``dark`` maps are empty until
- * ``loadThemePreset(id)`` is called. The bootstrap
- * (``theme-bootstrap.ts``) calls ``loadThemePreset`` for the active
- * preset before React mounts; the parity / status-tokens tests call
- * it for every lazy preset before asserting var coverage.
- */
 export const THEMES: ThemePreset[] = THEMES_WITH_NAME_KEY;
 
-/**
- * Fallback preset returned by ``getThemeById`` when the requested id is
- * unknown. The first preset in ``THEMES`` is treated as the canonical
- * default so the UI always has a valid preset to render. Typed as a
- * non-optional ``ThemePreset`` so callers don't have to guard against
- * undefined under `noUncheckedIndexedAccess`.
- */
 export const DEFAULT_THEME_PRESET: ThemePreset =
 	THEMES_WITH_NAME_KEY[0] as ThemePreset;
 

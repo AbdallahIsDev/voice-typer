@@ -1,14 +1,3 @@
-/**
- * Tests for useConnectionToasts, covers  (a): connection-state
- * toasts fire with a stable per-transition-type ``id`` so a backend
- * flap REPLACES the existing toast instead of stacking a fresh one.
- *
- * Strategy: mock ``sonner``'s ``toast`` object so each test can assert
- * on the ``id`` field of the options passed to ``toast.error`` /
- * ``toast.warning`` / ``toast.success``. The hook under test is a
- * pure effect, we drive it by re-rendering the harness with a new
- * ``connectionStatus`` prop and asserting the toast calls.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -142,7 +131,6 @@ describe("useConnectionToasts, ZU-33 stable toast ids", () => {
 			rerenderWith("connected");
 		});
 		expect(toastSpies.success).not.toHaveBeenCalled();
-		// Theme reload fires regardless (byte-identical to original).
 		expect(reloadTheme).toHaveBeenCalledTimes(1);
 	});
 

@@ -1,9 +1,3 @@
-/**
- * "Ayu" theme preset, warm amber and blue-grey tones with soft contrast.
- *
- * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
- * are consumed.
- */
 import type { ThemePreset } from "../themes";
 
 export const ayuTheme: Omit<ThemePreset, "nameKey"> = {

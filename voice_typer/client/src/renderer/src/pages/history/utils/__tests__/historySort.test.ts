@@ -1,5 +1,4 @@
 // Unit tests for the client-side history sort.
-//
 // Covers all four HistorySortOrder values (newest / oldest / az / za)
 // plus the parseHistorySortOrder runtime type guard. The locale-aware
 // A→Z / Z→A path is exercised against the default "en" locale.

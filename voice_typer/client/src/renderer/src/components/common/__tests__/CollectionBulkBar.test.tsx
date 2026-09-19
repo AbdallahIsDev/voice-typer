@@ -2,17 +2,7 @@
  * CollectionBulkBar, the shared floating bulk-action bar extracted
  * from the VocabBulkBar / TemplateBulkBar mirror (the pair differed
  * ONLY in i18n keys and data-testid).
- *
- * These tests pin the shell's contract for the Wave-5 page migration:
- *   - the selected count interpolates { count } through t()
- *   - delete / export / deselect actions wire to the page callbacks
- *     (the export dropdown forwards the picked format)
- *   - the byte-identical visual tokens survive the extraction: the
- *     sticky/centered floating treatment, the subtle surface, and the
  *     C-UI-10 gap-2 spacing on the bar itself
- *
- * Mock strategy mirrors ExportFormatMenu.test.tsx (hugeicons stubbed)
- * plus an identity t() so the shells' key props assert as raw keys.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -166,7 +156,7 @@ describe("CollectionBulkBar, visual tokens (byte-identical extraction)", () => {
 		setupBulkBar();
 		const deselect = screen.getByRole("button", { name: "test.deselectAll" });
 		expect(deselect.className).toContain(
-			"focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none",
+			"focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
 		);
 	});
 });

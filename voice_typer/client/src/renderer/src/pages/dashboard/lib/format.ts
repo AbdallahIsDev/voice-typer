@@ -1,10 +1,7 @@
-//pure dashboard display/format helpers extracted from
 // `pages/Dashboard.tsx`.
-//
 // These helpers render human-facing strings (day-of-week abbreviations
 // for chart tick labels). They have no React dependency, `t` resolves
 // the active i18n locale at call time.
-//
 // This module imports ONLY from `@/i18n/i18n`, in particular it does
 // NOT import from `./streaks`, so no import cycle can form between the
 // two dashboard lib modules (`./streaks` imports `dayAbbr` from here).

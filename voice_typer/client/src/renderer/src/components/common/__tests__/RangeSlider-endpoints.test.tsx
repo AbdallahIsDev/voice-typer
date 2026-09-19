@@ -1,13 +1,3 @@
-/**
- * Visible range endpoint labels on RangeSlider.
- *
- * Sighted users see only the current value next to the thumb, never
- * the range endpoints. Both ends of the track now render the min/max
- * numbers (numeric only, no unit suffix, the unit is already shown
- * next to the current value) in the shared muted small-text tokens.
- * They are decorative (the slider root exposes aria-valuemin/aria-
- * valuemax) so they carry aria-hidden.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

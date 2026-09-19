@@ -1,27 +1,3 @@
-/**
- *  regression tests: `useMicrophonePermission` cleanup clears
- * `status.onchange` + removes the `change` event listener.
- *
- * Background
- * ----------
- * Pre-: the cleanup only set `cancelled = true`, it did NOT
- * clear `status.onchange`. The `PermissionStatus` object is owned by
- * the `navigator.permissions` cache and lives for the document
- * lifetime, so the `onchange` closure (which captures
- * `setMicPermission` and `cancelled`) was held until the next mount
- * overwrote it, a bounded single-closure leak per unmount.
- *
- * Post-: the cleanup calls `status.removeEventListener("change",
- * handler)` AND sets `status.onchange = null`. The `cancelled` flag
- * pattern is preserved (guards setState after unmount).
- *
- * These tests verify:
- *   1. `status.onchange` is `null` after unmount.
- *   2. `status.removeEventListener` is called with the same handler
- *      that was registered via `addEventListener`.
- *   3. The `cancelled` flag pattern is preserved (no setState after
- *      unmount).
- */
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

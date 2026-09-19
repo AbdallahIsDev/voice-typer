@@ -1,20 +1,3 @@
-/**
- * DialogContent autofocus test, covers the fix for the long-standing
- * issue where Radix Dialog's default `onOpenAutoFocus` behavior focused
- * the FIRST focusable descendant. Because DialogContent renders the
- * visible X close button as its first child (for visual corner
- * placement), every Modal opened with keyboard focus on the X button —
- * SR users heard "Close button" first instead of the dialog title.
- *
- * The fix:
- * 1. `DialogContent` now wires `onOpenAutoFocus` to call
- *    `e.preventDefault()` (suppressing Radix's first-focusable scan)
- *    and then explicitly `focus()`-es the title element.
- * 2. `DialogTitle` now carries `tabIndex={-1}` so the heading is
- *    programmatically focusable (without joining the tab order).
- *
- * This test pins both halves of the contract.
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

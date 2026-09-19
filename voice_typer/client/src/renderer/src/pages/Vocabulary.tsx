@@ -1,27 +1,18 @@
 // Vocabulary page, thin shell.
-//
-// Split from the former monolithic ``pages/Vocabulary.tsx`` (1053 lines)
 // into:
 //   - ``./vocabulary/lib/``       , pure helpers (categories, transform, sort, importExport)
 //   - ``./vocabulary/hooks/``     , state + handlers (useVocabulary, useVocabularyEdit, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
 //   - ``./vocabulary/components/``, presentational (VocabListRow, VocabInlineForm, VocabDuplicateBanner)
-//
 // The Toolbar / BulkBar / ListHeader render through the SHARED
 // collection-page family (components/common/Collection*.tsx), the
 // page injects its i18n keys + drift-decision props (the replacement
-// for the former per-page VocabToolbar / VocabBulkBar /
-// VocabListHeader mirrors, which were byte-identical except for those
 // keys).
-//
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / inline-form wiring). All state + business logic lives in the
 // hooks; all rendering lives in the components.
-//
 // Add and Edit use the SAME inline-row pattern (VocabInlineForm): Add
 // renders the row above the table, Edit replaces the edited row in
-// place, the old edit modal was removed so there is one consistent
 // create/modify flow.
-//
 // The page is a flat two-column correction list: wrong word/phrase on
 // the left, corrected on the right. Categories are part of the
 // persisted data layer only, they are never surfaced in the UI.
@@ -114,7 +105,6 @@ export default function VocabularyPage() {
 	useT();
 
 	// The global title-bar search store owns the ONLY search input in
-	// the app (the per-page SearchField was removed). Its clearQuery
 	// backs the no-results empty-state "clear search" action.
 	const clearSearch = useGlobalSearch((s) => s.clearQuery);
 

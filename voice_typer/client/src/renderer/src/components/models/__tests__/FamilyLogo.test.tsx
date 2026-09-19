@@ -1,22 +1,3 @@
-/**
- * FamilyLogo unit tests.
- *
- * Coverage:
- *   1. Each model family maps to the right brand logo (whisper →
- *      OpenAI, qwen → Qwen, parakeet → NVIDIA), ONE file per family.
- *   2. Color model: qwen/nvidia bake in their brand colors (#082DFF /
- *      #80bc00) so they render identically in both themes, while the
- *      black OpenAI logo carries `dark:invert` so it flips to white in
- *      dark mode. No `currentColor`, an SVG loaded through <img> is a
- *      separate document, so `currentColor` resolves to black and
- *      never sees the host page's color (that bug made every logo
- *      render black in both themes).
- *   3. Unknown family ids render nothing (safe for test fixtures /
- *      future families).
- *   4. The parakeet family is branded "Nvidia" in the Models page
- *      family header (the model card beneath shows "Parakeet-v3-TDT"
- *      via the backend catalog's display_name).
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 

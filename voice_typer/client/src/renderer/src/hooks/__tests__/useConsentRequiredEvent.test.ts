@@ -1,13 +1,3 @@
-/**
- * Tests for useConsentRequiredEvent (extracted from App.tsx).
- *
- * Contract: subscribe to the backend ``consent_required`` push event
- * and open the unified point-of-use consent gate, with a dictation
- * retry (Allow → ``toggle_dictation``) for the registry-derived
- * dictation-retry field set, and no retry for gates that have nothing
- * to re-run. Unknown fields and the HuggingFace provider/model shape
- * must NOT open the gate.
- */
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

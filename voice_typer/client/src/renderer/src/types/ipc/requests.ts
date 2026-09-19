@@ -1,35 +1,12 @@
-// types/ipc/requests.ts
-//
-// All Python-request interfaces + the `PythonRequest` discriminated
-// union. Sent via `window.python.call(...)`.
-//
-// Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file, pure structural refactor.
-//
-// The response-data shapes for `get_history_count` and
-// `get_transcription_text` live in `./history.ts` (alongside the other
-// history-domain types).
-
-// ── Request messages (sent via window.python.call) ────────────────
-
 export interface GetConfigRequest {
 	type: "get_config";
 }
 
-// ``set_config`` is the primary config-update RPC. The renderer uses
-// it directly via ``call('set_config', diff)`` from a dozen call sites
-// (useSettingsConfig, useModelConfig, useTheme, useGlobalKeyboardShortcuts,
-// Onboarding, useMicrophoneTest, useMicrophoneData, …). Declared here
-// so the strict ``call()`` overload in ``usePython`` can validate the
-// diff at the type level.
 export interface SetConfigRequest {
 	type: "set_config";
 	data: Record<string, unknown>;
 }
 
-// Connection-readiness probe used by ``useConnection`` and the
-// ``usePython`` error-envelope tests. Returns
-// ``{ type: "status", data: { connected: boolean, … } }``. No payload.
 export interface SetTrayLocaleRequest {
 	type: "set_tray_locale";
 	data: { locale: string; labels: Record<string, string> };
@@ -43,43 +20,15 @@ export interface OnboardingCheckPermissionsRequest {
 	type: "onboarding_check_permissions";
 }
 
-// macOS troubleshooting (finding #127 part b): clear a stale
-// Accessibility TCC entry + re-open System Settings. Invoked by the
-// Settings → Troubleshooting "Reset Accessibility Permission" button
-// (macOS only). The backend runs `tccutil reset Accessibility
-// <bundle-id>` with the bundle ID resolved at runtime, then re-opens
-// System Settings. Resolves to
-// `{ ok: boolean, command: string | null, error: string | null }`.
 export interface ResetMacosAccessibilityRequest {
 	type: "reset_macos_accessibility";
 }
 
-// Linux troubleshooting (finding #127 part b): clear a stale polkit
-// authorization so the next "Grant permission" re-prompts. Invoked by
-// the Settings → Troubleshooting "Reset Linux Permission" button
-// (Linux only). The backend restarts the polkit daemon via pkexec
-// (pkaction enumerates the Voice Typer actions, pkcheck verifies the
-// post-reset state). Resolves to
-// `{ ok: boolean, command: string | null, error: string | null,
-//    actions: string[], checks: Record<string, string> }`.
 export interface ResetLinuxPermissionsRequest {
 	type: "reset_linux_permissions";
 }
 
-// macOS accessibility-status probe (finding #919 part b, RE-ADDED
-// 2026-08-10): the Settings → Troubleshooting section invokes this on
-// macOS to surface the stale-grant `tccutil` reset command next to
-// the "Reset Accessibility Permission" button. The backend checks
-// `AXIsProcessTrusted()`; on the macOS and non-macOS paths the
-// response resolves to
-// `{ granted: boolean, platform: "macos" | "windows" | "linux" }`,
-// plus `reason: "check_failed"` when the probe itself errored, and —
-// on a CONFIRMED stale grant only, the proactive reset suggestion:
-// `{ suggest_reset: true, reset_command: string }` (the runtime
-// `tccutil reset Accessibility <bundle-id>` string; the key is
-// ABSENT when the bundle ID can't be resolved, with
 // `suggest_reset: false`). The renderer must treat missing
-// `suggest_reset` / `reset_command` as "no suggestion".
 export interface CheckAccessibilityRequest {
 	type: "check_accessibility";
 }
@@ -88,9 +37,6 @@ export interface GetStatusRequest {
 	type: "get_status";
 }
 
-// Microphone VU-meter monitor RPCs used by ``useMicrophoneTest``.
-// ``level_monitor_start`` begins a 10 Hz push of ``level_update``
-// events for the given mic; ``level_monitor_stop`` tears it down.
 export interface LevelMonitorStartRequest {
 	type: "level_monitor_start";
 	data: { mic_id: string };
@@ -100,19 +46,9 @@ export interface LevelMonitorStopRequest {
 	type: "level_monitor_stop";
 }
 
-// One-shot level read used to seed the VU meter before the first
-// ``microphone_test_complete`` event arrives. Returns
-// ``{ rms: number; peak: number }``.
 export interface MicrophoneTestGetLevelRequest {
 	type: "microphone_test_get_level";
 }
-
-//removed ``UpdateConfigRequest``.
-// The server command is ``set_config`` (not ``update_config``), and
-// the renderer uses untyped ``call<T>('set_config', data)`` directly
-//, there is no consumer of this type.  Keeping a mismatched type
-// (claiming ``type: 'update_config'``) gave a false impression of
-// type safety while not actually being enforced anywhere.
 
 export interface GetMicrophonesRequest {
 	type: "get_microphones";
@@ -121,16 +57,6 @@ export interface GetMicrophonesRequest {
 export interface ToggleDictationRequest {
 	type: "toggle_dictation";
 }
-
-//(fix): RestartRequest was defined with type 'restart' but
-// the server uses 'restart_app'. Removed the dead type, restart is
-// triggered from the tray menu via the main process (stopPython sends
-// quit_app), not from the renderer.
-//
-//confirmed that ``restart_app`` / ``quit_app`` are only
-// sent by the predecessor main process (tray menu / before-quit), never
-// by the renderer.  No ``RestartRequest`` type is needed in the
-// renderer's type union.
 
 export interface GetHistoryRequest {
 	type: "get_history";
@@ -165,18 +91,10 @@ export interface GetTodayStatsRequest {
 	type: "get_today_stats";
 }
 
-// dedicated ``get_history_count`` request, returns the TRUE
-// total transcription row count (uncapped, unlike ``get_history``'s
-// 200-row sample). Used by the Dashboard's "Total Dictations" stat
-// card so the count keeps growing past 200.
 export interface GetHistoryCountRequest {
 	type: "get_history_count";
 }
 
-// on-demand full-text fetch. The renderer calls this when the
-// user expands a History row past the 500-char ``text`` preview
-// returned by ``get_history``. Response shape:
-// ``{type: "transcription_text", data: {id: number, text: string}}``.
 export interface GetTranscriptionTextRequest {
 	type: "get_transcription_text";
 	data: { id: number };
@@ -191,40 +109,17 @@ export interface SaveVocabularyRequest {
 	data: Record<string, unknown>;
 }
 
-// Per-entry "Test this entry", applies the LIVE backend vocabulary
-// rules (VocabularyManager.apply_to_text) to a phrase. Resolves to
-// `{ input: string, output: string, applied: boolean }`.
 export interface TestVocabularyCorrectionRequest {
 	type: "test_vocabulary_correction";
 	data: { text: string };
 }
 
-// Per-correction usage snapshot, counts + last-trigger timestamps
-// per entry, plus per-day correction/dictation totals. Powers the
-// Vocabulary page's "used Nx / last triggered" and the Analytics
-// corrections-applied rate. Resolves to a `correction_usage` envelope
-// (see `voice_typer/server/correction_usage.py` for the schema).
 export interface GetCorrectionUsageRequest {
 	type: "get_correction_usage";
 }
 
-// ── Additional renderer-called commands ────────────────────────────
-//
-// Widened coverage for commands invoked from the renderer but not yet
-// modelled above. Each interface uses a permissive ``data?`` shape so
-// the typed ``PythonCall`` overload (see ``hooks/usePython.ts``) can
 // catch command-name typos at compile time without pinning a wire
-// shape that may drift. Tighten individual interfaces to bare
 // (no-data) or stricter ``data:`` shapes as the wire contracts are
-// verified against the Python ``_COMMAND_REGISTRY`` (out of lane for
-// this slice, the server-side enum lives outside this renderer
-// scope; see review.md for the Python-side plan).
-//
-// Commands surveyed via ``rg 'call<...>\("..."'`` across
-// ``src/renderer/src``. The parity test in
-// ``types/__tests__/ipc-requests-coverage.test.ts`` pins the count so
-// future contributors adding a new ``call('foo')`` site get a
-// compile-time nudge to add the matching interface here.
 
 export interface CancelModelDownloadRequest {
 	type: "cancel_model_download";
@@ -236,18 +131,8 @@ export interface ForceCancelTranscriptionRequest {
 	data?: Record<string, unknown>;
 }
 
-// 12 missing interfaces, commands that ARE registered in the
-// Python ``_COMMAND_REGISTRY`` (``server/ipc/registry.py``) AND in
-// the renderer allowlist (``src/main/allowed-commands.ts``) AND are
-// invoked from the renderer but were absent from the ``PythonRequest``
-// union. Each interface uses a permissive ``data?: Record<string,
-// unknown>`` shape (matching the existing widened entries above) so
-// the typed ``PythonCall`` overload in ``hooks/usePython.ts`` catches
 // command-name typos at compile time without pinning a wire shape
-// that may drift. Tighten individual interfaces to bare (no-data) or
 // stricter ``data:`` shapes as the wire contracts are verified
-// against the Python handler signatures (out of lane for this slice
-//, the Python-side enum lives outside this renderer scope).
 
 export interface GetDefaultsRequest {
 	type: "get_defaults";
@@ -294,17 +179,7 @@ export interface GetVolumeBackendStatusRequest {
 	data?: Record<string, unknown>;
 }
 
-// RESTORED 2026-08-14 verbatim from 5a319872 (REQUEST types never
-// actually changed): the About-page Cache Status card is a user-facing
-// product feature (plan §6.3 addendum), `get_prewarm_status` +
-// `open_prewarm_log` are back in the Python registry, the TS
-// `ALLOWED_COMMANDS` Set, and the Rust `allowed_commands()` literal.
-// `run_prewarm` was ALSO restored the same day (§6.3 addendum second
-// half) but re-implemented server-side: the Python handler no longer
-// spawns the removed standalone-prewarm subprocess, it re-runs the
-// worker's warm phase in-process (warm_imports_for_worker on a daemon
 // thread, see prewarm/status.run_prewarm_now). The wire shape is
-// unchanged from 5a319872: `{ type: "run_prewarm" }`.
 export interface RunPrewarmRequest {
 	type: "run_prewarm";
 	data?: Record<string, unknown>;
@@ -330,30 +205,9 @@ export interface AddTrustedEndpointRequest {
 	data?: Record<string, unknown>;
 }
 
-// Master plan §7.4, new IPC request `transcribe_offline`
-// (slim core → worker). The renderer invokes this to run an offline
-// transcription through the runtime-pack worker. The slim core
-// forwards the request to the worker over its dedicated WS hop; the
-// worker returns the result via the `transcribe_offline_result` PUSH
-// event (see `TranscribeOfflineResultEvent` in
-// `types/ipc/push_events.ts`) rather than as a synchronous
-// request/response (the worker may take seconds to minutes to
-// transcribe, so a synchronous call would time out).
-//
-// Registered in the Python `_COMMAND_REGISTRY` (`server/ipc/registry.py`)
-// + the TS `ALLOWED_COMMANDS` Set (`src/main/allowed-commands.ts`) +
-// the Rust `allowed_commands()` literal
 // (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`) in lockstep.
 // Pinned by `tests/test_event_types_parity.py`.
-//
 // Wire shape (mirrors `PACK_EVENT_TYPES` in
-// `voice_typer/server/service/pack.py`):
-//   `{ "type": "transcribe_offline",
-//      "data": { "audio_path": "<wav-path>",
-//                "sample_rate": <int>,
-//                "language": "<lang-code>|null" } }`.
-// Resolves to `{ "type": "ack", "data": { "queued": true } }` (the
-// actual transcription comes back via `transcribe_offline_result`).
 export interface TranscribeOfflineRequest {
 	type: "transcribe_offline";
 	data: {
@@ -363,38 +217,12 @@ export interface TranscribeOfflineRequest {
 	};
 }
 
-// Auto-update feature (docs/auto-update-feature.md): `check_offline_pack_update`
-//, the runtime-pack update check. The renderer's `useNetworkOnline`
-// hook fires it on the false → true `online` transition (and Settings
-// "Check now" buttons can invoke it via `triggerRecheck`). The Python
-// handler (`_handle_check_offline_pack_update` in `server/ipc/lifecycle.py`)
-// delegates to `update_check.handle_check_offline_pack_update_ipc`: fetches
 // the remote `pack-manifest.json` from GitHub Releases (C-DATA-1
-// category-2 allowed update check) and, if a newer pack exists,
-// triggers a consent-gated background download
 // (`config.offline_pack_consent` must be true, C-DATA-1 category-3
-// model-download consent).
-//
-// Registered in the Python `_COMMAND_REGISTRY` +
-// the TS `ALLOWED_COMMANDS` Set + the Rust `allowed_commands()`
-// literal in lockstep.
 export interface CheckPackUpdateRequest {
 	type: "check_offline_pack_update";
 	data?: Record<string, unknown>;
 }
-
-// ``GetDiskInfoRequest`` (phantom): the ``get_disk_info``
-// command was a member of this union AND the renderer's
-// ``useModelFolder`` hook probed it on mount, BUT it was never
-// registered in the Python ``_COMMAND_REGISTRY``
-// (``server/ipc/registry.py``) nor allowed through the renderer
-// allowlist (``src/main/allowed-commands.ts``). The probe in
-// ``useModelFolder.ts`` was therefore dead, it always threw and was
-// swallowed silently by a try/catch. The interface has been removed
-// and the dead probe code deleted from the hook. If a future
-// backend exposes ``get_disk_info``, re-add the interface here AND
-// add the matching ``ALLOWED_COMMANDS`` entry + Python handler
-// before re-introducing a renderer call site.
 
 export interface GetModelCatalogRequest {
 	type: "get_model_catalog";
@@ -430,17 +258,6 @@ export interface MicrophoneTestReadAudioRequest {
 	type: "microphone_test_read_audio";
 	data?: Record<string, unknown>;
 }
-
-// ``ModelsFolderSupportedRequest`` (phantom): the
-// ``models_folder_supported`` command was a member of this union but
-// was never registered in ``_COMMAND_REGISTRY`` nor allowed through
-// ``ALLOWED_COMMANDS``. The renderer's ``useModelFolder`` hook probed
-// it on mount to gate the "Open models folder" button's visibility —
-// the probe always failed silently, so the button was never shown.
-// Removed; the dead probe code in ``useModelFolder.ts`` is deleted
-// too. If a future backend exposes this, re-add the interface here
-// AND register the handler + allowlist entry before introducing a
-// renderer call site.
 
 export interface OnboardingApplyRequest {
 	type: "onboarding_apply";
@@ -497,19 +314,6 @@ export interface OnboardingStartRequest {
 	data?: Record<string, unknown>;
 }
 
-// ``OpenModelsFolderRequest`` (phantom): the
-// ``open_models_folder`` command was a member of this union but was
-// never registered in ``_COMMAND_REGISTRY`` nor allowed through
-// ``ALLOWED_COMMANDS``. The renderer's ``useModelFolder`` hook
-// exposed a ``handleOpenModelsFolder`` action that called it, but the
-// button invoking that action was gated behind the (always-failing)
-// ``models_folder_supported`` probe above, so the call never
-// executed in practice. Removed; the dead ``handleOpenModelsFolder``
-// body in ``useModelFolder.ts`` is deleted too. If a future backend
-// exposes ``open_models_folder``, re-add the interface here AND
-// register the handler + allowlist entry before introducing a
-// renderer call site.
-
 export interface PauseModelDownloadRequest {
 	type: "pause_model_download";
 	data?: Record<string, unknown>;
@@ -555,12 +359,8 @@ export type PythonRequest =
 	| SaveVocabularyRequest
 	| TestVocabularyCorrectionRequest
 	| GetCorrectionUsageRequest
-	// new endpoints, see GetHistoryCountRequest /
-	// GetTranscriptionTextRequest above for the rationale.
 	| GetHistoryCountRequest
 	| GetTranscriptionTextRequest
-	// Commonly-used commands that were missing from the union.
-	// See the individual interface declarations above for rationale.
 	| SetConfigRequest
 	| GetStatusRequest
 	| LevelMonitorStartRequest
@@ -572,14 +372,8 @@ export type PythonRequest =
 	| ResetMacosAccessibilityRequest
 	| ResetLinuxPermissionsRequest
 	| CheckAccessibilityRequest
-	// Additional renderer-called commands (permissive ``data?`` shape).
-	// See the individual interface declarations above for the survey
-	// methodology and the rationale for the permissive shape.
 	| CancelModelDownloadRequest
 	| ForceCancelTranscriptionRequest
-	// phantom ``GetDiskInfoRequest`` removed, never
-	// registered in ``_COMMAND_REGISTRY`` nor allowed through
-	// ``ALLOWED_COMMANDS``; the renderer's probe always failed.
 	| GetModelCatalogRequest
 	| GetModelStatusRequest
 	| GetPrewarmStatusRequest
@@ -588,8 +382,6 @@ export type PythonRequest =
 	| MicrophoneTestCancelRequest
 	| MicrophoneTestStopRequest
 	| MicrophoneTestReadAudioRequest
-	// phantom ``ModelsFolderSupportedRequest`` removed —
-	// same reason as ``GetDiskInfoRequest`` above.
 	| OnboardingApplyRequest
 	| OnboardingGetMicrophonesRequest
 	| OnboardingIsFirstRunRequest
@@ -601,11 +393,6 @@ export type PythonRequest =
 	| OnboardingSetBackendRequest
 	| OnboardingSkipRequest
 	| OnboardingStartRequest
-	// phantom ``OpenModelsFolderRequest`` removed —
-	// same reason as ``GetDiskInfoRequest`` above.
-	// RESTORED 2026-08-14: ``OpenPrewarmLogRequest`` (see the
-	// restoration note next to its interface above).
-	// auto-update feature, see `CheckPackUpdateRequest` above.
 	| CheckPackUpdateRequest
 	| OpenPrewarmLogRequest
 	| PauseModelDownloadRequest
@@ -614,10 +401,6 @@ export type PythonRequest =
 	| ResumeModelDownloadRequest
 	| SaveTemplatesRequest
 	| UndoLastRequest
-	// 12 missing interfaces added, commands that ARE in
-	// ``_COMMAND_REGISTRY`` + ``ALLOWED_COMMANDS`` AND are called
-	// from the renderer but were previously absent from this
-	// union. See the individual interface declarations above.
 	| GetDefaultsRequest
 	| DownloadModelRequest
 	| GetDownloadQueueRequest
@@ -630,48 +413,6 @@ export type PythonRequest =
 	| OnboardingGetModelOptionsRequest
 	| OnboardingGetHotkeyPresetsRequest
 	| AddTrustedEndpointRequest
-	// Master plan §7.4, `transcribe_offline` request (slim core →
 	// worker). See `TranscribeOfflineRequest` above for the wire
 	// shape + rationale. Pinned by `tests/test_event_types_parity.py`.
 	| TranscribeOfflineRequest;
-
-// ── Response data shapes ────────────────────────────────────────────────────────────────
-//
-//removed the dead ``ToggleDictationResult``,
-// ``ToggleFavoriteResult``, and ``SaveVocabularyResult`` interfaces.
-// They were only ever referenced by the now-removed ``ResponseData<T>``
-// mapped type (see the "Helper: map request type to its response data"
-// note below), which itself had zero consumers, ``usePython.call``
-// uses ``async <T = unknown>(type: string, ...)`` (generic over T with
-// default ``unknown``, NOT constrained to ``PythonRequest["type"]``),
-// so the conditional-types cascade never flowed into any call site.
-// Callers continue to pass explicit type arguments (e.g.
-// ``call<HistoryRecord[]>('get_history')``, ``call<MicrophoneDevice[]>(
-// 'get_microphones')``), which is the pattern actually used throughout
-// the renderer.  Keeping the dead types gave a false impression of
-// type safety while not actually being enforced anywhere.
-//
-//``RestartResult`` was previously
-// removed for the same reason, ``restart_app`` / ``quit_app`` are not
-// sent from the renderer (only the predecessor main process sends them),
-// and the server returns ``{type: "ack", data: {}}`` for these.
-
-// ── Helper: map request type to its response data ─────────────────
-//
-// removed the dead ``ResponseData<T extends
-// PythonRequest["type"]>`` mapped type.  The 26-line conditional-types
-// cascade (mapping each request type to its response-data shape) had
-// ZERO consumers, ``usePython.call`` is generic over ``<T = unknown>``
-// with no constraint on ``PythonRequest["type"]``, so the cascade
-// never flowed into any call site.  Callers continue to pass explicit
-// type arguments (e.g. ``call<VoiceTyperConfig>('get_config')``),
-// which is the pattern actually used throughout the renderer.
-//
-//``update_config`` and ``restart``
-// branches were already removed from this cascade in a prior cleanup
-// for the same reason, the server's actual commands are ``set_config``
-// and ``restart_app``, and the renderer uses untyped
-// ``call<T>('set_config', data)`` and never sends ``restart_app`` from
-// the renderer anyway.  ``set_config`` returns ``{type: "ack", data: {}}``
-// on success (or ``{type: "ack", data: {accepted: [...], rejected: [...]}}``
-// when some keys were silently dropped, see the server-side validator).

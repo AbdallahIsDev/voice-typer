@@ -1,39 +1,3 @@
-/**
- * : Accessibility screen-reader runtime tests for HotkeyPicker.
- *
- * Directive Section 5 ("Accessibility Screen-Reader Testing") notes that
- * no NVDA/VoiceOver runtime verification was performed, only source-
- * inspection tests for ARIA attributes existed. This file closes that gap
- * by using @testing-library/react's ARIA queries (`getByRole`,
- * `findByRole`, `queryByRole`), the SAME accessible-name computation
- * that screen readers use to traverse the DOM at runtime, to verify
- * that HotkeyPicker's live regions (role="alert", role="status"), button
- * labels, and dropdown menu items are actually announced to assistive
- * technology.
- *
- * Additionally, axe-core is run on the rendered component to catch WCAG
- * violations that the explicit ARIA queries might miss (e.g. duplicate
- * IDs, invalid ARIA attribute values, missing focusable elements). The
- * `color-contrast` rule is disabled because the test environment doesn't
- * load the full Tailwind stylesheet, so computed contrast values would
- * be meaningless.
- *
- * Coverage:
- *   - Initial render (not recording): button aria-labels, no alert,
- *     no status live region.
- *   - Recording state: button aria-label flips to "Cancel recording",
- *     role="status" live region appears with capture instructions.
- *   - Error state (HOTKEY-FULLMSG-001): role="alert" live region
- *     appears with the FULL attempted combo (e.g. "Shift+Z"), proving
- *     screen readers will announce the complete shortcut, not just the
- *     bare key.
- *   - Keyboard accessibility: record button is reachable via Tab;
- *     preset dropdown menu items have role="menuitem" and can be
- *     navigated with ArrowDown.
- *   - axe-core automated scan: zero WCAG violations across the three
- *     component states (idle / recording / error), excluding
- *     color-contrast.
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";

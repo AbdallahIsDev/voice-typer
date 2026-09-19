@@ -1,13 +1,10 @@
 // AudioSettingsSection, Audio Enhancement section of the Settings page.
-//
-// Extracted from src/renderer/src/pages/Settings.tsx. Renders the
 // "Audio Enhancement" SettingsSection: Microphone Quality (enable
 // Switch + audio preset Select), Voice activity filtering, Volume
 // Backend status, Auto Duck Volume, Duck Level, the custom filter
 // chain (High-Pass, Noise Suppression, Noise Gate, Equalizer,
 // Compressor, Limiter, Notch Filter), and a "Test microphone" row
 // linking to the Microphone page. Behaviour is identical to the
-// previous monolithic implementation, including the `volumeBackend`
 // status fetch (now done via this section's own `usePython` call so the
 // parent doesn't need to know about it).
 

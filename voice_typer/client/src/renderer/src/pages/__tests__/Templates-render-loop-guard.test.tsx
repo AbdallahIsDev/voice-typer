@@ -1,23 +1,3 @@
-/**
- * Regression guard for the page-level infinite render loop class of bug
- * that OOM'd a vitest worker during the axe-core scans (FATAL heap
- * OOM, whole suite died at ~356 files).
- *
- * Root cause (fixed in `pages/Templates.tsx` via the `callRef` mirror):
- * a test mock (or future code) that hands out a FRESH `call` identity
- * on every render re-fires any effect listing `call` in its deps, each
- * run re-fetches templates and stores fresh state → render → new `call`
- * → … → unbounded render loop until the heap is exhausted.
- *
- * The harness below (shared `renderLoopGuard` helper) drives the page
- * with the SAME worst-case mock shape, a NEW `call` per render, and
- * asserts the page still settles: the mount load fires EXACTLY once per
- * command and the committed render count stays bounded. If future code
- * puts an unstable value in an effect dep (or re-introduces `call`
- * directly), the load re-fires and/or the render count explodes and
- * this test fails fast, instead of the worker OOMing.
- */
-
 import {
 	type GuardCommand,
 	renderLoopGuard,

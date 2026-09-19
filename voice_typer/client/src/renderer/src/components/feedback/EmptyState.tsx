@@ -17,26 +17,9 @@ interface EmptyStateProps {
 	onAction?: () => void;
 	/** Optional, overrides the default Add01Icon for the action button */
 	actionIcon?: IconSvgElement;
-	/**
-	 * Optional ref forwarded to the action `<Button>`. Callers can use
-	 * this to programmatically focus the action (e.g.
-	 * ConnectionStatusScreen focuses the Retry button when the backend
-	 * disconnects) without resorting to a brittle
-	 * `document.querySelector` lookup. Only forwarded when both
-	 * `actionLabel` and `onAction` are provided.
-	 */
 	actionRef?: RefObject<HTMLButtonElement | null>;
 	/** Optional extra content below the description */
 	children?: ReactNode;
-	/**
-	 * Visual variant. ``"info"`` (default) renders the muted, neutral
-	 * placeholder used for "no items yet" states. ``"error"`` switches
-	 * the icon to ``--destructive`` and wraps the card in a destructive
-	 * tinted ring so failure states (e.g. "failed to load vocabulary")
-	 * are visually distinct from genuine empty states, without this,
-	 * a load failure looks identical to "you haven't added anything
-	 * yet", which sends the user down the wrong recovery path.
-	 */
 	variant?: EmptyStateVariant;
 }
 

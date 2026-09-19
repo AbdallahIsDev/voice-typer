@@ -1,6 +1,4 @@
 // Pure transforms between persisted + React-side template shapes.
-//
-// Extracted from the former ``pages/Templates.tsx`` module-level helpers
 // (toRows, rowsToTemplates, sortTemplateRows, parseImportedTemplates).
 // Kept side-effect-free so the storage / hook / component layers can
 // share one definition of "how to map between the backend shape and the
@@ -17,7 +15,6 @@ export function toRows(items: Template[]): TemplateRow[] {
 	return items.map((t, i) => {
 		const output = t.output ?? "";
 		//track WHICH variables are used (not just the count)
-		// so the UI can show them in a tooltip.  Previously only the
 		// count was displayed ("2v") with no way for the user to see
 		// which variables the template actually uses.
 		const usedVars = VARIABLES.filter((v) => output.includes(v));
@@ -41,7 +38,6 @@ export function toRows(items: Template[]): TemplateRow[] {
 // the `templatesRef` mirror (kept in sync by the effect below) instead
 // of from `loadTemplatesFromLocalStorage()`.  Reading from the ref
 // avoids two bugs:
-//   1. Stale-closure: the undo callback previously closed over the
 //      `tmpl.index` captured at delete time, but re-read from
 //      localStorage which may have been re-written by other
 //      add/edit/delete operations in the 6s undo window, so the
@@ -62,14 +58,6 @@ export function rowsToTemplates(rows: TemplateRow[]): Template[] {
 	}));
 }
 
-/**
- * Sort template rows client-side.  Mirrors the History.tsx pattern —
- * the backend returns templates in insertion order (oldest first),
- * so "newest" reverses that to surface recently-added templates.
- *
- * Uses ``getLocale()`` for the A→Z / Z→A collation so accented
- * characters sort correctly in French/Spanish/German etc.
- */
 export function sortTemplateRows(
 	rows: TemplateRow[],
 	order: TemplateSortOrder,
@@ -99,15 +87,6 @@ export function sortTemplateRows(
 	return sorted;
 }
 
-/**
- * Parse an imported file's text content into a Template[] array.
- * Accepts both a bare JSON array of {trigger, output, match_mode}
- * objects and the export shape ``{ templates: [...] }`` produced by
- * the Vocabulary / Templates export handlers (forward-compat).
- *
- * Throws on malformed JSON or non-array payload so the caller can
- * surface a toast.error with the parse failure reason.
- */
 export function parseImportedTemplates(text: string): Template[] {
 	const parsed = JSON.parse(text) as unknown;
 	const arr = Array.isArray(parsed)

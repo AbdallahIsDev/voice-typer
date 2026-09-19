@@ -1,37 +1,3 @@
-/**
- * W1-A4 / XA-5 feature-friction regression suite.
- *
- * Verifies the specific XA-5 fixes covered by this suite:
- *
- *   • XA-5-6, the Cancel-download button is wrapped in a
- *     ``ConfirmDialog`` with ``variant="destructive"``. A single
- *     stray click must NOT immediately invoke ``onCancel``, it must
- *     open the confirmation dialog, and only the dialog's "confirm"
- *     action triggers ``onCancel``.
- *   • XA-5-16, the ``models.download.oneAtATime`` key exists in ALL
- *     8 locale files; the ``ModelCardActions`` source no longer
- *     contains a hardcoded English-literal fallback (the catalogue
- *     is the single source of truth).
- *   • XA-5-7, the inline ``Retry`` button renders on the
- *     ``DownloadProgressBar`` when (error + onRetry) are both
- *     provided (already covered by the canonical DownloadProgressBar
- *     suite; re-asserted here from the W1-A4 perspective).
- *   • XA-5-12, the preset selector keeps the primary "improve your
- *     mic" control OUTSIDE any disclosure: the collapsed selector
- *     header (label + current selection) renders without expanding.
- *     Re-pointed at the LIVE Microphone-page surface
- *     (``PresetAccordionSelector``), the former dropdown variant
- *     (``AudioPresetSelector``) was production-dead and has been
- *     deleted (both live surfaces now share the preset data registry
- *     ``lib/utils/audioPresets.ts``).
- *
- * Tests run on LINUX (sandbox). They render real React components
- * (DownloadProgressBar, PresetAccordionSelector) and read the source
- * files + locale catalogues for the structural assertions that don't
- * warrant a full RTL mount (ModelCardActions source scan + locale
- * parity + the dead-component regression guard).
- */
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -75,7 +41,6 @@ vi.mock("@/components/feedback/InfoTooltip", () => ({
 	),
 }));
 
-// The former per-page VocabToolbar mirror was replaced by the shared
 // CollectionToolbar shell (the page injects its label keys); the XA-5-15
 // sort-in-toolbar contract now pins the shared shell wired with the
 // Vocabulary page's keys, exactly what pages/Vocabulary.tsx renders.
@@ -328,9 +293,7 @@ describe("XA-5-12, preset selector keeps the primary CTA outside any disclosure"
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 // W3-A6 / XA-5 friction-items continuation.
-//
 // Verifies the additional XA-5 items implemented in the follow-up batch:
 //   • XA-5-4, useFilterState persists values across re-mounts via
 //     sessionStorage.
@@ -350,9 +313,7 @@ describe("XA-5-12, preset selector keeps the primary CTA outside any disclosure"
 //     unit test).
 //   • XA-5-20, Import buttons carry a ``title`` attribute pointing
 //     at the importFormatHint i18n key.
-//
 // Tests run on LINUX (sandbox).
-// ─────────────────────────────────────────────────────────────────────
 
 describe("XA-5-4, useFilterState persists values across re-mounts", () => {
 	beforeEach(() => {
@@ -547,7 +508,6 @@ describe("XA-5-17, Models page computes an active-model summary", () => {
 			path.join(RENDERER_SRC_ROOT, "pages", "Models.tsx"),
 			"utf8",
 		);
-		// The banner was removed: the active model is already indicated by
 		// the selected card's button state, so the extra highlighted
 		// summary banner was redundant for every module. Pin its absence —
 		// a regression that re-adds it would reintroduce the duplication.
@@ -609,9 +569,7 @@ describe("XA-5 locale parity for the new keys", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────
 // Preset-surface consolidation regression guard.
-//
 // The 5-preset microphone-quality surface was forked three ways: two
 // live presentations (the Settings → Audio Select and the Microphone
 // page's PresetAccordionSelector) plus a production-DEAD dropdown
@@ -622,7 +580,6 @@ describe("XA-5 locale parity for the new keys", () => {
 // (lib/utils/audioPresets.ts). These guards pin that state: the file
 // stays gone, no non-test source references it, and the shared
 // registry is what the live surfaces consume.
-// ─────────────────────────────────────────────────────────────────────
 describe("dead preset dropdown stays deleted (one shared preset-data source)", () => {
 	const DEAD_COMPONENT_PATH = path.join(
 		RENDERER_SRC_ROOT,
@@ -683,8 +640,9 @@ describe("dead preset dropdown stays deleted (one shared preset-data source)", (
 		expect(settingsSrc).toMatch(
 			/import \{[^}]*\bAUDIO_PRESET_OPTIONS\b[^}]*\} from "@\/lib\/utils\/audioPresets"/,
 		);
+		// Accept LF or CRLF line endings (Windows working trees).
 		expect(micPageSrc).toMatch(
-			/import \{\n\tAUDIO_PRESET_OPTIONS,\n\ttype AudioPreset,\n\} from "@\/lib\/utils\/audioPresets"/,
+			/import \{\r?\n\tAUDIO_PRESET_OPTIONS,\r?\n\ttype AudioPreset,\r?\n\} from "@\/lib\/utils\/audioPresets"/,
 		);
 	});
 });

@@ -1,12 +1,8 @@
 // i18n infrastructure for Voice Typer.
-//
-// ──────────────────────────────────────────────────────────────────
-//this 745-LOC monolith has been split into a focused i18n/
 // package. This file is now a THIN RE-EXPORT so existing consumers
 // (which import from `@/i18n/i18n`) keep working without code changes.
 // New consumers can import directly from `@/i18n` (which resolves to
 // `./i18n/index.ts`).
-//
 // Module split:
 //   - locale.ts   , SUPPORTED_LOCALES, Locale type, LOCALE_LABELS,
 //                     getLocaleLabel, detectBrowserLocale
@@ -23,8 +19,6 @@
 //                     explicit init replaces module-load
 //                     side effects; auto-called on first import for
 //                     backwards compat)
-// ──────────────────────────────────────────────────────────────────
-//
 //Internationalization support.
 // Supported locales: Arabic (ar), German (de), English (en), Russian (ru), Spanish (es), French (fr),
 // Chinese/Mandarin (zh), Hindi (hi).
@@ -33,10 +27,8 @@
 //   2. Add the locale to SUPPORTED_LOCALES (see locale.ts)
 //   3. Register it via registerTranslations() (see store.ts), non-English
 //locales are dynamically imported via ensureLocaleLoaded() ().
-//
 // The t() function returns the translated string for a dot-separated key.
 // If the key is not found, it falls back to English, then returns the key itself.
-//
 //tChoice() provides ICU-style pluralization on top of t().
 //when no locale is saved in localStorage, the user's preferred
 // browser/OS language (navigator.languages) is matched against

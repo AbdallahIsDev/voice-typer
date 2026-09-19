@@ -1,18 +1,3 @@
-/**
- * ShareStatsDialog tests.
- *
- * Verifies:
- *   - The trigger is an icon-only button with the share aria-label.
- *   - Opening the dialog shows the preview + the three export actions
- *     (single-line "Copy to clipboard", "Save As" without ellipsis)
- *     and the four social share targets.
- *   - Download image success shows the "Saved to Downloads" toast with
- *     a "Show in folder" action that calls revealInFolder.
- *   - Copy success shows the "Copied to clipboard" toast.
- *   - Social share: copies the image, opens the platform composer URL,
- *     and toasts the "paste into the composer" instruction.
- *   - The trigger is disabled when the `disabled` prop is set.
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -278,7 +263,6 @@ describe("ShareStatsDialog", () => {
 		// The frame is sized by CSS aspect-ratio (the export's fixed
 		// 1200:630 shape), its height is correct from the first frame
 		// with no JS measurement, so the preview can never clip or
-		// leave dead space (Part E).
 		const previewFrame = dialog.querySelector(
 			".overflow-hidden.rounded-xl",
 		) as HTMLElement | null;
@@ -326,7 +310,6 @@ describe("ShareStatsDialog", () => {
 		await waitFor(() => {
 			expect(actions.copyImageToClipboard).toHaveBeenCalled();
 		});
-		// Regression: the URL previously omitted the `url` param
 		// (t.me/share/url?text=...), Telegram's web handler redirects
 		// to telegram.org instead of the share picker. The `url` param
 		// is required for the app/forward flow to open.

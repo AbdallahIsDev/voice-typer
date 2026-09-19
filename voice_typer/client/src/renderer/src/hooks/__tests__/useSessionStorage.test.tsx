@@ -1,22 +1,3 @@
-/**
- * Unit tests for `useSessionStorage`.
- *
- * Contract under test:
- *   - returns the initial value when nothing is stored under the key
- *   - `setValue` (plain value) updates state AND persists JSON under the key
- *   - `setValue` (updater function) derives from the previous value
- *   - a previously stored JSON blob hydrates as the state on first mount
- *   - a corrupt stored blob falls back to the initial value (non-fatal)
- *   - NO `storage` event listener is registered: the window `storage`
- *     event does not fire cross-tab for `sessionStorage` writes (MDN),
- *     so the previous cross-tab sync listener was dead code, removed.
- *     These tests pin its absence so it cannot quietly return.
- *
- * Storage event semantics note: dispatching a synthetic `storage`
- * event at the window must NOT change the hook state, there is no
- * listener, and even a real same-document `sessionStorage` write never
- * dispatches one to the writing document.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,22 +1,3 @@
-/**
- * Tests for the new degradation/integrity consumer hooks:
- *   - `useCloudFallbackToast` (``cloud_fallback_used``)
- *   - `useHistoryIntegrityToast` (``history_corrupted`` +
- *     ``history_fts5_rebuild_failed``)
- *   - `usePasteDeferredToast` (``paste_deferred``)
- *
- * These events were wired through all 4 protocol layers (allowlist +
- * EVENT_TYPES + TS union + KNOWN_EVENT_TYPES) but had NO renderer
- * subscriber, the documented consumers were dead end-to-end. Each
- * test pins the LIVE contract: the hook subscribes to the event name,
- * surfaces the right localized toast shape, and rate-limits repeat
- * emissions via `degradationToastStore`.
- *
- * Mock strategy mirrors `useDroppedEventConsumers.test.tsx`:
- * `@/hooks/usePython` is mocked to CAPTURE the registered handlers
- * (so tests can fire them directly) and `sonner` is mocked so the
- * toast calls are asserted, not rendered.
- */
 import { renderHook } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

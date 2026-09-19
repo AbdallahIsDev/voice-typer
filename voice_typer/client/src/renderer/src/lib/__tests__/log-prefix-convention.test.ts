@@ -1,18 +1,3 @@
-/**
- * XZ-R16-09 regression guard: every `console.*` call in renderer
- * PRODUCTION code must prefix its first string argument with
- * `[renderer:<module>]`.
- *
- * The renderer forwards console output to the predecessor main-process log
- * via `webContents.on("console-message")`, so a consistent prefix is what
- * lets operators grep a log line back to the emitting module. This scan
- * prevents the convention from silently regressing (mixed bare
- * `[Module]` tags or unprefixed messages were the original finding).
- *
- * The scanner is comment-aware: `console.*` mentions inside `//` line
- * comments and slash-star ... star-slash block comments (which often
- * document the expected log shape) are ignored.
- */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -36,13 +21,6 @@ function walk(dir: string): string[] {
 	return out;
 }
 
-/**
- * Strip `//` line comments and block comments (slash-star ... star-slash) from
- * a line,
- * tracking block-comment state across lines and respecting string
- * literals (so `http://...` or `"/*"` inside strings are preserved).
- * Returns the code-only text and the updated block-comment state.
- */
 function stripComments(
 	line: string,
 	inBlock: boolean,
@@ -94,12 +72,6 @@ function stripComments(
 	return { code: out, inBlock };
 }
 
-/**
- * Given a line containing a `console.X(` call, gather the full call text
- * (with continuations) starting from the call's own opening paren.
- * Returns the first string-literal argument's content (or null if the
- * first argument is not a string literal) plus the full call span.
- */
 function firstStringArg(
 	lines: string[],
 	startLine: number,

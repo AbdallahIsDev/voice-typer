@@ -1,27 +1,3 @@
-/**
- * Unit tests for the Tauri rejection-string envelope parser
- * (`lib/python-bridge/error-envelope.ts`).
- *
- * The Rust host's `dispatch` command passes the sidecar's error
- * envelope through VERBATIM (the `VoiceTyperError` passthrough, see
- * `src-tauri/src/error.rs`): the invoke promise rejects with a STRING
- * whose contents are `{"type":"error","data":<sidecar data verbatim>}`.
- * These tests pin the renderer-side parsing contract:
- *
- * - `err.code` / `err.message` extraction (the pre-existing behavior).
- * - `err.errors[]` stamping for multi-field validation failures.
- * - `err.consent_field` / `err.engine_name` / `err.model_id` stamping
- *   for `client.consent_required` envelopes (deep-link data), with the
- *   SAME guards the predecessor path in `usePython.ts` applies (non-empty
- *   strings / arrays only; JSON `null` model_id stays `undefined`).
- * - `err.legacy_code`, the documented Tauri-only superset (the
- *   transitional alias the server emits alongside the canonical
- *   namespaced `code`).
- * - Byte-level fixture: the EXACT string serde_json produces for the
- *   Rust passthrough (map keys sort alphabetically, `"data"` before
- *   `"type"`) parses into the expected fields, pinning the end-to-end
- *   Rust-serialize → renderer-parse contract.
- */
 import { describe, expect, it } from "vitest";
 
 import { parseTauriErrorEnvelope } from "../error-envelope";

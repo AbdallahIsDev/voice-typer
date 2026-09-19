@@ -1,25 +1,3 @@
-/**
- * Aria-label locale routing tests for `bubble/helpers.ts`.
- *
- * The mid-flow bubble modes (blocked / cancelling / permission_revoked /
- * paste_failed) must announce their state to screen readers through the
- * i18n catalog (`t()`), NOT through an English fallback literal with a
- * hardcoded brand. Before the fix, `getBubbleAriaLabel` routed the four
- * mid-flow modes through `tf(key, "… Voice Typer … indicator")`, an
- * English literal that rendered for EVERY locale (the catalog keys were
- * absent from all 8 locale files), so non-English screen-reader users
- * heard English plus an unrenamable brand.
- *
- * These tests pin the post-fix contract:
- *   - the four keys resolve from the English catalog with the
- *     `{appName}` placeholder substituted (byte-identical to the strings
- *     the old fallbacks produced, no observable English-output change);
- *   - a registered non-English locale actually localizes the four labels
- *     (the fallback path would have returned English instead);
- *   - the helpers.ts source contains no hardcoded brand literal anymore
- *     (regression guard for the exact literal class that shipped).
- */
-
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,7 +22,6 @@ describe("getBubbleAriaLabel mid-flow modes route through the locale catalog", (
 	it("returns the catalog value with the {appName} placeholder substituted for each mid-flow mode", () => {
 		// The English catalog values use the {appName} placeholder; the
 		// loader substitutes APP_NAME at registration time, so the output
-		// is byte-identical to the literals the old fallbacks carried —
 		// the only change is the SOURCE of the string (catalog, not a
 		// hardcoded literal in the helper).
 		expect(getBubbleAriaLabel("blocked")).toBe(`${APP_NAME} blocked indicator`);

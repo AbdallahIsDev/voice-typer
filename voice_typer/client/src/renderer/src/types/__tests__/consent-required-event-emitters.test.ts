@@ -5,7 +5,6 @@
 // declares every payload field OPTIONAL. That shape was derived from an
 // inventory of the FOUR real Python emitters (each sends a different
 // subset, only the HuggingFace model-download gate sends
-// provider/model/message, two emitters send ONLY consent_field, and the
 // offline-pack gate sends all five fields). The renderer's single
 // consumer (`useConsentRequiredEvent`) reads only `consent_field`.
 //
@@ -13,17 +12,14 @@
 //
 //   1. Source scan: each Python emitter file still publishes
 //      `consent_required`, and every payload key it writes is a field
-//      the TS interface declares. A new field on any emitter fails CI
 //      until the interface is widened.
 //   2. Compile-time: sample objects mirroring each emitter's exact
 //      field set are assignable to `ConsentRequiredEvent` (and a
 //      non-declared field is NOT, the optionality can never quietly
-//      regress to required fields, which would lie about three of the
 //      four emitters).
 //
 // Python files are read as TEXT (TS cannot import Python); the same
 // headless source-scan approach as `tests/test_event_types_parity.py`
-// on the Python side.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -43,7 +39,6 @@ interface EmitterSpec {
 }
 
 // The four real emitters, with the field sets verified at their current
-// source locations. When an emitter adds/renames a payload field,
 // update its entry here AND widen `ConsentRequiredEvent` in the same
 // change, the source-scan assertions below keep this list honest.
 const EMITTERS: readonly EmitterSpec[] = [
@@ -65,7 +60,6 @@ const EMITTERS: readonly EmitterSpec[] = [
 	},
 ];
 
-// The complete field vocabulary of the TS interface (single source of
 // truth for what the type may carry; the compile-time guards below
 // fail if an interface field is not exercised by any emitter).
 const DECLARED_FIELDS = [
@@ -84,14 +78,12 @@ function extractConsentPayloadKeys(pySource: string): string[] | null {
 	const idx = pySource.indexOf(marker);
 	if (idx === -1) return null;
 	// The `data` dict follows the type marker; scan a bounded window
-	// (the four emitters' payloads are ≤ ~10 lines) and collect the
 	// quoted keys of `"key":` pairs.
 	const window = pySource.slice(idx, idx + 700);
 	const dataMarker = '"data":';
 	const dataIdx = window.indexOf(dataMarker);
 	if (dataIdx === -1) return [];
 	// Body = from just after the `"data":` token to the closing brace
-	// of the payload dict (skipping the token itself so `"data"` is
 	// not collected as a payload key).
 	const bodyStart = dataIdx + dataMarker.length;
 	const closeIdx = window.indexOf("}", bodyStart);

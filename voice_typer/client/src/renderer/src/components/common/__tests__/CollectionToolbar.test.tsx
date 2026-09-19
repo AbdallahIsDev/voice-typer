@@ -1,22 +1,9 @@
 /**
- * CollectionToolbar, the shared toolbar shell extracted from the
  * VocabToolbar / TemplateToolbar mirror.
- *
  * These tests pin the shell's contract for the Wave-5 page migration:
- *   - every domain label key resolves through t() into the button's
- *     accessible name / visible text / hover title (the injection
- *     points the pages own)
- *   - the hidden import input (accept attr, sr-only, aria-hidden) is
- *     wired to the page's import handlers
- *   - the three documented drift props (addAriaLabelKey, addDisabled,
- *     importAccept) reproduce BOTH pages' current forms
- *   - the byte-identical visual tokens survive the extraction: the
+ * - every domain label key resolves through t() into the button's
  *     single-row justify-between layout, the C-UI-9 Clear All
  *     destructive hover treatment, and the C-FILTER-1 SortSelect
- *     primitive (rendered only when there are entries)
- *
- * Mock strategy mirrors ExportFormatMenu.test.tsx (hugeicons stubbed)
- * plus an identity t() so the shells' key props assert as raw keys.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

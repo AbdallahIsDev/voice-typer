@@ -1,13 +1,8 @@
 /**
  * Unit tests for the connection-status pure helpers.
- *
  * These helpers are the single source of truth for:
- *   - validating backend `RecordingState` strings before they enter
- *     React state
- *   - applying a `{status, message}` tuple atomically so the Home
+ * - validating backend `RecordingState` strings before they enter
  *     status pill and its description line never desync (C-HOME-1)
- *   - the structured `respawn_exhausted` error code and the probe /
- *     health-check / background-reconnect timing constants
  */
 import { describe, expect, it, vi } from "vitest";
 

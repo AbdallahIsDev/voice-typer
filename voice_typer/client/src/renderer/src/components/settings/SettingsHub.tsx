@@ -1,11 +1,9 @@
 // SettingsHub, the Settings landing page.
-//
 // ONE card whose rows are the Settings section pages (see
 // `settingsSections.ts`). Each row shows the section title, a muted
 // description, the row's CURRENT VALUE summary (iOS-Settings-style, so
 // the state is scannable without entering), and a forward chevron;
 // activating the row navigates to the focused section page.
-//
 // Search integration: when the global title-bar query is non-empty, rows
 // whose section (title, description, or any row label) matches stay
 // visible and the matched row labels render under the description, the
@@ -49,16 +47,6 @@ const THEME_MODE_SUMMARY_KEYS: Record<VoiceTyperConfig["theme_mode"], string> =
 		dark: "settings.appearance.dark",
 	};
 
-/**
- * The right-edge summary for a hub row, the section's current value,
- * iOS-style. Returns null for sections whose state doesn't compress
- * into one short label (Privacy consents, Advanced tooling), those
- * rows end at the chevron.
- *
- * Reads the CURRENT locale for locale-dependent summaries (app
- * language, transcription language) so the summary follows a locale
- * switch without a remount (the component subscribes via `useT`).
- */
 function sectionSummary(
 	page: SettingsSectionPage,
 	config: VoiceTyperConfig,
@@ -185,7 +173,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 							"transition-colors duration-150 hover:bg-foreground/5",
 							// Focus contract (C-FOCUS-2/5): full-opacity ring token,
 							// 3px, keyboard focus is always clearly visible.
-							"focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none",
+							"focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
 						)}
 						onClick={() => onNavigateSection(row.def.page)}
 					>

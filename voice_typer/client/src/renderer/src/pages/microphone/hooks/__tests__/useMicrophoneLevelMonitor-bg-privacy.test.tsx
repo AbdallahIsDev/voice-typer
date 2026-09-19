@@ -1,10 +1,7 @@
 /**
  * Regression: microphone level monitor must not activate while
  * document is hidden (background/autostart with persisted microphone page).
- *
  * See C-BG-1: persisted vt_nav_state="microphone" while hidden must not
- * start the InputStream; the OS mic indicator would otherwise appear
- * invisibly in the background.
  */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode, RefObject } from "react";
@@ -142,7 +139,6 @@ describe("useMicrophoneLevelMonitor background privacy", () => {
 	});
 
 	it("sends level_monitor_stop on unmount after a deferred (hidden→visible) start", async () => {
-		// Regression: the hidden-at-mount branch used to early-return a
 		// listener-only cleanup, so the monitor started once the page
 		// became visible was never stopped on unmount, the OS mic
 		// indicator stayed lit with no page active. The deferred path

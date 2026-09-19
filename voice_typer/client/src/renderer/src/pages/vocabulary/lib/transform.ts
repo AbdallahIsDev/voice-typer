@@ -1,6 +1,4 @@
 // Pure transforms between persisted + React-side vocabulary shapes.
-//
-// Extracted from the former ``pages/Vocabulary.tsx`` module-level
 // helpers (flattenEntries, rebuildData, withEntryIds, makeEntryId).
 // Kept side-effect-free so the storage / hook / component layers can
 // share one definition of "how to map between the backend shape
@@ -11,13 +9,6 @@ import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 
 import { CATEGORIES } from "./categories";
 
-/**
- * React-side view of a vocabulary entry.  Extends ``VocabularyEntry``
- * with a stable client-side UUID (``_id``) used as the React key.  The
- * UUID is not persisted, it's regenerated on every load, so list
- * re-orders (sort, filter, undo-restore) don't reuse DOM nodes across
- * different entries.
- */
 export type VocabRow = VocabularyEntry & { _id: string };
 
 /** Flatten category-shaped VocabularyData into a flat array. */
@@ -80,22 +71,6 @@ export function rebuildData(entries: VocabularyEntry[]): VocabularyData {
 	return data;
 }
 
-/**
- * Deduplicate entries with the same (original, correction) pair,
- * regardless of category. The add path blocks new duplicates and
- * import de-dupes on the way in, but legacy files / hand-edited JSON
- * can still contain repeats, collapse them on load (keeping the first
- * occurrence, and therefore its bucket) so the flat two-column UI
- * never renders visually-identical rows.
- *
- * DATA NOTE: the dedupe key changed from (original, correction,
- * category) to (original, correction) when categories were hidden from
- * the UI, an identical wrong→correct pair stored in two backend
- * buckets is indistinguishable to the user, so one copy is collapsed.
- * The correction itself is never lost; only the redundant bucket copy.
- * Returns the deduped list + the number of collapsed rows (so the page
- * can surface a "merged N duplicates" toast).
- */
 export function dedupeEntries(entries: VocabularyEntry[]): {
 	entries: VocabularyEntry[];
 	mergedCount: number;
@@ -115,35 +90,10 @@ export function dedupeEntries(entries: VocabularyEntry[]): {
 	return { entries: unique, mergedCount };
 }
 
-/**
- * Generate a stable UUID for a vocabulary row.  Used as the React key
- * instead of ``${original}-${category}`` (the previous key) which
- * collided when the user added the same trigger word to two different
- * categories, or broke (re-rendered the wrong row) when an edit
- * changed the original text.  Falls back to a ``Math.random``-based
- * pseudo-ID when ``crypto.randomUUID`` is unavailable (sandboxed
- * tests).
- */
-/**
- * Normalize a wrong phrase the way the correction matcher keys
- * lookups: collapse internal whitespace runs to a single space, trim
- * leading/trailing whitespace, and lowercase. Mirrors the backend's
- * ``_normalize_wrong_phrase`` (``server/service/vocabulary.py``) so
- * the frontend pre-check and the duplicate banner agree with the
- * authoritative server-side check. Casefolding differences beyond
- * ``toLowerCase`` (e.g. ``ß``) are intentionally ignored client-side
- *, the server wins on any divergence.
- */
 export function normalizeWrongPhrase(phrase: string): string {
 	return phrase.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-/**
- * Group entries by normalized wrong phrase. Returns only the groups
- * that contain ≥2 entries (i.e. duplicates the flat two-column UI
- * would render as near-identical rows), the source for the
- * "N duplicate corrections found" banner.
- */
 export function findDuplicateGroups(
 	entries: ReadonlyArray<Pick<VocabRow, "original" | "correction">>,
 ): Array<{ phrase: string; entries: Array<VocabRow> }> {
@@ -181,12 +131,6 @@ export function makeEntryId(): string {
 	return `entry-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
-/**
- * Attach a stable client-side UUID to each entry.  The UUID is not
- * persisted, it's regenerated on every load and used only as a React
- * key so list re-orders (sort, filter, undo-restore) don't reuse DOM
- * nodes across different entries.
- */
 export function withEntryIds(entries: VocabularyEntry[]): VocabRow[] {
 	return entries.map((e) => ({ ...e, _id: makeEntryId() }));
 }

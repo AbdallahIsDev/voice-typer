@@ -1,39 +1,3 @@
-/**
- * HelpOverlay, Modal-based keyboard-shortcut reference overlay.
- *
- * Extracted from App.tsx (spaghetti split) to keep App.tsx
- * a pure layout shell. Behaviour is byte-identical to the original inline
- * `<Modal>` block: renders the same shortcut list in the same order,
- * the same `PunctuationCheatSheet`, and the same "press Esc to close"
- * hint footer.
- *
- * The overlay is opened by App.tsx in response to the `?` keydown handler
- * (also extracted, kept inline in App.tsx because it's tightly coupled to
- * the `showHelpOverlay` state and the dialog-state querySelector guard).
- *
- * The `dictationLabel` / `repasteLabel` props are pre-formatted hotkey
- * strings (e.g. "F2", "Ctrl+Shift+V") computed by App.tsx from the user's
- * config, the overlay itself doesn't read config so it stays a pure
- * presentational component.
- *
- * All static key strings (Esc, Tab / Shift+Tab, Space, Enter, ?, the
- * Alt+←/Alt+→ nav pair, and the in-app Ctrl+* shortcuts) come from the
- * `SHORTCUTS` catalog in `components/hotkey/shortcuts.ts`, the single
- * source of truth shared with TitleBar and Sidebar, so the overlay
- * always reflects the bindings the hooks actually handle and can never
- * drift from the tooltips.
- *
- * Scroll structure: the DialogContent is capped at `max-h-[85vh]` and
- * clips (`overflow-hidden`), an internal scrollbar on a rounded
- * panel escapes the corner radius on Windows classic scrollbars
- * (Chromium "scrollbars escaping border-radius"). The TITLE, the
- * description, and the whole body therefore live inside ONE inner
- * scroll wrapper (grid row `minmax(0,1fr)`), so the header scrolls
- * naturally with the content instead of being pinned above a scrolled
- * body. Negative horizontal/bottom margins cancel the panel padding so
- * the scrollbar sits flush at the panel edge, where the panel's
- * overflow-hidden + rounded corners clip it to the corner curves.
- */
 import { memo } from "react";
 import { Modal } from "@/components/common/Modal";
 import { PunctuationCheatSheet } from "@/components/help/PunctuationCheatSheet";
@@ -69,7 +33,6 @@ function HelpOverlayInner({
 		<Modal
 			open={open}
 			onClose={onClose}
-			// Roomier panel, the old `sm` size was clamped to
 			// max-w-xs (320px) at every breakpoint, leaving the
 			// shortcut list + cheat sheet cramped.
 			size="lg"
@@ -80,7 +43,6 @@ function HelpOverlayInner({
 			// and footer scroll together in the inner wrapper below —
 			// there is no pinned header row (grid row 1 is the single
 			// scrollable region). shadow-none: the popup's drop shadow
-			// was removed per user request.
 			className="max-h-[85vh] overflow-hidden shadow-none grid-rows-[minmax(0,1fr)]"
 		>
 			{/* Scroll wrapper: the single grid row holds the header

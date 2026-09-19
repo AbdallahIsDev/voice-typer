@@ -1,34 +1,3 @@
-/**
- * Tests for the Models page,  (cancel-download state reset).
- *
- * Scenario under test: clicking the Cancel button in the download
- * progress bar fires `handleCancelDownload`, which previously:
- *   1. Awaited `cancel_model_download` IPC.
- *   2. Showed a "cancelled" snackbar.
- *   3. BUT did NOT reset the local `downloadingModel` /
- *      `downloadProgress` / `isPaused` state, the model card kept
- *      showing the progress bar / Pause / Cancel buttons until either
- *      the backend pushed a terminal `download_progress` event or the
- *      user navigated away. If the backend's cancel ack raced with
- *      the WS frame (or the frame was dropped), the UI stayed stuck
- *      mid-download indefinitely.
- *
- * The fix calls `setDownloadingModel(null)` + `resetProgress()` in
- * BOTH the success and catch branches of `handleCancelDownload` so
- * the UI reflects the user's intent to cancel regardless of whether
- * the IPC succeeded.
- *
- * The test seeds a pending download (download_model never resolves),
- * clicks the Cancel button, asserts `cancel_model_download` IPC was
- * called + the cancelled snackbar fired + the Cancel button itself
- * is GONE from the DOM (only possible if the optimistic state reset
- * ran synchronously after the IPC resolved).
- *
- * A second test verifies the catch-branch reset: when
- * `cancel_model_download` REJECTS, the Cancel button must still
- * disappear (because the user has signalled intent to cancel, the
- * UI must not stay stuck mid-download).
- */
 import {
 	cleanup,
 	fireEvent,

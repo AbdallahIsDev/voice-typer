@@ -1,54 +1,9 @@
-/**
- * @vitest-environment jsdom
- *
- * Regression tests for the supervisor-failed event listener in
- * `python-namespace.ts`.
- *
- * XZ-R16-02 (High): the Rust supervisor (`src-tauri/src/sidecar/supervisor.rs`)
- * emits a `supervisor_failed` Tauri event when its disk-persisted restart
- * counter reaches `MAX_RESTART_ATTEMPTS` (the circuit-breaker trip). Before
- * this listener existed, the renderer's connection status stayed stuck on
- * the transient `"restarting"` banner forever because `useConnection.ts`
- * only exits that state via a `reconnected` event, which never arrives
- * after the breaker trips.
- *
- * The bridge's contract: synthesize a `PythonPushEvent` of `type: "error"`
- * with `data.code: "respawn_exhausted"` and a `message` carrying the
- * supervisor's user-facing reinstall prompt. `useConnection.ts` then
- * detects the structured code and flips `connectionStatus` to
- * `"disconnected"` with a localized `lastError`.
- *
- * These tests pin the listener-side contract:
- *
- * 1. The `supervisor_failed` listener IS registered (so the renderer
- *    actually receives the synthesized error event).
- * 2. The synthesized event has `type: "error"`.
- * 3. The synthesized event's `data.code` is `"respawn_exhausted"` (the
- *    structured sentinel `useConnection.ts` branches on).
- * 4. The supervisor's `message` field is appended to the synthesized
- *    `data.message` so the renderer can surface the reinstall prompt.
- * 5. When the supervisor omits `message`, the synthesized event still
- *    carries a stable `"respawn exhausted"` sentinel substring.
- *
- * The matching useConnection-side branch is exercised by the integration
- * test in `__tests__/usePython-error-envelope.test.ts` (already present
- * upstream), these tests focus purely on the bridge synthesis so a
- * future regression that drops or renames the `supervisor_failed`
- * listener fails loudly here.
- */
 import { describe, expect, it, vi } from "vitest";
 import type { TauriGlobal } from "@/lib/tauri-bridge/detect";
 
 import { createPythonNamespace } from "@/lib/tauri-bridge/python-namespace";
 import type { PythonPushEvent } from "@/types/ipc";
 
-/**
- * Build a TauriGlobal stub whose `event.listen` captures every
- * (eventName, handler) pair in `subscriptions` so the test can later
- * dispatch a fake payload to a specific listener. Returns a no-op
- * `unlisten` so `makeListener`'s cleanup path is exercised without
- * actually unsubscribing from anything.
- */
 function makeTauriStubWithCapture(subscriptions: {
 	[eventName: string]: (e: { payload: unknown }) => void;
 }): TauriGlobal {

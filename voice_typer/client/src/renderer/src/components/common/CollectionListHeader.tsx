@@ -1,13 +1,9 @@
 // CollectionListHeader, the shared column-header row for collection
 // lists (select-all checkbox + primary/secondary/actions columns).
-//
-// Extracted from the 1:1 mirror pair VocabListHeader (Vocabulary) /
-// TemplateListHeader (Templates): the two components are byte-identical
 // except for the i18n keys and the `data-testid`. This shell owns the
 // grid, the sticky-scroll treatment, and the indeterminate
 // select-all-checkbox state machine; the domain injects the label keys
 // and the page-unique test id.
-//
 // Sticky on scroll (sticks to the top of the page scroll container),
 // with a solid background so rows scroll underneath it. Aligned to the
 // SAME grid as the page's row renderer (checkbox | primary | secondary
@@ -17,7 +13,6 @@
 // primary (col-start-2) exactly like the row's secondary VALUE stacks
 // below the primary, so header and cells stay aligned in every
 // breakpoint.
-//
 // sm+ alignment invariant: the ACTIONS column is a FIXED 6.25rem in
 // BOTH the header and the rows (each row is its own grid container, so
 // an `auto` actions column would size to that row's content, the
@@ -30,12 +25,10 @@
 // Templates' two `icon-xs` buttons both do, but any Wave-5 unification
 // of the row button size drift (icon-xs vs icon-sm) must re-check this
 // budget.
-//
 // The leading cell hosts a select-all checkbox (indeterminate when
 // only some of the visible rows are selected), the SAME Checkbox
 // component the rows use, so the header and per-row checkboxes look
 // identical in every state (unchecked, checked, indeterminate dash).
-//
 // rounded-t-xl: when the header pins to the viewport top on scroll,
 // the container's own rounded corners are off-screen above, so the
 // header's own top corners must carry the radius (the container's

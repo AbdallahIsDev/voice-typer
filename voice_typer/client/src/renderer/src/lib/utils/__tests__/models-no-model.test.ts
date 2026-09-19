@@ -1,18 +1,3 @@
-/**
- * Client-side "no model selected" active-state tests.
- *
- * `model_size === ""` is the backend's `NO_MODEL_SIZE` sentinel: the
- * user has no active model. `isModelActive` must return false for
- * EVERY model (including qwen / parakeet, whose active check is
- * backend-keyed and would otherwise light up), `applyActiveState` must
- * clear all active flags, and `getActiveFamilyId` must return null.
- *
- * Also covers the default-model sentinel's canonical home:
- * `MODEL_DEFAULT` is defined in `lib/utils/models` (layer-neutral lib
- * code) and re-exported by the onboarding constants for its historical
- * importers, `lib/` must never import from `pages/` (inverted
- * layering), which the source-scan test below pins.
- */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -28,10 +13,6 @@ import { MODEL_DEFAULT as MODEL_DEFAULT_COMPAT } from "@/pages/onboarding/lib/co
 import type { VoiceTyperConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
 
-/**
- * Backend-shaped install truth for the shared resolver.
- * ``downloaded: true`` for the configured model = weights on disk.
- */
 function makeStatus(downloaded: boolean): ModelStatusMap {
 	return {
 		tiny: { downloaded, deps_ok: true },
@@ -147,7 +128,6 @@ describe("MODEL_DEFAULT, canonical home + compat re-export", () => {
 
 	it("lib/utils/models.ts contains no pages-layer import (lib must never import from pages, inverted layering)", () => {
 		// Source-scan guard for the layering contract: comments are
-		// stripped so a docstring mentioning the old import path
 		// cannot false-positive.
 		const src = readFileSync("src/renderer/src/lib/utils/models.ts", "utf8")
 			.replace(/\/\*[\s\S]*?\*\//g, "")

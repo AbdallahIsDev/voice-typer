@@ -1,27 +1,3 @@
-/**
- * HOTKEY-MULTIKEY-001 + HOTKEY-FULLMSG-001, Tests for the multi-key
- * capture architecture and full-shortcut error messages in HotkeyPicker.
- *
- * These tests verify the behavioral requirements added in Tasks 1.1 and 1.3:
- *
- *   - Pressing multiple non-modifier keys (e.g. Delete+End) captures the
- *     FULL combo, not just the last-pressed key.
- *   - Pressing modifiers alongside a non-modifier in single mode shows an
- *     error referencing the FULL attempted combo (e.g. "Shift+Z can't be
- *     used as a dictation key…"), not just the bare non-modifier.
- *   - Pressing an unsupported key alongside modifiers shows the full
- *     attempted combo in the error message (e.g. "Shift+F13 is not
- *     supported.").
- *   - Release order does NOT affect the captured combo: releasing Ctrl
- *     before Shift produces the same combo as releasing Shift before Ctrl.
- *   - Modifier-only combos (e.g. Ctrl+Shift) are captured in combo mode.
- *   - ESC during capture still cancels (preserved ESC-KEYUP-FIX behavior).
- *
- * The tests use @testing-library/react to mount HotkeyPicker and dispatch
- * realistic keydown/keyup sequences to window (HotkeyPicker listens on
- * window, not the button). All dispatches are wrapped in `act()` to
- * ensure React flushes state updates synchronously between events.
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HotkeyPicker } from "../hotkey/HotkeyPicker";

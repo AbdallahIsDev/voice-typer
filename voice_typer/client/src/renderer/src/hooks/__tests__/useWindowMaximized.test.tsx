@@ -1,10 +1,3 @@
-/**
- * Tests for useWindowMaximized (extracted from App.tsx, EO-28).
- *
- * Contract: query the native bridge on mount, subscribe to
- * onMaximizedChanged, mirror the value onto <html class="is-maximized">,
- * and return the boolean.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

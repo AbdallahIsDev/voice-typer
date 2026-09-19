@@ -1,21 +1,3 @@
-/**
- * Unit tests for `useOfflinePackDownload`.
- *
- * Coverage:
- *   - initial state is `{ status: "idle", error: null, isReady: false }`
- *   - each of the 11 subscribed push events drives the correct state
- *     transition (see the state-machine comment in `useOfflinePackDownload.ts`)
- *   - `error` is recorded on failure / crash / corruption events and
- *     cleared on `offline_pack_ready`
- *   - `isReady` is `true` ONLY when `status === "ready"`
- *   - `worker_unloaded` only transitions from "ready" → "worker-unloaded"
- *     (a stray late-arriving event from any other state is a no-op)
- *   - `offline_pack_verified` / `worker_started` don't downgrade "ready"
- *
- * Strategy: renderHook with `usePythonEvent` mocked to capture the 11
- * per-event handlers. Tests invoke the captured handler with a fake
- * payload and assert on `result.current`.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -160,7 +142,6 @@ describe("useOfflinePackDownload, download lifecycle transitions", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 		// Seed an error first.
 		act(() => getHandler("offline_pack_download_failed")({ error: "first" }));
-		// A second failure with no message field preserves the prior error
 		// (a transient progress event shouldn't wipe a recorded failure
 		// message, see the comment in `useOfflinePackDownload.ts`).
 		act(() => getHandler("offline_pack_download_failed")({ code: 42 }));

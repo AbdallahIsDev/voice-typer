@@ -1,42 +1,3 @@
-/**
- * @vitest-environment jsdom
- *
- * Regression test for the install split: the side effect that installs
- * `window.python` / `window.bubble` / `window.window_` MUST live in the
- * sibling `install.ts` module, NOT in `index.ts`.
- *
- * Background, the pre-split monolith auto-invoked
- * `installTauriBridge()` at the bottom of `tauri-bridge/index.ts`, so
- * any code that imported `@/lib/tauri-bridge` for its named exports
- * (`isTauri`, `makeListener`, etc.), including unit tests under
- * `vi.resetModules()` isolation, got the namespace mutation as a
- * surprise side effect. The split prescription moved the auto-install
- * call into a dedicated `install.ts` so:
- *
- *   • Production entrypoints (`main.tsx`, `bubble-main.tsx`) get the
- *     side effect through the shared gate module
- *     `lib/tauri-bridge/ensure.ts` (`ensureTauriBridgeInstalled()`),
- *     which dynamically imports `./install` ONLY when running inside
- *     a Tauri WebView (predecessor entrypoints never load the module).
- *   • Pure consumers of the named exports import `@/lib/tauri-bridge`
- *     alone and get no mutation.
- *
- * This test pins both halves of the contract:
- *   1. Importing `@/lib/tauri-bridge/install` triggers the bridge
- *      setup (installs `window.python`, `window.bubble`,
- *      `window.window_`) when `window.__TAURI__` is present.
- *   2. Importing `@/lib/tauri-bridge` alone does NOT install the
- *      namespaces (negative control, proves the side effect was
- *      actually moved, not duplicated).
- *   3. Importing `@/lib/tauri-bridge/install` is a no-op in predecessor
- *      mode (when `window.__TAURI__` is absent) so the predecessor
- *      preload-installed namespaces are left untouched.
- *
- * The test mirrors the structure of `tauri-bridge-detection.test.ts`
- * (same `makeTauriStub()` shape + same window-state snapshot/restore
- * pattern) so failures point clearly at the install-split contract
- * rather than at unrelated bridge behaviour.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Minimal stub of `window.__TAURI__` matching the shape consumed by
@@ -237,13 +198,11 @@ describe("tauri-bridge install side-effect module (split)", () => {
 		// (or inlines an ungated import into an entrypoint) and the
 		// install graph gets pulled back into the initial predecessor
 		// renderer bundle.
-		//
 		// The contract is a RUNTIME-GATED DYNAMIC import so Vite emits
 		// install.ts as a separate async chunk only fetched under Tauri.
 		// The preload script (`src/preload/index.ts:19-117`) installs the
 		// predecessor namespaces via `contextBridge.exposeInMainWorld`, so
 		// the gated import is a no-op under predecessor.
-		//
 		// We read the sources (rather than importing the entrypoints)
 		// to avoid booting React inside a unit test.
 		const { readFileSync } = await import("node:fs");

@@ -1,5 +1,4 @@
 // Selection state + bulk operations for the Vocabulary page.
-//
 // Thin feature wrapper over the shared :func:`useRowSelection` hook —
 // supplies the Vocabulary row shape (`_id` id field), the persist
 // callback, and the vocabulary message keys. All selection/undo logic

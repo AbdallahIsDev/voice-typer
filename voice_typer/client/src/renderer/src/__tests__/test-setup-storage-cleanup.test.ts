@@ -1,20 +1,3 @@
-/**
- * Focused spec for the centralised per-test storage cleanup in
- * `test-setup.ts`.
- *
- * The setup file's `afterEach` clears BOTH `localStorage` and
- * `sessionStorage`. Page filter state lives in sessionStorage under
- * `vt:filters:*` keys (via `useFilterState` → `useSessionStorage`), so a
- * key written by one test must NOT leak into the next test, otherwise
- * default-filter-state assertions become order-dependent (a latent flake
- * class the setup file's own header documents).
- *
- * The proof is a two-step ordered pair: the first test WRITES storage
- * keys (without clearing them itself), and the second test asserts those
- * keys are gone, the only thing that can have removed them between the
- * two tests is the setup file's `afterEach`. Vitest runs `it` blocks in
- * declaration order within a file, so the pair is deterministic.
- */
 import { describe, expect, it } from "vitest";
 
 describe("test-setup storage cleanup (afterEach clears both storages)", () => {

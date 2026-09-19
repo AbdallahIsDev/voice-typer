@@ -1,58 +1,3 @@
-/**
- *  vitest rewrite, behavioral tests for `Bubble.tsx` keyboard move.
- *
- * Replaces the following string-pattern Python tests from
- * `tests/test_ux_components.py`:
- *   - TestBubbleSupportsKeyboardArrowMove::test_bubble_calls_move_by
- *   - TestBubbleSupportsKeyboardArrowMove::test_bubble_respects_draggable_gate
- *
- * The Python tests asserted on substring presence inside `Bubble.tsx`
- * (e.g. `"moveBy" in bubble`, `"if (!draggable) return" in bubble`).
- * These pass even when the handler is dead code, and they fail on
- * innocent refactors.  The vitest versions below mount the real
- * Bubble component, dispatch realistic KeyboardEvents to `window`,
- * and assert the `window.bubble.moveBy` mock is called (or not).
- *
- * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  They are NOT deleted.
- *
- * The original vitest tests below
- * asserted the renderer-side `window.addEventListener("keydown", ...)`
- * handler in `Bubble.tsx` was called on arrow keys.  That handler was
- * DEAD CODE in production because the bubble BrowserWindow is created
- * with `focusable: false` (see
- * `voice_typer/client/src/main/windows/bubble-window.ts`), so the
- * renderer never receives keyboard focus and window-level `keydown`
- * events never fire in the shipped app.  Agent 12 ( + )
- * removed the handler from `Bubble.tsx` entirely.
- *
- *  DECISION (option b, document as mouse-drag-only): the
- * keyboard-move feature was DELIBERATELY NOT RE-IMPLEMENTED.  The
- * bubble is now documented in user-facing help as mouse-drag-only.
- * This is a deliberate product decision (see the  comment block
- * at the top of `Bubble.tsx` for the rationale).  The main-process
- * `bubble:move-by` IPC handler is preserved so a future product
- * change can wire a global hotkey without renderer work.
- *
- * The original 7 vitest tests are kept below as `it.skip` placeholders
- * so the test names still appear in the runner output as a historical
- * record of what the  rewrite covered.  Two NEW test blocks
- * replace them:
- *
- *   1. `: Bubble keyboard-move is dead code in production`
- *     , scans `bubble-window.ts` and asserts `focusable: false` is
- *        still set, prints a loud warning, and verifies `Bubble.tsx`
- *        carries the dead-code comment block.  This guards against a
- *        future refactor that flips `focusable` to `true` without
- *        also re-adding the keyboard-move handler.
- *
- *   2. `Item 7: Bubble renders sr-only 'Transcription complete.'`
- *     , mounts the Bubble in idle mode and asserts the sr-only span
- *        containing `t("a11y.transcriptionComplete")` is rendered to
- *        the DOM, so screen-reader users hear the completion
- *        announcement when the bubble transitions from
- *        transcribing → idle.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { act, cleanup, render, screen } from "@testing-library/react";
@@ -143,12 +88,10 @@ function dispatchArrowKey(key: string, opts: { shiftKey?: boolean } = {}) {
 //removed because it was dead code in
 // production (the bubble BrowserWindow is `focusable: false`, so
 // renderer keydown events never fire in the shipped app).
-//
 //option (b) was chosen: document the bubble as mouse-drag-only
 // rather than add a MAIN-PROCESS global hotkey.  The `bubble:move-by`
 // IPC handler in `main/ipc/bubble-handlers.ts` is preserved so a future
 // product decision can wire a global hotkey without renderer work.
-//
 //The test names are preserved as `it.skip` placeholders so the
 // coverage map stays readable; flip them back to `it` ONLY if a
 // renderer-side keyboard-move handler is re-introduced (which also
@@ -264,7 +207,6 @@ describe.skip("Bubble draggable gate, RW-0 rewrite of test_bubble_respects_dragg
 // The keyboard-move feature remains DELIBERATELY NOT RE-IMPLEMENTED
 // (option b, document as mouse-drag-only); see the comment block at
 // the top of `Bubble.tsx` for the rationale.
-//
 // This test asserts the Tauri bubble window config still opts out of
 // taskbar/focus chrome, and that Bubble.tsx still does not attach a
 // window-level arrow-key move handler.  If a future refactor starts
@@ -308,7 +250,6 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (mouse-drag-o
 	it("Bubble.tsx documents the keyboard-move handler as deliberately not implemented (BG-30 comment block)", () => {
 		// Companion assertion: Bubble.tsx itself must carry a
 		// comment block explaining WHY the keyboard-move handler
-		// was removed and HOW to re-implement it correctly.  This
 		// guards against a refactor that removes the comment
 		// (leaving future readers confused about why the handler
 		// doesn't exist).
@@ -335,7 +276,6 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (mouse-drag-o
 // "Transcribing…" label) but never hear when it's done, the
 // visible bubble simply fades out, which is invisible to non-sighted
 // users.
-//
 // This test mounts the Bubble in idle mode and asserts the sr-only
 // span exists and contains the expected English text.  The Bubble's
 // `<output aria-live="polite">` wrapper means the sr-only span's

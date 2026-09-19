@@ -1,40 +1,9 @@
-/**
- * regression tests: `useLastUpdated` visibility-gated interval.
- *
- * Background
- * ----------
- * Pre-fix: `useLastUpdated` ran a 5s `setInterval` unconditionally —
- * even when the tab was hidden. Every mounted page that consumes the
- * hook (Home, History, Models, Microphone, Dashboard) was re-rendered
- * every 5s by the `setNow(Date.now())` tick, even though no one was
- * looking at the "Xs ago" label. Browsers throttle hidden-tab
- * intervals to ~1 Hz but don't pause them, so the ticks (and the
- * setState calls) kept firing.
- *
- * Post-fix: the hook registers a `visibilitychange` listener
- * that CLEARS the interval (`clearInterval`) when the tab becomes
- * hidden and RE-ARMS it when the tab becomes visible again. No ticks
- * fire while hidden, no setState, no re-render, no reconciliation.
- *
- * These tests verify:
- *   1. `clearInterval` IS called when the tab becomes hidden.
- *   2. A new `setInterval` IS armed when the tab becomes visible again.
- *   3. The `visibilitychange` listener IS removed on unmount (no leak).
- *   4. The interval is NOT armed at mount when the tab starts hidden.
- *
- * NOTE: these tests use REAL timers (not `vi.useFakeTimers()`) because
- * `vi.useFakeTimers()` replaces `window.setInterval` / `clearInterval`
- * with fakes AFTER `vi.spyOn` wraps them, the spy would be bypassed.
- * The 5s interval is long enough that it won't fire during the
- * sub-second test, so real timers are safe.
- */
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 
 // ── Helpers ─────────────────────────────────────────────────────────
-//
 // `document.visibilityState` is a read-only property in jsdom, we
 // override it via `Object.defineProperty` so the test can flip it
 // between "visible" and "hidden". The `visibilitychange` event is

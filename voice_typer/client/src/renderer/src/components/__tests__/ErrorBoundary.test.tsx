@@ -1,10 +1,3 @@
-/**
- * Tests for the ErrorBoundary component.
- *
- * ErrorBoundary catches render-time exceptions in its children and
- * shows a fallback UI with "Try Again" / "Reload App" actions. The
- * fallback has role="alert" so screen readers announce it.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Component } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";

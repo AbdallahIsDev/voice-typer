@@ -1,11 +1,3 @@
-/**
- * Tests for useDocumentTitle (extracted from App.tsx).
- *
- * Contract: compose ``document.title`` as
- * ``<localised page title>, <APP_NAME>`` on mount and on every
- * route/locale change; Settings surfaces pull their key from the
- * section registry instead of ``nav.*``.
- */
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

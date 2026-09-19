@@ -72,15 +72,11 @@ import { getLocale, type Locale, t } from "@/i18n/i18n";
 //
 // ``new Intl.NumberFormat(loc, opts)`` is ~5-10× slower than
 // ``.format(n)`` because the constructor parses the locale + options
-// and builds an internal formatter. Every exported formatter below
-// previously called the constructor on EVERY invocation, Dashboard
 // calls ``formatBytes`` / ``compactNumber`` / ``toLocaleString`` ~6-10
 // times per render, History.tsx calls them per-row in a list, etc.
 //
 // The fix: each option-shape gets its own module-level ``Map`` keyed
-// by locale. Cache hit is a Map lookup (~50× faster than the
 // constructor). The maps are unbounded but in practice the key set
-// is tiny, the renderer only ever uses one locale at a time (the
 // user-selected UI locale), plus ``"en"`` for tests. So the maps
 // will hold ≤2 entries in production and ≤8 in dev (one per
 // supported locale).
@@ -88,7 +84,6 @@ import { getLocale, type Locale, t } from "@/i18n/i18n";
 // We cache by LOCALE only (not by options) because each formatter
 // hardcodes its own options, the cache is per-call-site, not a
 // generic NumberFormat cache. This keeps the key small (a string)
-// and avoids serialising the options dict for the lookup.
 
 const _numberFormatCache = new Map<string, Intl.NumberFormat>();
 function _getCachedNumberFormat(
@@ -96,10 +91,6 @@ function _getCachedNumberFormat(
 	options: Intl.NumberFormatOptions,
 ): Intl.NumberFormat {
 	// The cache key includes a stable stringification of the options
-	// so two call sites with different options don't share a formatter.
-	// The key shape is ``<locale>|<options-json>``. JSON.stringify of
-	// the small options dict is fast (microseconds) and the result is
-	// cached on the caller's options object literal (V8 caches the
 	// object-shape hash for literals), so in practice this is a single
 	// hash + string concat.
 	const key = `${locale}|${JSON.stringify(options)}`;
@@ -183,11 +174,7 @@ function resolveLocale(locale?: Locale): Locale {
 
 // ── Date helpers (moved from pages/dashboard/lib/streaks.ts) ─────────
 //
-// ``localDateKey`` / ``parseUtcTimestamp`` / ``dateKey`` are pure,
 // locale-independent date utilities that several features need beyond
-// the dashboard (the History page's date-grouped list buckets rows by
-// the same local calendar day). They live here so every consumer
-// imports them from ONE module (E7, no duplicate definitions), and
 // ``streaks.ts`` re-exports them so the existing dashboard imports
 // keep resolving.
 
@@ -369,7 +356,6 @@ export function formatDuration(seconds: number): string {
 		return "0";
 	}
 	// Sub-minute values round up to 1m (matches legacy StatCards
-	// snapshot; the previous implementation returned "5s" / "45s"
 	// which was a UX bug, the dashboard only ever showed h+m).
 	let totalMinutes: number;
 	if (seconds < 60) {
@@ -435,7 +421,6 @@ export function formatSpeed(
 	const loc = resolveLocale(locale);
 	// Intl doesn't ship a "bytes per second" unit identifier, so we
 	// format the scalar with the matching byte-prefix unit and append
-	// "/s". This keeps the digit grouping / decimal separator
 	// locale-aware while preserving the "/s" suffix universally.
 	const units: [number, Intl.NumberFormatOptions["unit"]][] = [
 		[1024 ** 3, "gigabyte"],

@@ -1,59 +1,3 @@
-/**
- * Drift guard for the shared `helpers/stableMocks.tsx` test harness.
- *
- * Background: every page test used to carry a near-identical preamble —
- * a `vi.hoisted` singleton block (`mockCall`, `mockPythonEvent`,
- * `showSnack`, …) plus the same seven `vi.mock` registrations. The
- * helper now owns both halves, and a file's preamble collapses to one
- * import + a destructure + one `vi.mock` line per module. The same
- * preamble existed in the components and hooks test suites (settings
- * sections, the `useConnection` variants), they are covered by this
- * guard too.
- *
- * This guard makes the pattern self-enforcing, mirroring
- * `hugeicons-mock-guard.test.ts`:
- *
- *   1. No PAGE / COMPONENT test file (anything under
- *      `src/renderer/src/pages/**` or `.../components/**` in a
- *      `__tests__` dir), and no HOOKS test file whose harness is the
- *      standard singleton preamble (see the carve-outs below), may
- *      hand-roll a `vi.hoisted` singleton block, i.e. a `vi.hoisted`
- *      destructure (or plain binding) that declares one of the
- *      standard singleton names (`mockCall`, `mockPythonEvent`,
- *      `showSnack`, …). Such a file must import `stableMocks` from
- *      the helper instead, so the assertable singletons stay the SAME
- *      objects across resets and re-imports (`vi.resetModules()`
- *      re-binds the page module, not the test file's imports) and so
- *      the per-file boilerplate can't drift in mock shape.
- *
- *      Carve-outs (exempt, they own a different pattern):
- *      - hook-level tests under `pages/history/hooks` and
- *        `pages/microphone/hooks` (own callMock / event-registry
- *        patterns, not the page preamble);
- *      - tests under `hooks/models`, the model-hook unit tests use a
- *        `callMock` / sub-hook-mock harness, and the
- *        `useModelLifecycle` facade test mocks all five sub-hooks and
- *        asserts referential pass-through of bespoke vi.fn refs (not
- *        singleton identity across resets);
- *      - hoisted blocks that don't declare a standard singleton name
- *        (e.g. a hoisted `matchMedia` stub, a file-local `mockT` i18n
- *        spy).
- *
- *   2. No stableMocks-based file may statically import a module it
- *      mocks via a stableMocks factory ABOVE its stableMocks import.
- *      The `vi.mock` registrations are hoisted, but the mocked
- *      module's factory BODY runs when that module is first imported —
- *      i.e. at the importing statement's position. If `import { toast
- *      } from "sonner"` (say) appears BEFORE `import { sonnerMock }
- *      from "@/__tests__/helpers/stableMocks"` in source order, the
- *      factory body evaluates while the helper's binding is still in
- *      the TDZ (`Cannot access 'sonnerMock' before initialization`).
- *      An import sorter (biome) reordering a mocked-module import
- *      above the helper import would silently reintroduce that
- *      mock-factory TDZ crash, this test fails first. Type-only
- *      imports are exempt (erased at compile time, no module
- *      evaluation).
- */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -82,17 +26,6 @@ const SINGLETON_NAMES = [
 	"mockConsumeConsentField",
 ];
 
-/**
- * A hand-rolled singleton block, two shapes:
- *  1. destructure: `const { mockCall, mockPythonEvent } = vi.hoisted(…)`
- *     The body char class is `[^{}]` (newlines allowed, braces not) —
- *     a destructure binding list never contains a nested brace, so the
- *     match closes at the FIRST `}` and can never span across other
- *     statements (a `[^\s\S]` lazy span would run from one
- *     `const { … }` through intervening code into a later `= vi.hoisted`
- *     and fabricate offenders);
- *  2. plain binding: `const mockCall = vi.hoisted(() => vi.fn())`.
- */
 const SINGLETON_HOIST_DESTRUCTURE_RE =
 	/const\s*\{([^{}]*)\}\s*=\s*vi\.hoisted/g;
 const SINGLETON_HOIST_PLAIN_RE = new RegExp(

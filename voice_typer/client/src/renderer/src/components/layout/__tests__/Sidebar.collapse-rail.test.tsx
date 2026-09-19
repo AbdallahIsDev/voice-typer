@@ -1,29 +1,3 @@
-/**
- * Sidebar collapse/expand rail audit suite, pins the premium rail
- * contract for BOTH sidebar states:
- *
- *  - Icon anchoring: every top-level nav button (leaves AND the
- *    Settings parent) starts its icon at the same x-position in both
- *    states (single `px-2` icon column, never `justify-center`) and
- *    the aside rail width (w-12, 48px) keeps that column centered when
- *    collapsed, icons never jump horizontally on toggle.
- *  - Text transition: label spans use the shared animated visibility
- *    transition (max-width + opacity + translate + filter with
- *    explicit `blur-[0px]`/`blur-[4px]` endpoints, never
- *    `filter-none`, which cannot interpolate) and hide with
- *    `pointer-events-none` when collapsed.
- *  - Vertical rhythm: items breathe with `gap-1` inside a group; the
- *    nav uses `gap-5` expanded / `gap-2` collapsed; group headings
- *    collapse via max-height on their container while the heading
- *    TEXT exits through the shared label-motion model (translate +
- *    fade + blur on a faster inner-span track), no instant unmount,
- *    no layout jump.
- *  - Collapsed usability: every rail icon keeps a non-empty accessible
- *    name (including the Settings flyout trigger) and the Settings
- *    trigger shows the same right-side hotkey tooltip as the leaves.
- *  - Stability: rapid collapse/expand toggling keeps all 9 nav
- *    buttons mounted with classes flipping cleanly.
- */
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -123,7 +97,6 @@ describe("Sidebar, collapse rail geometry & transition model", () => {
 				// in both states (container p-2 + button px-2 = 16px from
 				// the aside edge).
 				expect(btn.className).toContain("px-2");
-				// The old collapsed Settings trigger centered its icon
 				// (justify-center), the one button whose icon jumped on
 				// toggle. Forbidden: content must flow from the anchored
 				// column in both states.
@@ -157,7 +130,6 @@ describe("Sidebar, collapse rail geometry & transition model", () => {
 			expect(span.className).toContain("blur-[0px]");
 			expect(span.className).toContain("max-w-40");
 			// `filter-none` cannot interpolate against blur(), it snaps
-			// discretely (the old abrupt disappearance).
 			expect(span.className).not.toContain("filter-none");
 			// STRICTLY horizontal motion: the transition property list and
 			// the motion tokens must never introduce a Y component.

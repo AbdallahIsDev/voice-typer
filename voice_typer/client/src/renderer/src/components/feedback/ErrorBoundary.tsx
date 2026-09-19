@@ -1,29 +1,22 @@
 // ErrorBoundary, catches render errors so a single bad
 // config or component crash doesn't white-screen the entire app.
-//
-// Previously, any uncaught exception in a React render (e.g. a config
 // field with an unexpected type that causes a TypeError when the
 // component tries to render it) would crash the entire renderer
 // process, leaving the user with a blank white window and no way to
 // recover short of killing the app.
-//
 // Usage: wrap the top-level <App /> in <ErrorBoundary> in main.tsx.
-//
 // The fallback now exposes three recovery affordances in
 // addition to the existing "Try Again" / "Reload App" buttons:
-//
 //   - "Copy error", copies the error name, message, and component
 //     stack to the clipboard so users can paste it into a bug report
 //     without having to dig through log files.  The button label
 //     briefly flips to "Copied!" for affirmative feedback (the
 //     toast system can't be relied on here, the same render crash
 //     that triggered the boundary may have broken the toaster).
-//
 //   - "Open logs", invokes the main process's ``window:open-logs``
 //     IPC handler so the user can attach the full log file to a
 //     support request.  Same path as Settings → Troubleshooting →
 //     Open Log Folder.
-//
 //   - "Reset settings", escape hatch for the common case where a
 //     bad config value (e.g. a malformed theme token, an out-of-range
 //     number field) is what crashed the renderer.  Asks the Python
@@ -32,7 +25,6 @@
 //     might also be poisoned, and reloads.  This mirrors the
 //     Settings → Reset to Defaults flow but is callable from the
 //     error UI without needing the Settings page to render.
-//
 // ``componentDidCatch`` forwards the caught error to the host for
 // explicit persistence in the host file log (separate from the console
 // path so React's ``componentStack`` is preserved: ``console.error``
@@ -179,18 +171,6 @@ export class ErrorBoundary extends Component<
 		}
 	}
 
-	/**
-	 * Move focus to the primary recovery button (Reset settings) in the
-	 * fallback UI. We query the DOM directly via a stable aria attribute
-	 * instead of relying on a React ref forwarded through the <Button>
-	 * wrapper (Button spreads ``{...props}`` to its underlying
-	 * ``<button>`` host element, but React's special handling of ``ref``
-	 * makes ref-forwarding through function components unreliable
-	 * without an explicit forwardRef / ref-as-prop destructure, which
-	 * Button doesn't do). ``querySelector`` is safe here because the
-	 * fallback UI has just committed, so the button is in the DOM by
-	 * the time componentDidMount / componentDidUpdate fires.
-	 */
 	private focusResetButton(): void {
 		if (!this.state.hasError) return;
 		const btn = document.querySelector<HTMLButtonElement>(
@@ -237,7 +217,6 @@ export class ErrorBoundary extends Component<
 		}
 		if (errorInfo?.componentStack) {
 			// route the label through the i18n catalog so it adapts to
-			// the user's UI locale (previously hardcoded as
 			// `"\nComponent stack:"`). Preserve the leading newline so the
 			// pasted bug-report blob keeps the same visual separation between
 			// the JS stack and the React component tree.

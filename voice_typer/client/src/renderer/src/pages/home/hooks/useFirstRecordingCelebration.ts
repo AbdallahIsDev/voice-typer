@@ -5,28 +5,6 @@ import { t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
 import { FIRST_RECORD_CELEBRATED_KEY } from "../lib/constants";
 
-/**
- * Previously used `get_today_stats` and checked `count === 1`
- *, this triggered on the first dictation of ANY day, not the user's
- * lifetime first. We now check `get_history({limit: 1})` and celebrate
- * only when the user has exactly one historical record (this just-added
- * one). The flag is persisted to localStorage so we never celebrate twice.
- *
- * Extracted from Home.tsx (as part of the page's hook split) so the
- * page file stays a thin composition root. Behaviour is preserved
- * byte-for-byte. Consumers type the ``call`` argument with the
- * canonical ``PythonCall`` from ``@/hooks/usePython``.
- *
- * The previous catch block exited the ENTIRE callback via `return`,
- * which suppressed the first-recording celebration in environments where
- * localStorage throws (Safari private mode, strict CSP, sandboxed
- * iframe). The comment said "treat as not-celebrated" (i.e. proceed as
- * if the flag is unset) but the code did the OPPOSITE. Now we proceed —
- * if the read fails, we just skip the "already celebrated" short-circuit
- * and let the celebration run (the write path below is already wrapped
- * in its own try/catch).
- */
-
 export function useFirstRecordingCelebration(call: PythonCall) {
 	const { showSnack } = useSnackbar();
 	return useCallback(async () => {

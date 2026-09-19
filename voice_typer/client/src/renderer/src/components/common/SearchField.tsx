@@ -9,27 +9,7 @@ interface SearchFieldProps {
 	value: string;
 	onChange: (value: string) => void;
 	placeholder?: string;
-	/**
-	 * Delay in milliseconds before the debounced ``onChange``
-	 * notification fires. Undefined (the default) keeps the historical
-	 * immediate behavior, every keystroke notifies synchronously. When
-	 * set, typing notifications are batched on the trailing edge while
-	 * the input itself stays fully controlled: an internal draft (kept
-	 * in sync with the ``value`` prop) renders instantly, so typing
-	 * never lags. A pending timer is cancelled on unmount and whenever
-	 * the external ``value`` changes to a value other than the pending
-	 * draft (an external reset must not deliver a stale notification).
-	 */
 	debounceMs?: number;
-	/**
-	 * Accessible label for the search input. Falls back to
-	 * ``t("common.search")`` so the field is always announced as a
-	 * search field by screen readers even when no explicit label is
-	 * supplied. Callers SHOULD pass a context-specific label such as
-	 * ``t("settings.searchPlaceholder")`` (the existing translation
-	 * "Search settings…") to disambiguate multiple SearchFields on
-	 * different pages.
-	 */
 	ariaLabel?: string;
 	/** Extra classes merged onto the inner ``<Input>``, lets callers
 	 *  compact the field (e.g. the title-bar global search). */
@@ -155,7 +135,7 @@ export function SearchField({
 					type="button"
 					onClick={handleClear}
 					aria-label={t("a11y.clearSearch")}
-					className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary) focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
+					className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 				>
 					<HugeiconsIcon
 						icon={Cancel01Icon}

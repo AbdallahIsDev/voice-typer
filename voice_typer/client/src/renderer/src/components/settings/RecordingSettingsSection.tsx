@@ -1,5 +1,4 @@
 // RecordingSettingsSection, Recording section of the Settings page.
-//
 // Renders the "Recording" SettingsSection block with Dictation Key,
 // Re-Paste Key, Recording Mode, Auto-Stop, ESC to Cancel, Auto-Paste,
 // Sound Feedback, Silence Warning, Max Duration, and Dead-Air Timeout.
@@ -41,9 +40,7 @@ import { anyRowVisible, GatedSettingRow } from "./settingsRowGating";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-//(Sub-agent 14): the dictation-key dropdown presets are now
 // derived from ``getSingleKeyPresets()``, the SAME single source of
-// truth used elsewhere in the hotkey system. Previously this file
 // re-declared its own inline list which:
 //   1. Reintroduced the ``<shift>`` hazard (Shift is held for
 //      capitalization while typing, using it as a dictation key
@@ -51,7 +48,6 @@ import type { SettingsSectionSharedProps } from "./types";
 //   2. Did NOT include the macOS-only Fn / Globe key (the inline
 //      list was platform-static; the getter re-detects the platform
 //      on every call).
-//
 // The dictation-key ``HotkeyPicker`` is wired with ``mode="single"``
 // so the capture validator rejects multi-key combos (matching the
 // single-key-only promise of the dropdown). In single mode the
@@ -61,7 +57,6 @@ import type { SettingsSectionSharedProps } from "./types";
 // NOT wrapped in ``<...>``. The HotkeyPicker re-adds the brackets on
 // selection (``newValue = `<${opt.value}>` ``) so the stored config
 // value keeps the canonical pynput format.
-//
 // Computed via ``useMemo`` so the array identity is stable across
 // re-renders (HotkeyPicker's presets prop comparison doesn't thrash).
 const useDictationKeyPresets = () =>
@@ -124,7 +119,6 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	);
 	// While EITHER hotkey picker is capturing a key, the ESC-to-cancel
 	// hotkey path is paused so ESC itself can be recorded. Both pickers
-	// share this one pair (previously two identical copies, one per
 	// picker).
 	const handleHotkeyCaptureStart = useCallback(() => {
 		void window.python?.call({

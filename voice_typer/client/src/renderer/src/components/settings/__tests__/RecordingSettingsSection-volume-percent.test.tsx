@@ -1,13 +1,3 @@
-/**
- * Sound-volume slider renders as PERCENTAGES (0-100, "%" suffix) while
- * the config value stays the canonical 0..1 float (C-CONF-1). The
- * display layer owns the conversion, a 0.65 config renders 65, a 65
- * slider commit persists 0.65.
- *
- * (Supersedes the 0..1 raw-decimal slider contract previously pinned by
- * RecordingSettingsSection.sounds.test.tsx, that file's two slider
- * assertions were updated to the percent contract.)
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

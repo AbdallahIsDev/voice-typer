@@ -1,26 +1,3 @@
-/**
- *  regression test: `useAudioLevels` rAF loop pauses (stops
- * scheduling new frames) when the bubble is hidden, and resumes via the
- * wake trigger when the bubble becomes visible again.
- *
- * Pre-: the rAF loop scheduled the next frame at the START of the
- * callback, then early-returned if `!visibleRef.current` or
- * `!recordingRef.current`. That meant the loop kept spinning at 60 fps
- * even when the bubble was hidden, every frame paid the rAF scheduling
- * cost + the closure entry cost, even though no DOM work was done.
- *
- * Post-: the scheduling call has moved to the END of the callback,
- * guarded by `if (visibleRef.current && recordingRef.current)`. When the
- * bubble hides, the loop STOPS scheduling new frames. The
- * visibility-tracking effect's wake trigger (fired on `api.onShow`)
- * kicks off a fresh `requestAnimationFrame(animate)` to resume the loop.
- *
- * This test asserts:
- *   1. When the bubble is hidden, `requestAnimationFrame` is NOT called
- *      again after the in-flight frame finishes (the loop stops).
- *   2. When the bubble becomes visible (via `api.onShow`), a fresh rAF
- *      is scheduled and the loop resumes.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -125,10 +102,6 @@ function hideBubble() {
 	});
 }
 
-/**
- * Drain pending rAF callbacks. jsdom implements rAF as `setTimeout(0)`,
- * so flushing the macrotask queue runs all pending frames.
- */
 async function tickFrames(count = 5) {
 	for (let i = 0; i < count; i++) {
 		await act(async () => {

@@ -1,5 +1,4 @@
 // useDeviceLostToast, surfaces backend ``device_lost`` push events.
-//
 // The active microphone can disappear mid-session (USB unplug,
 // Bluetooth power-off, driver reset). The backend detects the loss in
 // BOTH subsystems that hold mic streams, the mic-test level monitor
@@ -8,14 +7,12 @@
 // ``device_lost``. Without this hook the event reached the renderer and
 // was dropped: dictation silently stopped working and the Microphone
 // page kept showing a dead meter with no explanation.
-//
 // This hook is the SINGLE consumer of the event. It:
 //   1. records the loss in `deviceLostStore` (the Microphone page
 //      reads it to pause the meter + show its recovery banner), and
 //   2. raises one actionable global toast naming what broke and what
 //      to do (reconnect the mic / pick another one), with an
 //      "Open Microphone" action jumping straight to the page.
-//
 // Dedupe: a short GLOBAL window (10s) collapses rapid re-emissions
 // (both subsystems can detect the same physical loss) into ONE visible
 // notification. A fixed sonner ``id`` replaces any in-flight toast.
@@ -28,22 +25,6 @@ import {
 } from "@/stores/deviceLostStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
 
-/**
- * Subscribe to ``device_lost`` push events; show the recovery toast +
- * flip the shared device-lost state for the Microphone page. Call once
- * at the top level of a component (App); the subscription lives for the
- * component's lifetime.
- *
- * The dedupe window is imported from `deviceLostStore` (the store owns
- * the ``lastToastShownAt`` clock, so it owns the window too): the
- * recorder-stream path (`useMicrophoneDisconnectedToast`) checks the
- * SAME clock, and both hooks importing one constant keeps the two
- * dedupe windows from drifting apart.
- *
- * @param t i18n translate function (from useT).
- * @param onOpenMicrophone callback that navigates to the Microphone page
- *   (App wires ``() => navigate("microphone")``).
- */
 export function useDeviceLostToast(
 	t: TranslateFn,
 	onOpenMicrophone: () => void,

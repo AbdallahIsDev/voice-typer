@@ -1,34 +1,3 @@
-/**
- * Regression tests for `useNavigation`: consolidates the 4 stable
- * action selectors into a single `useShallow` subscription, and the
- * document listeners (mouseup + keydown) are installed exactly once
- * per app load via a module-level `documentListenersInstalled` flag.
- *
- * Background
- * ----------
- * Previously: `useNavigation()` had 7 separate `useNavStore`
- * subscriptions (3 value selectors + 4 action selectors). The 4 action
- * selectors returned stable function references (Zustand store actions
- * never change identity), but Zustand still ran each selector on EVERY
- * store `set()` and shallow-compared the result. Additionally, two
- * `document.addEventListener` calls (mouseup + keydown) per consumer —
- * with 6 consumers, that was 12 listeners on `document`.
- *
- * After consolidation: the 4 action selectors are consolidated into a single
- * `useShallow` subscription, reducing 7 selector runs per `set()` to
- * 4. The document listeners are installed exactly once via
- * `ensureDocumentListeners()` (guarded by `documentListenersInstalled`).
- *
- * These tests verify:
- *   1. The document listeners (mouseup + keydown) are registered
- *      exactly ONCE even when multiple `useNavigation` consumers are
- *      mounted.
- *   2. The `useShallow` subscription pattern reduces selector runs:
- *      after a `navigate()` call, the number of store-subscriber
- *      notifications is bounded by the new (lower) selector count.
- *   3. Listeners re-install after `_resetNavigationForTest()` resets
- *      the install flag (so tests can re-trigger installs).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -127,7 +96,6 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 		// into a single `useShallow` subscription. Combined with the
 		// 3 value selectors (`page`, `history`, `index`), the total
 		// selector run count per `set()` is 4 (down from 7).
-		//
 		// We can't directly count selector runs from outside the
 		// store, but we CAN verify the consolidation indirectly:
 		// the `useShallow` subscription returns a STABLE object
@@ -150,8 +118,6 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 		};
 
 		// Navigate to a different page. Settings is now a HUB + section
-		// pages: the old ADR-0021 `navigate("settings")` →
-		// "settingsGeneral" redirect was REMOVED, so "settings" (the
 		// hub) is a real destination. From "home" the hub-model path
 		// is: stage any deep-link opts (none here), then exactly ONE
 		// `apply()` (one store `set()` + one localStorage write) that

@@ -1,14 +1,3 @@
-/**
- * Tests for useSnackbar, covers  (action option on ShowSnackOptions
- * + the showRetryableToast helper).
- *
- * Strategy: mock the ``sonner`` module so we can capture every call to
- * ``toast.success`` / ``toast.error`` / ``toast.warning`` / ``toast.info``
- * and assert the options object carries the expected ``action`` and
- * ``duration``. The hook under test is a thin delegator, what we want
- * to verify is the SHAPE of the options it forwards, not the rendering
- * of the toast (sonner has its own test coverage for rendering).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

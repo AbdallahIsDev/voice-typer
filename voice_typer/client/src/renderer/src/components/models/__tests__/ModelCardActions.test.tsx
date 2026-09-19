@@ -1,27 +1,3 @@
-/**
- * ModelCardActions unit tests,  /
- *
- * Coverage:
- *   1. All visual states render the correct button label + icon:
- *      - Branch 1a: Active + available (disabled "Active" tick + Delete —
- *        ACTIVE-DELETE: the backend removes the files and reassigns the
- *        selection, so deleting the active model is allowed).
- *      - Branch 2: Not downloaded ("Download" button, NO Delete, a
- *        not-installed model has nothing to remove, even when it is the
- *        active default like small.en before first download).
- *      - Branch 3: Downloaded ("Select" button + Delete).
- *   2. : the Download button exposes aria-busy=true
- *      while its async action is in-flight,
- *      aria-label to the "Downloading…" string so SR users hear the
- *      in-progress state (not the stale per-model label).
- *   3.  #8: the oneAtATimeTitle() English fallback is GONE, the
- *      disabled-button title is sourced directly from
- *      `t("models.download.oneAtATime")` (which IS in the catalog).
- *   4.  #9: the Select button uses Tick02Icon (not PlayIcon) —
- *      Select is a "mark active" affordance, not a "play media" one.
- *   5. DeleteButton renders in Branch 3 (downloaded); NEVER for a
- *      not-downloaded model.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

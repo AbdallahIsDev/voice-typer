@@ -1,46 +1,3 @@
-/**
- * : component-level RTL render tests.
- *
- * The pre-existing ``rtl.test.tsx`` only asserts that
- * ``document.documentElement.dir`` flips between ``"rtl"`` and
- * ``"ltr"`` when ``setLocale()`` is called. It does NOT mount any
- * real component, so it cannot catch:
- *
- *   - A component that reads the locale ONCE at mount via ``getLocale()``
- *     and never re-renders when the locale changes (the ``useT()``
- *     hook's ``useSyncExternalStore`` subscription is what makes
- *     re-render work, a component using bare ``t()`` without the hook
- *     would be stuck on the mount-time locale).
- *   - A component whose rendered TEXT doesn't change when the locale
- *     changes (would indicate the component is hardcoding English
- *     instead of routing through ``t()``).
- *   - A component whose LAYOUT doesn't flip when ``dir`` flips (would
- *     indicate the component is using physical CSS properties like
- *     ``ml-4`` / ``pl-9`` instead of logical ones like ``ms-4`` /
- *     ``ps-9``, the ``isRtlLocale()`` helper lets a component gate
- *     layout-flip logic on the current locale).
- *
- * This test file mounts a minimal React component that exercises the
- * ``useT()`` hook + ``t()`` lookup path, then asserts:
- *
- *   1. The component's rendered text tracks the active locale (English
- *      label → Arabic label → English label).
- *   2. The ``useT()`` hook re-renders the component on locale change
- *      (if it didn't, the text would stay on the mount-time locale).
- *   3. ``document.documentElement.dir`` is ``"rtl"`` while Arabic is
- *      active and ``"ltr"`` while English is active (mirrors
- *      ``rtl.test.tsx`` but asserted from within a mounted component
- *      so the render-path is exercised end-to-end).
- *   4. ``document.documentElement.lang`` tracks the active locale (so
- *      screen readers pronounce content in the user-selected language).
- *   5. A component using bare ``t()`` (NOT the ``useT()`` hook) does
- *      NOT re-render when the locale changes, this is the
- *      negative-test guardrail that documents why callers MUST use
- *      ``useT()`` for reactive text. The test asserts the negative
- *      case so a future refactor that makes bare ``t()`` reactive
- *      (e.g. by adding a global subscription) updates this test rather
- *      than silently changing the contract.
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -54,15 +11,6 @@ import {
 	useT,
 } from "@/i18n/i18n";
 
-/**
- * Minimal component that uses the ``useT()`` hook so it re-renders on
- * locale change. Renders a translation key as text so we can assert
- * the visible string tracks the active locale.
- *
- * Uses ``analytics.title`` (defined in all 8 locale files, ``en``:
- * ``"Analytics"``, ``ar``: ``"تحليلات"``) as a stable, locale-aware
- * probe.
- */
 function AnalyticsTitle() {
 	const tt = useT();
 	return (
@@ -72,12 +20,6 @@ function AnalyticsTitle() {
 	);
 }
 
-/**
- * Minimal component that calls bare ``t()`` at render time WITHOUT
- * subscribing to locale changes via ``useT()``. The component captures
- * the locale at mount time and never re-renders when the locale
- * changes, this is the negative-test probe (see header docstring).
- */
 function StaticTitle() {
 	return (
 		<div data-testid="static-title" data-locale={getLocale()}>
@@ -86,16 +28,6 @@ function StaticTitle() {
 	);
 }
 
-/**
- * Minimal component that gates a CSS class on ``isRtlLocale(getLocale())``
- * so we can assert the component's layout-flip logic tracks the active
- * locale. Uses the ``useT()`` hook so it re-renders on locale change.
- *
- * Uses distinctive class names (``row-reverse-probe`` / ``row-probe``)
- * so the RTL / LTR states are unambiguously distinguishable, a naive
- * ``expect(className).not.toContain("flex-row")`` assertion would fail
- * because ``"flex-row-reverse"`` contains the substring ``"flex-row"``.
- */
 function LayoutProbe() {
 	useT();
 	const rtl = isRtlLocale(getLocale());

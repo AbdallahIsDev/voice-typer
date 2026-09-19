@@ -1,29 +1,3 @@
-/**
- * Unit tests for `useMicrophoneData`.
- *
- * Coverage :
- *   - loadData: parallel fetch of get_microphones + get_config via Promise.all
- *   - data buffering: the module-level _cachedMicrophones / _cachedConfig
- *     caches are populated on each successful load
- *   - cleanup on unmount: the mount-time load effect uses a `cancelled`
- *     flag so a superseded loadData call does NOT call setState on an
- *     unmounted (or stale) component
- *   - loadError surfacing: when get_microphones / get_config reject, the
- *     error message is captured into `loadError` so the render path can
- *     show a retry EmptyState instead of an ambiguous empty list
- *   - microphones_changed event: triggers a loadData refresh
- *   - config_changed event: get_config-only refresh against the cached
- *     device list (NO native re-enumeration); escalates to a full
- *     loadData refresh only when the device cache is empty
- *   - hot-swap fallback: when the active mic is no longer present, the
- *     hook shows a warning snack + invokes selectMicrophoneRef(null)
- *   - startup fallback: a persisted id absent from the freshly enumerated
- *     list falls back on mount/reload too (same snack + select path),
- *     guarded against empty lists, load errors, and repeat-load snack spam
- *
- * Strategy: mock usePython (call), usePythonEvent (capture subscribers)
- * and useSnackbar.
- */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -194,7 +168,6 @@ describe("useMicrophoneData, loadData (parallel fetch + buffering)", () => {
 			expect(result.current.loading).toBe(false);
 		});
 
-		// loadError surfaces the failure (regression: previously the
 		// hook only logged to console and left the user with an empty
 		// mic list + no indication of why).
 		expect(result.current.loadError).toBe("backend unreachable");
@@ -537,7 +510,6 @@ describe("useMicrophoneData, startup fallback for a stale persisted selection", 
 	it("falls back to System Default when the persisted id matches no enumerated device on mount", async () => {
 		// Root cause of the silent "Unknown" active-mic card: a persisted
 		// config.microphone id that no longer exists in the enumerated
-		// list used to render t("microphone.unknown") until some later
 		// event fired. The mount load must run the SAME fallback as the
 		// hot-swap handler.
 		callMock.mockImplementation((cmd: string) => {

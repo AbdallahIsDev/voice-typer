@@ -1,12 +1,3 @@
-/**
- * Tests for the accessibility-manager module (visual-feedback flag for
- * the deaf-accessibility mirror).
- *
- * These tests moved with the flag when it was extracted from
- * sound-manager.ts, same coverage, same localStorage semantics, same
- * "[renderer:sound-manager]" log prefix (the flags belong to the sound
- * feedback subsystem from an operator's perspective).
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGlobalLocalStorage } from "./helpers/local-storage-stub";
 

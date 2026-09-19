@@ -1,51 +1,3 @@
-/**
- * DownloadProgressBar, standalone progress display for model downloads.
- *
- * Shows a progress bar with rich status info (downloaded/total, speed, ETA),
- * plus Pause/Resume and Cancel controls. Extracted from Models.tsx so it
- * can be placed independently of the model list.
- *
- * ── Failure-state additions ─────────────────────────────────────────
- * The original component only handled the "downloading" state, when a
- * download failed, the consumer (useModelLifecycle) unmounted the bar
- * and surfaced the failure via a toast, leaving no in-place error UI.
- * That made it impossible for a user to retry without re-navigating to
- * the model card. The component now supports four optional props that
- * close that gap (all backwards-compatible, existing callers see no
- * behavior change):
- *
- *   • `modelName`       , when provided, the progressbar's aria-label
- *                          becomes "{name} download: {percent}% complete"
- *                          so SR users hear WHICH model is in flight
- *                          (model-specific messaging).
- *   • `error`           , when set, the bar enters an error state:
- *                          the fill turns red, the status <p> switches
- *                          to a `role="alert"` region announcing the
- *                          failure, and the Pause button is disabled
- *                          (no partial-download / error state existed
- *                          before).
- *   • `onRetry`         , when provided AND `error` is set, a "Retry"
- *                          button renders next to Cancel so the user
- *                          can recover in place.
- *   • `isPaused`        , already existed; now ALSO drives the
- *                          `models.progress.paused` chip in the status
- *                          line so the paused state is visually
- *                          announced (the i18n key was defined but
- *                          never rendered before).
- *
- * New i18n keys consumed (added to every locale catalogue):
- *   • models.download.errorMessage       , "Download failed: {error}"
- *   • models.download.errorMessageWithName, "{name} download failed: {error}"
- *   • models.download.retry              , "Retry"
- *   • models.download.retryAria          , "Retry download"
- *   • models.download.progressAriaWithName, "{name} download: {percent}% complete"
- * Existing keys reused:
- *   • models.download.progressAria, models.progress.paused,
- *     models.download.pause, models.download.resume,
- *     models.download.pauseAria, models.download.resumeAria,
- *     models.download.cancel, models.download.cancelAria,
- *     models.progress.eta
- */
 import { PauseIcon, PlayIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useState } from "react";
@@ -87,14 +39,6 @@ function formatEta(seconds: number | null | undefined): string {
 	return `${pad(m)}:${pad(s)}`;
 }
 
-/**
- * Builds the progressbar's aria-label. When `modelName` is provided,
- * SR users hear "{name} download: N% complete", disambiguating
- * between concurrent downloads (e.g. Whisper + Parakeet shown on the
- * same Models page). Falls back to the generic
- * `models.download.progressAria` when no name is supplied (preserves
- * the behaviour for callers that don't pass a name).
- */
 function progressAriaLabel(progress: number, modelName?: string): string {
 	const percent = String(Math.round(progress));
 	if (modelName) {
@@ -185,7 +129,6 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 					// STATUS TRANSITIONS are announced without interrupting
 					// the user. ONLY the status text (+ paused chip) lives
 					// inside the region, the bytes/speed/ETA spans below
-					// update several times per second and previously
 					// re-announced the whole line on every download_progress
 					role={hasError ? "alert" : undefined}
 					aria-live={hasError ? "assertive" : "polite"}

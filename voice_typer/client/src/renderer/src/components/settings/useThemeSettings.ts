@@ -1,27 +1,3 @@
-// components/settings/useThemeSettings.ts, state machine for the
-//custom-theme editor ( partial split).
-//
-// Extracted from ThemeSettingsSection.tsx so the component file can
-// shrink to just JSX rendering. This hook owns:
-//
-//   - All useState calls (customEditorMode, customDraft, hexDrafts)
-//   - All useRef calls (savedPresetRef, userHoveredRef,
-//     customDraftRef, lastNonCustomRef, customThemeInitRef)
-//   - All useEffect calls (draft persistence, theme application,
-//     cache cleanup, hex-input re-seeding, ref tracking)
-//   - All useCallback event handlers (handleCustomColorChange,
-//     handleThemePresetChange, handleColorInputChange, etc.)
-//
-// The hook also exposes two pure module-level helpers
-// (``getThemePreviewColors`` and ``_getThemeNameKey``) that the
-// component's JSX calls directly to render the preset dropdown
-// trigger / items. ``getCurrentThemeColors`` stays module-private —
-// only the hook's ``handleCustomThemeToggle`` calls it.
-//
-// Behaviour is byte-identical to the previous in-component
-// implementation: the hook is a pure refactor that moves code without
-// changing the observable semantics.
-
 import type { ChangeEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cssColorToHex } from "@/lib/color-utils";
@@ -44,24 +20,9 @@ import type { VoiceTyperConfig } from "@/types/config";
 
 import { _themeColorCache } from "./themeColorCache";
 
-// ── Module-level pure helpers (no React dependency) ─────────────────
-
 /**
  * Defensive accessor for ``ThemePreset.nameKey``.
  *
- * I18N-NAMEKEY: the ``ThemePreset`` interface in
- * ``themes.ts`` may or may not declare a ``nameKey`` field (depends on
- * whether another sub-agent has added it).  This helper reads the
- * field via bracket notation so this file compiles regardless, and
- * returns the ``nameKey`` string (e.g. ``"theme.preset.amoled"``) or
- * ``null`` when the field is absent.  Callers fall back to the
- * preset's hardcoded English ``name`` when ``null`` is returned.
- *
- * Accepts ``unknown`` so it can be called with a ``ThemePreset``
- * without requiring an index signature on the interface (which would
- * weaken type-safety elsewhere).  The runtime check is purely
- * structural, if the value isn't an object, or doesn't have a string
- * ``nameKey`` field, we return ``null``.
  */
 export function _getThemeNameKey(theme: unknown): string | null {
 	if (typeof theme !== "object" || theme === null) return null;
@@ -72,29 +33,6 @@ export function _getThemeNameKey(theme: unknown): string | null {
 /**
  * Read the 6 core theme colors for BOTH light and dark modes of the
  * currently-selected built-in preset.
- *
- * Resolution is table-driven: each preset category ('default', 'custom',
- * built-in, unknown-with-DOM, unknown-without-DOM) owns a single
- * ``ThemeColorSource`` entry in ``THEME_COLOR_SOURCES``. Adding a new
- * category (e.g. a future "high-contrast" preset family) means adding
- * one entry to the table and one case to ``pickColorSource``, no more
- * editing a 5-branch switch-on-string inline.
- *
- * For ``'default'`` we return the hardcoded ``DEFAULT_CUSTOM_LIGHT`` /
- * ``DEFAULT_CUSTOM_DARK`` maps directly, these are byte-identical to
- * what the stylesheet defines, so reading them via ``getComputedStyle``
- * was a waste of two layout passes per call.  For ``'custom'`` we
- * derive the core colours from the in-memory ``customDraft`` (when
- * available) via ``deriveCustomVars``, the draft is already in
- * memory, so no DOM read is needed.  Built-in presets still read from
- * the ``THEMES`` array (also in-memory).
- *
- * The DOM-read fallback is kept ONLY for the legacy callers that pass
- * neither ``currentPresetId`` nor ``customDraft`` AND whose preset id
- * isn't in the THEMES array, which in practice never happens.  It
- * exists to preserve the pre-fix behaviour for any caller we missed,
- * and is gated behind a feature-detect so it doesn't run in jsdom
- * tests that lack ``getComputedStyle``.
  */
 type ThemeColorResult = {
 	light: Record<string, string>;
@@ -110,7 +48,6 @@ type ThemeColorSourceContext = {
 /**
  * A single resolution strategy. Returns the resolved colours, or
  * ``null`` to signal "not applicable, fall through to the next
- * strategy in the chain".
  */
 type ThemeColorSource = {
 	getColors: (ctx: ThemeColorSourceContext) => ThemeColorResult | null;
@@ -124,14 +61,8 @@ const DEFAULT_COLOR_RESULT: ThemeColorResult = {
 /**
  * Strategy table for ``getCurrentThemeColors``. Order matters: the
  * resolver walks this list (after picking the primary strategy) and
- * uses the first non-``null`` result. ``dom`` and ``fallback`` are
- * intentionally last, they're the catch-all paths for unknown preset
- * ids.
  */
 const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
-	// 'default' preset, return the hardcoded DEFAULT_CUSTOM_* values
-	// (these match the stylesheet defaults exactly, so reading them via
-	// getComputedStyle was a layout-thrash for nothing).
 	default: {
 		getColors: () => ({
 			light: { ...DEFAULT_CUSTOM_LIGHT },
@@ -139,11 +70,6 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 		}),
 	},
 
-	// 'custom' preset, derive from the in-memory customDraft (no DOM
-	// read).  When no draft is available yet (the very first render
-	// before ``setCustomDraft`` has run), fall back to the
-	// DEFAULT_CUSTOM_* values so the editor still has sensible starting
-	// colours.
 	custom: {
 		getColors: ({ customDraft, keys }: ThemeColorSourceContext) => {
 			const lightCore = customDraft?.light ?? { ...DEFAULT_CUSTOM_LIGHT };
@@ -158,9 +84,6 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 		},
 	},
 
-	// Built-in preset with defined vars, read from THEMES array directly
-	// (in-memory, no DOM access). Returns null when the preset id isn't
-	// a built-in theme so the resolver falls through to dom/fallback.
 	builtin: {
 		getColors: ({ presetId, keys }: ThemeColorSourceContext) => {
 			const theme = THEMES.find((t) => t.id === presetId);
@@ -175,12 +98,6 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 		},
 	},
 
-	// Last-resort fallback: read from the DOM.  This path is only
-	// reached for unknown preset ids (which shouldn't happen in
-	// practice, the THEMES array covers every valid id).  Kept for
-	// defensive compatibility with the pre-fix behaviour. Returns
-	// null when DOM APIs aren't available so the resolver falls
-	// through to the final hardcoded fallback.
 	dom: {
 		getColors: ({ keys }: ThemeColorSourceContext) => {
 			if (
@@ -211,8 +128,6 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 		},
 	},
 
-	// No DOM available (SSR / restricted test env), fall back to the
-	// hardcoded defaults so the caller always gets a valid object.
 	fallback: {
 		getColors: () => ({
 			light: { ...DEFAULT_CUSTOM_LIGHT },
@@ -224,8 +139,6 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 /**
  * Pick the primary resolution strategy for a preset id. Returns the
  * key into ``THEME_COLOR_SOURCES``. ``builtin`` returns null inside
- * ``getColors`` when the id isn't a built-in theme, which triggers the
- * fall-through to ``dom`` and ``fallback``.
  */
 function pickColorSource(presetId: string): keyof typeof THEME_COLOR_SOURCES {
 	if (presetId === "default" || presetId === "") return "default";
@@ -236,7 +149,6 @@ function pickColorSource(presetId: string): keyof typeof THEME_COLOR_SOURCES {
 /**
  * Resolution chain after the primary strategy. ``builtin`` may return
  * null (unknown preset id); we then try ``dom`` (may also return null
- * in non-DOM environments), then ``fallback`` (always returns).
  */
 const COLOR_SOURCE_FALLTHROUGH: ReadonlyArray<
 	keyof typeof THEME_COLOR_SOURCES
@@ -270,9 +182,6 @@ function getCurrentThemeColors(
 		}
 	}
 
-	// The fall-through chain ends with 'fallback', which is guaranteed
-	// non-null. Defensive guard keeps TS happy without a non-null
-	// assertion.
 	if (result === null) result = DEFAULT_COLOR_RESULT;
 
 	_themeColorCache.set(currentPresetId || "default", result);
@@ -282,24 +191,12 @@ function getCurrentThemeColors(
 /**
  * Compute the { background, foreground } pair shown inside the square
  * preview next to each theme in the dropdown and in the trigger.
- *
- * The square background uses the theme's **primary/accent** colour so
- * the user immediately sees the dominant accent of each preset.  The
- * "A" letter is rendered in the theme's **foreground/text** colour so
- * it stays readable against the primary background.
- *
- * For built-in presets the values come straight from the theme's
- * light / dark var maps.  For 'default' (which has empty var maps) we
- * fall back to the theme's ``swatch`` field (the primary blue from the
- * stylesheet).  For 'custom', we use the primary colour from the
- * user's draft.
  */
 export function getThemePreviewColors(
 	themeId: string,
 	isDark: boolean,
 	customDraft: CustomThemeData | null,
 ): { bg: string; fg: string } {
-	// Custom theme, use the primary/accent colour from the custom draft.
 	if (themeId === "custom" && customDraft) {
 		const vars = isDark ? customDraft.dark : customDraft.light;
 		return {
@@ -307,7 +204,6 @@ export function getThemePreviewColors(
 			fg: vars["--foreground"] ?? (isDark ? "#ededed" : "#0a0a0a"),
 		};
 	}
-	// Default preset, no CSS var overrides, use the swatch as primary.
 	if (themeId === "default") {
 		const defaultTheme = THEMES[0];
 		const swatch = defaultTheme?.swatch ?? "oklch(0.488 0.243 264.376)";
@@ -325,14 +221,9 @@ export function getThemePreviewColors(
 	};
 }
 
-// ── Hook types ──────────────────────────────────────────────────────
-
 /**
  * Inputs to ``useThemeSettings``. Mirrors the props the
  * ``ThemeSettingsSection`` component receives that the hook needs to
- * own the state machine: the config + the two update callbacks + the
- * three App-level theme overrides (``themeModeProp``,
- * ``onThemeChange``, ``themePresetProp``).
  */
 export interface UseThemeSettingsConfig {
 	config: VoiceTyperConfig | null;
@@ -350,21 +241,28 @@ export interface UseThemeSettingsConfig {
 /**
  * Outputs from ``useThemeSettings``. The component consumes the state
  * values directly in its JSX and passes the handlers to the
- * corresponding controls (``SegmentedControl``, ``Select``, ``Switch``,
- * ``Input``, ``button``, ``RangeSlider``).
  */
 export interface UseThemeSettingsReturn {
-	/** Currently-active tab in the custom-theme editor (``"light"`` / ``"dark"``). */
+	/**
+	 * Currently-active tab in the custom-theme editor (``"light"`` / ``"dark"``).
+	 */
 	customEditorMode: "light" | "dark";
-	/** In-memory custom-theme draft (``null`` until the init effect runs). */
+	/**
+	 * In-memory custom-theme draft (``null`` until the init effect runs).
+	 */
 	customDraft: CustomThemeData | null;
-	/** Per-row hex-input partial-typing drafts (keyed by CSS var name). */
+	/**
+	 * Per-row hex-input partial-typing drafts (keyed by CSS var name).
+	 */
 	hexDrafts: Record<string, string>;
-	/** Effective preset (prefers ``themePresetProp`` over ``config.theme_preset``). */
+	/**
+	 * Effective preset (prefers ``themePresetProp`` over ``config.theme_preset``).
+	 */
 	effectivePreset: VoiceTyperConfig["theme_preset"];
-	/** ``true`` when the draft matches the built-in DEFAULT_CUSTOM_* maps. */
+	/**
+	 * ``true`` when the draft matches the built-in DEFAULT_CUSTOM_* maps.
+	 */
 	customDraftIsDefault: boolean;
-	// ── Event handlers ──
 	handleColorSchemeChange: (v: string) => void;
 	handleThemePresetChange: (v: string) => void;
 	handleSelectOpenChange: (open: boolean) => void;
@@ -385,8 +283,6 @@ export interface UseThemeSettingsReturn {
 	revertToSavedPreset: () => void;
 }
 
-// ── Hook implementation ─────────────────────────────────────────────
-
 export function useThemeSettings({
 	config,
 	updateConfig,
@@ -394,14 +290,6 @@ export function useThemeSettings({
 	onThemeChange,
 	themePresetProp,
 }: UseThemeSettingsConfig): UseThemeSettingsReturn {
-	// Track the last saved theme preset so hover previews can revert
-	// to the user's saved choice (not the initial default) if they
-	// hover without clicking.  Previously this was an inline
-	// ``if (config) ref.current = ...`` block executed during render
-	// (a ref mutation during render, React forbids writing to refs in
-	// the render phase).  The useEffect form below runs the write
-	// after commit, preserving the same "track the latest saved
-	// preset" semantic without the render-phase side effect.
 	const savedPresetRef = useRef<VoiceTyperConfig["theme_preset"]>(
 		config?.theme_preset ?? "default",
 	);
@@ -409,39 +297,13 @@ export function useThemeSettings({
 		if (config) savedPresetRef.current = config.theme_preset ?? "default";
 	}, [config]);
 
-	// Track whether the user has actually moved the mouse inside the
-	// dropdown content.  Radix Select mounts the content portal directly
-	// under the cursor when the dropdown opens, which can fire a
-	// spurious ``onMouseEnter`` on the first item, applying that
-	// item's theme as a "hover preview" even though the user hasn't
-	// interacted.  We only honour ``onMouseEnter`` after the first
-	// real ``onMouseMove`` inside the content.
 	const userHoveredRef = useRef(false);
 
-	// Ref mirror of ``customDraft`` so the stable ``revertToSavedPreset``
-	// callback (empty deps) can re-apply custom vars when the saved
-	// preset is ``CUSTOM_THEME_ID`` without needing ``customDraft`` as a
-	// dependency (which would make the callback unstable and churn the
-	// mouseleave listener on every color edit).  Initialized with
-	// ``null`` because the ``customDraft`` ``const`` is declared later
-	// (via ``useState``) and is in the temporal dead zone here.  The
-	// tracking effect below updates the ref with the real value after
-	// every render; the draft-mutating handlers ALSO write it
-	// synchronously (event-handler ref writes are legal) so the next
-	// edit in the same tick composes off the freshest draft instead
-	// of waiting for the post-commit effect.
 	const customDraftRef = useRef<CustomThemeData | null>(null);
 	useEffect(() => {
 		customDraftRef.current = customDraft;
 	});
 
-	// Track the last non-custom preset so we can revert when the
-	// custom-theme toggle is turned off.  Previously this was an inline
-	// ``if (config?.theme_preset && ...) ref.current = ...`` block
-	// executed during render, a render-phase ref mutation.  Moved into
-	// a useEffect so the write happens after commit.  The initial
-	// ``useRef`` value still seeds from the first-seen config so the
-	// first render has a sensible default before the effect runs.
 	const lastNonCustomRef = useRef(
 		config?.theme_preset && config.theme_preset !== "custom"
 			? config.theme_preset
@@ -453,10 +315,6 @@ export function useThemeSettings({
 		}
 	}, [config]);
 
-	// ── Custom theme editor state ───────────────────────────────────
-	// Initial tab matches the user's current dark/light mode so the
-	// editor opens on the tab the user is most likely to edit (was
-	// always "light", Dark Mode users had to switch tabs manually).
 	const [customEditorMode, setCustomEditorMode] = useState<"light" | "dark">(
 		() =>
 			typeof document !== "undefined" &&
@@ -467,38 +325,11 @@ export function useThemeSettings({
 	const [customDraft, setCustomDraft] = useState<CustomThemeData | null>(null);
 	const customThemeInitRef = useRef(false);
 
-	// Per-row hex input draft state.  The text input is a controlled
-	// component whose value can be a partial hex (e.g. ``#1a2`` while
-	// the user is typing).  We track each row's draft locally so:
-	//   - The user can type partial values without the input snapping
-	//     back to the last-committed hex on every keystroke.
-	//   - We can show a red-border error state when the draft doesn't
-	//     match the strict ``#rrggbb`` regex.
-	//   - On blur we either commit (strict match) or revert to the
-	//     last-committed hex (so an abandoned edit doesn't leave a
-	//     half-typed value in the input).
-	//
-	// The drafts are re-seeded from ``customDraft`` whenever the draft
-	// changes via the ``useEffect`` below, this keeps the text input
-	// in sync when the colour is changed via the native colour picker
-	// (which calls ``handleCustomColorChange`` directly, bypassing the
-	// text input).
 	const [hexDrafts, setHexDrafts] = useState<Record<string, string>>({});
 
-	// The effective preset prefers the optimistic value from
-	// ``useTheme.themePreset`` (passed in as ``themePresetProp``) over
-	// the persisted ``config.theme_preset`` so the dropdown / switch /
-	// picker update immediately on click rather than waiting for the
-	// backend ``set_config`` round-trip.
 	const effectivePreset: VoiceTyperConfig["theme_preset"] =
 		themePresetProp ?? config?.theme_preset ?? "default";
 
-	// ``customDraftIsDefault`` is true when the draft matches the
-	// built-in DEFAULT_CUSTOM_LIGHT / DEFAULT_CUSTOM_DARK maps.  The
-	// Reset button is disabled in that state, re-enabled the moment
-	// the user edits any colour.  Compared by JSON.stringify on the 6
-	// core vars (DEFAULT_CUSTOM_* only contain those 6 keys, so this is
-	// exact).
 	const customDraftIsDefault = useMemo(() => {
 		if (!customDraft) return false;
 		const lightKeys = Object.keys(customDraft.light).sort();
@@ -517,14 +348,6 @@ export function useThemeSettings({
 		return true;
 	}, [customDraft]);
 
-	// One-time init moved into a useEffect. Previously this block
-	// called setCustomDraft during render, a React anti-pattern that
-	// forces a synchronous re-render before commit and breaks
-	// concurrent-rendering invariants. Running it in an effect costs
-	// one extra render (the draft is ``null`` on the first commit) but
-	// is React-blessed. The ``customThemeInitRef`` guard ensures the
-	// init runs only once even if ``config`` identity changes. Prefers
-	// localStorage draft over config value.
 	useEffect(() => {
 		if (!config || customThemeInitRef.current) return;
 		customThemeInitRef.current = true;
@@ -541,24 +364,12 @@ export function useThemeSettings({
 		}
 	}, [config]);
 
-	// PERF: clear the color cache on unmount so stale entries don't
-	// persist across page navigations. The cache is module-level
-	// (shared across all instances), so this ensures the next time the
-	// user visits Settings, colors are re-read from the DOM/THEMES
-	// array rather than using potentially stale cached values.
 	useEffect(() => {
 		return () => {
 			_themeColorCache.clear();
 		};
 	}, []);
 
-	// Keep the hex-input drafts in sync with the committed
-	// ``customDraft`` values.  Whenever the draft changes (via the
-	// colour picker, the reset button, the toggle-on init, or a config
-	// push), re-seed every row's text input with the new committed
-	// hex.  Without this, picking a colour via the native picker would
-	// leave the text input showing the previous hex until the user
-	// manually re-typed it.
 	useEffect(() => {
 		if (!customDraft) return;
 		const next: Record<string, string> = {};
@@ -571,19 +382,7 @@ export function useThemeSettings({
 		setHexDrafts(next);
 	}, [customDraft, customEditorMode]);
 
-	// ── Event handlers ──────────────────────────────────────────────
-
-	// Apply a custom color change immediately for preview, then debounce save.
-	//
 	// React state updaters must stay PURE: StrictMode double-invokes them
-	// in dev (which used to double-fire every side effect below, one edit
-	// produced TWO localStorage draft writes and TWO debounced-save
-	// armings), and a replayed/interrupted render can re-invoke an updater
-	// against a different base state in production. The next draft is
-	// therefore computed from the `customDraftRef` mirror OUTSIDE the
-	// updater, the updater only schedules the precomputed value, and the
-	// document write + cache invalidation + localStorage write + debounced
-	// backend save all run exactly ONCE, from the handler itself.
 	const handleCustomColorChange = useCallback(
 		(mode: "light" | "dark", colorKey: string, hex: string) => {
 			const prev = customDraftRef.current;
@@ -592,15 +391,9 @@ export function useThemeSettings({
 				...prev,
 				[mode]: { ...prev[mode], [colorKey]: hex },
 			};
-			// Refresh the ref mirror synchronously so a second edit in the
-			// same tick (before the ref-sync effect commits) composes off this
-			// one, the same composition the old functional-updater form
-			// provided. The ref-sync effect below re-asserts the same value
-			// after commit, so this write can never desync the mirror.
 			customDraftRef.current = updated;
 			setCustomDraft(() => updated);
 
-			// Preview immediately on the document
 			const isDark = document.documentElement.classList.contains("dark");
 			const modeVars = isDark ? updated.dark : updated.light;
 			const derived = deriveCustomVars(modeVars, isDark);
@@ -609,18 +402,13 @@ export function useThemeSettings({
 			_themeColorCache.delete("custom");
 			_themeColorCache.delete("default");
 
-			// Persist to localStorage immediately (before the backend
-			// save completes) so the draft survives a crash or
-			// disconnect.
 			saveDraftToLS(updated);
 
-			// Debounced save to backend
 			updateConfigDebounced("custom_theme", updated, 300);
 		},
 		[updateConfigDebounced],
 	);
 
-	// ── Theme preset hover preview ─────────────────────────────────
 	const applyHoverPreview = useCallback((presetId: string) => {
 		const isDark = document.documentElement.classList.contains("dark");
 		applyThemeVars(presetId, isDark);
@@ -630,20 +418,12 @@ export function useThemeSettings({
 		const isDark = document.documentElement.classList.contains("dark");
 		const preset = savedPresetRef.current;
 		if (preset === CUSTOM_THEME_ID) {
-			// ``applyThemeVars("custom", isDark)`` without a third
-			// argument clears all custom vars from the DOM (via
-			// ``clearThemeVars()``) but then can't re-apply them because
-			// the ``custom`` ThemePreset has empty light/dark var maps —
-			// the user's actual colors live in the config/customDraft.
-			// Derive the full var set from the draft so the revert
-			// actually restores the saved custom theme.
 			const draft = customDraftRef.current;
 			if (draft) {
 				const modeVars = isDark ? draft.dark : draft.light;
 				const derived = deriveCustomVars(modeVars, isDark);
 				applyThemeVars(CUSTOM_THEME_ID, isDark, derived);
 			} else {
-				// No draft available, fall back to default (no vars to apply).
 				applyThemeVars("default", isDark);
 			}
 		} else {
@@ -654,7 +434,6 @@ export function useThemeSettings({
 	const handleColorSchemeChange = useCallback(
 		(v: string) => {
 			const m = v as VoiceTyperConfig["theme_mode"];
-			// App-level handler owns the save + state update.
 			onThemeChange?.(m);
 		},
 		[onThemeChange],
@@ -698,9 +477,6 @@ export function useThemeSettings({
 					config?.theme_preset ?? "default",
 					customDraftRef.current,
 				);
-				// Refresh the ref mirror alongside the state write so
-				// the draft is visible to same-tick consumers (see
-				// handleCustomColorChange).
 				customDraftRef.current = currentColors;
 				setCustomDraft(currentColors);
 				saveDraftToLS(currentColors);
@@ -727,19 +503,9 @@ export function useThemeSettings({
 		[handleCustomColorChange, customEditorMode],
 	);
 
-	// Hex input handler, allows partial typing via the loose regex
-	// (so the user can type ``#``, ``#1``, ``#1a``, ``#1a2``, … without
-	// the input rejecting intermediate states), commits to
-	// ``handleCustomColorChange`` only when the strict ``#rrggbb``
-	// regex matches (so a half-typed value doesn't preview an invalid
-	// colour on the document), and updates the local ``hexDrafts`` so
-	// the input shows what the user typed.
 	const handleHexInputChange = useCallback(
 		(varName: string) => (e: ChangeEvent<HTMLInputElement>) => {
 			const val = e.target.value;
-			// Allow the user to clear the input entirely (so they can
-			// retype from scratch), the blur handler will revert if
-			// the value is left empty.
 			if (val === "" || /^#[0-9a-fA-F]{0,6}$/.test(val)) {
 				setHexDrafts((prev) => ({ ...prev, [varName]: val }));
 				if (/^#[0-9a-fA-F]{6}$/.test(val)) {
@@ -750,16 +516,10 @@ export function useThemeSettings({
 		[handleCustomColorChange, customEditorMode],
 	);
 
-	// On blur, commit the strict-match value or revert to the
-	// last-committed hex.  Reverting prevents a half-typed value (e.g.
-	// ``#1a2``) from lingering in the input after the user clicks away
-	//, the input snaps back to the colour the document is actually
-	// using.
 	const handleHexInputBlur = useCallback(
 		(varName: string, committedHex: string) => () => {
 			const val = hexDrafts[varName] ?? committedHex;
 			if (/^#[0-9a-fA-F]{6}$/.test(val)) {
-				// Already committed on change, nothing to do.
 				return;
 			}
 			setHexDrafts((prev) => ({ ...prev, [varName]: committedHex }));
@@ -772,9 +532,6 @@ export function useThemeSettings({
 			light: { ...DEFAULT_CUSTOM_LIGHT },
 			dark: { ...DEFAULT_CUSTOM_DARK },
 		};
-		// Refresh the ref mirror alongside the state write so the
-		// draft is visible to same-tick consumers (see
-		// handleCustomColorChange).
 		customDraftRef.current = defaults;
 		setCustomDraft(defaults);
 		saveDraftToLS(defaults);

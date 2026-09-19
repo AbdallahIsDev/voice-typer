@@ -1,28 +1,3 @@
-/**
- * Wiring tests for the shared collection-page family (the Vocabulary +
- * Templates pages' migration onto the Wave-3 shells).
- *
- * Both collection pages render their Toolbar / BulkBar / ListHeader through
- * the shared components (components/common/Collection*.tsx), the per-page
- * mirrors were byte-identical except for i18n keys and a handful of drift
- * points, so the family is one component and each page injects its keys.
- * These tests pin the MIGRATION contracts:
- *
- *   - structural: both page roots import the shared shells; the per-page
- *     mirror files stay deleted (a regression that reintroduces a forked
- *     toolbar fails here)
- *   - drift: the Add button carries an accessible aria-label on BOTH pages
- *     (new key `vocabulary.addNewAria`, all 8 locales); the row action
- *     buttons use the unified compact size (`icon-xs`, 24×24, the WCAG
- *     2.5.8 AA minimum) and NO native tooltips on either page; each page's
- *     hidden import input keeps its domain-specific file-picker filter
- *   - behavior: a REJECTED export (IPC `success: false`) surfaces an error
- *     toast on both pages, a failed export must not be silent
- *
- * The pages are rendered through their REAL component trees (mocks only at
- * the boundaries: python bridge, snackbar/sonner, hugeicons, next-themes),
- * so these also act as page-level wiring tests for the shell migration.
- */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {

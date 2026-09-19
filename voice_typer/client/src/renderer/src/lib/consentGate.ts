@@ -1,15 +1,12 @@
 // src/renderer/src/lib/consentGate.ts
-//
 // Unified point-of-use consent gate ("Allow? Yes/No") for EVERY
 // consent-gated feature. Any flow that hits a `client.consent_required`
 // envelope (or a backend `consent_required` push event) opens a single
 // in-app dialog that can grant the consent in place, no Settings
 // archaeology, and optionally retries the action that was blocked.
-//
 // The dialog itself lives in `components/consent/ConsentGateDialog.tsx`;
 // this module owns the store + the consent-field → i18n-key mapping so
 // callers don't each re-derive the message text (E7/DRY).
-//
 // Consent fields are pinned on the backend side by
 // `config_validators/__init__.py` (all bool, SEC-002 allowlisted for
 // set_config) and mirrored in `types/config.ts`. The i18n bodies below
@@ -18,20 +15,6 @@
 
 import { create } from "zustand";
 
-/**
- * A pending point-of-use consent request.
- *
- * @param consentField Config field to enable on Allow (e.g.
- *   `"voice_biometric_consent"`). Passed verbatim to `set_config`.
- * @param bodyKey i18n key for the dialog body (plain-language
- *   description of what enabling the consent means).
- * @param bodyParams Optional interpolation params for `bodyKey`.
- * @param onAllow Called AFTER the consent field has been persisted
- *   successfully. Typically re-invokes the action that was blocked
- *   (start dictation, restart mic test, re-run download). Omit when
- *   there is nothing sensible to retry (e.g. LLM polish, the next
- *   transcription benefits automatically).
- */
 export interface ConsentGateRequest {
 	consentField: string;
 	bodyKey: string;
@@ -56,11 +39,6 @@ export function openConsentGate(request: ConsentGateRequest): void {
 	useConsentGateStore.getState().open(request);
 }
 
-/**
- * Consent-field → i18n body key mapping. The dialog title is the same
- * for every field (`consentDialog.title`); the body explains the
- * specific data flow the consent unlocks.
- */
 export function consentBodyKey(consentField: string): string {
 	const key = `consentDialog.field.${consentField}`;
 	// No default fallback needed at the type level, the i18n layer
@@ -70,12 +48,6 @@ export function consentBodyKey(consentField: string): string {
 	return key;
 }
 
-/**
- * Stable list of consent fields the unified gate understands. Mirrors
- * the PrivacySettingsSection consent rows + `offline_pack_consent`
- * (which has no Settings row but is consent-gated by the pack
- * download service).
- */
 export const CONSENT_FIELD_NAMES = [
 	"voice_biometric_consent",
 	"huggingface_consent",
@@ -88,22 +60,6 @@ export const CONSENT_FIELD_NAMES = [
 
 export type ConsentFieldName = (typeof CONSENT_FIELD_NAMES)[number];
 
-/**
- * Consent fields whose point-of-use gate should RETRY the dictation
- * toggle after the user grants consent (Allow → ``toggle_dictation``).
- *
- * Dictation START is the only consent-gated direction, so these are the
- * fields whose refusal leaves an action that can be automatically
- * re-run from the dialog; every other gate has no re-runnable action
- * (granting the consent is enough, the user retries themselves).
- *
- * DERIVED from {@link CONSENT_FIELD_NAMES} (single source of truth, no
- * parallel hand-maintained list): a newly added cloud provider's
- * ``cloud_*_consent`` field automatically gains the retry behavior.
- * Previously this set was inlined in the App-level ``consent_required``
- * handler, where a fifth cloud provider would have silently lost the
- * "retry dictation after Allow" behavior.
- */
 export const DICTATION_RETRY_CONSENT_FIELDS: readonly ConsentFieldName[] =
 	CONSENT_FIELD_NAMES.filter(
 		(field) =>

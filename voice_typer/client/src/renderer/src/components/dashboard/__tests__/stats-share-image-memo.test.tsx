@@ -1,28 +1,3 @@
-/**
- *  vitest suite, StatsShareImage React.memo re-render gating.
- *
- * StatsShareImage is rendered off-screen and captured as a PNG only
- * when the user clicks "Share Stats". Re-rendering it on every
- * parent re-render is wasted work. Wrapping it in `React.memo`
- * (matching the TitleBar.tsx:324 pattern) lets the default
- * shallow-equal comparator short-circuit re-renders when the `stats`
- * prop reference is unchanged.
- *
- * The two tests below verify:
- *   1. Re-rendering the parent with the SAME `stats` reference does
- *      NOT re-render StatsShareImage (render counter stays at 1).
- *   2. Re-rendering the parent with a DIFFERENT `stats` reference
- *      (e.g. new computeShareStats return value) DOES re-render
- *      StatsShareImage (render counter increments to 2). This guards
- *      against an over-aggressive memo that would break the share
- *      image refresh (NEVER DOWNGRADE behaviour).
- *
- * Render counting is done via a render counter inside a wrapped
- * StatsShareImage, but since StatsShareImage is the component under
- * test, we instead count via the i18n `t()` calls it makes on each
- * render (StatsShareImage calls `t()` multiple times per render).
- * Mocking `t` with a counter gives a faithful render-count proxy.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

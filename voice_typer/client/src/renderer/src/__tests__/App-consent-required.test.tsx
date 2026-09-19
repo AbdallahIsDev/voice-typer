@@ -1,36 +1,3 @@
-/**
- * vitest suite, App.tsx `consent_required` push subscription.
- *
- * The backend publishes a `consent_required` push event when a
- * consent-gated action is refused: dictation start without
- * ``voice_biometric_consent`` (recording_lifecycle.py, the path for
- * entry points the renderer can't gate client-side: F2 hotkey, tray
- * click action, sandboxed bubble window), cloud-provider consents,
- * the LLM-polish consent, the offline-pack consent. App.tsx
- * subscribes and opens the UNIFIED point-of-use consent dialog
- * (Allow → persists the consent → retries the refused action) instead
- * of the old toast + Settings navigation.
- *
- * This test mocks:
- *   - `usePythonEvent`, captures the registered `consent_required`
- *     handler so the test can invoke it directly with synthetic
- *     payloads.
- *   - `useConnection`, pins `connectionStatus` to "connected" so App
- *     renders the active page (the handler is app-level, not
- *     page-level, so the page under render doesn't matter).
- *   - All child pages + window chrome, trivial stubs so the App
- *     render graph stays isolated.
- *
- * Assertions:
- *   1. Invoking the captured handler with
- *      `{ consent_field: "voice_biometric_consent" }` opens the
- *      consent gate (store request carries the field + body key) with
- *      a dictation retry (Allow → toggle_dictation).
- *   2. Same for a cloud-provider consent field (cloud_groq_consent).
- *   3. Invoking the handler with the HuggingFace shape
- *      (`{ provider, model }`, no `consent_field`) does NOT open the
- *      gate: that shape is handled by the model-download flow.
- */
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

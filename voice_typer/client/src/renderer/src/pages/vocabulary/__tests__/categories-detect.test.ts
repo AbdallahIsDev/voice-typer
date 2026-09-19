@@ -1,25 +1,3 @@
-/**
- * Tests for the ``detectCategory`` heuristics in
- * ``vocabulary/lib/categories.ts``.
- *
- * The function auto-detects a backend category for a trigger string
- * using these heuristics (evaluated in order, first match wins):
- *
- *  1. Multi-word phrases → ``phrase_corrections``
- *  1b. Script-detection fallback for non-Latin scripts:
- *       - CJK (Han) → ``phrase_corrections``
- *       - Arabic → ``names``
- *       - Cyrillic / Latin → fall through to case-based rules
- *  2. Mixed-case single tokens → ``products`` (e.g. ``iPad``)
- *  3. All-uppercase single tokens (≥2 chars) → ``names`` (e.g. ``NASA``)
- *  4. First-letter-capitalised single tokens → ``names`` (e.g. ``John``)
- *  5. Lowercase single tokens in the tech-word list → ``technical_terms``
- *  6. Default → ``misspellings``
- *
- * The heuristics are deliberately conservative, when in doubt, they
- * fall through to ``misspellings`` (the previous default) so existing
- * entries don't silently shift category.
- */
 import { describe, expect, it } from "vitest";
 
 import { detectCategory } from "../lib/categories";

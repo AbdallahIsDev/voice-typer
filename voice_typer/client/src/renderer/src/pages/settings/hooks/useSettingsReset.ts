@@ -1,12 +1,9 @@
 // Settings reset-to-defaults hook.
-//
-// Extracted from `pages/Settings.tsx` (page-root slimming): the
 // reset-to-defaults event flow, confirm-dialog state + the async
 // `get_defaults` → filter → `update_config` → toast sequence, was the
 // page's largest remaining inline event handler. It lives here so the
 // page root stays layout + wiring, and the flow is testable in
 // isolation.
-//
 // The protected-keys blocklist encodes one-time state (schema version,
 // onboarding flag, OS-specific warning dismissal) that must survive a
 // factory reset of user-tunable preferences. Hoisted to module scope so
@@ -49,11 +46,6 @@ export interface UseSettingsResetReturn {
 	resetToDefaults: () => Promise<void>;
 }
 
-/**
- * Reset-to-defaults flow for the Settings page: confirm-dialog state +
- * the guarded defaults fetch/apply. See the file header for the
- * extraction rationale.
- */
 export function useSettingsReset({
 	config,
 	call,

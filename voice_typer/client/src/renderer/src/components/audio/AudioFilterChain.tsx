@@ -1,8 +1,6 @@
 // AudioFilterChain, the shared individual-filter UI used by both
 // `Settings → Audio` (custom preset) and the Microphone test page's
 // collapsible preset selector.
-//
-// F-1: previously the two call sites each rendered their own copy of
 // the high-pass / noise-suppression / noise-gate / EQ / compressor /
 // limiter / notch rows, with subtly different wrappers (SettingRow in
 // the Settings page vs custom ToggleRow/SliderRow in the microphone
@@ -10,12 +8,10 @@
 // consolidates them into one canonical implementation that uses the
 // shared `SettingRow` + `RangeSlider` primitives and the shared
 // `t()` translation keys.
-//
 // Both call sites pass the same `config` (the full VoiceTyperConfig)
 // and an `onConfigChange` callback that receives a partial update.
 // The component is purely presentational, it does not mutate config
 // directly.
-//
 // The optional `isVisible` prop wires the per-row search filter that
 // the Settings page already uses for its own SettingRows. When the
 // user types a query into the Settings search box, the parent
@@ -27,7 +23,6 @@
 // (e.g. the Microphone test page's preset selector) omit the
 // prop and fall back to a permissive `() => true`, preserving their
 // existing behaviour.
-//
 //the body is now a single `.map` over
 // `audioFilterRowDescriptors` (the registry IS the render spec). All
 // per-row rendering metadata, configKey, kind, min/max/step, suffix,
@@ -45,52 +40,11 @@ import { audioFilterRowDescriptors } from "./audioFilterRowDescriptors";
 import { type AudioFilterSet, FilterRow } from "./FilterRow";
 
 export interface AudioFilterChainProps {
-	/** Full config, used to read the individual noise_filter_* fields. */
 	config: VoiceTyperConfig;
-	/**
-	 * Called when any individual filter field changes. Receives a
-	 * Partial<VoiceTyperConfig> (same shape as `updateConfig` in the
-	 * Settings page and `onConfigChange` in the Microphone page).
-	 */
 	onConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
-	/**
-	 * Optional search-filter predicate. Returns true when the row
-	 * should be shown. Defaults to a permissive `() => true` so
-	 * non-Settings call sites (e.g. the Microphone test page's
-	 * preset selector) are unaffected, they render the entire
-	 * custom chain unconditionally.
-	 *
-	 * this wires the per-row search filter that was
-	 * previously documented in AudioSettingsSection's comment but
-	 * never actually implemented.
-	 */
 	isVisible?: (label: string, info: string, sectionTitle: string) => boolean;
 }
 
-/**
- * Renders the custom filter chain: high-pass, noise suppression
- * method, noise gate (with open/close thresholds + attack/hold/release),
- * equalizer (with low/mid/high), compressor (with threshold/ratio/
- * attack/release/output_gain), limiter (with ceiling + release), and
- * notch filter (with frequency).
- *
- * Each row uses `SettingRow` for layout consistency with the rest of
- * the Settings page. Sliders use `RangeSlider` for the same reason.
- *
- * Every RangeSlider uses `deferApply` so a drag does
- * not flood the backend with one `set_config` IPC call per pixel, the
- * commit happens on pointer-up / blur / key-up instead.
- *
- * All labels are translated via `t()` from `@/i18n/i18n`, the keys
- * live under `settings.audioEnhancement.*` and are shared with the
- * Settings page.
- *
- * Every SettingRow is wrapped in an `isVisible` check so the
- * Settings search box can surface individual filter sub-rows. The
- * actual rendering metadata (configKey, kind, min/max/step, suffix,
- * aria/info keys, defaultValue, parentToggle) lives in
- * `audioFilterRowDescriptors.tsx`, the registry IS the render spec.
- */
 export function AudioFilterChain({
 	config,
 	onConfigChange,
@@ -131,7 +85,6 @@ export function AudioFilterChain({
 	);
 
 	// Resolve the translated search-visible labels ONCE per locale
-	// change (previously re-resolved on every render, ~80 `t()` calls
 	// per render = 0.5–1 ms wasted per Settings interaction).
 	// The memo key is `_locale` (a stable string from
 	// `useSyncExternalStore`); the `t` function reads the current

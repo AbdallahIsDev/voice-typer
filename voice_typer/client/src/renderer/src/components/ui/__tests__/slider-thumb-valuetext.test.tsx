@@ -1,13 +1,3 @@
-/**
- * Slider per-thumb valuetext contract tests.
- *
- * The shared `Slider` primitive applies `getThumbAriaValueText` PER
- * THUMB (aria-valuetext lives on each focusable thumb element, which
- * is the ARIA surface screen readers read), and passes both the
- * thumb's numeric value and its index to the callback so multi-thumb
- * sliders can label each thumb differently ("250 ms minimum",
- * "4800 Hz maximum").
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

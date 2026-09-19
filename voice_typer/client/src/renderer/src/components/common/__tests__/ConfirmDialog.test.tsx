@@ -1,26 +1,3 @@
-/**
- *  (ConfirmDialog confirmedRef test).
- *
- * ConfirmDialog wraps Radix AlertDialog. The contract under test is the
- * confirmedRef-based "Confirm vs Cancel" discrimination:
- *
- *   - Radix AlertDialog fires `onOpenChange(false)` exactly once per
- *     close, whether the user clicked Cancel, pressed Escape, focused
- *     away and hit Tab, etc.  Without a discriminator, every close
- *     would call both onConfirm and onCancel, bad.
- *   - The fix flips a `confirmedRef` to true only inside the
- *     Confirm action's onClick.  When `onOpenChange(false)` fires, the
- *     dialog reads the ref: if true → onConfirm was the cause (and
- *     already invoked); if false → close was via Cancel/Escape →
- *     onCancel should run.
- *
- * This test pins the behavior so a future refactor that drops the ref
- * (or that adds an onConfirm+onCancel double-call) is caught here.
- *
- * Additionally,  / : we assert the redundant `aria-label`
- * props were removed, the visible text content provides the accessible
- * name, so the buttons should NOT carry a duplicate aria-label.
- */
 import {
 	cleanup,
 	fireEvent,

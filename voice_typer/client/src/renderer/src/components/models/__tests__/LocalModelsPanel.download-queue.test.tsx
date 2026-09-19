@@ -1,18 +1,3 @@
-/**
- * LocalModelsPanel, download-queue integration tests.
- *
- * Verifies the panel-level wiring of the pending-download queue slice:
- * the co-located `useModelDownloadQueue` hook consumes the backend's
- * `download_progress` events (`queue_position` field) and forwards the
- * per-model position to the REAL `<ModelCardActions>`, whose Download
- * button swaps to the localized "Queued" state. The panel-level prop
- * plumbing (downloadingModel) stays untouched, the
- * queue state comes from the event stream, not from the page.
- *
- * Same capture technique as `__tests__/app-download-progress-gating.test.tsx`:
- * `usePythonEvent` is mocked and the `download_progress` handler is
- * captured so the test invokes it directly with synthetic payloads.
- */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

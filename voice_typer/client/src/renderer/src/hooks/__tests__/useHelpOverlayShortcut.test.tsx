@@ -1,13 +1,3 @@
-/**
- * Tests for useHelpOverlayShortcut (extracted from App.tsx, EO-28).
- *
- * Covers the "?"-opens / Escape-closes keydown contract:
- *   - "?" (no modifiers) opens the overlay.
- *   - "?" is suppressed while focus is in an editable control.
- *   - "?" is suppressed while a Radix dialog is open.
- *   - Escape closes the overlay and stops propagation.
- *   - openHelp/closeHelp callbacks are stable and work directly.
- */
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useHelpOverlayShortcut } from "@/hooks/useHelpOverlayShortcut";

@@ -1,24 +1,3 @@
-/**
- * Tests for the BG-59 fix, now living on the two IA destinations the
- * disclosure was split into.
- *
- * Scenario under test: the previous About page rendered a "Full Privacy
- * Policy" button in the Privacy section footer that pointed at the same
- * SECURITY.md URL as the "Security Policy" button in the Resources
- * section. The two byte-identical buttons were confusing UX, users
- * clicked "Full Privacy Policy" expecting a privacy-specific document
- * and landed on the security policy instead.
- *
- * BG-59 removed the duplicate button. The IA split moved the privacy
- * disclosure to its own Privacy page and the resources grid to
- * Settings → Troubleshooting (ResourcesSettingsSection); About and
- * Privacy have since been MERGED back into one page
- * (pages/AboutAndPrivacy.tsx), so these tests now mount those two
- * destinations:
- *   - Merged page: no "Full Privacy Policy" button, no trailing note.
- *   - ResourcesSettingsSection: exactly ONE anchor pointing at
- *     SECURITY.md (the Security Policy button).
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
@@ -82,7 +61,6 @@ describe("Merged About & Privacy page, BG-59 privacy URL fix", () => {
 		});
 
 		// The "Full Privacy Policy" button is gone, the i18n key
-		// (about.fullPrivacyPolicy) was removed from every locale
 		// (unused dead key, cleaned up with the note removal), and
 		// the UI renders no "Full Privacy Policy" surface at all.
 		expect(screen.queryByText("Full Privacy Policy")).toBeNull();

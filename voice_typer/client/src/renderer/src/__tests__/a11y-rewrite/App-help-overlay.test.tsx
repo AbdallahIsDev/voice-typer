@@ -1,24 +1,3 @@
-/**
- *  vitest rewrite, behavioral tests for `App.tsx` help overlay.
- *
- * Replaces the following string-pattern Python tests from
- * `tests/test_ux_components.py`:
- *   - TestAppHasHelpOverlayForShortcuts::test_app_has_question_mark_keydown_handler
- *   - TestAppHasHelpOverlayForShortcuts::test_help_overlay_closes_on_escape
- *
- * The Python tests asserted on substring presence inside `App.tsx`
- * (e.g. `'"?" === e.key' in app`, `'"Escape" in app'`,
- * `"setShowHelpOverlay(false)" in app`).  These pass even when the
- * handler is wired to the wrong element, and they fail on innocent
- * refactors (switching from `e.key === "?"` to `e.code === "Slash"
- * && e.shiftKey`).  The vitest versions below mount the real App
- * component, dispatch a realistic `?` keydown to `document`, and
- * assert the help overlay Modal opens; then dispatch Escape and
- * assert it closes.
- *
- * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  They are NOT deleted.
- */
 import {
 	cleanup,
 	fireEvent,

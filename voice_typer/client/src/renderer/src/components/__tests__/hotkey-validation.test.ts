@@ -1,25 +1,3 @@
-/**
- * Tests for the shared hotkey validation system.
- *
- * These tests pin the contract documented in hotkey-validation.ts:
- * - isReserved detects OS-reserved shortcuts per-platform.
- * - validateHotkey accepts modifier-only triggers (Ctrl/Alt/Shift alone is
- *   a valid dictation key via modifier-only release detection; bare
- *   Cmd/Win/Super are rejected via the universal reserved table, system
- *   gestures).
- * - validateHotkey rejects combos that end with a modifier
- *   ("Shift+Ctrl" → reject the WHOLE combo, not return a partial
- *   "<shift>" fragment). This is the unit-test side of the
- *   partial-assign fix: the function's return type
- *   declares `partial?: never`, and these tests assert the field is
- *   never set so a future refactor can't silently reintroduce the
- *   partial-assign bug by adding a `partial` field.
- *
- * The backend mirror of this list lives in
- * voice_typer/server/config_validators.py as _RESERVED_HOTKEYS; if
- * you add a shortcut here, add it there too (and update the existing
- * invariant tests in hotkey-utils.test.ts if appropriate).
- */
 import { describe, expect, it, vi } from "vitest";
 import {
 	detectPlatform,

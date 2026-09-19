@@ -1,7 +1,6 @@
 // useMicrophoneDisconnectedToast, surfaces the recorder-stream
 // ``microphone_disconnected`` push event on the SAME recovery surface
 // as ``device_lost``.
-//
 // The backend detects an active-microphone loss in TWO subsystems:
 // the mic-test level monitor (publishes ``device_lost``) and the
 // DICTATION recorder stream (mic_lifecycle_hooks publishes
@@ -9,7 +8,6 @@
 // disconnect-retry-exhaustion path). Before this hook the
 // recorder-stream event was dropped at the host's event gate, so a mic
 // unplugged mid-DICTATION produced no in-app recovery banner at all.
-//
 // This hook routes the recorder-stream loss into the exact surface
 // `useDeviceLostToast` renders for the level-monitor loss:
 //   - the shared `deviceLostStore` (Microphone-page meter pause +
@@ -36,16 +34,6 @@ import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
  *  `stream_finished` / `zero_chunks` tags via `useDeviceLostToast`). */
 const DEVICE_LOST_SOURCE = "recording_stream";
 
-/**
- * Subscribe to ``microphone_disconnected`` push events; route them to
- * the shared device-lost recovery surface. Call once at the top level
- * of a component (App wires it with the i18n `t` function + a
- * navigate callback).
- *
- * @param t i18n translate function (from useT).
- * @param onOpenMicrophone callback that navigates to the Microphone
- *   page (App wires ``() => navigate("microphone")``).
- */
 export function useMicrophoneDisconnectedToast(
 	t: TranslateFn,
 	onOpenMicrophone: () => void,

@@ -1,18 +1,3 @@
-/**
- * Regression test for the template save-toast ordering bug (2026-08-28).
- *
- * Root cause: `useTemplateDialog.saveTemplate` showed the SUCCESS toast
- * BEFORE awaiting the IPC save. When the backend rejected the write
- * (e.g. `'output' value too long in templates[3] (32913 > 1024)`, the
- * backend caps template output at 1024 chars), the success toast had
- * already fired, then the catch block queued an error toast too, so
- * the user saw a green "Template added" AND a red "Failed to save
- * template" simultaneously, and the template never appeared.
- *
- * Fix: the success toast now fires AFTER `await saveTemplates(...)`
- * resolves, and the error toast surfaces the backend's rejection reason
- * (err.message) instead of the opaque generic "Failed to save template".
- */
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -102,7 +87,6 @@ describe("useTemplateDialog.saveTemplate, toast ordering", () => {
 		});
 
 		// Only the ERROR toast fires, never a success toast for a
-		// rejected write (the old bug showed both simultaneously).
 		const successCalls = showSnack.mock.calls.filter(
 			(call) => call[1] === "success",
 		);

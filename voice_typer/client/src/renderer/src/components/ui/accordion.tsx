@@ -43,25 +43,13 @@ function AccordionTrigger({
 			<AccordionPrimitive.Trigger
 				data-slot="accordion-trigger"
 				className={cn(
-					"group/accordion-trigger relative flex flex-1 items-start justify-between gap-6 border border-transparent p-4 text-start text-sm font-medium transition-all outline-hidden hover:underline focus-visible:border-ring focus-visible:ring-1focus-visible:ring-ring disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground",
+					"group/accordion-trigger relative flex flex-1 items-start justify-between gap-6 border border-transparent p-4 text-start text-sm font-medium transition-all outline-hidden hover:underline focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground",
 					className,
 				)}
 				{...props}
 			>
 				{children}
-				{/*
-					(2026-08-21): the expand/collapse glyph is a single
-					PlusSignIcon that stays a `+` in BOTH the collapsed and
-					expanded states, it never swaps to a minus, chevron, or
-					any other symbol, and there is intentionally NO
-					icon-state transition (the affordance is deliberately
-					identical whether the group is open or closed). A
-					previous iteration swapped `+`→`−` and then to a
-					rotating chevron; both were reverted per the user's
-					design decision. The Radix trigger still carries the
-					accessible name + aria-expanded; the icon is
-					aria-hidden.
-				*/}
+				{/* C-MODELS-4: persistent PlusSignIcon both states; no icon animation. */}
 				<HugeiconsIcon
 					icon={PlusSignIcon}
 					strokeWidth={2}
@@ -87,13 +75,9 @@ function AccordionContent({
 		>
 			<div
 				className={cn(
-					// NO fixed height here: the open/close animations drive the
-					// OUTER element's height via the --radix-accordion-content-height
-					// keyframes, so the inner wrapper must stay auto-sized. A fixed
-					// ``h-(--radix-accordion-content-height)`` froze the OPEN-time
-					// measurement, any content that shrinks while open (preset
-					// switch, disclosure collapse) left a large trailing void
-					// inside the expanded panel.
+					// No fixed height: open/close animations drive outer height via
+					// --radix-accordion-content-height; a fixed height freezes the
+					// open-time measurement and leaves a trailing void when content shrinks.
 					"pt-0 pb-4 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
 					className,
 				)}

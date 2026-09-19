@@ -1,18 +1,3 @@
-/**
- * useMediaQuery, subscribes to a CSS media query and re-renders on change.
- *
- *  (partial): introduced so App.tsx can auto-collapse the sidebar when
- * the window narrows below the `640px` breakpoint. The hook is generic
- * (not hardcoded to the sidebar breakpoint) so other callers can subscribe
- * to arbitrary queries (e.g. `prefers-reduced-motion`, `min-width: 1024px`).
- *
- * SSR / non-browser guard: returns `false` when `window` is undefined so the
- * hook is safe to call from module-scope code that may execute during SSR
- * or in a Node-based test runner that doesn't define `window.matchMedia`.
- *
- * @param query  A CSS media query string, e.g. `"(max-width: 640px)"`.
- * @returns      `true` when the query currently matches, `false` otherwise.
- */
 import { useEffect, useState } from "react";
 
 export function useMediaQuery(query: string): boolean {

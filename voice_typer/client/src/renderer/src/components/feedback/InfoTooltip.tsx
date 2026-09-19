@@ -18,37 +18,6 @@ import { cn, focusRing } from "@/lib/utils";
 interface InfoTooltipProps {
 	/** Tooltip body text shown on hover/focus. */
 	text: string;
-	/**
-	 * Optional label describing the field this tooltip belongs to
-	 * (e.g. "VAD aggressiveness", "Noise gate threshold"). When
-	 * provided, the trigger button's accessible name is composed as
-	 * `t("a11y.moreInfoAbout", { label: contextLabel })`, e.g.
-	 * "More info about VAD aggressiveness", so screen-reader users
-	 * hear the field name when tabbing through multiple InfoTooltips
-	 * on the same page. When omitted, falls back to the generic
-	 * `t("a11y.moreInfo")` ("More info") used historically.
-	 *
-	 * Existing callers (SettingRow,
-	 * Templates.tsx) do not pass `contextLabel`, so their behaviour
-	 * is unchanged. New callers SHOULD pass it to disambiguate.
-	 */
-	/**
-	 * `"button"` (default) renders the trigger as a real `<button>` —
-	 * the correct element everywhere the tooltip is NOT nested inside
-	 * another interactive control.
-	 *
-	 * `"inline"` renders a focusable `<span tabIndex={0}>` instead, for
-	 * the one layout a button cannot serve: sitting INSIDE another
-	 * button (e.g. beside the label of an AccordionTrigger). Nested
-	 * `<button>` is invalid DOM (React validateDOMNesting) and its
-	 * activation would toggle the ancestor. The inline span carries the
-	 * same aria-label, opens the tooltip on focus (Radix Tooltip opens
-	 * on focus regardless of element type, radix-ui blesses exactly
-	 * this span-inside-accordion-trigger composition), deliberately
-	 * claims NO role (a role=button inside a button would announce
-	 * nested interactive semantics), and stops click/keydown
-	 * propagation so activating it never toggles the ancestor control.
-	 */
 	contextLabel?: string;
 	triggerAs?: "button" | "inline";
 }
@@ -91,13 +60,11 @@ export function InfoTooltip({
 	// tooltip is already open from focus). Visual styling is overridden
 	// so the button looks identical to a plain <span> (no native button
 	// border/background).
-	//
 	// `triggerAs="inline"`: a focusable <span> for the one layout a
 	// button cannot serve, inside another button (accordion trigger).
 	// Same classes/aria-label/svg; NO role (nested interactive semantics
 	// would confuse SRs); click + keydown propagation is stopped so
 	// activating the span never toggles the ancestor control.
-	//
 	// Use the shared focusRing (ring-1 / ring-ring/30) for parity
 	// with the design-system Button instead of the bespoke
 	// ring-1 / ring-ring/50 (thinner + more opaque than the rest of the
@@ -117,7 +84,6 @@ export function InfoTooltip({
 	// The app's standard icon language is hugeicons, the help glyph is
 	// CircleQuestionMarkIcon (strokeWidth 2, 12px = h-3 w-3, decorative:
 	// aria-hidden; the trigger's aria-label is the accessible name).
-	// Replaces the former hand-rolled 12×12 `?` SVG so every info glyph
 	// in the app shares one icon family.
 	const helpGlyph = (
 		<HugeiconsIcon

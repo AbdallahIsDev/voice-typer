@@ -1,14 +1,3 @@
-/**
- * Optional debounce on the shared SearchField.
- *
- * `debounceMs` is opt-in: undefined keeps the current immediate
- * onChange behavior (existing consumers unchanged). With a delay, the
- * input stays FULLY CONTROLLED (the value prop renders instantly —
- * no typing lag), while onChange notifications are batched. A pending
- * timer is cancelled on unmount and when the external value changes
- * (external change = someone else reset the field, e.g. clearQuery —
- * no trailing notification for a value the consumer didn't originate).
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,24 +1,3 @@
-/**
- * themeStore.ts, the singleton theme Zustand store + its localStorage
- * hydration readers. Split out of ``hooks/useTheme.ts`` so the hook file
- * stays a thin composition root and the state concern has a single home.
- *
- * ── singleton store ──────────────────────────────────────────────────
- *
- * ``useTheme`` is called from BOTH ``App.tsx`` (always-mounted) AND
- * ``Settings.tsx`` (lazy-mounted when the user opens Settings). Theme
- * state therefore lives in a module-level Zustand store (mirrors the
- * ``useNavigation`` singleton-store pattern): every ``useTheme`` caller
- * READS from the SAME source via ``useShallow``, so a state change in
- * one caller's setter re-renders ALL callers.
- *
- * The "internal" setters (``setThemeModeState`` etc.) update state
- * WITHOUT scheduling a backend save, they're used by backend-pushed
- * paths (``themeSync.reloadThemeFromConfig``, the ``config_changed``
- * handler) where the change came FROM the backend, so round-tripping it
- * would be a feedback loop. The public-facing setters (in the hook body)
- * wrap these + add the debounced ``scheduleThemeSave`` call.
- */
 import { create } from "zustand";
 import {
 	LS_CUSTOM_THEME,
@@ -29,12 +8,9 @@ import {
 import { type CustomThemeData, THEMES } from "@/themes";
 import type { VoiceTyperConfig } from "@/types/config";
 
-//the four ``LS_*`` constants previously lived here (and were
 // duplicated in ``theme-bootstrap.ts``). They now live in
 // ``lib/theme-storage-keys.ts`` (single source of truth) so the
 // bootstrap and the hook cannot drift out of sync, a one-sided key
-// rename would previously have caused a silent cache desync (the
-// bootstrap reading from the old key while this hook wrote to the new
 // one, producing a FOUC on every launch).
 
 export function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
@@ -55,7 +31,6 @@ export function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
 		//validate against the canonical ``THEMES`` list
 		// (single source of truth in ``themes/index.ts``) instead
 		// of a hand-maintained string-literal chain. Adding a new
-		// preset previously required editing BOTH the themes/
 		// index.ts array AND the literal chain here; forgetting
 		// the latter silently rejected the cached preset on
 		// remount (FOUC). The ``THEMES.some(t => t.id === v)``
@@ -145,12 +120,6 @@ export const useThemeStore = create<ThemeState>()((set) => ({
 		set({ hasInitialReloadCompleted: value }),
 }));
 
-/**
- * Re-seed the store from localStorage (all five fields, including the
- * ``hasInitialReloadCompleted`` guard flip back to ``false``). Used by
- * the ``_resetThemeStoreForTest`` seam in ``hooks/useTheme.ts`` so a test
- * can mount a fresh ``useTheme`` consumer deterministically.
- */
 export function resetThemeStoreToCachedState(): void {
 	useThemeStore.setState({
 		themeMode: readLsThemeMode(),

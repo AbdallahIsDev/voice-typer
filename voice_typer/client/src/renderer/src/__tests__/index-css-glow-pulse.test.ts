@@ -1,26 +1,3 @@
-/**
- * CSS contract for the mic-button idle glow pulse.
- *
- * The glow animation MUST stay repaint-free: the old implementation
- * animated `box-shadow` inside the keyframes, forcing the browser to
- * re-rasterize the shadow (paint) on every frame of the infinite
- * loop. The current contract:
- *
- *   1. `@keyframes glowPulse` animates OPACITY ONLY, never
- *      box-shadow (or any paint-triggering property).
- *   2. The glow itself is a STATIC box-shadow painted once on the
- *      `.animate-glow-pulse::after` pseudo-element (compositor-only
- *      opacity modulation on top).
- *   3. The pseudo-element must not intercept pointer input and must
- *      inherit the host's border-radius.
- *   4. The prefers-reduced-motion block still covers the pseudo-
- *      element (via the `*::after` selector) so the pulse stops for
- *      users who opt out of motion.
- *
- * Static-source assertions (same pattern as the i18n CSS guards): the
- * stylesheet is small and locally owned, so string-level checks keep
- * this fast and dependency-free.
- */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";

@@ -1,21 +1,15 @@
 // i18n shared state container + loader + locale-switch orchestrator.
-//
 // This module is the single owner of the mutable i18n runtime state:
-//
 //   - ``_currentLocale``       , the active UI locale
 //   - ``_translations``        , Map<Locale, Map<dotKey, value>>
 //   - ``_localeLoadInitiated`` , Set of locales whose dynamic import
 //                                  has been kicked off (dedup guard)
 //   - ``_localeLoadPromises``  , Map of in-flight dynamic-import
 //                                  promises (await dedup)
-//
 // No module-load side effects live
 // here. The localStorage restore + browser-locale detection + async
-// load kickoff that USED to run at module eval time has moved to
 // ``initI18n()`` in ``./index.ts``. That function is auto-called on
-// first import (preserving the prior behavior) AND exposed for explicit
 // initialization from ``main.tsx`` / test setup.
-//
 // Other i18n modules import from here to access shared state. The state
 // is exported as ``const`` references (Maps/Sets whose contents mutate
 // but whose identity is stable) plus a small mutator for ``_currentLocale``
@@ -23,7 +17,7 @@
 
 // APP_NAME from `@/branding` is the single source of truth for the
 // product name, used by `_withAppName` below to substitute the
-// `{appName}` placeholder in locale values at load time (C-BRAND-1).
+// Locale values use {appName}; substituted from APP_NAME at load (C-BRAND-1).
 import { APP_NAME } from "@/branding";
 import { notifyLocaleSubscribers } from "./hooks";
 import { type Locale, SUPPORTED_LOCALES } from "./locale";
@@ -42,27 +36,15 @@ type TranslationDict = Record<string, unknown>;
 // Current locale, defaults to 'en'. ``setLocale`` / ``initI18n`` write
 // to this via ``_setCurrentLocale``; every other module reads it via
 // ``getLocale``.
-//
 //the initial restore-from-localStorage + browser-detect now
 // lives in ``initI18n()`` (in ``./index.ts``) so the module body is
 // side-effect free.
 let _currentLocale: Locale = "en";
 
-/**
- * Read the current locale.
- */
 export function getLocale(): Locale {
 	return _currentLocale;
 }
 
-/**
- * Internal mutator used by {@link setLocale} and {@link initI18n} to
- * update ``_currentLocale``. Other modules read via {@link getLocale}
- *, they MUST NOT mutate locale state directly.
- *
- * Exported with a leading underscore so callers know it's an internal
- * API (no consumer outside the i18n package should touch it).
- */
 export function _setCurrentLocale(next: Locale): void {
 	_currentLocale = next;
 }
@@ -75,7 +57,6 @@ export const _translations: Map<Locale, Map<string, string>> = new Map();
 // auto-load AND the first ``t()`` call race for the same locale.
 export const _localeLoadInitiated: Set<Locale> = new Set();
 
-// Pending dynamic-import promises, used to deduplicate concurrent
 // ``ensureLocaleLoaded`` calls for the same locale.
 export const _localeLoadPromises: Map<Locale, Promise<void>> = new Map();
 
@@ -121,31 +102,8 @@ _invalidateResolvedCache("en");
 /**
  * Substitute the ``{appName}`` placeholder with the canonical
  * ``APP_NAME`` constant on every value in a flat translation record.
- *
  * Mirrors the main-process ``_withAppName`` helper in
- * ``src/main/i18n.ts:114-124`` so renderer and main-process locale
- * loading stay symmetric: a future product rename propagates to every
  * locale file via the single ``APP_NAME`` constant (C-BRAND-1) instead
- * of requiring a hundreds-of-strings edit across the 8 locale JSON
- * files. Only a handful of ``dialog.singleInstance.*`` strings use the
- * placeholder today, but the helper is generic so future strings that
- * embed the app name don't need a special case, and so the planned
- * migration of ~290 strings to the ``{appName}`` placeholder pattern
- * is unblocked.
- *
- * Exported (with leading underscore → "internal helper" convention,
- * matching the main-process naming) so the locale-key-parity test can
- * import it for direct verification. The leading underscore signals
- * that consumers outside the i18n package should not call this, the
- * substitution is applied automatically at registration time.
- *
- * @param translations Flat dot-keyed translation record (e.g. the
- *                     output of ``flatten()`` converted via
- *                     ``Object.fromEntries``). Nested objects are NOT
- *                     supported, call this AFTER flattening.
- * @returns A new record with every ``{appName}`` occurrence in every
- *          value replaced with ``APP_NAME``. The input record is not
- *          mutated.
  */
 export function _withAppName(
 	translations: Record<string, string>,
@@ -157,45 +115,12 @@ export function _withAppName(
 	return result;
 }
 
-/**
- * Apply ``_withAppName`` to the renderer's runtime ``Map<string,
- * string>`` translation shape. Used at every registration site
- * (module-init for English, ``registerTranslations`` for synchronous
- * callers, ``ensureLocaleLoaded`` for dynamic-imported non-English
- * locales) so every translation value is post-processed at load time.
- *
- * The conversion path (``Map`` → ``Record`` via
- * ``Object.fromEntries`` → ``_withAppName`` → ``Map`` via
- * ``Object.entries``) is fine because registration is a cold path:
- * it runs at most once per locale, and locale JSON files are tiny
- * (the largest is ~1900 lines / ~50 KB), so the extra allocation is
- * negligible.
- */
 function _applyAppName(table: Map<string, string>): Map<string, string> {
 	const record = Object.fromEntries(table.entries());
 	const substituted = _withAppName(record);
 	return new Map(Object.entries(substituted));
 }
 
-/**
- * Asynchronously load + register a non-English locale's translation
- * table via dynamic ``import()``. No-op for English (already loaded) or
- * for locales already loaded / in-flight.
- *
- * : previously all 8 locale JSON files were statically imported,
- * adding ~60 KB to the initial bundle and ~8 ms of parse time per
- * locale at boot, even though most users only ever see one locale.
- * The dynamic import is fire-and-forget: while the chunk loads,
- * ``t()`` falls back to English (the universal fallback already
- * encoded in the lookup path). Once the chunk resolves we register
- * the translations and notify subscribers (the ``useT`` hook) so
- * every subscribed component re-renders with the now-available
- * locale strings.
- *
- * @param locale The locale to load.
- * @returns A promise that resolves once the locale is registered (or
- *          immediately for English / already-loaded locales).
- */
 export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 	// English is always loaded synchronously at module init.
 	if (locale === "en") return Promise.resolve();
@@ -241,16 +166,13 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 	return promise;
 }
 
-/**
- * Register translations for a locale.
- */
 export function registerTranslations(
 	locale: Locale,
 	data: TranslationDict,
 ): void {
 	// Apply `{appName}` → APP_NAME substitution at registration time
 	// (mirrors main-process _withAppName in src/main/i18n.ts:114-124) so
-	// locale JSON files stay free of hardcoded brand strings (C-BRAND-1).
+	// C-BRAND-1: locale JSON uses {appName}, never a hardcoded brand string.
 	// This path covers synchronous callers (e.g. tests that register
 	// fixture tables via `registerTranslations("en", {...})`) so they
 	// get the same `{appName}` substitution as the JSON-file path.
@@ -264,16 +186,13 @@ export function registerTranslations(
 
 /**
  * Set the current locale and update the document text direction.
- *
  * F-4: When switching to an RTL locale (Arabic), sets
  * ``document.documentElement.dir = "rtl"`` so the entire UI flips
  * horizontally. Falls back to "ltr" for all other locales.
- *
  * Side effects beyond the renderer:
  *   - : kicks off the async dynamic-import of the newly-selected
  *     locale's translation table via ``ensureLocaleLoaded(next)`` so
  *     ``t()`` stops falling back to English after a runtime locale
- *     switch (previously the import was only triggered at module init
  *     for the restored/detected locale).
  *   - : pushes the locale to the predecessor main process via
  *     ``window.window_.setLocale?.(locale)`` so native dialogs render
@@ -282,7 +201,6 @@ export function registerTranslations(
  *     Python backend via ``window.python.call({ type:
  *     "set_tray_locale", data: { locale, labels } })`` so tray-menu
  *     items localise.
- *
  * Both IPC pushes are best-effort (the bridge surfaces may be missing
  * during module-init), so ``setLocale`` must NOT crash when
  * ``window.window_`` / ``window.python`` is undefined or when the IPC
@@ -324,7 +242,6 @@ export function setLocale(locale: Locale): void {
 		console.warn("[renderer:i18n] setLocale document dir/lang failed:", e);
 	}
 
-	// F-3: persist the choice so it survives restarts. Previously the
 	// caller did this and relied on a full reload to re-read it.
 	try {
 		if (typeof localStorage !== "undefined") {

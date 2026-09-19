@@ -1,20 +1,3 @@
-/**
- * About page, offline-pack consent gate (point-of-use contract).
- *
- * When `check_offline_pack_update` returns `{consent_required: true}`
- * (update found but the download refused because
- * `offline_pack_consent` is off), the page must open the SHARED
- * point-of-use consent dialog (`openConsentGate`) instead of showing
- * a persistent "enable in Settings" instruction:
- *
- *   • the dialog request carries the offline_pack_consent field +
- *     its consentDialog body key;
- *   • Allow persists the consent (persistence itself is covered by
- *     ConsentGateDialog.test.tsx) and re-runs the check, which then
- *     triggers the download;
- *   • Cancel leaves everything untouched, no download, no nag;
- *   • a successful check never opens the dialog.
- */
 import {
 	act,
 	cleanup,

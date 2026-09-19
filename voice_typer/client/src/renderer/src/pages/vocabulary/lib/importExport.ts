@@ -1,8 +1,5 @@
 // Import parser for vocabulary files.
-//
-// Extracted from the former monolithic ``pages/Vocabulary.tsx`` so the
 // import hook can call it without dragging in the React state layer.
-//
 // Accepts:
 //  - A bare JSON array of ``{original, correction, category?}`` objects
 //    (the new export shape, see ``useVocabularyImportExport``).
@@ -11,7 +8,6 @@
 //  - CSV text (the format produced by the export side's
 //    ``exportVocabulary`` IPC handler), ``original,correction[,category]``
 //    per line, RFC 4180 quoting, optional header row.
-//
 // Throws on malformed JSON, unknown shape, or a CSV with zero valid
 // rows so the caller can surface a toast.error with the parse failure
 // reason.
@@ -72,7 +68,6 @@ function parseJsonVocabulary(text: string): VocabularyEntry[] {
 // exactly 2 fields auto-detects its category via ``detectCategory``;
 // a line with 3+ fields uses the third as the category (falling back
 // to auto-detect if the value isn't a known backend category).
-//
 // Throws if zero valid rows are produced so the caller surfaces a
 // toast.error instead of silently importing nothing.
 function parseCsvVocabulary(text: string): VocabularyEntry[] {

@@ -1,23 +1,19 @@
 // AiEnhancementSettingsSection, AI Enhancement + Vocabulary Automation
 // sections of the Settings page.
-//
 // Rule-based grammar / punctuation / capitalization applied
 // AFTER LLM polish and BEFORE the result is pasted. Master toggle
 // (ai_enhancement_enabled) defaults OFF, the user must explicitly opt in.
 // The three sub-toggles default ON so enabling the master toggle "just works".
-//
 // Confidence-score-based vocabulary correction suggestions.
 // When ON, the dictation pipeline analyzes each transcription for
 // low-confidence words and suggests vocabulary corrections; suggestions
 // above the auto-apply threshold are added to the vocabulary automatically,
 // the rest are queued for user review via the get_vocabulary_suggestions /
 // apply_vocabulary_suggestion / dismiss_vocabulary_suggestion IPC commands.
-//
 // Both sections are placed together because they share the "smart post-
 // processing" theme.  The user sees them as a single "AI Enhancement" group
 // in Settings, even though the implementation lives in two separate server
 // modules (ai_enhancement.py and vocabulary_automation.py).
-//
 // Pattern follows AudioSettingsSection.tsx: memo'd function component that
 // accepts the shared SettingsSection props (config, updateConfig,
 // updateConfigDebounced, isVisible) and renders a SettingsSection with

@@ -1,16 +1,3 @@
-/**
- * LevelBar a11y tests, covers the ``role="progressbar"`` semantics.
- *
- * The bar exposes its level to assistive tech via ``aria-valuenow``
- * (numeric 0–100) and ``aria-valuetext`` (human-readable "<pct> percent,
- * <tier>", e.g. "70 percent, loud"). The valuetext is essential for SR
- * users because the raw number alone doesn't convey the qualitative
- * band (silent / low / good / loud) that the visual colour encodes.
- *
- * These tests mount the real ``LevelBar`` with the i18n ``t()`` stubbed
- * out (so the aria-label resolves to the stable catalog key) and assert
- * on the rendered aria attributes.
- */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -97,7 +84,6 @@ describe("LevelBar, compositor-friendly scaleX fill", () => {
 		render(<LevelBar level={0.45} playing={false} />);
 		const fill = getFill();
 		expect(fill.style.transform).toBe("scaleX(0.45)");
-		// The old layout-triggering form set an animating width %; it
 		// must stay unset so the track width never participates in the
 		// animation.
 		expect(fill.style.width).toBe("");

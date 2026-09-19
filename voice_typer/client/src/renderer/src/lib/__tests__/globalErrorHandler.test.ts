@@ -1,22 +1,3 @@
-/**
- * , unit tests for `installGlobalErrorHandlers()`.
- *
- * Asserts that the renderer's global safety net is actually installed:
- * after calling `installGlobalErrorHandlers()` (the function
- * `main.tsx` and `bubble-main.tsx` invoke at the top of their module
- * body, before React mounts), `window` MUST have both an `error` and
- * an `unhandledrejection` listener registered. Without this guarantee,
- * every unhandled promise rejection (the 13+ `.catch(() => {})`
- * swallows identified in ) silently vanishes, no toast, no
- * console trace, no main-process log line.
- *
- * The test spies on `window.addEventListener` so it can verify the
- * exact event types registered without depending on internal listener
- * identity. It also exercises the idempotency contract (second call
- * is a no-op) and the DOM-availability guard (skips cleanly when
- * `window.addEventListener` is missing, defensive, should never
- * happen in a real predecessor renderer).
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -141,12 +122,6 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 	});
 });
 
-/**
- * Verify that dispatching a real `error` event triggers the installed
- * listener and produces a console.error trace. This is the integration
- * contract: the renderer needs the error to be visible in the
- * predecessor main-process log (forwarded via webContents.on("console-message")).
- */
 describe("G4-CR-10: installed listener logs to console.error", () => {
 	let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 	//this describe block calls ``installGlobalErrorHandlers()``
@@ -230,17 +205,6 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 	});
 });
 
-/**
- * MO-102: generic crashes must be FORWARDED to the host log via
- * `window.window_.logError` (the sink React's ErrorBoundary already
- * uses). Under Tauri there is no main-process console tee, so this is
- * the only file-persistence path for errors outside React's boundary.
- *
- * The tests stub the module's `_persistForTests.persist` seam (the real
- * function reads the bridge off `window.window_`, which jsdom does not
- * install) and assert both listeners forward their event, with the
- * ErrorEvent's structured location info.
- */
 describe("MO-102: global handler persists crashes via logError", () => {
 	let persistSpy: ReturnType<typeof vi.spyOn>;
 

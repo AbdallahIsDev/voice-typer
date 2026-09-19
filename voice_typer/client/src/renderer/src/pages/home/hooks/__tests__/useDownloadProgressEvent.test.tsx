@@ -1,22 +1,3 @@
-/**
- * Tests for useDownloadProgressEvent (extracted from Home.tsx).
- *
- * Contract: subscribe to `download_progress` pushes, keep only valid
- * 0-100 percentages from the wire field `progress` (NOT `percent`, the
- * server payload is `{model, progress, status, ...}`), and hide the bar
- * when no download is genuinely in flight:
- *   - reset to null whenever the recording state leaves "loading"
- *     (the state the bar was originally built for) so a stale bar can
- *     never linger;
- *   - terminal events (progress 100 / terminal status markers) remove
- *     the model from the in-flight set and clear the bar once ALL
- *     downloads finish;
- *   - queued events (`queue_position`) keep the bar up across a
- *     download chain without regressing the live percentage;
- *   - a terminal-armed drain window (TERMINAL_DRAIN_MS) clears entries
- *     the event stream never announces (a queued model cancelled from
- *     the Models page pushes no event).
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -367,7 +348,6 @@ describe("useDownloadProgressEvent, terminal drain window", () => {
 			status: "Downloading large-v3: 300 MB",
 		});
 		expect(result.current).toBe(10);
-		// The old terminal's drain timer was cancelled by the event above —
 		// advancing past its original deadline must NOT clear the live bar.
 		act(() => {
 			vi.advanceTimersByTime(TERMINAL_DRAIN_MS);

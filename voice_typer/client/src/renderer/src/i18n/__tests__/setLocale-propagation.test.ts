@@ -1,38 +1,3 @@
-/**
- *  /  /  (session NH) tests for the cross-boundary locale
- * propagation in `setLocale()`.
- *
- * `setLocale()` is the single entry point for changing the renderer's
- * active locale. // added three new side effects to it:
- *
- *   - : kicks off the async dynamic-import of the newly-selected
- *     locale's translation table via `ensureLocaleLoaded(next)` so
- *     `t()` stops falling back to English after a runtime locale
- *     switch (previously the import was only triggered at module init
- *     for the restored/detected locale).
- *   - : pushes the locale to the predecessor main process via
- *     `window.window_.setLocale(locale)` (the re-added `i18n:set-locale`
- *     IPC) so native dialogs (file pickers, error boxes, single-instance
- *     message) render in the user's selected language.
- *   - : pushes the locale + renderer-known tray-menu labels to the
- *     Python sidecar via `window.python.call({type: "set_tray_locale",
- *     data: {locale, labels}})` so tray-menu items localise.
- *
- * Both IPC pushes are best-effort (the bridge surfaces may be missing
- * during module-init or under Tauri), so `setLocale` must NOT crash
- * when `window.window_` / `window.python` is undefined or when the IPC
- * promise rejects.
- *
- * Testing approach: the IPC pushes (, ) are tested directly by
- * mocking `window.window_` and `window.python` and asserting on the
- * spy calls. The `ensureLocaleLoaded` call () is tested
- * behaviorally, we verify that after `setLocale("ar")`, the Arabic
- * translation table is loaded (i.e. `t("models.title")` returns the
- * Arabic string from ar.json). This is preferable to spying on the
- * `ensureLocaleLoaded` export because `setLocale` calls it via the
- * module's internal binding, which a spy on the exported namespace
- * cannot intercept.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 //Import the real (un-mocked) i18n module. The  behavioral test
@@ -121,7 +86,6 @@ describe("NH-2: setLocale kicks off ensureLocaleLoaded for non-English locales",
 		// registers the table, here we register it directly to make
 		// the test deterministic (no dependency on Vite's chunk-load
 		// timing).
-		//
 		// The behavioral assertion: `setLocale("ar")` updates
 		// `_currentLocale` synchronously, so `t("app.name")` resolves
 		// against the Arabic table we just registered. This proves

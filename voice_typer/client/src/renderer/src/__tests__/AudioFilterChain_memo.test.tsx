@@ -1,24 +1,3 @@
-/**
- *  regression test: AudioFilterChain hoists ALL `info` / `ariaLabel` /
- * `aria-label` strings into a per-locale `useMemo`.
- *
- * Pre-: the component had ~48 INLINE `t(...)` calls in the JSX (one
- * per `info` / `ariaLabel` / `aria-label` prop on every SettingRow /
- * Switch / RangeSlider), in addition to the existing `labels` memo (which
- * only covered the search-visible label/infoSearch keys). Every parent
- * re-render (e.g. a slider drag) re-resolved all 48 inline strings.
- *
- * Post-: a second `uiText` useMemo (keyed on `[_locale]`) hoists
- * all 48 inline strings; the JSX now references `uiText.highPassFilterInfo`
- * / `uiText.highPassFilterAria` / etc. instead of calling `t(...)` inline.
- *
- * This test asserts:
- *   1. On the FIRST render, `t()` IS called for every label + uiText
- *      entry (initial resolution).
- *   2. On a SUBSEQUENT render with the SAME props, `t()` is NOT called
- *      at all (both memos hit; the JSX reads from the cached object).
- *   3. When `locale` changes, `t()` is called again (the memos re-resolve).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -88,7 +67,6 @@ describe("DJ-88: AudioFilterChain hoists ALL info/aria strings into a per-locale
 		// Spy on the module's `t` export. `AudioFilterChain` imports
 		// `t` from `@/i18n/i18n`, so spying on the module export
 		// intercepts every call (including the ones inside the
-		// `useMemo` factories and the previously-inline JSX props).
 		tSpy = vi.spyOn(i18n, "t");
 		// Reset to a known locale so the test is deterministic.
 		act(() => {

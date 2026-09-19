@@ -1,20 +1,3 @@
-/**
- * themeBridge.ts, the singleton IPC-bridge slots shared by the theme
- * sync (config read) and persist (config write) paths. Split out of
- * ``hooks/useTheme.ts`` so the sync and persist modules can both read
- * the current bridge without importing each other (no module cycle).
- *
- * The ``call`` and ``mergeConfig`` references are refreshed on every
- * ``ensureThemeSideEffects`` call (every consumer mount, see
- * ``themeSync.ts``). In practice these are stable across the app's
- * lifetime (they come from ``usePython`` and ``useAppStore``, both of
- * which return stable references), so refreshing is a no-op for the
- * second caller.
- *
- * The slots MUST be read at use time (not captured in closures) so the
- * debounced save timer fires against the LATEST bridge and the flush
- * path works even when the registering consumer has since unmounted.
- */
 import type { PythonCall } from "@/hooks/usePython";
 import type { VoiceTyperConfig } from "@/types/config";
 
@@ -22,12 +5,9 @@ import type { VoiceTyperConfig } from "@/types/config";
  * ``useTheme``. The canonical declaration is the bridge's
  * ``PythonCall`` (``lib/python-bridge/usePython.ts``), single-sourced
  * here instead of re-declared structurally, so the slot typing can
- * never drift from the real bridge contract. Used to type the
  * module-level ``activeCall`` slot. */
 export type ThemeCallFn = PythonCall;
 
-/** The ``mergeConfig`` action shape (from the appStore) used to merge
- * backend-pushed config partials into the app-level config cache. */
 export type ThemeMergeConfigFn = (updates: Partial<VoiceTyperConfig>) => void;
 
 let activeCall: ThemeCallFn | null = null;

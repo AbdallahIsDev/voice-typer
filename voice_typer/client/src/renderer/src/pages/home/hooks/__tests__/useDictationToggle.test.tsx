@@ -1,14 +1,3 @@
-/**
- * Tests for useDictationToggle (extracted from Home.tsx).
- *
- * Contract: the GDPR Art. 9 point-of-use consent gate for dictation —
- * the attempt flag is set BEFORE the gate so the "Preparing offline
- * engine…" banner logic in the page root sees every mic-button press;
- * without consent the unified consent gate opens (with an Allow retry
- * that starts dictation) and the IPC is NOT called; with consent (or a
- * not-yet-loaded config) the toggle IPC runs with the toggling spinner
- * flag around it.
- */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { toast } from "sonner";
 import type { Mock } from "vitest";

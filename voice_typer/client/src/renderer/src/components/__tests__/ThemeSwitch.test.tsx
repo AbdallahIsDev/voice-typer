@@ -1,12 +1,3 @@
-/**
- * Tests for the ThemeSwitch component.
- *
- * ThemeSwitch is a small icon-only button that cycles between three
- * theme modes (light → dark → system → light). It renders NO visible
- * text label, the current mode's icon is the only on-screen content.
- * The current mode + the mode clicking will switch to are exposed to
- * assistive tech via aria-label (and to sighted hoverers via title).
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -116,7 +107,6 @@ describe("ThemeSwitch", () => {
 		const { rerender } = render(
 			<ThemeSwitch themeMode="light" onThemeChange={vi.fn()} />,
 		);
-		// The title attribute used to show only the current mode
 		// ("Light mode, click to switch") which left sighted mouse
 		// users with less context than SR users got from the
 		// aria-label. The title mirrors the aria-label so both

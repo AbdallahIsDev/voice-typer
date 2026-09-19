@@ -1,20 +1,8 @@
-/**
- * I18N-3: Render test for RTL document direction.
- *
- * Validates that {@link setLocale} updates `document.documentElement.dir` to
- * `"rtl"` for right-to-left locales (currently only Arabic) and `"ltr"` for
- * all other locales.  The test mounts a minimal React component so it exercises
- * the same render path a real component would follow.
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { getLocale, isRtlLocale, type Locale, setLocale } from "@/i18n/i18n";
 
-/**
- * Minimal component that reads the current locale via `isRtlLocale` and
- * renders the direction as text so we can assert it in the DOM.
- */
 function DirectionDisplay() {
 	return (
 		<div data-testid="dir-display">

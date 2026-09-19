@@ -4,23 +4,6 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
-/**
- * LastUpdatedIndicator, small "Last updated Xs ago [refresh]" widget
- * rendered near the top of each page that keeps a module-level cache
- * (Home, History, Models, Microphone, Dashboard).
- *
- * The cache is only refreshed by explicit
- * user action, the `transcription_final` push event, or the
- * `config_changed` event. If the backend state changes through any
- * other path while the renderer is open, the next navigation shows
- * stale data. This widget makes the staleness visible (so users know
- * the data may be out of date) and offers a one-click manual refresh.
- *
- * Visual treatment is intentionally subtle: small text + small ghost
- * icon button, so it doesn't compete with the page's primary content.
- * The label is `(--text-muted)` (low-contrast) and the refresh button
- * is a ghost variant so it blends into the page chrome.
- */
 interface LastUpdatedIndicatorProps {
 	/** Localized relative label, e.g. "5s ago" or "Just now" (from useLastUpdated). */
 	agoLabel: string;

@@ -1,15 +1,10 @@
 // Test-audio playback hook for the Microphone page.
-//
-//Extracted from the former ``useMicrophoneTest`` monolith ().
 // Owns the ``playingEnhanced`` / ``playingOriginal`` UI state plus the
 // underlying ``HTMLAudioElement`` ref (``audioRef``) and the
 // "is-playing" ref (``playingRef``) that the level-monitor hook reads
 // to suppress level updates during playback.
-//
-//(1-C Finding 8): ``playAudio`` / ``stopPlayback`` are wrapped
 // in ``useCallback`` with their actual deps so the session hook (and
 // the page) can capture them directly without ref indirection.
-//
 // The ``playingRef`` is exposed (alongside the public state) so the
 // composition hook can hand it to ``useMicrophoneLevelMonitor``. The
 // public ``useMicrophoneTest`` API does NOT re-export ``playingRef``
@@ -108,7 +103,6 @@ export function useMicrophonePlayback(): UseMicrophonePlaybackResult {
 	// Unmount cleanup: pause any playing test audio to prevent
 	// background playback after navigation. Also clears the audioRef so
 	// onended/onerror don't fire setState on an unmounted component.
-	// (Previously this cleanup also lived inside the test-session
 	// hook's unmount effect; moved here so the playback hook owns its
 	// own resource lifecycle.)
 	useEffect(() => {

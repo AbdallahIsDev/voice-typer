@@ -1,32 +1,3 @@
-/**
- * useModelConfig, config + models + catalog slice of the Models page.
- *
- * Extracted from the former
- * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
- * page's "core" state, the active config, the local model list, the
- * model catalog, the API-key cache, and the per-mount config cache ref
- *, plus the actions that fetch and persist them:
- *   • `loadConfig`, parallelized `get_config` + `get_model_status` +
- *     `get_model_catalog` in parallel.
- *   • `refreshModelStatus`, the extracted `get_model_status` + active-
- *     model reconciliation helper.
- *   • `updateConfig`, `set_config` wrapper (: re-throws on error
- *     so callers can branch success vs. failure).
- *   • The `config_changed` event subscription (merges partial payload
- *     into the cached config ref + reapplies active-state, no re-fetch).
- *
- * The `apiKeys` state lives here (not in `useCloudProviders`) because
- * `loadConfig` populates it from the freshly-fetched config; keeping it
- * local avoids a circular dep between this hook and `useCloudProviders`.
- * The state is forwarded to `useCloudProviders` via the facade so the
- * cloud-providers panel can read + write it.
- *
- * The hook returns a small set of "internal" helpers (`refreshModelStatus`,
- * `updateConfig`, `setConfig`, `setModels`) that the facade destructures
- * out before spreading into the final return object, they are NOT part
- * of the public `useModelLifecycle` return shape (preserved verbatim
- * from the pre-split hook).
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { safeApiKey } from "@/hooks/models/useCloudProviders";
 import { useLatestRef } from "@/hooks/useLatestRef";
@@ -134,14 +105,10 @@ export function useModelConfig({
 	const cachedConfigRef = useRef<VoiceTyperConfig | null>(null);
 
 	// Refresh-model-status helper ─────────────────────────
-	//
-	// Previously the `get_model_status` IPC + the "force-active
 	// downloaded/depsOk = true" reconciliation block was duplicated
 	// verbatim in both `loadConfig` and `selectModel`. Extracted into a
 	// single helper so future call sites (and bug fixes) apply uniformly.
-	//
 	//  STALE-ACTIVE fix: the "active model is always considered
-	// downloaded + depsOk" override was REMOVED. It was a false
 	// assumption: the configured model can be removed from disk
 	// out-of-band (deleted folder, moved cache), leaving the config
 	// pointing at a missing model. The backend's `get_model_status`
@@ -176,13 +143,10 @@ export function useModelConfig({
 	}, []);
 
 	// Parallelized loadConfig ─────────────────────────────
-	//
-	// Previously this function awaited `get_config`, then awaited
 	// `get_model_status`, then awaited `get_model_catalog`, strictly
 	// sequential. A slow `get_model_catalog` delayed the page render
 	// even though the model cards don't need catalog metadata to render
 	// their skeleton.
-	//
 	// Now we fire all three in parallel via `Promise.allSettled`. The
 	// `get_config` result is the gating one, `applyActiveState` runs
 	// as soon as it resolves. The other two settle in the background.
@@ -297,7 +261,6 @@ export function useModelConfig({
 	}, [loadConfig]);
 
 	// ── config_changed event subscription ───────────────────────────
-	//
 	// The backend pushes `config_changed` whenever `set_config` runs.
 	// We merge the partial payload into the cached config + reapply
 	// active-state. No `get_config` re-fetch needed.
@@ -318,7 +281,6 @@ export function useModelConfig({
 		),
 	);
 
-	//previously ``updateConfig`` swallowed ``set_config`` errors
 	// (try/catch with only ``console.error``), so callers like
 	// ``selectModel`` / ``saveApiKey`` / ``setCloudConsent``
 	// always showed their SUCCESS toast even when the backend save

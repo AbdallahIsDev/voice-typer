@@ -1,5 +1,4 @@
 // History export hook.
-//
 // Owns:
 //   - ``doExport`` (filter-aware paging loop, pages through
 //     ``get_history`` / ``get_favorites`` / ``search_history`` until
@@ -8,15 +7,11 @@
 //     ``window.window_.exportHistory(rows, format)`` so the predecessor
 //     main process / Tauri Rust host can show a native save dialog
 //     and write the file with SEC-015 CSV formula-injection defense).
-//
 //when a filter is active (``searchQuery`` non-empty OR
 // ``favoritesOnly`` true), the export pages through the matching
 // endpoint (``search_history`` / ``get_favorites``) and fires an
 // info toast so the user knows the exported file reflects the
 // active filter, not the full history.
-//
-// Extracted from the former monolithic ``pages/History.tsx`` render
-//function as part of the  spaghetti split. The cache + IPC
 // lifecycle lives in ``useHistoryCache``; the client-side sort lives
 // in ``historySort.ts``.
 
@@ -40,7 +35,6 @@ const EXPORT_PAGE_SIZE = 100;
 // LAST row of the accumulated export, so each subsequent page asks the
 // backend for rows strictly older than it. O(log N) per page via the
 // timestamp index instead of the O(N) OFFSET skip the export loop
-// previously paid on every page (O(pages × offset) overall for a
 // large export). When the last row lacks a usable timestamp/id the
 // shared derivation returns undefined, the backend then falls back
 // to the OFFSET path (the payload always carries limit + offset, same
@@ -101,7 +95,6 @@ export function useHistoryExport({
 				allRecords = [];
 				let offset = 0;
 				// The `eslint-disable-next-line no-constant-condition`
-				// directive above `while (true)` was removed, the project
 				// uses Biome exclusively (no ESLint is installed), so the
 				// directive was inert but misleading. The loop is an
 				// intentional page-until-exhausted loop with explicit

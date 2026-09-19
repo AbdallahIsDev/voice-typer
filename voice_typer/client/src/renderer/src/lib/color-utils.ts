@@ -1,15 +1,11 @@
-// lib/color-utils.ts, color conversion helpers extracted from
 // ThemeSettingsSection.tsx ( / Fix-M).
-//
 // These are pure functions with no React dependency, so they belong in a
 // utility module rather than a 890-LOC component file.  The component
 // now imports them via `import { cssColorToHex } from "@/lib/color-utils"`.
-//
 // All functions are written defensively (try/catch around DOM access,
 // explicit fallbacks for unparseable values) so a malformed CSS color
 // string never throws, it returns ``#000000`` instead.  This matches
 // the original contract in ThemeSettingsSection.tsx.
-//
 // ``pickBestForeground`` and ``passesWCAG`` extend the
 // public API so the custom theme editor (and any future caller) can
 // compute the best foreground for a given background by trying a
@@ -18,13 +14,11 @@
 // hardcoded ``#ffffff`` for primary/accent/destructive foregrounds
 // that broke AA contrast on light primary colors (e.g. monokai
 // ``--primary: oklch(0.7 0.18 250)`` against white text → 2.5:1).
-//
 // ``contrastRatio`` (and its private
 // ``_relativeLuminance`` helper) implements the WCAG 2.1 contrast
 // ratio calculation so the custom theme editor can validate
 // foreground / background pairs against the AA (4.5:1) and AAA
 // (7:1) thresholds without pulling in a third-party a11y library.
-//
 // the underscore-prefixed helpers
 // (``_srgbGamma``, ``_cssColorToHexViaOklch``, ``_cssColorToHexViaDOM``,
 // ``_relativeLuminance``, ``_parseHex``) are NOT exported, they are
@@ -36,7 +30,6 @@
 // referencing these names but did not import them.
 
 // ── WCAG 2.1 contrast ───────────────────────────────────────────────
-//
 // the custom theme editor needs to validate
 // foreground / background pairs against the AA (4.5:1 for normal
 // text, 3:1 for large text / UI components) and AAA (7:1 / 4.5:1)
@@ -44,7 +37,6 @@
 // pulling in a third-party a11y library, the formula is small,
 // well-specified, and only depends on the sRGB → relative luminance
 // transform.
-//
 // The helpers accept ``#rgb`` / ``#rrggbb`` hex strings (the same
 // shape ``cssColorToHex`` produces for any CSS colour). Invalid input
 // is clamped to black so a malformed colour never throws.
@@ -79,16 +71,6 @@ function _parseHex(color: string): [number, number, number] {
 	];
 }
 
-/**
- * Compute the WCAG 2.1 relative luminance of a hex colour.
- *
- * Uses the standard sRGB → linear-light transform
- * (``c ≤ 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4``) and
- * the Rec. 709 luma weights (``0.2126 R + 0.7152 G + 0.0722 B``).
- *
- * Returns ``0`` for unparseable input (treated as black) so callers
- * can pass arbitrary user strings without try/catch.
- */
 function _relativeLuminance(color: string): number {
 	const [r8, g8, b8] = _parseHex(color);
 	const channel = (v8: number): number => {
@@ -101,28 +83,6 @@ function _relativeLuminance(color: string): number {
 	return 0.2126 * R + 0.7152 * G + 0.0722 * B;
 }
 
-/**
- * Compute the WCAG 2.1 contrast ratio between two hex colours.
- *
- * Returns a number in ``[1, 21]`` (``1:1`` = identical colours,
- * ``21:1`` = pure black on pure white). Order doesn't matter, the
- * formula uses the lighter luminance as the numerator.
- *
- * Common thresholds (callers compare against these):
- *   - ``≥ 4.5``  ⇒ AA for normal text
- *   - ``≥ 7``    ⇒ AAA for normal text
- *   - ``≥ 3``    ⇒ AA for large text (≥ 18pt or 14pt bold) / UI components
- *   - ``≥ 4.5``  ⇒ AAA for large text
- *
- * Examples:
- *   - ``contrastRatio("#000000", "#ffffff")`` → ``21``
- *   - ``contrastRatio("#ffffff", "#ffffff")`` → ``1``
- *   - ``contrastRatio("#777777", "#ffffff")`` → ``4.48`` (≈ AA threshold)
- *
- * gives the custom theme editor a pure function for
- * validating ``--foreground`` / ``--background`` pairs without
- * pulling in a third-party a11y library.
- */
 export function contrastRatio(fg: string, bg: string): number {
 	const L1 = _relativeLuminance(fg);
 	const L2 = _relativeLuminance(bg);
@@ -131,19 +91,6 @@ export function contrastRatio(fg: string, bg: string): number {
 	return (lighter + 0.05) / (darker + 0.05);
 }
 
-/**
- * Mix two hex colours (``#rgb`` / ``#rrggbb``) towards each other.
- *
- * ``weight`` is the fraction of ``b`` in the result: ``0`` returns
- * ``a`` unchanged, ``1`` returns ``b``, ``0.5`` is the exact midpoint.
- * Used to derive subtly-lighter surfaces / more-visible borders from
- * theme tokens (e.g. framing the share-image stat cards) without
- * hardcoding a colour, the result stays theme-driven because both
- * inputs come from the resolved palette.
- *
- * Invalid inputs are treated as black (``#000000``), matching the
- * defensive contract of the other helpers here.
- */
 export function mixHexColors(a: string, b: string, weight: number): string {
 	const [ar, ag, ab] = _parseHex(a);
 	const [br, bg2, bb] = _parseHex(b);
@@ -157,34 +104,12 @@ export function mixHexColors(a: string, b: string, weight: number): string {
 	);
 }
 
-/**
- * Apply the sRGB transfer function (gamma encoding) to a linear value
- * in [0, 1].  Returns the gamma-encoded value in [0, 1].
- *
- * Uses the standard IEC 61966-2-1 sRGB gamma:
- *   - linear <= 0.0031308 → 12.92 * linear
- *   - otherwise            → 1.055 * linear^(1/2.4) - 0.055
- *
- * The input is clamped to [0, 1] before the gamma is applied so
- * out-of-gamut OKLCH conversions (which can produce values slightly
- * outside [0, 1]) don't produce NaN or negative hex bytes.
- */
 function _srgbGamma(c: number): number {
 	c = Math.min(1, Math.max(0, c));
 	if (c <= 0.0031308) return 12.92 * c;
 	return 1.055 * c ** (1 / 2.4) - 0.055;
 }
 
-/**
- * Manual oklch() to sRGB hex converter.
- * Parses "oklch(L C H)" and "oklch(L C H / alpha)" formats,
- * converts OKLCH → OKLab → linear sRGB via the LMS cube-root
- * approach (Björn Ottosson's method), applies sRGB gamma, and
- * returns a #rrggbb hex string.
- *
- * Returns ``null`` when the input doesn't match the oklch() shape
- * (so the caller can fall through to the next strategy).
- */
 function _cssColorToHexViaOklch(color: string): string | null {
 	const match = color.match(/oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/i);
 	if (!match) return null;
@@ -228,20 +153,6 @@ function _cssColorToHexViaOklch(color: string): string | null {
 	);
 }
 
-/**
- * Try resolving a CSS color via a hidden DOM element.
- *
- * Creates a 1×1 div off-screen, sets its backgroundColor to the given
- * color string, reads back the computed style (which the browser
- * normalises to ``rgb()`` or ``rgba()``), and converts that to hex.
- *
- * Returns ``null`` when:
- *   - the DOM is unavailable (SSR / sandboxed renderer without document)
- *   - the browser couldn't parse the color (computed style returns
- *     ``rgba(0, 0, 0, 0)``, transparent black, which we treat as a
- *     miss so the caller can fall through to the oklch parser)
- *   - the computed style doesn't match the rgb()/rgba() regex
- */
 function _cssColorToHexViaDOM(color: string): string | null {
 	try {
 		const temp = document.createElement("div");
@@ -277,26 +188,6 @@ function _cssColorToHexViaDOM(color: string): string | null {
 	return null;
 }
 
-/**
- * Convert any CSS color value to #rrggbb hex using a hidden DOM element.
- * Uses getComputedStyle(backgroundColor) which reliably resolves oklch(),
- * hsl(), rgb(), named colors, etc. to an rgba() string that the browser
- * engine can compute, unlike the canvas 2d context which may fail on
- * oklch() values in some predecessor/Chromium versions.
- *
- * Falls back to a manual oklch→sRGB→hex converter when the DOM approach
- * fails or returns transparent black (indicating the browser couldn't
- * parse the color).  This ensures the custom theme editor always receives
- * valid hex values regardless of Chromium version.
- *
- * Results are memoized per input string (see ``_cssColorToHexCache``)
- * because the resolution is deterministic for a given input, hot
- * callers like ``readThemePalette`` re-resolve the same token set on
- * every theme-applied event / page mount.
- *
- * @param color Any CSS color string (hex, rgb, hsl, oklch, named, etc.)
- * @returns A #rrggbb hex string.  Returns ``#000000`` for empty/unparseable input.
- */
 export function cssColorToHex(color: string): string {
 	if (!color) return "#000000";
 
@@ -316,7 +207,6 @@ export function cssColorToHex(color: string): string {
 }
 
 // ── per-input resolution cache ──────────────────────────────
-//
 // Resolution is deterministic per input string (getComputedStyle
 // resolves a given color string to the same rgb()/rgba() value every
 // time), so the full chain, hex fast-path, DOM probe, oklch
@@ -354,8 +244,6 @@ function _resolveCssColorToHex(color: string): string | null {
 }
 
 // ── foreground-selection helpers ────────────────────────────
-//
-// The custom theme editor (``themes.ts::deriveCustomVars``) previously
 // hardcoded ``#ffffff`` for ``--primary-foreground``,
 // ``--accent-foreground``, and ``--destructive-foreground`` regardless
 // of the corresponding background's lightness. That broke AA contrast
@@ -365,7 +253,6 @@ function _resolveCssColorToHex(color: string): string | null {
 // AAA). The two helpers below let the editor pick the best foreground
 // from a candidate list (typically ``["#ffffff", "#000000"]``) so the
 // 4.5:1 AA threshold is met even on light backgrounds.
-//
 // These are pure functions with no DOM dependency, so they can run in
 // the bootstrap module (before React mounts) and in Vitest unit tests
 // without jsdom.
@@ -382,24 +269,6 @@ export const DEFAULT_FOREGROUND_CANDIDATES: readonly string[] = [
 	"#000000",
 ] as const;
 
-/**
- * Pick the foreground colour from ``candidates`` that has the highest
- * WCAG 2.1 contrast ratio against ``bg``.
- *
- * Falls back to ``"#000000"`` if ``candidates`` is empty (defensive —
- * a caller passing an empty array would otherwise get ``undefined``
- * from ``Math.max``). The caller is expected to pass at least one
- * candidate; the default list (white + black) covers ~99% of cases.
- *
- * @param bg Hex colour (``#rgb`` or ``#rrggbb``) of the background.
- * @param candidates List of hex colours to try as the foreground.
- *                   Defaults to ``["#ffffff", "#000000"]``.
- * @returns The candidate with the highest contrast ratio against ``bg``.
- *          If two candidates tie, the FIRST one in the list wins
- *          (so ``["#ffffff", "#000000"]`` prefers white when contrast
- *          is equal, matching the prior hardcoded behaviour for
- *          dark backgrounds).
- */
 export function pickBestForeground(
 	bg: string,
 	candidates: readonly string[] = DEFAULT_FOREGROUND_CANDIDATES,
@@ -421,31 +290,6 @@ export function pickBestForeground(
 	return best;
 }
 
-/**
- * Check whether the WCAG 2.1 contrast ratio between ``fg`` and ``bg``
- * meets or exceeds ``threshold``.
- *
- * Convenience wrapper around ``contrastRatio`` for the common
- * comparison-against-threshold pattern. Use this in tests / validators
- * to keep the intent readable:
- *
- *   ``if (!passesWCAG(fg, bg, 4.5)) warn("fails AA");``
- *
- * @internal, this helper has NO production caller today (only
- * ``themes/__tests__/parity.test.ts`` uses it). It is kept exported
- * (rather than deleted) because it is a 3-line pure wrapper with real
- * test coverage, and a future caller (e.g. a theme editor warning on
- * AA failure) can adopt it. Production code should use ``contrastRatio``
- * directly until then.
- *
- * @param fg Hex colour of the foreground.
- * @param bg Hex colour of the background.
- * @param threshold Minimum contrast ratio (1–21). Common values:
- *                  ``3`` (WCAG 1.4.11 UI / large text AA),
- *                  ``4.5`` (WCAG AA normal text),
- *                  ``7`` (WCAG AAA normal text).
- * @returns ``true`` if ``contrastRatio(fg, bg) >= threshold``.
- */
 export function passesWCAG(fg: string, bg: string, threshold: number): boolean {
 	return contrastRatio(fg, bg) >= threshold;
 }

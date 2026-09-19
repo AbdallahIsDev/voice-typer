@@ -1,20 +1,3 @@
-/**
- * Regression tests: the microphone-test review panel's no-speech-model
- * state must render TRANSLATED text, never a raw i18n key.
- *
- * The "Estimated Transcription Quality" row renders an explicit
- * not-applicable value when `transcriptionUnavailable` is set (no speech
- * model loaded, the fresh-install state). A historical key-path typo
- * (one missing `qualityFeedback.` path segment) made `t()` fall through
- * its lookup chain to the raw-key fallback, so every locale rendered the
- * literal string "microphoneTest.qualityNotApplicable" in bold text.
- *
- * These tests mount the real component with the REAL `t()` (no i18n mock)
- * so the actual lookup chain, locale map → primary subtag → English →
- * raw key, runs exactly as in production. If the call-site key drifts
- * from the en.json catalog again, the rendered text is the raw key and
- * the assertions fail.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -22,7 +5,6 @@ import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import enMessages from "@/i18n/translations/en.json";
 
 // Flatten the nested en.json into dot-separated keys, mirroring what the
-// real i18n store does at load time. Used to assert the RENDERED text
 // matches the catalog VALUE (so the test stays locale-source-accurate
 // without duplicating the English copy inline).
 const enFlat = new Map<string, string>();

@@ -1,5 +1,4 @@
 // Selection state + bulk operations for the Templates page.
-//
 // Thin feature wrapper over the shared :func:`useRowSelection` hook —
 // supplies the Templates row shape (`id` id field), the persist
 // callback, and the templates message keys. All selection/undo logic

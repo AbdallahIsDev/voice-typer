@@ -1,27 +1,3 @@
-/**
- *  (Modal focus-management test).
- *
- * Modal wraps Radix Dialog. Radix owns the actual focus-trap machinery,
- * but we still want to guard the public contract of our wrapper:
- *
- *   1. When `open` is true, the dialog title is rendered and announced
- *      (visible text → DialogTitle → aria-labelledby on the dialog).
- *   2. Pressing Escape fires `onClose` exactly once.
- *   3. Pressing Escape inside the dialog body does NOT swallow the close
- *      event (Radix default).
- *   4. When `open` flips false, the dialog content is removed from the
- *      DOM (Radix unmounts the portaled content).
- *   5. When `description` is supplied, it is rendered and exposes the
- *      aria-describedby relationship (Radix wires it automatically).
- *
- * Radix's actual focus-trap + focus-restore primitives are unit-tested
- * upstream in the @radix-ui/testutils package, we don't replicate those
- * tests here. We DO assert that focus moves *into* the dialog when it
- * opens (Radix auto-focuses the first focusable element / the content
- * itself) so that a regression in our wrapper (e.g. a future refactor
- * that drops the onOpenChange → onClose mapping) is caught by this test
- * instead of by a user with a screen reader.
- */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";

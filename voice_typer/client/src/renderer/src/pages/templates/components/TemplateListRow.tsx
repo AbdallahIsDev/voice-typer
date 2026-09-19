@@ -1,6 +1,4 @@
 // One row of the templates list.
-//
-// Extracted from the former monolithic ``pages/Templates.tsx``. Each
 // row is a controlled component, the parent passes the row data and
 // edit/delete callbacks (so the parent's ``useTemplates`` +
 // ``useTemplateDialog`` hooks remain the single source of truth and
@@ -32,7 +30,6 @@ interface TemplateListRowProps {
 // (components/dashboard/ActivityList.tsx:74), the parent (Templates.tsx)
 // passes stable ``useCallback`` handlers so a search-box keystroke skips
 // every row's render function.
-//
 // The previous inline ``handleEdit = () => onEdit(row)`` /
 // ``handleDelete = () => onDelete(row)`` wrappers have been removed in
 // favour of calling ``onEdit(row)`` / ``onDelete(row)`` directly in the
@@ -59,7 +56,6 @@ export const TemplateListRow = memo(function TemplateListRow({
 	// widths the expansion half moves to its own line below the trigger
 	// (col 2). The sm+ ACTIONS column is FIXED at 6.25rem (100px, the
 	// two icon buttons) so it matches the header's fixed actions column.
-	//
 	// The row is clickable as a whole (toggle selection), that's what
 	// the hover background implies. Action buttons and the checkbox
 	// stop propagation so they don't double-toggle.

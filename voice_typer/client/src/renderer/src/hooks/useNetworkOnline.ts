@@ -1,18 +1,14 @@
 // useNetworkOnline, network-is-back trigger for the auto-update flow.
-//
 // Implements the renderer-side half of plan-runtime-pack-split.md §10.1
 // "Network-is-back trigger": when the browser fires the `online` event
 // (navigator.onLine transitions false → true), the hook calls the Python
 // IPC command `check_offline_pack_update` so the slim core re-fetches the
 // latest `pack-manifest.json` from GitHub Releases and (if a newer pack
 // is available) restarts the background download.
-//
 // ── Why renderer-side (not Rust `tauri-plugin-network`) ───────────────
-//
 // The plan offers two options for the network-online trigger:
 //   1. Tauri's `window.addEventListener('online')` in the renderer.
 //   2. `tauri-plugin-network` on the Rust side.
-//
 // We pick option (1) because:
 //   - keeping the trigger renderer-side avoids coupling it to the
 //     Rust surface (no extra `tauri-plugin-network` dependency in
@@ -22,9 +18,7 @@
 //     (WebView2 / WKWebView), no platform-specific code needed.
 //   - The renderer already has the `call` IPC bridge (via
 //     `usePython()`); re-using it avoids a second transport.
-//
 // ── Subscribes to browser events, calls into useOfflinePackDownload's API ────
-//
 // The hook does NOT directly call `useOfflinePackDownload`
 // (that hook exposes only read state, `{ status, error, isReady }`).
 // Instead, the hook consumes `useOfflinePackDownload`'s STATE indirectly:
@@ -35,19 +29,15 @@
 //     `offline_pack_download_completed` events.
 //   - `useOfflinePackDownload` is ALREADY subscribed to
 //     those events and updates its `status` accordingly.
-//
 // So the chain is:
 //   `online` event → `useNetworkOnline` → IPC `check_offline_pack_update` →
 //   Python `update_check.check_offline_pack_update()` → `pack.download_pack_with_resume()`
 //   → event_bus publishes `offline_pack_download_started` → `useOfflinePackDownload`
 //   updates `status` → UI re-renders.
-//
 // This keeps the network-online trigger in its OWN file while
 // delegating the pack-lifecycle state machine to
 // `useOfflinePackDownload`. No coupling between the two hooks.
-//
 // ── Registration status ───────────────────────────────────────────────
-//
 // `check_offline_pack_update` is exposed by
 // `voice_typer/server/service/update_check.py`
 // (`handle_check_offline_pack_update_ipc`) and registered in all four
@@ -59,9 +49,7 @@
 // (`types/ipc/requests.ts`). The try/catch below stays as defense-ink-depth, a stale renderer bundle could still hit a not-yet-registered
 // command during a partial upgrade, and `isOnline` must update either
 // way.
-//
 // ── Transport-agnostic ───────────────────────────────────────────────
-//
 // Like `useOfflinePackDownload`, this hook depends only on `usePython` (which
 // goes through the module-level dispatcher that subscribes to
 // `window.python.onEvent`). The `window.python` namespace is installed
@@ -133,7 +121,6 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 	callRef.current = pythonApi.call as typeof callRef.current;
 
 	// ── triggerRecheck ───────────────────────────────────────────────
-	//
 	// Calls the `check_offline_pack_update` IPC command. The command is exposed
 	// by `voice_typer/server/service/update_check.py` (function
 	// `handle_check_offline_pack_update_ipc`). If the command is not yet
@@ -173,7 +160,6 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 	}, []);
 
 	// ── Subscribe to `online` / `offline` browser events ────────────
-	//
 	// Added once on mount; cleaned up on unmount. The listeners update
 	// `isOnline` state; the `online` listener ALSO triggers a re-check
 	// via `triggerRecheck` (but only on the false → true transition,

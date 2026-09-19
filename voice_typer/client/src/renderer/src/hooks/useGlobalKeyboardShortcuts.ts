@@ -1,47 +1,3 @@
-/**
- * useGlobalKeyboardShortcuts, app-wide keyboard + Ctrl+Wheel shortcuts.
- *
- * Extracted from App.tsx (App.tsx slimming split) to keep
- * App.tsx a pure layout shell. Behaviour is byte-identical to the original
- * inline effect:
- *
- *   - Ctrl/Cmd+B           → toggle sidebar collapsed state.
- *   - Ctrl/Cmd+,           → navigate to Settings.
- *   - Ctrl/Cmd+H           → navigate to Home.
- *   - Ctrl/Cmd+= (or "+")  → bump text size up by 1 (clamped to 20). The new
- *                             size is applied via `setTextSize` (useTheme) and
- *                             persisted by its SINGLE debounced `set_config`
- *                             save (flushed on unmount/beforeunload). No-op
- *                             while typing in an input/textarea/contentEditable.
- *   - Ctrl/Cmd+-           → bump text size down by 1 (clamped to 10), same
- *                             guards as above.
- *   - Ctrl/Cmd+Wheel       → bump text size up/down by 1 (same clamps). Fires
- *                             regardless of focus target (matches original).
- *
- * All shortcuts require Ctrl OR Cmd AND no Shift AND no Alt (matches the
- * original `(e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey` guard).
- *
- * The keydown listener dispatches on `IN_APP_BINDINGS` from
- * `components/hotkey/shortcuts.ts`, the catalog owns which
- * `KeyboardEvent.key` values map to which binding, so the actual
- * bindings (not just the display strings) can't drift from the Help
- * overlay / tooltips. This hook only supplies the per-binding actions.
- *
- * The `b`/`,``h`/`=`/`-` shortcuts are suppressed when the user is typing
- * inside an `<input>`, `<textarea>`, `<select>`, or `contentEditable` host
- * so the app doesn't hijack legitimate text-entry keystrokes. The wheel
- * shortcut has no such guard (matches original behaviour, Ctrl+Wheel is
- * rarely sent while typing).
- *
- * The zoom shortcuts perform NO direct `set_config` write, persistence
- * goes exclusively through `setTextSize`'s debounced save (the one write
- * path documented in useTheme). A direct per-tick write here would double
- * every zoom step's config write and amplify each one into a
- * `config_changed` push + full `get_config` round-trip in the Home page.
- * Backend write failures are handled (logged) by the debounced save's own
- * catch, the shortcut layer has no error surface of its own.
- */
-
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type {
@@ -77,14 +33,6 @@ export {
 
 import { useLatestRef } from "@/hooks/useLatestRef";
 
-/**
- * The renderer-side half of each modifier profile declared in the
- * catalog: `IN_APP_BINDINGS[].modifier` → the event guard that decides
- * whether a keystroke matches. Keyed exhaustively over
- * `InAppBinding["modifier"]`, so adding a NEW modifier profile to the
- * catalog is a type error until a guard exists here, the modifier
- * axis can no longer drift (the binding would otherwise never fire).
- */
 const MODIFIER_GUARDS: Record<
 	InAppBinding["modifier"],
 	(e: KeyboardEvent) => boolean
@@ -147,7 +95,6 @@ export function useGlobalKeyboardShortcuts({
 		// each binding DOES. Both halves are exhaustive over
 		// `InAppShortcutId`, so adding a shortcut to the catalog forces
 		// a handler here (type error) and removing one forces cleanup.
-		//
 		// Guard helpers: the navigation bindings (toggleSidebar,
 		// openSettings, goHome) suppress while a Radix Dialog is open
 		// OR the user is typing in an input; the zoom bindings only

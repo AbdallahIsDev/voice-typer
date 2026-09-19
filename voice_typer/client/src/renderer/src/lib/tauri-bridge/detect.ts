@@ -1,8 +1,5 @@
 // src/renderer/src/lib/tauri-bridge/detect.ts
-//
-// ADR-0020 §6.3 (Phase 3 UI port): Tauri runtime detection + minimal
 // typing for the `window.__TAURI__` global API surface.
-//
 // This module owns the three concerns shared by every namespace installer
 // (python / bubble / window_):
 //   1. `TauriGlobal` / `TauriEvent`, minimal structural types for the
@@ -13,10 +10,8 @@
 //      WebView?". Returns false under predecessor (where the preload script
 //      already installed the three namespaces via `contextBridge`).
 //   3. `makeListener()`, race-safe subscribe/unlisten factory that
-//      eliminates the 8× listener boilerplate previously duplicated across
 //      `bubble.onLevel` / `onShow` / `onHide` / `onDraggable` / `onConfig` /
 //      `onSetState` / `python.onEvent` / `window_.onMaximizedChanged`.
-//
 // All three pieces are pure (no `window` mutation) so they can be unit
 // tested without polluting the global jsdom `window`.
 
@@ -61,7 +56,6 @@ export interface TauriGlobal {
  * Returns true if the renderer is running inside a Tauri WebView
  * (`window.__TAURI__` is present with `core.invoke`). When false, the
  * predecessor preload has already installed the bridge namespaces.
- *
  * Defensive against partial / future Tauri globals that lack the invoke
  * method, those are treated as predecessor (no-op), not crashed on. This
  * is the contract asserted by `tauri-bridge-detection.test.ts:196`.
@@ -70,11 +64,6 @@ export function isTauri(): boolean {
 	return typeof window !== "undefined" && !!window.__TAURI__?.core?.invoke;
 }
 
-/**
- * Return the Tauri global. Caller must have already verified `isTauri()`
- *, this helper throws if `__TAURI__` is missing so a misuse surfaces
- * loudly instead of silently no-op-ing.
- */
 export function getTauri(): TauriGlobal {
 	const tauri = window.__TAURI__;
 	if (!tauri?.core?.invoke) {
@@ -89,7 +78,6 @@ export function getTauri(): TauriGlobal {
 
 /**
  * Race-safe subscribe/unlisten factory.
- *
  * Every Tauri event subscription follows the same pattern:
  *   1. Call `tauri.event.listen(name, handler)` which returns a Promise
  *      of an `unlisten` function (Tauri v2 registers listeners async).
@@ -98,12 +86,9 @@ export function getTauri(): TauriGlobal {
  *   3. On cleanup: set `cancelled`, then if `unlisten` has arrived, call
  *      it; otherwise the `.then` block will see `cancelled` and call the
  *      freshly-arrived unlisten.
- *
- * Previously this 12-line block was duplicated 8× across the bridge
  * (one per event subscription). `makeListener` collapses the boilerplate
  * to a single source of truth and makes the cancellation race testable
  * in isolation.
- *
  * @param subscribe Receives a `handler` that the caller wires to the
  *   underlying event source (e.g. `tauri.event.listen("bubble_level",
  *   (e) => handler(e.payload))`). Returns the unlisten promise.
@@ -120,7 +105,6 @@ export function makeListener<T>(
 ): () => void {
 	let unlisten: (() => void) | null = null;
 	let cancelled = false;
-	//(security/observability): if the underlying
 	// ``tauri.event.listen(...)`` promise rejects (e.g. the event
 	// channel closed mid-subscribe, the Tauri host is shutting
 	// down, or a malformed event name slipped through), log the

@@ -1,26 +1,3 @@
-/**
- * Regression guard for the page-level infinite render loop class of bug
- * that OOM'd a vitest worker during the axe-core scans (FATAL heap
- * OOM, whole suite died at ~356 files).
- *
- * Root cause (fixed in `pages/onboarding/hooks/useOnboardingWizard.ts`
- * via the `callRef` mirror): a test mock (or future code) that hands
- * out a FRESH `call` identity on every render re-fires any effect
- * listing `call` in its deps, each run re-runs init()
- * (onboarding_start + get_config + onboarding_get_microphones +
- * onboarding_get_hotkey_presets + onboarding_get_model_options) and
- * stores fresh state → render → new `call` → … → unbounded render loop
- * until the heap is exhausted.
- *
- * The harness below (shared `renderLoopGuard` helper) drives the page
- * with the SAME worst-case mock shape, a NEW `call` per render, and
- * asserts the page still settles: the init() load fires EXACTLY once
- * per command and the committed render count stays bounded. If future
- * code puts an unstable value in an effect dep (or re-introduces `call`
- * directly), the load re-fires and/or the render count explodes and
- * this test fails fast, instead of the worker OOMing.
- */
-
 import { makeConfig } from "@/__tests__/helpers/fixtures";
 import {
 	type GuardCommand,
@@ -35,7 +12,6 @@ const commands: GuardCommand[] = [
 		response: { step: 0, total_steps: 4, step_name: "Welcome" },
 	},
 	{ name: "get_config", response: makeConfig({}) },
-	// The Microphone step was removed (2026-09-14): the wizard must
 	// NOT probe microphones anymore (expected 0 pins the removal).
 	{
 		name: "onboarding_get_microphones",

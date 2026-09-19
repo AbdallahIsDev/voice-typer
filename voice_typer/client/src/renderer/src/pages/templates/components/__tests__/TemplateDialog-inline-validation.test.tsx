@@ -1,21 +1,3 @@
-/**
- *  regression tests for the Add/Edit Template dialog:
- *
- *   (1) Save button is disabled when either the trigger or expansion field
- *       is empty, mirrors the sibling VocabDialog pattern so the user
- *       sees the disabled affordance up-front instead of clicking an
- *       enabled button and getting a transient warning toast.
- *
- *   (2) An inline warning renders under the output textarea when the
- *       expansion contains unknown template-variable tokens (e.g.
- *       ``{date}``). The substitution layer in ``templates/lib/transform.ts``
- *       silently drops unknown tokens, the warning surfaces the issue so
- *       the user knows why ``{date}`` would be emitted verbatim.
- *
- * The dialog is a pure presentational wrapper (all state + handlers are
- * passed in as props), so the tests render it directly with stub props
- * rather than mounting the full Templates page.
- */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

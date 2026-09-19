@@ -1,23 +1,3 @@
-/**
- * Tests for `OfflinePackPreparingBanner`.
- *
- * Coverage:
- *   - renders nothing when `visible === false` (parent layout doesn't
- *     reserve space)
- *   - renders the "Preparing offline engine…" copy from
- *     `t("pack.preparingOfflineEngine")` when visible
- *   - exposes `role="status"` + `aria-live="polite"` so screen readers
- *     announce the message once when it appears (NOT assertive, the
- *     message is informational, not an error)
- *   - exposes `data-pack-status` so integration tests can assert on
- *     the underlying OfflinePackStatus without parsing visible text
- *   - aria-label is wired through `t("pack.preparingOfflineEngineAria", { status })`
- *     so AT users get the diagnostic context
- *   - the `className` prop merges with the base classes (tailwind-merge)
- *
- * Strategy: render the presentational component with the i18n `t()`
- * stubbed to return the key (so the test asserts on stable strings).
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

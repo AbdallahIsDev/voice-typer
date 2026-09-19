@@ -1,20 +1,3 @@
-/**
- * StatsShareImage, redesigned themed share card tests.
- *
- * Verifies:
- *   1. The card renders the real metrics (WPM, minutes saved,
- *      dictations, active days, chars, recording time) from the
- *      ShareStats object.
- *   2. Zero-data state mirrors the Analytics page: no dictation today
- *      → the WPM value shows "—" and no "faster than avg" claim is
- *      rendered (never "0% faster than avg typer").
- *   3. The `palette` prop themes the card (background / card surface /
- *      accent values come from the resolved theme tokens).
- *   4. Without a `palette` prop the component falls back to the stock
- *      palette without crashing (used by off-screen renders / tests).
- *   5. The branding footer renders the dynamic APP_NAME (no hardcoded
- *      literal) via the i18n key.
- */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

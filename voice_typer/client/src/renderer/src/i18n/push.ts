@@ -1,16 +1,13 @@
 // Cross-boundary IPC push helpers + tray-label resolver.
-//
 // ``setLocale`` (in ``./store``) calls these pushers after the locale
 // mutates so the predecessor main process and the Python sidecar both
 // learn about the locale switch and can localise their native surfaces
 // (main-process dialogs, system-tray menu items).
-//
 // Both pushers are best-effort: the bridge surfaces
 // (``window.window_`` / ``window.python``) may be missing during
 // module-init or under Tauri, so they swallow sync throws and promise
 // rejections via ``console.warn``, a locale-switch failure must never
 // break the UI.
-//
 // ``trayLabelsForLocale`` uses ``t`` (from ``./translate``) to resolve
 // the renderer-known tray-menu label keys against the current locale,
 // falling back to English per the standard ``t`` lookup path.
@@ -18,16 +15,6 @@
 import type { Locale } from "./locale";
 import { t } from "./translate";
 
-/**
- * : build a dictionary of tray-menu label keys → localized strings
- * for the current locale. Keys whose translation resolves to the raw key
- * itself (meaning the key is missing from both the current locale and
- * English) are excluded so the backend keeps its English defaults.
- *
- * The returned object is sent to the Python sidecar via
- * ``window.python.call({type: "set_tray_locale", data: {locale, labels}})``
- * so tray-menu items localise without a backend restart.
- */
 export function trayLabelsForLocale(): Record<string, string> {
 	const labels: Record<string, string> = {};
 	const entries: [string, string][] = [
@@ -59,7 +46,6 @@ export function trayLabelsForLocale(): Record<string, string> {
 		// time. Entries whose translation is missing resolve to the raw
 		// key and are skipped below, so the server keeps its English
 		// fallback until every locale is translated.
-		//
 		// AppState value labels, the tooltip's fallback state suffix
 		// (``_compute_tooltip`` renders ``state.<value>`` when no
 		// per-call message is set).
@@ -186,7 +172,6 @@ export function trayLabelsForLocale(): Record<string, string> {
 		// the renderer's ``notify.*`` translations so OS notifications
 		// follow the renderer locale the same way the tooltip state
 		// messages do. The renderer key names mirror the server keys
-		// 1:1 and the English values are byte-identical to the server's
 		// ``_INITIAL_LABELS`` fallback, so the English path is unchanged
 		// and non-English locales get the translated text. Placeholder
 		// tokens (``{model}``, ``{error}``, ``{label}``,
@@ -279,7 +264,7 @@ export function trayLabelsForLocale(): Record<string, string> {
 		],
 		// ── permissions notifications (macOS/Linux permission prompts)
 		// The renderer values use the ``{appName}`` brand placeholder
-		// (C-BRAND-1); the server formats ``{app}`` with the same app
+		// C-BRAND-1: use {appName}; server formats with the same APP_NAME.
 		// name at call time, and ``{command}`` stays a literal token.
 		["notify.permissions.macos_title", "notify.permissions.macos_title"],
 		["notify.permissions.macos_body", "notify.permissions.macos_body"],
@@ -413,22 +398,6 @@ export function trayLabelsForLocale(): Record<string, string> {
 	return labels;
 }
 
-/**
- * Best-effort push of the current locale to the predecessor main process
- * via the ``window.window_.setLocale(locale)`` IPC bridge (registered
- * in ``main/ipc/window-handlers.ts`` as the ``i18n:set-locale``
- * handler). The main process uses the pushed locale to localise native
- * dialogs (single-instance error, critical-error dialog, model-folder
- * picker, export save-as dialogs).
- *
- * No-op when the bridge is missing (module-init scenario where neither
- * the predecessor preload nor the Tauri bridge has installed ``window_``
- * yet). Under both runtimes the push is a plain resolve: predecessor
- * stores the locale in its main process, and the Tauri host stores it
- * in ``SidecarState::host_locale`` via the ``set_host_locale``
- * command. Rejections and sync throws are caught and logged via
- * ``console.warn`` so a locale switch never crashes the renderer.
- */
 export function pushLocaleToMainProcess(locale: Locale): void {
 	try {
 		// Read directly from the globally-augmented ``window.window_``
@@ -447,17 +416,6 @@ export function pushLocaleToMainProcess(locale: Locale): void {
 	}
 }
 
-/**
- * Best-effort push of the current locale + renderer-known tray-menu
- * labels to the Python backend via the ``set_tray_locale`` IPC message.
- * The backend uses the pushed locale + labels to localise the tray
- * menu (see ``voice_typer/server/tray_i18n.py``).
- *
- * No-op when the bridge is missing (Tauri host, module-init scenario).
- * Rejections and sync throws are caught and logged via ``console.warn``.
- *
- * The label map is built by {@link trayLabelsForLocale}.
- */
 export function pushLocaleToPythonBackend(locale: Locale): void {
 	try {
 		// Read directly from the globally-augmented ``window.python``

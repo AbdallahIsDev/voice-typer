@@ -1,20 +1,3 @@
-/**
- *  vitest rewrite, behavioral test for `Sidebar.tsx` aria-current.
- *
- * Replaces the following string-pattern Python test from
- * `tests/test_ux_components.py`:
- *   - TestSidebarHasAriaCurrentPage::test_sidebar_has_aria_current
- *
- * The Python test asserted on substring presence inside `Sidebar.tsx`
- * (`"aria-current" in src`).  This passes even when the attribute is
- * set on the wrong element or with the wrong value.  The vitest
- * version below mounts the real Sidebar, passes a known `currentPage`,
- * and asserts the active nav button carries `aria-current="page"`
- * while the inactive buttons do not.
- *
- * The corresponding Python test is skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  It is NOT deleted.
- */
 import { cleanup, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -123,15 +106,11 @@ describe("Sidebar aria-current, RW-0 rewrite of test_sidebar_has_aria_current", 
 	});
 });
 
-//finding 11: Sidebar keyboard navigation + aria-keyshortcuts ──
-//
 //The tests above only cover the aria-current visual state.
-// finding 11 notes that NO test covers Sidebar's keyboard navigation
 // behavior (roving tabindex: ArrowUp/Down/Home/End move focus between
 // items; Tab enters/leaves the nav at the active item) or the
 // aria-keyshortcuts attribute that exposes each item's keyboard
 // shortcut to AT users.
-//
 // The Sidebar uses the standard ARIA "roving tabindex" composite
 // widget pattern: only the active item (or the first item as a
 // fallback) holds tabIndex=0; all other items hold tabIndex=-1.
@@ -140,7 +119,6 @@ describe("Sidebar aria-current, RW-0 rewrite of test_sidebar_has_aria_current", 
 // WITHIN the nav.  This is the correct pattern for a vertical menu;
 // it lets keyboard users skip past the nav with one Tab press
 // instead of having to Tab through every item.
-//
 // The tests below assert:
 //   (1) Tab from before the nav focuses the active item (or first
 //       item as fallback when currentPage isn't in the nav).
@@ -197,8 +175,6 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		);
 	}
 
-	/** Get the accessible label of a button (used to map buttons to
-	 *  their page-id by matching the localized `nav.<id>` text). */
 	function buttonLabel(btn: HTMLButtonElement): string {
 		return (btn.textContent || "").trim();
 	}

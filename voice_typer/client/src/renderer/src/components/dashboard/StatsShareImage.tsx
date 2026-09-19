@@ -11,41 +11,9 @@ import type { ShareStats } from "@/types/stats";
 
 interface StatsShareImageProps {
 	stats: ShareStats;
-	/**
-	 * Resolved hex palette for the CURRENTLY ACTIVE theme (see
-	 * `lib/theme-palette.ts`). Optional so tests / standalone renders
-	 * can omit it, the component falls back to the stock dark palette
-	 * (a stable module constant, so React.memo's shallow compare is
-	 * unaffected).
-	 */
 	palette?: StatsThemePalette;
 }
 
-/**
- * StatsShareImage, the shareable stats card.
- *
- * Rendered off-screen and captured as a PNG by html-to-image when the
- * user picks a Share Stats menu action. The design reuses the app's
- * own design system instead of inventing a separate "marketing" style:
- *
- *   - Every colour comes from the LIVE theme tokens (via the `palette`
- *     prop, resolved from the CSS custom properties the app renders
- *     with), no hardcoded palette, so Default / Monokai / Dracula /
- *     GitHub / Tokyo Night / custom themes all export correctly.
- *   - Accent-coloured values fall back to the legible foreground when
- *     the theme's accent is too close to the card surface
- *     (`legibleOn`, WCAG 3:1 for large text / UI).
- *   - Layout mirrors the Analytics page: a dense grid of real metrics
- *     (WPM, minutes saved, dictations, active days + streak, chars,
- *     recording time) plus mode + model/device, with branding demoted
- *     to a small footer watermark.
- *   - Zero-data state mirrors the page: no "0 WPM" / "0% faster than
- *     avg" claims, the WPM value shows "—" when the user has no
- *     dictation today.
- *
- * Sized at 1200×630 (the standard social share-card ratio, Twitter /
- * Facebook OG image / most chat apps).
- */
 function StatsShareImageInner({
 	stats,
 	palette = FALLBACK_THEME_PALETTE,

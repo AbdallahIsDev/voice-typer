@@ -56,7 +56,6 @@ interface NavItem {
 // margin (see NavGroup.pinnedToBottom) so the importance hierarchy —
 // frequent destinations on top, system/device/info at the bottom, is
 // encoded by the layout itself, in both sidebar states.
-//
 // TWO groups, deliberately:
 //   1. Top group, NO visible header (hideLabel): the default page set
 //      speaks for itself. Day-to-day destinations (Home / History /
@@ -74,7 +73,6 @@ const MAIN_NAV_ITEMS: NavItem[] = [
 	{ id: "vocabulary", icon: BookOpen02Icon },
 ];
 
-// Settings is a SINGLE leaf destination. The former nested submenu
 // (General / AI & Audio / Appearance / Privacy) is gone: the Settings
 // page itself is now a HUB, one card whose rows open the focused
 // section pages (see SettingsHub + settingsSections.ts). Navigation to
@@ -87,7 +85,6 @@ const SYSTEM_NAV_ITEMS: NavItem[] = [
 	// test). It is device setup rather than a day-to-day destination,
 	// so it lives in the System cluster directly under Settings.
 	{ id: "microphone", icon: Mic02Icon },
-	// About & Privacy, ONE combined destination (the former About and
 	// Privacy pages merged): product identity (what the app is,
 	// version, platforms) plus the data-handling disclosure (how audio
 	// and data are processed and stored). The shield-user glyph
@@ -152,7 +149,6 @@ const ALL_NAV_ITEMS: NavItem[] = [...MAIN_NAV_ITEMS, ...SYSTEM_NAV_ITEMS];
 // return undefined (no chips rendered). The bindings come from the
 // SHORTCUTS catalog (single source of truth), same strings TitleBar
 // and the Help overlay render.
-//
 // The shortcut for "settings" (Ctrl+,) opens the Settings hub, the
 // single leaf destination (its rows lead to the section pages).
 const NAV_KEYSHORTCUTS: Partial<Record<Page, string>> = {
@@ -191,7 +187,6 @@ function navLabelMotion(collapsed: boolean): string {
 // through the shared navLabelMotion state classes (translate + fade +
 // blur). Icons are flex siblings BEFORE the span, so this animation
 // can never shift the icon column.
-//
 // For this transition to actually RUN, the element carrying it must
 // NOT be remounted when `collapsed` flips (CSS transitions only
 // animate computed-style changes on PERSISTENT DOM nodes, a freshly
@@ -208,13 +203,6 @@ function navTextClasses(collapsed: boolean): string {
 	);
 }
 
-/**
- * Resolve a group label via `t()` with a fallback to the English
- * literal. `t()` returns the raw key when neither the current locale
- * nor English has the key, we detect that case and fall back so the
- * UI shows a readable label and tests have a stable string to assert
- * on.
- */
 function navGroupLabel(labelKey: string, fallback: string): string {
 	const translated = t(labelKey);
 	return translated === labelKey ? fallback : translated;
@@ -429,7 +417,6 @@ interface NavLeafProps {
 // by the parent <nav> (single composite widget): the caller passes
 // tabIndex 0 for the active leaf (or first-item fallback), -1 for the
 // rest.
-//
 // The button is ALWAYS wrapped in the same HotkeyTooltip element, in
 // the expanded state the tooltip CONTENT is suppressed via
 // `disabled`, because swapping the wrapper type between states would

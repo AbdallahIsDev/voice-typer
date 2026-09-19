@@ -1,37 +1,3 @@
-/**
- * Tests that SegmentedControl's container ref callback is stable across
- * value-stable re-renders, so React does not thrash ResizeObserver
- * `.observe()` / `.disconnect()` on every parent re-render.
- *
- * Background: the previous implementation passed an inline arrow
- * function as the `ref` prop on the container <div>:
- *
- *   ref={(el) => {
- *     if (containerRef.current !== el) {
- *       resizeObserver.disconnect();
- *       containerRef.current = el;
- *       if (el) {
- *         resizeObserver.observe(el);
- *         requestAnimationFrame(() => updateIndicator());
- *       }
- *     }
- *   }}
- *
- * An inline arrow creates a NEW function identity on every render. React
- * detects the identity change and re-invokes the old ref with `null` and
- * the new ref with the element on EVERY parent re-render, causing
- * `resizeObserver.disconnect()` + `resizeObserver.observe(el)` +
- * `requestAnimationFrame(updateIndicator)` to fire repeatedly even when
- * the underlying DOM node hasn't changed. The fix hoists the callback
- * into a `useCallback` so it has a stable identity across value-stable
- * re-renders.
- *
- * These tests assert the stable-identity behaviour by spying on the
- * global `ResizeObserver` constructor's `.observe()` / `.disconnect()`
- * methods. The default jsdom polyfill installed in `test-setup.ts` is a
- * no-op stub, so this file replaces it with a spy-backed mock via
- * `vi.stubGlobal`.
- */
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SegmentedControl } from "../segmented-control";
@@ -68,14 +34,6 @@ const OPTIONS = [
 	{ value: "b", label: "B" },
 ];
 
-/**
- * jsdom's getBoundingClientRect returns all-zero rects, which collapses
- * every measured indicator position to left:0/width:0, position
- * assertions would be meaningless. This helper pins DISTINCT rects onto
- * the container and each option label (DOM order == option order for the
- * default variant's `<label>` elements) so the indicator's `left`
- * reveals WHICH option was measured.
- */
 function mockMeasureRects(
 	root: HTMLElement,
 	lefts: Record<string, number>,
@@ -176,7 +134,6 @@ describe("SegmentedControl container ref callback stability", () => {
 		// The unmount cleanup effect (`useEffect(() => () =>
 		// resizeObserver.disconnect(), [resizeObserver])`) is the sole
 		// owner of `disconnect()` calls. The ref callback itself no
-		// longer calls `disconnect()` (the old inline arrow did, which
 		// is what caused the thrash). On unmount, React runs the effect
 		// cleanup → `disconnect()` is called exactly once.
 		const { unmount } = render(
@@ -229,7 +186,6 @@ describe("SegmentedControl per-option label ref stability + value-change behavio
 	it("keeps per-option label ref callbacks stable across re-renders (no ref attach/detach churn)", () => {
 		// A fresh inline closure per option per render (what an
 		// un-memoized `getLabelRef(opt.value)` produces) makes React call
-		// the old ref with `null` and the new one with the element on
 		// EVERY re-render, 2N attach/detach round-trips plus label-Map
 		// churn for an unchanged option list. With stable cached
 		// callbacks, React does not re-invoke the refs at all, so the
@@ -266,7 +222,6 @@ describe("SegmentedControl per-option label ref stability + value-change behavio
 	});
 
 	it("does NOT re-invoke ResizeObserver.observe when the value changes (container ref stable across value changes)", () => {
-		// `updateIndicator` used to depend on `value`, so `setContainerRef`
 		// got a new identity on every value change, React detached the old
 		// ref and re-attached the new one, re-firing `observe()` on an
 		// element that never changed. Decoupling the measurement from the
@@ -382,7 +337,6 @@ describe("SegmentedControl per-option label ref stability + value-change behavio
 
 	it("keeps the label-ref cache consistent when an option is removed and re-added (dynamic option sets)", async () => {
 		// The per-option callbacks live in a ref-held cache; pruning removed
-		// options must never corrupt the refs for a re-added option, the
 		// remounted element must be re-registered and remain measurable.
 		const threeOptions = [...OPTIONS, { value: "c", label: "C" }];
 		const props = {

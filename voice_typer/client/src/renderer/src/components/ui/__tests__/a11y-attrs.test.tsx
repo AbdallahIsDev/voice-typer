@@ -1,14 +1,3 @@
-/**
- * A11y attribute regression tests for the UI primitives.
- *
- * Covers:
- * - NumberInputStepper: visually-hidden aria-live region echoes the
- *   new value on step; errorId / aria-errormessage forwarding.
- * - Dialog: aria-modal={true} on the content; close button uses the
- *   design-system <Button> surface.
- * - AlertDialog: aria-modal={true} on the content.
- * - Accordion: aria-hidden="true" on decorative chevron icons.
- */
 import { cleanup, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";

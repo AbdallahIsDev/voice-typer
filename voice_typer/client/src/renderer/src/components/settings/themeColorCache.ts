@@ -1,29 +1,3 @@
-/**
- * Module-level cache for theme color computations.
- *
- * Extracted from ThemeSettingsSection.tsx to avoid the
- * react-refresh/only-export-components lint warning (mixing component
- * and non-component exports in the same file breaks Fast Refresh).
- *
- * The cache stores computed {light, dark} color objects keyed by preset
- * ID, avoiding redundant getComputedStyle + cssColorToHex DOM queries
- * on repeated calls with the same preset.
- *
- * Cache invalidation:
- *   - 'custom' and 'default' entries are deleted when the user changes
- *     a custom color (see handleCustomColorChange in ThemeSettingsSection)
- *   - All entries are cleared on ThemeSettingsSection unmount (see the
- *     cleanup useEffect in ThemeSettingsSection)
- *   - All entries are cleared when the user toggles their OS-level
- *     "high contrast" / "increased contrast" preference (see the
- *     matchMedia listener installed at module load below).  This is
- *     necessary because the listener clears the cache so the next
- *     ``getCurrentThemeColors`` call re-reads from the DOM with the
- *     new effective colour scheme, otherwise the cached hex values
- *     from the normal-contrast reading would persist and produce
- *     stale swatches in the custom-theme editor.
- */
-
 // type narrowing (kept non-exported): ``ThemeColorCacheEntry`` is only
 // used by this module (no external importer, verified by grep across
 // the renderer tree). Keep the type NON-exported so the surface area
@@ -42,22 +16,17 @@ export const _themeColorCache = new Map<string, ThemeColorCacheEntry>();
 // ``getCurrentThemeColors`` call re-reads from the DOM with the new
 // effective colour scheme.  The listener is installed once at module
 // load and lives for the lifetime of the renderer process.
-//
 // Guarded with ``typeof window !== "undefined"`` so the module can
 // be imported in SSR / Vitest-without-jsdom contexts without crashing.
-//
 // HMR leak fix: in dev mode with Vite HMR, every module reload
 // re-executed this top-level block, installing a NEW listener
 // without removing the previous one.  Each old listener kept its
-// captured ``_themeColorCache`` reference alive (the OLD module's
 // Map, not the new one), so the leak was both a memory leak AND a
-// correctness leak (the old listener would ``.clear()`` the OLD
 // Map, which was no longer the one the rest of the app was reading).
 // We now use Vite's ``import.meta.hot?.dispose()`` hook to remove
 // the listener when the module is unloaded for HMR. In production
 // (no ``import.meta.hot``), the listener lives for the renderer
 // process lifetime as before.
-//
 // Feature-detect ``addEventListener`` vs the legacy ``addListener``
 // (Safari < 14 / older predecessor versions only exposed the latter).
 
@@ -90,8 +59,6 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
 		// in dev (the production build tree-shakes this branch away).
 		// When Vite hot-replaces this module, the dispose callback
 		// fires BEFORE the new module is installed, we remove the
-		// listener here so the old module's `handler` closure (which
-		// captures the OLD `_themeColorCache` Map) is no longer
 		// referenced by the MediaQueryList.
 		if (import.meta.hot && remove) {
 			import.meta.hot.dispose(() => {

@@ -1,17 +1,3 @@
-/**
- * Focused tests for `useSettingsDeepLinks`, the extracted Settings
- * consent + cross-page search deep-link machinery.
- *
- * Drives the REAL useNavigation + useGlobalSearch zustand stores (no
- * module mocks, the stores are the app's single source of truth) and
- * pins:
- *   - one-shot consumption of the pending consent field (armed exactly
- *     once, global search cleared, the Privacy surface's saved scroll
- *     offset zeroed),
- *   - one-shot consumption of the pending search scroll target rowHint,
- *   - the consent row scroll + 2600ms ring lifetime,
- *   - the 5000ms max-lifetime safety net for never-rendering targets.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

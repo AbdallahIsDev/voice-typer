@@ -1,24 +1,3 @@
-/**
- * Regression tests: `useMicrophoneLevelMonitor` bounded-start-retry.
- *
- * Background
- * ----------
- * On a cold start with the Microphone page restored (persisted last
- * page), the mount effect fires ``level_monitor_start`` the moment the
- * config round-trip lands, which can be while the host bridge is still
- * establishing (renderer connects before the backend finishes booting).
- * A rejected/failed start used to be terminal (console warn only), so
- * the live level bar stayed dead for the page's entire lifetime and the
- * user had to switch pages to recover it. The fix schedules a bounded
- * backoff retry chain (1s → 2s → 4s) owned by the effect instance:
- *
- *   1. A failed start retries up to 3 times, then gives up (no infinite
- *      loop against a genuinely broken backend).
- *   2. A ``client.consent_required`` refusal is terminal, the consent
- *      dialog's onAllow path restarts the monitor explicitly.
- *   3. A pending retry is cancelled on unmount / dep change (the
- *      cleanup's ``level_monitor_stop`` owns teardown).
- */
 import { act, cleanup, render } from "@testing-library/react";
 import { type ReactNode, type RefObject, StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

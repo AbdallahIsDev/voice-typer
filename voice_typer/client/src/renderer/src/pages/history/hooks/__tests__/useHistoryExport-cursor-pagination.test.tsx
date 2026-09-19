@@ -1,21 +1,3 @@
-/**
- * Focused tests for useHistoryExport's cursor (keyset) pagination.
- *
- * The export loop previously paged with OFFSET only, every page forced
- * the backend to skip past all previously fetched rows (O(pages ×
- * offset)). It now threads before_timestamp + before_id (derived from
- * the last accumulated row) through every page after the first, the
- * same strategy useHistoryCache's loadMore uses, while keeping
- * limit + offset in the payload as the defensive fallback (rows
- * without a usable timestamp/id cursor-anchor via OFFSET instead).
- *
- * These tests pin:
- *   - the FIRST page carries no cursor params,
- *   - every subsequent page carries the (timestamp, id) of the LAST
- *     row of the accumulated export,
- *   - rows missing timestamp or id fall back to the OFFSET-only path,
- *   - data outcomes are unchanged (full export, empty export, sort).
- */
 import { renderHook } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

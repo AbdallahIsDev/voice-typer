@@ -1,11 +1,3 @@
-/**
- * Contract tests for `configHotkeyLabels`, the single helper that
- * computes the user-facing dictation + repaste hotkey labels from the
- * app config. App.tsx feeds it the config selectors and passes the
- * results to the Help overlay; the defaults it falls back to must
- * match the backend's canonical defaults (see the lockstep comments in
- * `hotkey-utils.ts` / `pages/onboarding/lib/constants.ts`).
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	configHotkeyLabels,

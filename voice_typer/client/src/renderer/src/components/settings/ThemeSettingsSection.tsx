@@ -1,17 +1,11 @@
 // ThemeSettingsSection, Appearance section of the Settings page.
-//
-// Extracted from src/renderer/src/pages/Settings.tsx to keep the page
 // file under ~500 lines.  Renders the "Appearance" SettingsSection
 // (Color Scheme, Theme Preset, Custom Theme color picker, Text Size).
-//
-// Behaviour is identical to the previous monolithic implementation:
 // - Hover-preview of built-in presets (reverts on close/leave).
 // - Custom-theme color picker with light/dark tabs and a 6-color grid.
 // - localStorage draft backup so unsaved colour picks survive a crash.
 // - 300 ms debounced save of the custom-theme draft.
 // - Per-row search-filter visibility via the ``isVisible`` prop.
-//
-//partial split: the state machine, refs, effects, and event
 // handlers now live in ``./useThemeSettings`` (a custom hook). The
 // WCAG contrast helpers and the localStorage draft helpers live in
 // ``@/lib/theme-contrast`` and ``@/lib/theme-draft-storage``
@@ -78,27 +72,13 @@ interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
 	themeModeProp?: VoiceTyperConfig["theme_mode"];
 	/** App-level theme-change handler, persists the mode via the debounced save in useTheme. */
 	onThemeChange?: (mode: VoiceTyperConfig["theme_mode"]) => void;
-	/**
-	 * Theme preset provided by the App-level useTheme hook (overrides
-	 * ``config.theme_preset`` while a save is in-flight).  Without
-	 * this prop, the preset dropdown showed a stale
-	 * value during the 300 ms debounced save window, the user
-	 * clicked a preset, the dropdown reverted to the old value, then
-	 * snapped to the new value when the backend confirmed.  Passing
-	 * the optimistic value from ``useTheme.themePreset`` lets the
-	 * dropdown update immediately, matching the colour-scheme
-	 * segmented control's behaviour.
-	 */
 	themePresetProp?: VoiceTyperConfig["theme_preset"];
 }
 
 // ── Preset-dropdown sub-components ────────────────────────────────────
-//
-// Extracted from inline IIFEs that defeated ``React.memo`` on the
 // SelectTrigger / SelectContent subtrees, each IIFE produced a fresh
 // closure on every parent render, forcing reconciliation even when
 // neither ``effectivePreset`` nor ``customDraft`` had changed.
-//
 // Hoisting the closures to module-level named components lets React
 // short-circuit reconciliation when their props are referentially
 // stable. ``isDark`` is now read once in the parent and threaded down
@@ -120,12 +100,6 @@ interface ThemeSwatchProps {
 	gap?: string;
 }
 
-/**
- * Rounded-rectangle "A" swatch + localised label, used in the preset
- * dropdown trigger and inside each preset SelectItem. Pure / memo'd so
- * the parent's re-renders don't force the swatch to re-render when the
- * resolved colours and label haven't changed.
- */
 const ThemeSwatch = memo(function ThemeSwatch({
 	bg,
 	fg,
@@ -157,12 +131,6 @@ interface ThemePresetTriggerPreviewProps {
 	t: TFunction;
 }
 
-/**
- * Renders the swatch + localised preset name shown inside the
- * ``SelectTrigger``. Was previously an IIFE that re-read
- * ``document.documentElement.classList`` on every render and produced a
- * fresh closure that defeated ``React.memo`` on the trigger subtree.
- */
 const ThemePresetTriggerPreview = memo(function ThemePresetTriggerPreview({
 	presetId,
 	isDark,
@@ -182,21 +150,11 @@ const ThemePresetTriggerPreview = memo(function ThemePresetTriggerPreview({
 interface CustomDisabledSelectItemProps {
 	/** Resolved dark-mode flag from the parent (read once per render). */
 	isDark: boolean;
-	/** In-memory custom-theme draft (used to render the live swatch). */
 	customDraft: CustomThemeData | null;
 	/** Translation function from the parent's ``useT()`` subscription. */
 	t: TFunction;
 }
 
-/**
- * The disabled "Custom (use toggle below)" SelectItem rendered at the
- * top of the dropdown so the trigger's selected value (when the saved
- * preset is ``"custom"``) always has a matching option (Radix Select
- * otherwise warns about a missing value).
- *
- * Was previously an IIFE that re-read
- * ``document.documentElement.classList`` on every render.
- */
 const CustomDisabledSelectItem = memo(function CustomDisabledSelectItem({
 	isDark,
 	customDraft,
@@ -267,7 +225,6 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	if (!config) return <SettingsSkeleton rows={3} />;
 
 	// Read the resolved dark-mode flag ONCE per render and thread it
-	// down to the preset-dropdown sub-components. Previously each
 	// dropdown item IIFE re-read ``document.documentElement.classList``
 	// on every render (3+ DOM reads per render for the same value).
 	const isDark = document.documentElement.classList.contains("dark");
@@ -513,7 +470,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 												<TooltipTrigger asChild>
 													<button
 														type="button"
-														className="shrink-0 text-warning focus-visible:outline-none focus-visible:ring-1focus-visible:ring-ring rounded-full"
+														className="shrink-0 text-warning focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-full"
 														aria-label={t(
 															"settings.appearance.contrastWarning",
 															{ ratio: String(ratioRounded) },

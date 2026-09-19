@@ -1,23 +1,3 @@
-/**
- * Unit tests for `useMicrophoneTest`, the composition hook over
- * `useMicrophoneLevelMonitor` + `useMicrophoneTestSession` +
- * `useMicrophonePlayback`.
- *
- * Coverage :
- *   - test start/stop lifecycle: startTest invokes microphone_test_start IPC,
- *     stopTest invokes microphone_test_stop IPC, testRunning state flips
- *   - test start clears prior testAudioBase64 + rawAudioBase64 +
- *     testDurationMs + testQuality before starting
- *   - handlePresetChange / handleConfigChange: thin wrappers around updateConfig
- *   - fixed test duration: the start payload carries MICROPHONE_TEST_DURATION_SEC;
- *     no testDurationSec / setTestDurationSec remains in the public API
- *   - smoke: composition renders without crashing + exposes the full return shape
- *
- * Strategy: mock usePython (call) + usePythonEvent + useSnackbar + Audio +
- * the rAF loop (level monitor uses requestAnimationFrame internally).
- * The meterRef points at a real DOM tree (matches the existing
- * useMicrophoneLevelMonitor test pattern).
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -242,7 +222,6 @@ describe("useMicrophoneTest, composition smoke test (renders without crashing)",
 
 	it("exposes the fixed test duration + no dead duration configurability", () => {
 		// The test duration is permanently MICROPHONE_TEST_DURATION_SEC —
-		// the former user-configurable state/setter pair is gone from the
 		// public API.
 		expect(MICROPHONE_TEST_DURATION_SEC).toBe(10);
 
@@ -424,7 +403,6 @@ describe("useMicrophoneTest, biometric consent gating (GDPR Art. 9)", () => {
 		// Privacy gate: the level monitor opens a continuous
 		// biometric-capture InputStream, the mount effect must skip
 		// ``level_monitor_start`` + the one-shot poll until consent is
-		// granted (previously the page spammed futile IPC calls on
 		// every mount for non-consenting users).
 		const args = makeHookArgs({ voice_biometric_consent: false });
 		renderHook(() => useMicrophoneTest(args));

@@ -1,32 +1,3 @@
-/**
- * Focus-ring WCAG 1.4.11 regression test.
- *
- * The interactive primitives (``Button``, ``Input``, ``Textarea``,
- * ``SelectTrigger``) previously declared ``focus-visible:ring-ring/30`` —
- * a 30% alpha ring composited over the surface behind it. Programmatic
- * WCAG audit found the composite contrast sat at 1.15:1–2.45:1 across all
- * 12 themes, far below the WCAG 1.4.11 "Non-text Contrast" 3:1 minimum,
- * so the focus indicator was effectively invisible in every theme.
- *
- * The fix is to drop the ``/30`` alpha modifier so the ring paints at
- * the full ``--ring`` token opacity (which the theme files tune for
- * 3:1+ contrast against the surface). This test pins the contract:
- *
- * 1. The focus-ring utility class on each primitive is ``ring-ring``
- *    (full opacity), not ``ring-ring/30`` (or any other alpha-prefixed
- *    variant that would re-introduce the same composite-contrast
- *    failure).
- * 2. The focus ring thickness (``ring-1``) and the ``focus-visible:``
- *    qualifier are preserved, we are only tightening the alpha, not
- *    re-architecting the focus indicator.
- *
- * ``Checkbox`` and ``RadioGroupItem`` joined the sweep later: the two
- * controls came from a different code lineage and shipped the same
- * ``focus-visible:ring-ring/30`` token, the blocks below pin the same
- * full-opacity contract for them (WCAG 1.4.11 applies to every
- * interactive primitive, not just the text-input family).
- */
-
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Button, buttonVariants } from "@/components/ui/button";

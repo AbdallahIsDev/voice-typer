@@ -1,11 +1,8 @@
 // types/ipc/permissions.ts
 //
 //supplementary IPC contracts for OS-level permission probes:
-// `onboarding_check_permissions`, `get_autostart_status`,
 // `check_microphone_permission`.
 //
-// Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file, pure structural refactor.
 
 /**
  * Response shape for the `onboarding_check_permissions`

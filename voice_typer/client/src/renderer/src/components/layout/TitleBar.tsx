@@ -54,15 +54,12 @@ interface TitleBarProps {
 	onGoForward?: () => void;
 	canGoBack?: boolean;
 	canGoForward?: boolean;
-	//(session-6 dedup): ``isMaximized`` is now a REQUIRED prop.
-	// Previously TitleBar had its own local ``useState`` +
 	// ``onMaximizedChanged`` subscription as a fallback for when the
 	// prop was undefined, duplicating the subscription already living
 	// in App.tsx (App.tsx:161-189) which always passes the prop. The
 	// duplicate subscription is deleted; App.tsx is the single owner of
 	// the maximize-state subscription.
 	isMaximized: boolean;
-	//open the keyboard-shortcut help overlay. Previously the
 	// overlay was only reachable via the "?" key, invisible to users
 	// who never discover that shortcut. Exposing a TitleBar button
 	// makes the overlay discoverable for mouse + keyboard users alike.
@@ -90,7 +87,6 @@ interface TitleBarProps {
 
 // Window-control glyphs, native Windows caption icon geometry.
 // CLOSE and RESTORE are the TRUE outlines of the glyphs Windows uses
-// for its caption buttons, extracted from the `Segoe Fluent Icons`
 // font that ships with Windows 11 (C:\Windows\Fonts\SegoeIcons.ttf,
 // units-per-em 2048): ChromeClose U+E8BB, ChromeRestore U+E923,
 // scaled to a 10px em (the size DWM renders them at inside a 46x36
@@ -100,7 +96,6 @@ interface TitleBarProps {
 // variants (see the comments on each constant): the native glyphs'
 // half-pixel edges / rounded corners read soft at DPR 1.
 
-//
 // WHY FILLED OUTLINES INSTEAD OF STROKED SHAPES: hand-rolled stroked
 // SVGs can never match the native icons, a 0.5px stroke is sub-pixel
 // at DPR 1 and antialiases to ~50% alpha (the "gray / toned-down"
@@ -113,7 +108,6 @@ interface TitleBarProps {
 // ``aria-hidden`` with NO child <title> (a <title> inside an
 // aria-hidden SVG is dropped by screen readers AND duplicates the
 // button's label).
-//
 // Platform note: the GLYPHS are identical on Windows and Linux (the
 // shapes below match GNOME's caption icons closely enough that no
 // branch is needed); what differs is the BUTTON, not the icon
@@ -209,7 +203,6 @@ function TitleBarButton({
 	// entirely (breaking keyboard activation, screen-reader semantics,
 	// and `getByRole("button")`). A real <button> wrapping the icon is
 	// required.
-	//
 	// The close button uses the `ghost` base + a native-Windows-red
 	// HOVER (matching platform convention: neutral at rest, red on
 	// hover/focus) rather than the `destructive` cva variant, whose
@@ -304,38 +297,11 @@ interface ToolbarButtonProps extends React.ComponentProps<"button"> {
 	onClick: (() => void) | undefined;
 	/** Accessible name (localized). */
 	ariaLabel: string;
-	/**
-	 * Optional `aria-keyshortcuts` exposure so AT users can discover the
-	 * keyboard shortcut without inspecting the tooltip. Sourced from the
-	 * SHORTCUTS catalog at the call site so the attribute can't drift
-	 * from the tooltip chips.
-	 */
 	ariaKeyshortcuts?: string;
-	/**
-	 * Back/Forward pass a boolean (their nav stack gates availability);
-	 * the sidebar toggle and help buttons omit it, no `disabled`
-	 * attribute and no disabled-* classes, exactly like the previous
-	 * inline buttons.
-	 */
 	disabled?: boolean;
 	children: React.ReactNode;
 }
 
-/**
- * Shared toolbar icon button (sidebar toggle / back / forward / help):
- * h-6 (24px) inside the p-1 padded toolbar group, the 4px padding
- * keeps every button off the full 36px bar height with room to breathe
- *, with the app's standard muted→primary hover treatment, the
- * press-scale active state, and the shared focus ring. Extracted from
- * four inline near-copies of the same class stack.
- *
- * Extends the native button props (spread onto the underlying
- * `<button>`) so Radix `asChild` wrappers, `HotkeyTooltip`'s
- * `TooltipTrigger` clones this element and injects its focus/pointer
- * handlers + ref, actually reach the DOM node; without the spread the
- * injected props would be silently dropped and the tooltip would never
- * open on focus.
- */
 function ToolbarButton({
 	onClick,
 	ariaLabel,
@@ -372,12 +338,6 @@ function ToolbarButton({
 }
 
 interface NavChevronButtonProps {
-	/**
-	 * Tooltip label, EXACTLY the localized Back/Forward action word
-	 * (concise, no mechanism wording like "or mouse back button"); the
-	 * shortcut chips come from HotkeyTooltip's HotkeyChips, never the
-	 * label string.
-	 */
 	tooltipLabel: string;
 	/** Shortcut chips string from the SHORTCUTS catalog. */
 	shortcutKeys: string;
@@ -389,11 +349,6 @@ interface NavChevronButtonProps {
 	path: string;
 }
 
-/**
- * Back/Forward twin: HotkeyTooltip (label + shortcut chips) wrapping the
- * shared ToolbarButton with a direction-mirroring chevron. The two were
- * ~33-line near-twins differing only in label/keys/handler/disabled/path.
- */
 function NavChevronButton({
 	tooltipLabel,
 	shortcutKeys,

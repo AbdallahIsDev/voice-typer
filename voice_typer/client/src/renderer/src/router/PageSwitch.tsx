@@ -18,16 +18,6 @@ import type { Page } from "@/types/ipc";
 
 import { LAZY_PAGES } from "./pageLoaders";
 
-/**
- * Suspense fallback for the lazy-loaded secondary routes.
- *
- * A page-shaped Skeleton (the app's single loading primitive) instead
- * of the former centered spinner: it matches the target page's layout
- * so the chunk-load → content transition doesn't jump. In practice it's
- * a one-frame flash, all route chunks are prefetched at idle
- * (router/prefetch.ts), on sidebar hover via `prefetchPage`, and
- * React.lazy caches resolved modules so revisits render synchronously.
- */
 function RouteSuspenseFallback() {
 	return <RouteSkeleton />;
 }
@@ -41,18 +31,6 @@ interface PageSwitchProps {
 	onOnboardingComplete: () => void;
 }
 
-/**
- * Route table: see router/routes.ts for the single source of page names.
- * This component maps each `Page` literal to its view, legitimate
- * routing logic (which component renders for which page), not a
- * duplicate of the page registry. The set of valid page names lives
- * in `ROUTES` (router/routes.ts); this switch only chooses the view.
- *
- * Extracted from App.tsx so the app shell stays pure wiring (hooks,
- * overlays, layout) while the route→component mapping lives beside the
- * route table it mirrors. Rendered output is byte-identical to the
- * previous inline `renderPage()` + `<Suspense>` wrapper in App.tsx.
- */
 export function PageSwitch({
 	page,
 	navigate,

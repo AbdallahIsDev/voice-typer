@@ -1,10 +1,3 @@
-/**
- * Tests for useOnboardingRouteGuard (extracted from App.tsx).
- *
- * Contract: when the current page is "onboarding" but the shared config
- * says the wizard was already completed, redirect to "home" via
- * ``replace`` (history swap, no stack growth). Otherwise no-op.
- */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,44 +1,3 @@
-/**
- * Regression tests for the Dashboard page fixes landed in session BG
- * (Group 3, UX & UI).
- *
- * Covers three findings, each in its own describe block so a failure
- * pinpoints which contract regressed:
- *
- *   -   Dashboard 7-day activity chart container has `role="img"` +
- *           descriptive `aria-label`; bars are non-interactive `<div>`s
- *           (no `<button>`); bar opacity bumped from `/60` to `/80` for
- *           WCAG 1.4.11 contrast.
- *   -  Dashboard.tsx + StatCards.tsx both consume the shared
- *           `formatDuration` from `lib/format.ts`; in-component copies
- *           dropped. The shared helper resolves `h` / `m` glyphs through
- *           `t()` (analytics.durationHours / durationMinutes /
- *           durationHoursMinutes; zero renders bare `"0"`).
- *   -  Dashboard "Share stats" button visibility is gated on
- *           `canShareStats({todayCount, totalCount})` (not
- *           `data.todayCount > 0`) so users with historical
- *           transcriptions but no today dictations can still share.
- *   -  Dashboard share-image capture container's inline `style`
- *           literal is hoisted to a module-level constant so the object
- *           identity is stable across renders (a fresh inline object
- *           on every render would break `React.memo` on the share-image
- *           subtree).
- *
- * Static-source-check strategy
- * ----------------------------
- * The Dashboard page has a heavy dependency graph (usePython, hugeicons,
- * sonner, useLastUpdated, html-to-image). Rendering it for behavioral
- * assertions would require re-stubbing the same modules already mocked
- * in `pages-improvements.test.tsx`. The contracts we need to verify
- * (role attribute, element tag, opacity class, import statements) are
- * all visible in the source text, so we use static `fs.readFileSync`
- * checks, same pattern used by `accessibility.test.tsx` and the
- * `R7-F18` block in `pages-improvements.test.tsx`.
- *
- * The `formatDuration` behavioural tests, by contrast, are real unit
- * tests, the shared helper has no React dependencies, so we can call
- * it directly.
- */
 import { describe, expect, it } from "vitest";
 import { setLocale, t } from "@/i18n/i18n";
 import { formatDuration } from "@/lib/format";
@@ -50,7 +9,6 @@ const DASHBOARD_SRC = fs.readFileSync(
 	path.resolve(__dirname, "..", "Dashboard.tsx"),
 	"utf8",
 );
-//the 7-day activity chart JSX was extracted from Dashboard.tsx
 //into pages/dashboard/components/SevenDayActivityChart.tsx. The
 // assertions below target the chart's new home (the strings no longer
 // appear in DASHBOARD_SRC after the split).
@@ -101,8 +59,6 @@ const EN_JSON = JSON.parse(
 	),
 );
 
-//
-
 describe("BG-3: Dashboard activity chart container role=img + non-interactive bars", () => {
 	it('chart container <div> has role="img" and aria-label=', () => {
 		//the chart JSX lives in SevenDayActivityChart.tsx. The chart
@@ -137,7 +93,6 @@ describe("BG-3: Dashboard activity chart container role=img + non-interactive ba
 	});
 
 	it("bars carry no tabIndex and no per-bar aria-label (single-announcement chart)", () => {
-		// The previous implementation gave each bar `tabIndex={0}` and
 		// `aria-label={...}` so the chart produced 7 dead-end tab stops
 		// and an SR announcement of "button, button, ...". After
 		// the fix the chart container owns the role/label and the bars
@@ -158,8 +113,6 @@ describe("BG-3: Dashboard activity chart container role=img + non-interactive ba
 		expect(SEVEN_DAY_SRC).not.toMatch(/bg-accent\/60/);
 	});
 });
-
-//
 
 describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	it("Dashboard.tsx imports formatDuration from @/lib/format (no local copy)", () => {
@@ -229,7 +182,6 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	it("formatDuration(sub-minute) rounds up to '1m' (matches StatCards legacy)", () => {
 		setLocale("en");
 		// 5s and 45s both round to 1 minute (matches StatCards legacy
-		// behaviour; the old Dashboard copy returned "0m" for 5s which
 		// was a bug).
 		expect(formatDuration(5)).toBe("1m");
 		expect(formatDuration(45)).toBe("1m");
@@ -258,7 +210,6 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	});
 
 	it("formatDuration resolves through t() so the visible glyphs track the active locale", () => {
-		// We can't assert non-English glyphs (F1 hasn't translated the
 		// keys yet), but we CAN assert that formatDuration's output
 		// matches what t() returns for the resolved key, proving the
 		// helper is wired through i18n rather than returning hardcoded
@@ -273,8 +224,6 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	});
 });
 
-//
-
 describe("BG-10: Dashboard Share button gated on canShareStats (not todayCount > 0)", () => {
 	it("Dashboard.tsx imports canShareStats from @/hooks/useStatsShare", () => {
 		expect(DASHBOARD_SRC).toMatch(
@@ -288,7 +237,6 @@ describe("BG-10: Dashboard Share button gated on canShareStats (not todayCount >
 		expect(DASHBOARD_SRC).toMatch(/canShareStats\(\s*\{/);
 		expect(DASHBOARD_SRC).toMatch(/todayCount:\s*data\.todayCount/);
 		expect(DASHBOARD_SRC).toMatch(/totalCount:\s*data\.totalCount/);
-		// The old `data.todayCount > 0` gate is no longer present.
 		// (We can't ban the substring entirely, the field is still
 		// read elsewhere, but the specific gating expression
 		// `data.todayCount > 0 && (` is gone.)
@@ -296,11 +244,8 @@ describe("BG-10: Dashboard Share button gated on canShareStats (not todayCount >
 	});
 });
 
-//
-
 describe("DJ-93: Dashboard share-image container style hoisted to module-level constant", () => {
 	it("Dashboard.tsx declares a module-level CSSProperties constant for the share-image capture container", () => {
-		// The fix hoists the previously-inline `style={{ position: "absolute",
 		// top: 0, left: 0, zIndex: -100, pointerEvents: "none" }}` literal
 		// to a module-level `SHARE_IMAGE_CAPTURE_STYLE` constant typed as
 		// `CSSProperties`. The static values never change between renders,
@@ -308,7 +253,6 @@ describe("DJ-93: Dashboard share-image container style hoisted to module-level c
 		// the stable object identity lets a future `React.memo` on the
 		// share-image subtree short-circuit re-renders when the stats
 		// haven't changed.
-		//
 		// The `CSSProperties` type import from "react" is also pinned so
 		// a future refactor that drops the type annotation (and thus
 		// weakens the contract) fails this test.
@@ -350,7 +294,6 @@ describe("DJ-93: Dashboard share-image container style hoisted to module-level c
 		// renders (the constant is created once at module load); the
 		// inline literal created a fresh object on every render.
 		expect(DASHBOARD_SRC).toMatch(/style=\{SHARE_IMAGE_CAPTURE_STYLE\}/);
-		// The old inline `style={{ position: "absolute", ... }}` literal
 		// is gone, the `position: "absolute"` value now appears ONLY in
 		// the module-level constant declaration (covered by the previous
 		// test). A stray inline `position: "absolute"` outside the
@@ -365,8 +308,6 @@ describe("DJ-93: Dashboard share-image container style hoisted to module-level c
 		expect(afterConst).not.toMatch(/position:\s*"absolute"/);
 	});
 });
-
-//
 
 describe("Dashboard noDataDescription interpolates {hotkey} from config", () => {
 	it('Dashboard.tsx calls t("analytics.noDataDescription", { hotkey: ... })', () => {
@@ -384,11 +325,8 @@ describe("Dashboard noDataDescription interpolates {hotkey} from config", () => 
 	});
 });
 
-//
-
 describe("Dashboard dataPath uses {path} interpolation fed by get_status config_dir", () => {
 	it('Dashboard.tsx calls t("analytics.dataPath", { path: configDir || ... })', () => {
-		// The previous implementation rendered the hardcoded English string
 		// "Data stored in: ~/.voice-typer/" regardless of platform. The fix
 		// interpolates the actual on-disk path (fetched via the get_status
 		// IPC) so Windows / VOICE_TYPER_CONFIG_DIR users see the right path.
@@ -433,11 +371,8 @@ describe("Dashboard dataPath uses {path} interpolation fed by get_status config_
 	});
 });
 
-//
-
 describe("SevenDayActivityChart migrates binary plural to tChoice", () => {
 	it("SevenDayActivityChart.tsx imports tChoice from @/i18n/i18n", () => {
-		// The chart previously imported only `t` and branched on
 		// `day.count === 1` between two hardcoded keys
 		// (dayCountTooltipSingular / dayCountTooltipPlural). The fix
 		// delegates to `tChoice` so CLDR plural categories (one/other/few/
@@ -537,7 +472,6 @@ describe("Corrections-applied card (server-side usage tracking)", () => {
 
 describe("Top stat cards: merged dictation card + range-aware values", () => {
 	it("the single dictation card uses the plain totalDictations label", () => {
-		// The old split, Card 1 "Dictations ({range})" (sample-window
 		// count) vs Card 3 "Total Dictations" (range-blind true
 		// count), is merged into ONE card whose VALUE respects the
 		// selected range. The LABEL is range-free: the
@@ -565,7 +499,6 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 
 	it("no top stat card keeps a (?) tooltip (the range is in the segmented control)", () => {
 		// The tooltips merely restated the selected range, removed
-		// from every card (Part D).
 		expect(DASHBOARD_SRC).not.toMatch(/totalDictationsTooltip/);
 		expect(DASHBOARD_SRC).not.toMatch(/activeDaysTooltip/);
 		expect(EN_JSON.analytics.totalDictationsTooltip).toBeUndefined();
@@ -607,7 +540,6 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 	});
 
 	it("Longest Session uses a stopwatch icon, distinct from Recording Time's clock", () => {
-		// Both cards previously used Time02Icon (a clock). Longest
 		// Session now uses StopWatchIcon so the two durations are
 		// visually distinguishable at a glance.
 		expect(DASHBOARD_SRC).toContain("StopWatchIcon");
@@ -629,7 +561,6 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 describe("Analytics polish: stat-card spacing, sublabel pruning, Activity icon weight", () => {
 	it("Recording Time card no longer renders the 'avg per dictation' sublabel", () => {
 		// POLISH: the "avg 1m each" line added no useful information
-		// and was removed entirely (icon, label, value, trend stay).
 		expect(DASHBOARD_SRC).not.toMatch(/analytics\.avgPerDictation/);
 		// The card itself survives with its duration value + trend.
 		expect(DASHBOARD_SRC).toMatch(/analytics\.recordingTime/);
@@ -692,7 +623,6 @@ describe("Analytics polish: stat-card spacing, sublabel pruning, Activity icon w
 	});
 
 	it("Activity icon stroke is reduced to match the stat-card icons' weight", () => {
-		// POLISH: at h-8 w-8 the old 1.625 stroke painted ~2.4px lines
 		// (stat-card icons render ~1.5px); strokeWidth 1 matches them.
 		expect(SEVEN_DAY_SRC).toMatch(/strokeWidth=\{1\}/);
 	});

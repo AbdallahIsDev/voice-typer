@@ -1,45 +1,3 @@
-/**
- * Live-region inventory guards for the data pages (Models / History /
- * Dashboard), the same contract Home's guard enforces
- * (`pages/__tests__/Home-recording-flow-fixes.test.tsx`: exactly ONE
- * live region, the designed announcer) applied to the data pages'
- * status surfaces.
- *
- * The count selector counts BOTH explicit `aria-live` attributes and
- * implicit live-region roles (`role="status"` / `role="alert"`, the
- * EmptyState announcer and the Models no-model banner use role, not
- * an aria-live attribute). Non-live surfaces are deliberately
- * excluded: `role="img"` spinners (S5-CR-100), `role="timer"`,
- * `role="progressbar"`, `role="tabpanel"`.
- *
- * Per page the guard pins:
- *   - Models , a SETTLED page (model selected, no download) carries
- *               ZERO live regions: the former active-model summary
- *               banner (the designed announcer) was removed per user
- *               decision, the selected card's button state already
- *               indicates the active model, so a page-level announcer
- *               was redundant duplication. The per-card status /
- *               disk-space badges remain visual spans (they were
- *               `<output aria-live="polite">`, the Home-pill class
- *               of accidental live region; with N cards that was up
- *               to 2N live regions). The only sanctioned live region
- *               on this page is the no-model banner (`role="status"`,
- *               no-model state only) and the download state's
- *               DownloadProgressBar status line.
- *   - History, the ONLY sanctioned page-level live region is the
- *               LastUpdatedIndicator's polite timestamp region
- *               (XA-8-L5); beyond it, a loaded list adds ZERO, and the
- *               empty / load-error states add EXACTLY ONE, the
- *               EmptyState (`role="status"` / `role="alert"`).
- *   - Dashboard, the skeleton is ZERO live regions; the loaded
- *               analytics view (with keyboard permission granted)
- *               carries ONLY the LastUpdatedIndicator's polite region.
- *
- * If future code adds a stray `aria-live` / `role="status"` /
- * `role="alert"` to a badge, spinner wrapper, card, or stat, the
- * count assertion fails at the page where it was introduced.
- */
-
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -117,7 +75,6 @@ describe("Models page, live-region guard", () => {
 		// would be in the DOM.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 
-		// The active-model summary banner was REMOVED (the selected card's
 		// button state already marks the active model), and a settled page
 		// renders no other sanctioned live region: no download in flight,
 		// no-model banner only appears when model_size is empty. Any live

@@ -82,17 +82,6 @@ function providerLabel(provider: string): string {
 	return t("models.providers.deepgram.label");
 }
 
-/**
- * Derive the language-coverage badge key for a model option.
- *
- * `languages` follows the same convention as
- * `ModelMetadata.supported_languages` in `lib/utils/models.ts`:
- *   - `undefined` → field not sent by backend → no badge (caller skips)
- *   - `null`      → all languages (multilingual)
- *   - `[]`        → treat as "no explicit list" → multilingual fallback
- *   - `['en']` (length 1, only English) → English-only badge
- *   - any other non-empty array → multilingual badge
- */
 function languageBadgeKey(
 	languages: string[] | null | undefined,
 ): string | null {
@@ -236,7 +225,7 @@ export function ModelStep({
 														type="button"
 														aria-pressed={isSelected}
 														onClick={() => setSelectedModel(m.name)}
-														className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-md p-1 text-start outline-none focus-visible:ring-1focus-visible:ring-ring"
+														className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-md p-1 text-start outline-none focus-visible:ring-1 focus-visible:ring-ring"
 														aria-label={t("onboarding.modelSelectAria", {
 															name: m.name,
 														})}

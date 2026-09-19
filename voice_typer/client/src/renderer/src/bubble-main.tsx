@@ -7,12 +7,10 @@ import { installGlobalErrorHandlers } from "./lib/globalErrorHandler";
 import { ensureTauriBridgeInstalled } from "./lib/tauri-bridge/ensure";
 import "./index.css";
 
-// ADR-0020 §6.3 (Phase 3 UI port): install the Tauri bridge BEFORE the
 // bubble React app mounts so `window.bubble` is available. The runtime
 // gate (Tauri-only dynamic import, separate async chunk, never fetched
 // under predecessor where the bubble preload already installed the
 // namespace) and its full rationale live in `./lib/tauri-bridge/ensure` —
-// the single shared copy of a gate this entrypoint previously duplicated
 // from `main.tsx`. In predecessor mode the gate is false and this is a
 // no-op. Top-level await guarantees ordering, the
 // `ReactDOM.createRoot().render()` call below does not run until the
@@ -31,7 +29,6 @@ await ensureTauriBridgeInstalled();
 // `<ErrorBoundary fallback={null}>` rationale below). The global
 // handler is the safety net that also surfaces async-effect rejections
 // via toast + console.error (forwarded to the main-process log).
-//
 // `installGlobalErrorHandlers()` is idempotent, calling it again from
 // bubble-main.tsx is a no-op if main.tsx already installed the handlers
 // in the same renderer process (which it doesn't, each BrowserWindow

@@ -1,5 +1,4 @@
 // OS-level keyboard (hotkey) permission banner.
-//
 // mirrors `MicrophonePermissionBanner` but for the
 // keyboard-monitoring permission (macOS Accessibility / Linux `input`
 // group + udev rule / Windows: always granted). The renderer probes the
@@ -9,10 +8,8 @@
 // true`. Reuses the existing dispatcher, no new server-side code
 // required (the dispatcher itself wraps
 // `voice_typer.server.permissions.check_keyboard_permission()`).
-//
 // Banner body: "Hotkeys require accessibility permission, click to
 // fix" (localized via `useT()` per C-I18N-1).
-//
 // Click action mirrors `MicrophonePermissionBanner`'s platform-deep-
 // link approach:
 //   - macOS: `<a href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility">`
@@ -42,18 +39,6 @@ import type { PermissionsResult } from "@/types/ipc";
 // used server-side (60s, up to 5 attempts).
 const KEYBOARD_PERMISSION_REFRESH_MS = 60_000;
 
-/**
- * Internal hook: probes the keyboard permission via
- * `onboarding_check_permissions` on mount + every
- * `KEYBOARD_PERMISSION_REFRESH_MS` ms. Returns the latest
- * {@link PermissionsResult} (or `null` while the first probe is in
- * flight).
- *
- * Mirrors the probe pattern in
- * `pages/onboarding/hooks/usePermissionsProbe.ts` but is intentionally
- * simpler: no test-hotkey listener, no reprobe callback, just a
- * passive periodic read.
- */
 function useKeyboardPermission(): PermissionsResult | null {
 	const { call } = usePython();
 	const [result, setResult] = useState<PermissionsResult | null>(null);
@@ -120,32 +105,9 @@ function useKeyboardPermission(): PermissionsResult | null {
 }
 
 export interface KeyboardPermissionBannerProps {
-	/**
-	 * Override the permission result (used by tests to inject a
-	 * fixed state without mocking `usePython`). When omitted, the
-	 * component probes via {@link useKeyboardPermission} on mount +
-	 * every 60s.
-	 */
 	permissionResult?: PermissionsResult | null;
 }
 
-/**
- * Renders an amber "Hotkeys require accessibility permission, click
- * to fix" banner when the OS has NOT granted the keyboard-monitoring
- * permission (macOS Accessibility / Linux input group + udev rule).
- *
- * Returns `null` when:
- *   - `result` is `null` (first probe still in flight), avoid a
- *     flash-of-banner on every page mount.
- *   - `result.state === "granted"`, permission is fine.
- *   - `result.needed === false`, platform doesn't require the
- *     permission (Windows, unknown), no banner to show.
- *
- * Click-through: opens the OS privacy deep-link on macOS; on Linux /
- * Windows the banner body still renders (telling the user what to do)
- * but no deep-link button is shown, mirroring
- * `MicrophonePermissionBanner`'s platform branching.
- */
 export function KeyboardPermissionBanner({
 	permissionResult,
 }: KeyboardPermissionBannerProps) {
