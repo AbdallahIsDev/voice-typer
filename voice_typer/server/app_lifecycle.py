@@ -51,7 +51,7 @@ class LifecycleController:
         except Exception:
             log.debug("[QUIT] Could not discard recording", exc_info=True)
 
-        # 0. Notify predecessor frontend over TCP so it can quit cleanly.
+        # 0. Notify the Tauri host so it can quit cleanly.
         from voice_typer.server import event_bus
 
         event_bus.publish({"type": "quit_app"})
@@ -67,8 +67,8 @@ class LifecycleController:
         app.quit()
 
     def restart_app(self) -> None:
-        """Sends a ``relaunch_app`` event to predecessor over the active
-        TCP channel, then exits the current instance via the clean
+        """Sends a ``relaunch_app`` event to the Tauri host over the
+        sidecar WebSocket, then exits the current instance via the clean
         """
         app = self._app
         # re-entry guard (mirror the delegate on VoiceTyperApp

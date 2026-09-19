@@ -5,8 +5,10 @@ import json
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.history_bounds import (
+    HISTORY_OFFSET_LIMIT,
     _bound_history_limit,
     _bound_history_offset,
+    deep_offset_message,
 )
 from voice_typer.server.ipc.validation import (  # noqa: F401
     ErrorCodes,
@@ -51,6 +53,19 @@ class HistoryHandlersMixin(HandlerBase):
                     field="before_id",
                 )
         return before_timestamp, before_id
+
+    def _reject_deep_offset(
+        self, resp: dict, offset: int, before_timestamp: str | None, before_id: int | None
+    ) -> dict | None:
+        """Precise deep-OFFSET rejection, so the DB guard stays defense-in-depth."""
+        if (before_timestamp is None or before_id is None) and offset > HISTORY_OFFSET_LIMIT:
+            return self._error_response(
+                resp,
+                deep_offset_message(offset),
+                code=ErrorCodes.INVALID_FIELD,
+                field="offset",
+            )
+        return None
 
     def _handle_get_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_history`` IPC command."""

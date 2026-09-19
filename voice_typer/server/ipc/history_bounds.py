@@ -108,6 +108,18 @@ _HISTORY_LIMIT_DEFAULT = 50
 # maximum history ``offset`` accepted from a client.  Python
 _HISTORY_OFFSET_MAX = 10_000_000
 
+# Deepest OFFSET page the DB will serve. Shared with the DB guard so
+# both layers reject the same offsets with the same message.
+HISTORY_OFFSET_LIMIT = 999
+
+
+def deep_offset_message(offset: int) -> str:
+    """Precise deep-OFFSET rejection naming the cursor alternative."""
+    return (
+        f"OFFSET pagination requires offset <= {HISTORY_OFFSET_LIMIT} (got {offset}); "
+        "use cursor pagination (before_timestamp + before_id) for deeper pages"
+    )
+
 
 def _bound_history_limit(raw) -> int:
     """Clamp a caller-supplied history ``limit`` to a safe range.
@@ -217,4 +229,6 @@ __all__ = [
     "_HISTORY_LIMIT_MAX",
     "_HISTORY_LIMIT_DEFAULT",
     "_HISTORY_OFFSET_MAX",
+    "HISTORY_OFFSET_LIMIT",
+    "deep_offset_message",
 ]

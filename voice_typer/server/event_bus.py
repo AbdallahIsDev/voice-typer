@@ -19,8 +19,8 @@ handlers/config_handlers, handlers/system_handlers, tray_window) call
 The IPC server (``voice_typer.server.ipc_server.IPCServer``) calls
 ``subscribe(self.push)`` on ``start()`` and ``unsubscribe(self.push)``
 on ``stop()`` so that every published event is forwarded to the
-connected predecessor renderer over TCP (or to stdout in stdin/stdout
-mode).
+connected Tauri host over the sidecar WebSocket (or to stdout in
+gated stdin/stdout mode).
 
 Other transports (CLI, gRPC, future WebSocket) can subscribe the same
 way without touching the domain modules.
@@ -37,8 +37,7 @@ the ADR is the spec-side anchor).
 Events emitted via ``event_bus.publish`` (the modern path):
 
 * ``ready``: emitted once on first authenticated WS connection
-  (sidecar_ws.py) or on TCP server start (ipc_server.py:1899).
-  Payload: ``{}``.
+  (sidecar_ws.py). Payload: ``{}``.
 * ``bubble_show``: show waveform bubble. Payload: ``{}``.
 * ``bubble_hide``: hide waveform bubble. Payload: ``{}``.
 * ``bubble_level``: ~60 Hz RMS/peak for the waveform bubble.
@@ -82,7 +81,7 @@ Events emitted via ``event_bus.publish`` (the modern path):
 * ``notification``: request a renderer toast. Payload: ``{title, message,
   duration_ms, critical}``. (Canonical name, previously emitted as
 ``the legacy notification event name``;  renamed the wire event on the Python
-  side so both the predecessor and Tauri paths consume the same name.)
+  side so every host consumes the same name.)
 * ``navigate``: tray → UI route change. Payload: ``{path:str}``.
 * ``show_window``: show the main window. Payload: ``{}``.
 * ``quit_app``: sidecar requests app quit. Payload: ``{}``.
@@ -91,12 +90,12 @@ Events emitted via ``event_bus.publish`` (the modern path):
   shows a sonner toast with "Open recovery file" action.
   Payload: ``{message:str, recovery_path:str|null}``.
 * ``tray_menu``: serialized menu model pushed
-  to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On predecessor/
+  to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On standalone
   pystray the native menu is the single source of truth and this is
   a no-op. Payload: ``{items:[<menu node dict>]}``.
 * ``tray_state``: tray icon name + tooltip
   pushed to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On
-  predecessor/pystray the ``TrayIcon`` is updated directly so emitting
+  standalone pystray the ``TrayIcon`` is updated directly so emitting
   a parallel event would double-publish. Payload: ``{icon:str?,
   tooltip:str?}`` (at least one field present).
 * ``consent_required``: emitted by ``service/model.py``
@@ -201,7 +200,7 @@ Events emitted via ``IPCServer.push`` (NOT through ``event_bus.publish``
 or the tray-state hook, both of which already hold a reference to the
 server):
 
-* ``state_changed``: ; emitted ONCE per TCP/WS client connect
+* ``state_changed``: ; emitted ONCE per WS client connect
   so the renderer immediately knows the current app state. Payload:
   ``{status:str, message:str}``.
 * ``status_change``: emitted on EVERY tray state transition via the
@@ -719,12 +718,11 @@ _transport_probes_lock = threading.RLock()
 def _as_probe_entry(probe: typing.Callable[[], bool]) -> typing.Any:
     """Wrap *probe* for registry storage.
 
-    Bound methods (the production registration from
-    ``TCPTransportMixin.start_tcp``) become a ``weakref.WeakMethod`` so
-    the registry holds NO strong reference to the owning server: if the
-    server is GC'd without an explicit ``unregister_transport_probe``
-    (e.g. a test fixture that deliberately skips ``stop()``), the probe
-    is auto-evicted instead of pinning the server alive forever and
+    Bound methods become a ``weakref.WeakMethod`` so the registry
+    holds NO strong reference to the owning server: if the server is
+    GC'd without an explicit ``unregister_transport_probe`` (e.g. a
+    test fixture that deliberately skips ``stop()``), the probe is
+    auto-evicted instead of pinning the server alive forever and
     reporting stale liveness for the rest of the process. Plain
     functions / lambdas (test probes, no captured server instance) are
     stored as-is.
@@ -753,10 +751,9 @@ def register_transport_probe(probe: typing.Callable[[], bool] | None) -> None:
     """Register *probe*, a zero-arg callable reporting whether the IPC
     transport currently has a live host client connected.
 
-    The TCP transport (``IPCServer.start_tcp`` in
-    the WS transport) registers a bound
-    method reporting ``self._tcp_client is not None`` and
-    ``IPCServer.stop`` unregisters it. Registering ``None`` is a no-op.
+    Extension point used by tests today; no production transport
+    registers one. ``IPCServer.stop`` unregisters its (unset) slot.
+    Registering ``None`` is a no-op.
     """
     if probe is None:
         return
@@ -776,8 +773,8 @@ def unregister_transport_probe(probe: typing.Callable[[], bool] | None) -> None:
 def has_live_transport() -> bool:
     """Return True if a registered transport probe reports a live client.
 
-    When NO probes are registered the transport was never set up
-    (console mode, or a non-TCP transport like the Tauri WS sidecar) —
+    When NO probes are registered no transport tracks liveness
+    (gated-stdin mode and the Tauri WS sidecar register none) —
     return True so callers that publish regardless keep their previous
     behavior in those environments.
     """
@@ -820,10 +817,10 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
             (subscribers run on the executor thread, not the publisher's
             thread). Useful for non-RT publisher threads that must not
             block on slow IPC writes: e.g. the transcription thread
-            calling ``publish({"type": "transcription_final", ...})``
-            would otherwise block on ``IPCServer.push`` →
-            ``socket.sendall`` to a stalled predecessor renderer (seconds of
-            latency if the renderer is paused in the debugger).
+    calling ``publish({"type": "transcription_final", ...})``
+    would otherwise block on ``IPCServer.push`` →
+    ``socket.sendall`` to a stalled host (seconds of
+    latency if the host is paused in the debugger).
 
             When ``False`` (default), subscribers are called synchronously
             in the publisher's thread (existing ``_push_event_now``

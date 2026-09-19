@@ -183,9 +183,10 @@ def _early_server_started_enabled() -> bool:
 def parse_ipc_args() -> tuple[int | None, bool]:
     """Parse the IPC server CLI args ( extraction from ``main()``).
 
-    Returns ``(port, ws_mode)`` where ``port`` is the ``--port N`` value
-    (or ``None`` for stdin/stdout mode) and ``ws_mode`` is True when
-    ``--ws`` was passed (Tauri sidecar WebSocket mode).
+    Returns ``(port, ws_mode)`` where ``port`` is always ``None``
+    (``--port`` rejects with EXIT_BAD_ARGS; the stub stays because
+    entrypoint tests pin the rejection, do not remove) and ``ws_mode``
+    is True when ``--ws`` was passed (Tauri sidecar WebSocket mode).
 
     Side effects:
         - Sets ``VOICE_TYPER_DEBUG=1`` env var when ``--debug`` is passed

@@ -158,10 +158,12 @@ pub(super) async fn queue_auth_and_store_ws_tx(
 /// Wait for auth_ok OR ready (C-WS-1). Reject any other first frame.
 /// Python currently emits `ready`; `auth_ok` is the future contract.
 /// On ready: re-emit as Tauri event so renderer listeners still see it.
+/// Failure cleanup is generation-gated (C-WS-3) via `my_generation`.
 async fn wait_for_auth_ok(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
     mut read: SplitStream<WsStream>,
+    my_generation: u64,
 ) -> Result<SplitStream<WsStream>, String> {
     // catch_unwind: a panic must not kill the supervisor's long-lived thread.
     let app_for_body = app.clone();
@@ -178,7 +180,7 @@ async fn wait_for_auth_ok(
                  triggering supervisor",
                     WS_AUTH_OK_TIMEOUT_SECS
                 );
-                cleanup_and_trigger_respawn(app, state).await;
+                cleanup_and_trigger_respawn(app, state, my_generation).await;
                 Err(format!(
                     "WS auth timed out after {}s",
                     WS_AUTH_OK_TIMEOUT_SECS
@@ -186,12 +188,12 @@ async fn wait_for_auth_ok(
             }
             Ok(None) => {
                 log::error!("[WS-AUTH] stream closed before auth_ok/ready");
-                cleanup_and_trigger_respawn(app, state).await;
+                cleanup_and_trigger_respawn(app, state, my_generation).await;
                 Err("WS stream closed during auth".to_string())
             }
             Ok(Some(Err(e))) => {
                 log::error!("[WS-AUTH] error reading auth_ok/ready: {}", e);
-                cleanup_and_trigger_respawn(app, state).await;
+                cleanup_and_trigger_respawn(app, state, my_generation).await;
                 Err(format!("WS auth read error: {}", e))
             }
             Ok(Some(Ok(msg))) => {
@@ -201,18 +203,18 @@ async fn wait_for_auth_ok(
                         Ok(s) => s,
                         Err(_) => {
                             log::warn!("[WS-AUTH] unexpected binary frame during auth");
-                            cleanup_and_trigger_respawn(app, state).await;
+                            cleanup_and_trigger_respawn(app, state, my_generation).await;
                             return Err("WS auth received non-UTF8 binary".to_string());
                         }
                     },
                     Message::Close(_) => {
                         log::warn!("[WS-AUTH] server closed during auth");
-                        cleanup_and_trigger_respawn(app, state).await;
+                        cleanup_and_trigger_respawn(app, state, my_generation).await;
                         return Err("WS closed during auth".to_string());
                     }
                     _ => {
                         log::warn!("[WS-AUTH] unexpected frame type (ping/pong) during auth");
-                        cleanup_and_trigger_respawn(app, state).await;
+                        cleanup_and_trigger_respawn(app, state, my_generation).await;
                         return Err("WS auth unexpected frame type".to_string());
                     }
                 };
@@ -220,14 +222,14 @@ async fn wait_for_auth_ok(
                     Ok(v) => v,
                     Err(_) => {
                         log::warn!("[WS-AUTH] invalid JSON in auth response: {}", text);
-                        cleanup_and_trigger_respawn(app, state).await;
+                        cleanup_and_trigger_respawn(app, state, my_generation).await;
                         return Err(format!("WS auth invalid JSON: {}", text));
                     }
                 };
                 let t = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
                 if t == "auth_failed" {
                     log::error!("[WS-AUTH] auth_failed received from server");
-                    cleanup_and_trigger_respawn(app, state).await;
+                    cleanup_and_trigger_respawn(app, state, my_generation).await;
                     return Err("WS auth rejected by server".to_string());
                 }
                 // C-WS-1: ONLY auth_ok or ready — any other first frame is a
@@ -259,7 +261,7 @@ async fn wait_for_auth_ok(
                      treating as protocol violation, cleaning up and triggering respawn",
                         t
                     );
-                    cleanup_and_trigger_respawn(app, state).await;
+                    cleanup_and_trigger_respawn(app, state, my_generation).await;
                     return Err(format!("WS auth unexpected frame type: {}", t));
                 }
                 Ok(read)
@@ -275,7 +277,7 @@ async fn wait_for_auth_ok(
                 "[WS-AUTH] auth-read path panicked: running cleanup and \
                  triggering supervisor respawn"
             );
-            cleanup_and_trigger_respawn(app, state).await;
+            cleanup_and_trigger_respawn(app, state, my_generation).await;
             Err("WS auth path panicked (cleanup triggered)".to_string())
         }
     }
@@ -295,7 +297,7 @@ pub(crate) async fn reconnect_ws(
     spawn_writer_task(app.clone(), state.clone(), write, ws_rx, my_generation);
     let state_clone = state.clone();
     let app_handle = app.clone();
-    let read = wait_for_auth_ok(&app_handle, &state_clone, read).await?;
+    let read = wait_for_auth_ok(&app_handle, &state_clone, read, my_generation).await?;
     spawn_reader_task(app_handle.clone(), state_clone.clone(), read, my_generation);
     spawn_heartbeat_task(app_handle, state_clone).await;
     Ok(())

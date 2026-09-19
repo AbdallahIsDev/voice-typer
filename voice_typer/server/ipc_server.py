@@ -1,16 +1,16 @@
 # handlers extracted to handlers/ package as mixins
-"""JSON-lines IPC server over stdin/stdout OR TCP.
+"""JSON-lines IPC server over the Tauri sidecar WebSocket or stdin/stdout.
 
-Reads JSON commands from stdin (legacy) or a TCP socket (the predecessor),
-dispatches to the VoiceTyperApp instance, and writes JSON responses.
+Reads JSON commands from the WS transport (``--ws``: event_bus →
+sidecar_ws → Tauri host) or stdin (gated dev/test mode), dispatches
+to the VoiceTyperApp instance, and writes JSON responses.
 
-Usage (TCP mode, predecessor)::
+Usage (Tauri sidecar WebSocket)::
 
-    python -m voice_typer.server.ipc_server --port 9876
+    python -m voice_typer.server.ipc_server --ws
 
-Usage (stdin/stdout mode, ``voice-typer`` CLI)::
-
-    python -m voice_typer.server.ipc_server
+The retired TCP transport (``--port``) was removed; the flag now
+rejects with EXIT_BAD_ARGS and is pinned by entrypoint tests.
 """
 
 import asyncio  # noqa: F401  # re-exported for tests (ipc_server.asyncio) + asyncio.Semaphore annotation below
@@ -179,7 +179,7 @@ class IPCServer(
         The application instance this server wraps.
     """
 
-    # Per-instance write lock for TCP _send (socket.sendall can interleave
+    # Per-instance write lock for _send (socket.sendall can interleave
     _tcp_write_lock = threading.Lock()
 
     # Class aliases for ipc.registry tables (CONTRIBUTING §6.4); __init__
@@ -257,14 +257,14 @@ class IPCServer(
         self._tcp_write_lock = threading.Lock()
 
     def _init_tcp_transport_state(self) -> None:
-        """TCP client/server slots, pending-push buffer, worker pools."""
+        """Injected-client slots, pending-push buffer, worker pools."""
         self._tcp_client: _TCPLineIO | None = None
         self._tcp_mode = False
-        # Bounded FIFO buffer for push events queued while the TCP
+        # Bounded FIFO buffer for push events queued while no client connected
         self._pending_tcp: _PendingBuffer = _PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)
-        # can close it to unblock the accept() loop.  Previously the
+        # No listener exists; stop() closes it only if set (always None)
         self._tcp_server_socket: socket.socket | None = None
-        # SEC-8: TCP connection handler worker pool. Lazily created in
+        # SEC-8: connection handler worker pool slot (stays None, no listener)
         self._tcp_worker_pool: ThreadPoolExecutor | None = None
         self._tcp_dispatch_pool: ThreadPoolExecutor | None = None
         # this server's push callable, registered in the
@@ -280,7 +280,7 @@ class IPCServer(
         self._shutdown_completed_event = threading.Event()
         # Declare ``_stdin_thread`` as ``Thread | None`` so the
         self._stdin_thread: threading.Thread | None = None
-        # PERF-005: predecessor sets this event when it receives the
+        # PERF-005: the Tauri host sets this event when it receives the
         self._relaunch_ack_event = threading.Event()
 
     def _init_ready_and_rate_limit_state(self) -> None:

@@ -167,21 +167,43 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
     }
 }
 
+/// Stale-connection check for the auth-failure path (C-WS-3): an auth wait
+/// that gives up after a newer reconnect took over must not wipe the newer
+/// connection's sender or pending map. Pure predicate so tests can pin the
+/// gating decision without a `tauri::AppHandle` (see sibling test file).
+pub(super) fn auth_cleanup_is_stale(state: &SidecarState, my_generation: u64) -> bool {
+    state.ws_generation.load(Ordering::SeqCst) != my_generation
+}
+
 /// Auth-failed / auth-timeout cleanup: clear ws_tx, drain pending (dispatches can
 /// queue during the auth window — they would otherwise hang 120s), then respawn.
-/// C-WS-3: generation is `None` here (must respawn regardless of in-flight reconnect).
-pub(super) async fn cleanup_and_trigger_respawn(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
-    {
-        // Poisoned lock is safe: clearing ws_tx to None is always valid.
-        let mut ws_tx_guard = mutex_lock(&state.ws_tx);
-        *ws_tx_guard = None;
-    }
-    let drained = super::drain_pending_with_disconnect_error(state).await;
-    if drained > 0 {
-        log::warn!(
-            "[WS-AUTH] drained {} pending dispatch requests on auth failure/timeout",
-            drained
+/// C-WS-3: clear + drain are generation-gated like reader/writer cleanup; the
+/// respawn trigger stays `None` (auth-failure paths are generation-agnostic).
+pub(super) async fn cleanup_and_trigger_respawn(
+    app: &tauri::AppHandle,
+    state: &Arc<SidecarState>,
+    my_generation: u64,
+) {
+    if auth_cleanup_is_stale(state, my_generation) {
+        log::info!(
+            "[WS-AUTH] cleanup skipping ws_tx clear + drain: generation mismatch \
+             (mine={}, current={}); a newer reconnect owns the link",
+            my_generation,
+            state.ws_generation.load(Ordering::SeqCst)
         );
+    } else {
+        {
+            // Poisoned lock is safe: clearing ws_tx to None is always valid.
+            let mut ws_tx_guard = mutex_lock(&state.ws_tx);
+            *ws_tx_guard = None;
+        }
+        let drained = super::drain_pending_with_disconnect_error(state).await;
+        if drained > 0 {
+            log::warn!(
+                "[WS-AUTH] drained {} pending dispatch requests on auth failure/timeout",
+                drained
+            );
+        }
     }
     let _ = app.emit(
         "supervisor_relaunching",
@@ -190,3 +212,8 @@ pub(super) async fn cleanup_and_trigger_respawn(app: &tauri::AppHandle, state: &
     // C-WS-3: None generation on the auth-failure path.
     trigger_respawn_off_thread(app.clone(), state.clone(), None);
 }
+
+// C-TEST-5: sibling test file.
+#[cfg(test)]
+#[path = "respawn_scheduler_tests.rs"]
+mod respawn_scheduler_tests;

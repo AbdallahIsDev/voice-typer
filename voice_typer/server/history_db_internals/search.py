@@ -197,10 +197,11 @@ def _finalize_text_rows(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> li
 
 def _assert_bounded_offset(offset: int) -> None:
     """Shared deep-OFFSET guard for every list path."""
-    assert offset < 1000, (
-        f"OFFSET pagination requires offset < 1000 (got {offset}); "
-        "use cursor pagination (before_timestamp + before_id) for deeper pages"
-    )
+    # Real raise, not assert: assert is stripped under python -O.
+    from voice_typer.server.ipc.history_bounds import HISTORY_OFFSET_LIMIT, deep_offset_message
+
+    if offset > HISTORY_OFFSET_LIMIT:
+        raise ValueError(deep_offset_message(offset))
 
 
 def get_recent(
