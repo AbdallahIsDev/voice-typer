@@ -522,7 +522,7 @@ class TestThreeMechanismIntegration:
 
 
 class TestAutostartCommandValidation:
-    """``_autostart_command`` validates the python path and falls back."""
+    """``_autostart_command`` validates the python path and targets Tauri."""
 
     def test_returns_python_command_when_python_exists(self, monkeypatch):
         """When sys.executable exists, the command uses the Python path."""
@@ -534,7 +534,7 @@ class TestAutostartCommandValidation:
         assert "autostart_launcher.py" in cmd
         assert "--hidden" in cmd
 
-    def test_falls_back_to_tauri_binary_when_python_missing(self, monkeypatch, tmp_path):
+    def test_targets_tauri_binary_with_hidden_when_python_missing(self, monkeypatch, tmp_path):
         """When the resolved Python path doesn't exist AND a Tauri binary is"""
         from voice_typer.server import server_platform
 
@@ -560,15 +560,16 @@ class TestAutostartCommandValidation:
         monkeypatch.setenv("VT_TAURI_BINARY", str(fake_tauri))
 
         cmd = server_platform._autostart_command()
-        # The command should be the Tauri binary path (quoted).
+        # The command targets the Tauri binary directly with hidden argv
+        # (the host honors --hidden/--delay; no interpreter hop).
         raw = str(fake_tauri)
         if sys.platform == "win32":
             assert raw in cmd
         else:
             escaped = raw.replace("\\", "\\\\")
             assert escaped in cmd
-        # No --hidden or --delay args (Tauri binary takes no CLI args).
-        assert "--hidden" not in cmd
+        assert "--hidden" in cmd
+        assert "--delay" in cmd
 
     def test_logs_warning_when_python_missing(self, monkeypatch, tmp_path, caplog):
         """When the Python path doesn't exist, a warning is logged."""
@@ -607,9 +608,9 @@ class TestAutostartCommandValidation:
 
 
 class TestAppAutostartCommandAndArgsValidation:
-    """``_app_autostart_command_and_args`` validates and falls back."""
+    """``_app_autostart_command_and_args`` validates and targets Tauri."""
 
-    def test_falls_back_to_tauri_binary_when_python_missing(self, monkeypatch, tmp_path):
+    def test_targets_tauri_binary_with_hidden_when_python_missing(self, monkeypatch, tmp_path):
         """When the resolved Python path doesn't exist AND a Tauri binary is"""
         from voice_typer.server.server_platform import _app_autostart_command_and_args
 
@@ -632,7 +633,8 @@ class TestAppAutostartCommandAndArgsValidation:
 
         python_bin, args = _app_autostart_command_and_args()
         assert python_bin == str(fake_tauri)
-        assert args == ""
+        assert "--hidden" in args
+        assert "--delay" in args
 
 
 class TestSilentLogonPythonwPreference:

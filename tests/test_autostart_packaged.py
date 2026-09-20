@@ -81,21 +81,21 @@ def posix_platform(monkeypatch):
 
 
 class TestPackagedFallbackQuoting:
-    """When no Python interpreter exists, the command falls back to the"""
+    """When an installed binary resolves, the command targets it directly"""
 
     def test_windows_fallback_is_single_list2cmdline_token(self, win32_platform, monkeypatch, tmp_path):
-        """Windows fallback emits the bare binary via ``list2cmdline``:"""
+        """Windows packaged command is one list2cmdline line: binary + flags."""
         binary = _fake_tauri_binary(tmp_path, name="voice-typer-tauri.exe")
         monkeypatch.setattr(autostart_mod, "_prefer_pythonw", lambda p: str(tmp_path / "missing-pythonw.exe"))
         monkeypatch.setattr(autostart_mod, "_probe_system_python", lambda name: None)
         monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
         cmd = autostart_mod._autostart_command()
-        assert cmd == subprocess.list2cmdline([str(binary)])
-        assert "\\\\" not in cmd or cmd.startswith('"' + "\\\\")
-        assert cmd.strip('"') == str(binary)
+        assert cmd == subprocess.list2cmdline([str(binary), "--hidden", "--delay", "3"])
+        assert "\\\\" not in cmd.split("--hidden")[0]
+        assert "--hidden" in cmd and "--delay" in cmd
 
     def test_posix_fallback_uses_desktop_quote(self, posix_platform, monkeypatch, tmp_path):
-        """macOS/Linux fallback emits the binary via ``_desktop_quote``."""
+        """macOS/Linux packaged command is the quoted binary + flags."""
         binary = _fake_tauri_binary(tmp_path)
         monkeypatch.setattr(autostart_mod, "_probe_system_python", lambda name: None)
         monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
@@ -103,7 +103,8 @@ class TestPackagedFallbackQuoting:
         monkeypatch.setattr(autostart_mod, "_prefer_pythonw", lambda p: str(tmp_path / "missing.exe"))
         monkeypatch.setattr(sys, "executable", str(tmp_path / "missing-python"))
         cmd = autostart_mod._autostart_command()
-        assert cmd == autostart_mod._desktop_quote(str(binary))
+        assert cmd.startswith(autostart_mod._desktop_quote(str(binary)))
+        assert "--hidden" in cmd
 
     def test_windows_backslash_paths_stay_literal(self, win32_platform, monkeypatch, tmp_path):
         """A spaced Windows binary path is quoted once, backslashes intact."""
@@ -144,6 +145,8 @@ class TestDevModeUnchanged:
     """A dev checkout (launcher script present, interpreter alive) keeps"""
 
     def test_dev_command_uses_launcher_with_hidden(self, posix_platform, monkeypatch):
+        # Pure-dev machine: no installed binary, so the launcher path stays.
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: None)
         monkeypatch.setattr(autostart_mod, "_probe_system_python", lambda name: None)
         monkeypatch.setattr(sys, "prefix", sys.base_prefix)
         cmd = autostart_mod._autostart_command()
@@ -157,6 +160,8 @@ class TestDevModeUnchanged:
             _validate_runkey_command,
         )
 
+        # Pure-dev machine: no installed binary, so no supersede migration.
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: None)
         launcher = tmp_path / "autostart_launcher.py"
         launcher.write_text("# launcher")
         interpreter = tmp_path / "pythonw.exe"
@@ -236,10 +241,104 @@ class TestPackagedTargetHelper:
         assert str(binary) in blob
 
     def test_dev_checkout_does_not_resolve_packaged(self, monkeypatch):
+        # Pure-dev machine: no installed binary anywhere.
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: None)
         monkeypatch.delattr(sys, "frozen", raising=False)
         result = _PACKAGED_TARGET()
         blob = _blob(result)
         assert result is None or "autostart_launcher" in blob
+
+    def test_dev_interpreter_with_installed_binary_resolves_direct(self, monkeypatch, tmp_path):
+        """Dev interpreter + packaged install → direct-binary (logon starts release)."""
+        binary = _fake_tauri_binary(tmp_path)
+        monkeypatch.delattr(sys, "frozen", raising=False)
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
+        result = _PACKAGED_TARGET()
+        assert result is not None
+        binary_out, args = result
+        assert binary_out == str(binary)
+        assert "--hidden" in args and "--delay" in args
+
+
+@needs_packaged_target
+class TestLauncherSupersededByInstalledBinary:
+    """A live python-launcher entry migrates once a packaged install exists."""
+
+    def test_runkey_launcher_entry_superseded(self, win32_platform, monkeypatch, tmp_path):
+        from voice_typer.server.server_platform.autostart_windows import (
+            _validate_runkey_command,
+        )
+
+        launcher = tmp_path / "autostart_launcher.py"
+        launcher.write_text("# launcher")
+        interpreter = tmp_path / "pythonw.exe"
+        interpreter.write_bytes(b"x")
+        binary = _fake_tauri_binary(tmp_path, name="voice-typer-tauri.exe")
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+        value = f'"{interpreter}" "{launcher}" --hidden --delay 3'
+        # Installed binary present → superseded (stale).
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
+        assert _validate_runkey_command(value) is False
+        # Pure-dev machine → still valid.
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: None)
+        assert _validate_runkey_command(value) is True
+
+    def test_plist_launcher_entry_superseded(self, monkeypatch, tmp_path):
+        from voice_typer.server.server_platform.autostart_macos import (
+            _plist_program_arguments_exist,
+        )
+
+        launcher = tmp_path / "autostart_launcher.py"
+        launcher.write_text("# launcher")
+        interpreter = tmp_path / "python3"
+        interpreter.write_bytes(b"x")
+        binary = _fake_tauri_binary(tmp_path)
+        plist = tmp_path / "com.voicetyper.plist"
+        plist.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<plist version="1.0"><dict>'
+            "<key>Label</key><string>com.voicetyper</string>"
+            "<key>ProgramArguments</key><array>"
+            f"<string>{interpreter}</string>"
+            f"<string>{launcher}</string>"
+            "</array></dict></plist>",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
+        assert _plist_program_arguments_exist(plist) is False
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: None)
+        assert _plist_program_arguments_exist(plist) is True
+
+    def test_desktop_launcher_entry_superseded(self, monkeypatch, tmp_path):
+        from voice_typer.server.server_platform.autostart_linux import (
+            _desktop_exec_path_exists,
+        )
+
+        launcher = tmp_path / "autostart_launcher.py"
+        launcher.write_text("# launcher")
+        interpreter = tmp_path / "python3"
+        interpreter.write_bytes(b"x")
+        binary = _fake_tauri_binary(tmp_path)
+        desktop = tmp_path / "voice-typer.desktop"
+        desktop.write_text(
+            f'[Desktop Entry]\nType=Application\nName=x\nExec="{interpreter}" "{launcher}" --hidden --delay 3\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
+        assert _desktop_exec_path_exists(desktop) is False
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: None)
+        assert _desktop_exec_path_exists(desktop) is True
+
+    def test_direct_binary_entry_not_superseded(self, win32_platform, monkeypatch, tmp_path):
+        """Direct-binary entries validate on their own merits, never migrate."""
+        from voice_typer.server.server_platform.autostart_windows import (
+            _validate_runkey_command,
+        )
+
+        binary = _fake_tauri_binary(tmp_path, name="voice-typer-tauri.exe")
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
+        assert _validate_runkey_command(f'"{binary}" --hidden --delay 3') is True
 
 
 @needs_packaged_target

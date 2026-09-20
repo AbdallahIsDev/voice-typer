@@ -78,6 +78,14 @@ def _desktop_exec_path_exists(desktop_path: Path) -> bool:
                 desktop_path,
             )
             return False
+        if _autostart_mod._launcher_entry_superseded(exec_line):
+            log.warning(
+                "[AUTOSTART] Linux .desktop targets the Python launcher while a packaged "
+                "Tauri binary is installed, treating autostart as disabled (migrates "
+                "to direct-binary on next sync): %s",
+                desktop_path,
+            )
+            return False
     except Exception:
         pass
     # Extract the leading program token per the freedesktop Exec

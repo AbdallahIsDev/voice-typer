@@ -276,6 +276,13 @@ def _is_app_autostart_task_registered() -> bool:
                     "reporting as NOT registered (stale task)",
                 )
                 return False
+            if _autostart_mod._launcher_entry_superseded(combined):
+                log.warning(
+                    "[AUTOSTART] Task Scheduler task targets the Python launcher "
+                    "while a packaged Tauri binary is installed, reporting as "
+                    "NOT registered (migrates to direct-binary on next sync)",
+                )
+                return False
         except Exception:
             pass
         if command_path is None:
@@ -320,6 +327,8 @@ def _validate_runkey_command(value: str) -> bool:
         if _autostart_mod._is_legacy_stale_autostart_reference(value):
             return False
         if _autostart_mod._references_missing_launcher_script(value):
+            return False
+        if _autostart_mod._launcher_entry_superseded(value):
             return False
     except Exception:
         pass

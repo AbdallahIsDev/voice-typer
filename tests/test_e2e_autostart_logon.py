@@ -103,6 +103,63 @@ class TestStaleEntryMigratesOnLogon:
         assert str(binary) in written["entry"]
         assert "\\\\" not in written["entry"]
 
+    def test_live_launcher_entry_migrates_to_direct_binary(self, win32_platform, monkeypatch, tmp_path):
+        """Old python-launcher entry + installed binary → sync migrates it.
+
+        The previous-generation entry points at live files (validates
+        True on a pure-dev machine), but with a packaged install present
+        the validator reports superseded-stale, so the SAME sync cycle
+        re-registers a direct-binary entry. This is the Electron→Tauri
+        upgrader path: no manual toggle needed.
+        """
+        import types
+        from unittest.mock import MagicMock
+
+        import voice_typer.server.autostart_launcher as launcher
+        from voice_typer.server import startup_tasks
+        from voice_typer.server.server_platform import (
+            autostart_windows as autostart_windows_mod,
+        )
+
+        binary = _fake_binary(tmp_path, "voice-typer-tauri.exe")
+        launcher_py = tmp_path / "autostart_launcher.py"
+        launcher_py.write_text("# launcher")
+        venv_python = tmp_path / "pythonw.exe"
+        venv_python.write_bytes(b"x")
+        old_value = f'"{venv_python}" "{launcher_py}" --hidden --delay 3'
+
+        fake_winreg = types.ModuleType("winreg")
+        fake_winreg.HKEY_CURRENT_USER = 0x80000001
+        fake_winreg.KEY_SET_VALUE = 0x0002
+        fake_winreg.KEY_READ = 0x20019
+        fake_winreg.OpenKey = MagicMock(return_value=MagicMock())
+        fake_winreg.QueryValueEx = MagicMock(return_value=(old_value, 1))
+        fake_winreg.DeleteValue = MagicMock()
+        fake_winreg.CloseKey = MagicMock()
+        monkeypatch.setitem(sys.modules, "winreg", fake_winreg)
+
+        monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_task_registered", lambda: False)
+        monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_startup_registered", lambda: False)
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
+        monkeypatch.setattr(launcher, "_tauri_binary", lambda: str(binary))
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+        # Real validator sees the live-but-superseded entry → disabled.
+        assert autostart_mod.is_autostart_enabled() is False
+
+        written = {}
+        monkeypatch.setattr(
+            autostart_windows_mod,
+            "_register_app_autostart_task",
+            lambda: (written.setdefault("task", True), True)[1],
+        )
+
+        result = startup_tasks.sync_autostart(_app(True))
+
+        assert result["registered"] is True
+        assert result["actual_post_sync"] is True
+        assert written.get("task") is True
+
 
 class TestLauncherLogonHiddenSpawn:
     """``main()`` with ``--hidden`` spawns the desktop binary hidden and"""

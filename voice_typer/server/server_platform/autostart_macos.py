@@ -309,6 +309,14 @@ def _plist_program_arguments_exist(plist_path: Path) -> bool:
                 plist_path,
             )
             return False
+        if _autostart_mod._launcher_entry_superseded(joined):
+            log.warning(
+                "[AUTOSTART] macOS plist targets the Python launcher while a packaged "
+                "Tauri binary is installed, treating autostart as disabled (migrates "
+                "to direct-binary on next sync): %s",
+                plist_path,
+            )
+            return False
     except Exception:
         pass
     # Check program paths, skipping CLI flags and bare values. The

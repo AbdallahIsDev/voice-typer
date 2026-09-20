@@ -99,15 +99,22 @@ def _is_launcher_script_missing() -> bool:
 def _packaged_tauri_target() -> tuple[str, list[str]] | None:
     """Return the direct-binary autostart target for packaged installs.
 
-    Returns ``(binary, ["--hidden", "--delay", N])`` when EITHER the
+    Returns ``(binary, ["--hidden", "--delay", N])`` whenever an
+    installed Tauri binary resolves. The direct-binary entry is the
+    canonical logon target once a packaged install exists: it needs no
+    interpreter, no launcher script on disk, and no fail-closed
+    manifest hop (the OS spawns the binary itself, the host honors
+    ``--hidden``/``--delay`` argv). This fires for frozen sidecars,
+    for checkouts whose launcher script is gone, AND for plain dev
+    interpreters on machines with a packaged install (logon must start
+    the installed release build, not a transient dev process).
+    Pure-dev machines (no installed binary) get ``None`` and keep the
+    ``python launcher.py`` path.
     """
     try:
-        packaged = _is_frozen_autostart_context() or _is_launcher_script_missing()
+        tauri_bin = _resolve_tauri_binary_for_autostart()
     except Exception:
         return None
-    if not packaged:
-        return None
-    tauri_bin = _resolve_tauri_binary_for_autostart()
     if not tauri_bin:
         return None
     try:
@@ -117,6 +124,30 @@ def _packaged_tauri_target() -> tuple[str, list[str]] | None:
     except Exception:
         delay_str = "3"
     return (tauri_bin, ["--hidden", "--delay", delay_str])
+
+
+def _launcher_entry_superseded(value: str) -> bool:
+    """True when a python-launcher entry must migrate to direct-binary.
+
+    A command that launches ``autostart_launcher.py`` through a Python
+    interpreter is superseded the moment an installed Tauri binary
+    resolves: the builder (``_packaged_tauri_target``) would emit a
+    direct-binary entry for the same machine, so an entry still
+    pointing at the interpreter is a stale previous generation (it
+    boots the launcher, which fails closed on the manifest or exits
+    without a binary). Validators report it as NOT registered so
+    ``sync_autostart`` re-registers once and converges. Pure-dev
+    machines (no installed binary) are unaffected: their launcher
+    entries keep validating.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    if "autostart_launcher" not in value.lower():
+        return False
+    try:
+        return _resolve_tauri_binary_for_autostart() is not None
+    except Exception:
+        return False
 
 
 def _is_legacy_stale_autostart_reference(value: str) -> bool:
