@@ -18,13 +18,10 @@ recursive-include voice_typer/server *.py
 # to locate or compile the listener at runtime.
 recursive-include voice_typer/server/native *
 
-# WR-19: include the bundled Silero VAD model
-# (voice_typer/server/silero_vad.jit, ~1.8 MB). It is RETAINED for
-# sdist parity with the frozen build (voice-typer.spec ships it
-# explicitly) and for the `scripts/build/export_silero_vad_onnx.py`
-# export script. Do NOT delete the .jit or this MANIFEST entry without
-# a packaging decision.
-include voice_typer/server/silero_vad.jit
+# WR-19: the legacy torch-format Silero VAD model
+# (voice_typer/server/silero_vad.jit) was retired by the torch-free
+# migration (Phase 1c): the ORT backend loads silero_vad.onnx (pinned
+# below). The .jit is deleted, so no MANIFEST entry for it.
 
 # Phase 1a (companion §2.3.1): include the bundled Silero VAD ONNX
 # model, the new ORT backend's primary model file, loaded by

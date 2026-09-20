@@ -83,6 +83,7 @@ _INITIAL_LABELS: dict[str, str] = {
     ),
     "notify.settings_controller.mic_next_recording": "Microphone next recording: {label}",
     "notify.settings_controller.mic_changed": "Microphone: {label}",
+    "notify.settings_controller.system_default_device": "System Default",
     "notify.startup_tasks.accessibility_granted": ("Accessibility permission granted. Hotkeys are now active."),
     "notify.startup_tasks.accessibility_revoked_title": "{app} | Accessibility Revoked",
     "notify.startup_tasks.accessibility_revoked_body": (
@@ -293,3 +294,20 @@ _ = t
 
 # register the English fallback at import time so the first
 register_locale(DEFAULT_LOCALE, _INITIAL_LABELS)
+
+# Non-English "System Default" device labels, mirroring the renderer's
+# ``microphone.systemDefault`` strings so tray notifications stay fully
+# localized before the first ``set_tray_locale`` push arrives.
+_SYSTEM_DEFAULT_DEVICE_LABELS: dict[str, str] = {
+    "ar": "افتراضي للنظام",
+    "de": "Systemstandard",
+    "es": "Predeterminado del sistema",
+    "fr": "Valeur système par défaut",
+    "hi": "सिस्टम डिफ़ॉल्ट",
+    "ru": "Системный по умолчанию",
+    "zh": "系统默认",
+}
+
+with _LOCK:
+    for _locale, _label in _SYSTEM_DEFAULT_DEVICE_LABELS.items():
+        _REGISTRY.setdefault(_locale, {}).setdefault("notify.settings_controller.system_default_device", _label)

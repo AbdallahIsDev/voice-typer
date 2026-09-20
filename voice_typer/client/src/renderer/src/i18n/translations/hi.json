@@ -1516,7 +1516,7 @@
 		"multilingualBadge": "बहुभाषी",
 		"downloadProgressAria": "मॉडल डाउनलोड प्रगति: {percent}%",
 		"backendAria": "ट्रांसक्रिप्शन बैकएंड",
-		"backendLocalLabel": "Local model",
+		"backendLocalLabel": "स्थानीय मॉडल",
 		"backendLocalDescription": "अपने डिवाइस पर एक मॉडल डाउनलोड करें। ट्रांसक्रिप्शन पूरी तरह ऑफ़लाइन चलता है: आपका ऑडियो कभी भी आपका कंप्यूटर नहीं छोड़ता।",
 		"backendCloudLabel": "Cloud API",
 		"backendCloudDescription": "क्लाउड ट्रांसक्रिप्शन API का उपयोग करें। शुरू करना तेज़ है, लेकिन आपका ऑडियो ट्रांसक्रिप्शन के लिए प्रदाता को भेजा जाता है।",
@@ -1769,84 +1769,9 @@
 		}
 	},
 	"hotkey": {
-		"keys": {
-			"ctrl": "Ctrl",
-			"shift": "Shift",
-			"alt": "Alt",
-			"altGr": "AltGr",
-			"cmd": "Cmd",
-			"win": "Win",
-			"super": "Super",
-			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (केवल macOS)",
-			"space": "Space",
-			"enter": "Enter",
-			"tab": "Tab",
-			"esc": "Esc",
-			"capsLock": "कैप्स लॉक",
-			"numLock": "नम लॉक",
-			"scrollLock": "स्क्रॉल लॉक",
-			"printScreen": "प्रिंट स्क्रीन",
-			"pause": "विराम",
-			"insert": "इन्सर्ट",
-			"delete": "डिलीट",
-			"home": "होम",
-			"end": "एंड",
-			"pageUp": "पेज ऊपर",
-			"pageDown": "पेज नीचे",
-			"up": "↑",
-			"down": "↓",
-			"left": "←",
-			"right": "→",
-			"alt_r": "Alt",
-			"cmd_r": "Cmd",
-			"print_screen": "प्रिंट स्क्रीन",
-			"alt_l": "Alt",
-			"page_down": "पेज नीचे",
-			"page_up": "पेज ऊपर",
-			"scroll_lock": "स्क्रॉल लॉक",
-			"shift_l": "Shift",
-			"caps_lock": "कैप्स लॉक",
-			"shift_r": "Shift",
-			"cmd_l": "Cmd",
-			"ctrl_l": "Ctrl",
-			"return": "Enter",
-			"num_lock": "नम लॉक",
-			"escape": "Esc",
-			"alt_gr": "AltGr",
-			"meta": "Super",
-			"ctrl_r": "Ctrl"
-		},
-		"combos": {
-			"ctrlShiftV": "Ctrl+Shift+V",
-			"ctrlAltV": "Ctrl+Alt+V",
-			"ctrlSpace": "Ctrl+Space",
-			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
-			"superSpace": "Super+Space"
-		},
-		"presets": {
-			"combo": {
-				"ctrlAltV": "Ctrl+Alt+V",
-				"superSpace": "Super+Space",
-				"cmdShiftV": "Cmd+Shift+V (macOS)",
-				"ctrlSpace": "Ctrl+Space",
-				"ctrlShiftV": "Ctrl+Shift+V"
-			},
-			"single": {
-				"fn": "Fn / Globe 🌐 (केवल macOS)",
-				"alt": "Alt",
-				"ctrl": "Ctrl",
-				"caps_lock": "कैप्स लॉक"
-			}
-		},
 		"errors": {
-			"empty": "हॉटकी खाली है",
-			"comboMustEndNonModifier": "कॉम्बो एक गैर-मॉडिफ़ायर कुंजी पर समाप्त होना चाहिए (जैसे Ctrl+Alt+V, Ctrl+Alt+V+Shift नहीं)",
 			"fnMacOnly": "Fn कुंजी केवल macOS पर समर्थित है। Windows/Linux पर, Fn ऐप्स को दिखाई नहीं देती।",
-			"invalid": "अमान्य हॉटकी",
-			"noKeys": "हॉटकी में कोई कुंजी नहीं है",
-			"fnMacOnlyShort": "Fn कुंजी केवल macOS पर समर्थित है।",
-			"singleKeyOnly": "डिक्टेशन कुंजी एकल कुंजी होनी चाहिए (कोई मॉडिफ़ायर नहीं)। कॉम्बो के लिए पुनः पेस्ट कुंजी का उपयोग करें।"
+			"fnMacOnlyShort": "Fn कुंजी केवल macOS पर समर्थित है।"
 		},
 		"none": "कोई नहीं"
 	},
@@ -1953,6 +1878,7 @@
 			"microphone_selection_failed_title": "{appName}",
 			"microphone_selection_failed_body": "माइक्रोफ़ोन बदला नहीं जा सका।",
 			"mic_changed": "माइक्रोफ़ोन: {label}",
+			"system_default_device": "सिस्टम डिफ़ॉल्ट",
 			"mic_next_recording": "अगली रिकॉर्डिंग के लिए माइक्रोफ़ोन: {label}",
 			"autostart_failed": "ऑटोस्टार्ट सेटिंग बदली नहीं जा सकी।\n{error}",
 			"mic_save_failed": "माइक्रोफ़ोन चयन सहेजा नहीं जा सका। डिस्क स्थान या अनुमतियाँ जाँचें।"

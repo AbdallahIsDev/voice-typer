@@ -44,7 +44,15 @@ class HistoryHandlersMixin(HandlerBase):
         before_id = None
         # Schema: ``(int, str)`` with ``reject_bool``. Narrow so the
         if before_id_raw is not None and isinstance(before_id_raw, (int, str)) and not isinstance(before_id_raw, bool):
-            before_id = int(before_id_raw)
+            try:
+                before_id = int(before_id_raw)
+            except (TypeError, ValueError):
+                return self._error_response(
+                    resp,
+                    "before_id must be an integer",
+                    code=ErrorCodes.INVALID_FIELD,
+                    field="before_id",
+                )
             if before_id < 0:
                 return self._error_response(
                     resp,

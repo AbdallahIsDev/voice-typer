@@ -274,7 +274,7 @@ class ConfigEditorLauncher:
 
 
 # Lazily-imported defaults so this module is importable standalone (the
-def _default_windows_open_with_default_app(path: str):  # type: ignore[no-untyped-def]
+def _default_windows_open_with_default_app(path: str) -> Any:
     from voice_typer.server.platform_launch import _windows_open_with_default_app
 
     return _windows_open_with_default_app(path)

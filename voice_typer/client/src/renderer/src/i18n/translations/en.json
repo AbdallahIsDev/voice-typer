@@ -1769,86 +1769,11 @@
 		}
 	},
 	"hotkey": {
-		"keys": {
-			"ctrl": "Ctrl",
-			"shift": "Shift",
-			"alt": "Alt",
-			"altGr": "AltGr",
-			"cmd": "Cmd",
-			"win": "Win",
-			"super": "Super",
-			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
-			"space": "Space",
-			"enter": "Enter",
-			"tab": "Tab",
-			"esc": "Esc",
-			"capsLock": "Caps Lock",
-			"numLock": "Num Lock",
-			"scrollLock": "Scroll Lock",
-			"printScreen": "Print Screen",
-			"pause": "Pause",
-			"insert": "Insert",
-			"delete": "Delete",
-			"home": "Home",
-			"end": "End",
-			"pageUp": "Page Up",
-			"pageDown": "Page Down",
-			"up": "↑",
-			"down": "↓",
-			"left": "←",
-			"right": "→",
-			"ctrl_l": "Ctrl",
-			"ctrl_r": "Ctrl",
-			"shift_l": "Shift",
-			"shift_r": "Shift",
-			"alt_l": "Alt",
-			"alt_r": "Alt",
-			"alt_gr": "AltGr",
-			"cmd_l": "Cmd",
-			"cmd_r": "Cmd",
-			"meta": "Super",
-			"return": "Enter",
-			"escape": "Esc",
-			"caps_lock": "Caps Lock",
-			"num_lock": "Num Lock",
-			"scroll_lock": "Scroll Lock",
-			"print_screen": "Print Screen",
-			"page_up": "Page Up",
-			"page_down": "Page Down"
-		},
-		"combos": {
-			"ctrlShiftV": "Ctrl+Shift+V",
-			"ctrlAltV": "Ctrl+Alt+V",
-			"ctrlSpace": "Ctrl+Space",
-			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
-			"superSpace": "Super+Space"
-		},
 		"errors": {
-			"empty": "Hotkey is empty",
-			"invalid": "Invalid hotkey",
-			"noKeys": "Hotkey has no keys",
-			"singleKeyOnly": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
 			"fnMacOnly": "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.",
-			"comboMustEndNonModifier": "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
 			"fnMacOnlyShort": "Fn key is only supported on macOS."
 		},
-		"none": "None",
-		"presets": {
-			"single": {
-				"caps_lock": "Caps Lock",
-				"alt": "Alt",
-				"ctrl": "Ctrl",
-				"fn": "Fn / Globe 🌐 (macOS only)"
-			},
-			"combo": {
-				"ctrlShiftV": "Ctrl+Shift+V",
-				"ctrlAltV": "Ctrl+Alt+V",
-				"ctrlSpace": "Ctrl+Space",
-				"cmdShiftV": "Cmd+Shift+V (macOS)",
-				"superSpace": "Super+Space"
-			}
-		}
+		"none": "None"
 	},
 	"format": {
 		"duration": {
@@ -1953,6 +1878,7 @@
 			"microphone_selection_failed_title": "{appName}",
 			"microphone_selection_failed_body": "Could not change microphone.",
 			"mic_changed": "Microphone: {label}",
+			"system_default_device": "System Default",
 			"mic_next_recording": "Microphone next recording: {label}",
 			"autostart_failed": "Could not change autostart setting.\n{error}",
 			"mic_save_failed": "Failed to save microphone selection. Check disk space or permissions."

@@ -184,7 +184,7 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
         else:
             log.debug("[SIDECAR-WS] no WS loop reference (or loop closed), cannot stop loop")
 
-    server.ws_graceful_shutdown = ws_graceful_shutdown  # type: ignore[attr-defined]
+    server.ws_graceful_shutdown = ws_graceful_shutdown
 
     # Install ``ws_graceful_shutdown`` as an EXPLICIT stop hook (the
     def _stop_hook() -> None:

@@ -1516,7 +1516,7 @@
 		"multilingualBadge": "Multilingüe",
 		"downloadProgressAria": "Progreso de descarga del modelo: {percent}%",
 		"backendAria": "Backend de transcripción",
-		"backendLocalLabel": "Local model",
+		"backendLocalLabel": "Modelo local",
 		"backendLocalDescription": "Descarga un modelo en tu dispositivo. La transcripción se ejecuta completamente sin conexión: tu audio nunca abandona tu ordenador.",
 		"backendCloudLabel": "Cloud API",
 		"backendCloudDescription": "Usa una API de transcripción en la nube. Más rápido para empezar, pero tu audio se envía al proveedor para su transcripción.",
@@ -1762,84 +1762,9 @@
 		}
 	},
 	"hotkey": {
-		"keys": {
-			"ctrl": "Ctrl",
-			"shift": "Shift",
-			"alt": "Alt",
-			"altGr": "AltGr",
-			"cmd": "Cmd",
-			"win": "Win",
-			"super": "Super",
-			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (solo macOS)",
-			"space": "Space",
-			"enter": "Enter",
-			"tab": "Tab",
-			"esc": "Esc",
-			"capsLock": "Caps Lock",
-			"numLock": "Num Lock",
-			"scrollLock": "Scroll Lock",
-			"printScreen": "Print Screen",
-			"pause": "Pause",
-			"insert": "Insert",
-			"delete": "Delete",
-			"home": "Home",
-			"end": "End",
-			"pageUp": "Page Up",
-			"pageDown": "Page Down",
-			"up": "↑",
-			"down": "↓",
-			"left": "←",
-			"right": "→",
-			"alt_r": "Alt",
-			"cmd_r": "Cmd",
-			"print_screen": "Print Screen",
-			"alt_l": "Alt",
-			"page_down": "Page Down",
-			"page_up": "Page Up",
-			"scroll_lock": "Scroll Lock",
-			"shift_l": "Shift",
-			"caps_lock": "Caps Lock",
-			"shift_r": "Shift",
-			"cmd_l": "Cmd",
-			"ctrl_l": "Ctrl",
-			"return": "Enter",
-			"num_lock": "Num Lock",
-			"escape": "Esc",
-			"alt_gr": "AltGr",
-			"meta": "Super",
-			"ctrl_r": "Ctrl"
-		},
-		"combos": {
-			"ctrlShiftV": "Ctrl+Shift+V",
-			"ctrlAltV": "Ctrl+Alt+V",
-			"ctrlSpace": "Ctrl+Space",
-			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
-			"superSpace": "Super+Space"
-		},
-		"presets": {
-			"combo": {
-				"ctrlAltV": "Ctrl+Alt+V",
-				"superSpace": "Super+Space",
-				"cmdShiftV": "Cmd+Shift+V (macOS)",
-				"ctrlSpace": "Ctrl+Space",
-				"ctrlShiftV": "Ctrl+Shift+V"
-			},
-			"single": {
-				"fn": "Fn / Globe 🌐 (solo macOS)",
-				"alt": "Alt",
-				"ctrl": "Ctrl",
-				"caps_lock": "Caps Lock"
-			}
-		},
 		"errors": {
-			"empty": "El atajo está vacío",
-			"comboMustEndNonModifier": "La combinación debe terminar con una tecla no modificadora (p. ej. Ctrl+Alt+V, no Ctrl+Alt+V+Mayús)",
 			"fnMacOnly": "La tecla Fn solo es compatible en macOS. En Windows/Linux, Fn no es visible para las aplicaciones.",
-			"invalid": "Atajo no válido",
-			"noKeys": "El atajo no tiene teclas",
-			"fnMacOnlyShort": "La tecla Fn solo es compatible en macOS.",
-			"singleKeyOnly": "La tecla de dictado debe ser una sola tecla (sin modificadores). Usa la tecla de re-pegar para combinaciones."
+			"fnMacOnlyShort": "La tecla Fn solo es compatible en macOS."
 		},
 		"none": "Ninguno"
 	},
@@ -1953,6 +1878,7 @@
 			"microphone_selection_failed_title": "{appName}",
 			"microphone_selection_failed_body": "No se pudo cambiar el micrófono.",
 			"mic_changed": "Micrófono: {label}",
+			"system_default_device": "Predeterminado del sistema",
 			"mic_next_recording": "Micrófono para la próxima grabación: {label}",
 			"autostart_failed": "No se pudo cambiar la configuración de inicio automático.\n{error}",
 			"mic_save_failed": "No se pudo guardar la selección de micrófono. Comprueba el espacio en disco o los permisos."

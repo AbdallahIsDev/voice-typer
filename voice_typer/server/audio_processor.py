@@ -9,7 +9,7 @@ from math import gcd
 # PERF-COLDSTART-001: lazy numpy; PEP 563 annotations stay strings.
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
-from voice_typer.server.audio_chain_builder import build_chain
+from voice_typer.server.audio_chain_builder import AUDIO_CHAIN_CONFIG_FIELDS as _CONFIG_SIGNATURE_FIELDS, build_chain
 from voice_typer.server.audio_filters import FilterChain
 from voice_typer.server.audio_filters.noise_suppressor import _RNNOISE_FRAME_SIZE
 
@@ -86,34 +86,9 @@ log = logging.getLogger(__name__)
 QualityCallback = Callable[[float, float], None]
 
 # every noise_filter_* / noise_suppression_* / audio_preset
-_CONFIG_SIGNATURE_FIELDS: tuple[str, ...] = (
-    "audio_preset",
-    "noise_filter_highpass",
-    "noise_filter_highpass_cutoff_hz",
-    "noise_suppression_method",
-    "noise_filter_gate",
-    "noise_filter_gate_open_threshold_db",
-    "noise_filter_gate_close_threshold_db",
-    "noise_filter_gate_attack_ms",
-    "noise_filter_gate_hold_ms",
-    "noise_filter_gate_release_ms",
-    "noise_filter_gate_adaptive",
-    "noise_filter_eq",
-    "noise_filter_eq_low_db",
-    "noise_filter_eq_mid_db",
-    "noise_filter_eq_high_db",
-    "noise_filter_compressor",
-    "noise_filter_compressor_threshold_db",
-    "noise_filter_compressor_ratio",
-    "noise_filter_compressor_attack_ms",
-    "noise_filter_compressor_release_ms",
-    "noise_filter_compressor_output_gain_db",
-    "noise_filter_limiter",
-    "noise_filter_limiter_ceiling_db",
-    "noise_filter_limiter_release_ms",
-    "noise_filter_notch",
-    "noise_filter_notch_frequency_hz",
-)
+# field the chain consumes. Canonical list lives in audio_chain_builder
+# (AUDIO_CHAIN_CONFIG_FIELDS, imported above); this alias is the same
+# tuple object, so the rebuild short-circuit can never drift.
 
 
 def _config_signature(config: object, sample_rate: int) -> tuple:

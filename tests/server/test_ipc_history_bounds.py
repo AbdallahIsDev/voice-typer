@@ -254,3 +254,64 @@ class TestNoRealConfigFileIsWrittenDirect:
         out = _sanitize_config_for_ipc(cfg)
         assert set(out.keys()) == {"azure_api_key"}
         assert out["azure_api_key"] == _REDACTED_SENTINEL
+
+
+class TestBoundBoolRejectionDirect:
+    """Bool inputs are toggles, not pagination counts; bounders reject them."""
+
+    @pytest.mark.parametrize("raw", [True, False], ids=["true", "false"])
+    def test_limit_bool_falls_back_to_default(self, raw):
+        assert _bound_history_limit(raw) == _HISTORY_LIMIT_DEFAULT
+
+    @pytest.mark.parametrize("raw", [True, False], ids=["true", "false"])
+    def test_offset_bool_falls_back_to_zero(self, raw):
+        assert _bound_history_offset(raw) == 0
+
+
+class TestBoundIntCastDirect:
+    """Numeric strings coerce; non-numeric strings fall back to defaults."""
+
+    def test_limit_numeric_string_coerces(self):
+        assert _bound_history_limit("25") == 25
+
+    def test_limit_non_numeric_string_falls_back(self):
+        assert _bound_history_limit("not-a-number") == _HISTORY_LIMIT_DEFAULT
+
+    def test_offset_numeric_string_coerces(self):
+        assert _bound_history_offset("10") == 10
+
+    def test_offset_non_numeric_string_falls_back(self):
+        assert _bound_history_offset("not-a-number") == 0
+
+
+class TestExtractHistoryCursorBeforeIdDirect:
+    """Non-numeric ``before_id`` is a precise client error, not a crash."""
+
+    def _mixin(self):
+        from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin
+
+        return HistoryHandlersMixin.__new__(HistoryHandlersMixin)
+
+    def test_non_numeric_before_id_is_invalid_field(self):
+        mixin = self._mixin()
+        resp: dict = {"type": "", "data": {}}
+        result = mixin._extract_history_cursor({"before_timestamp": None, "before_id": "not-a-number"}, resp)
+        assert isinstance(result, dict)
+        assert result["type"] == "error"
+        assert result["data"]["code"] == "client.invalid_field"
+        assert result["data"]["field"] == "before_id"
+
+    def test_negative_before_id_is_invalid_field(self):
+        mixin = self._mixin()
+        resp: dict = {"type": "", "data": {}}
+        result = mixin._extract_history_cursor({"before_timestamp": None, "before_id": -1}, resp)
+        assert isinstance(result, dict)
+        assert result["type"] == "error"
+        assert result["data"]["code"] == "client.invalid_field"
+        assert result["data"]["field"] == "before_id"
+
+    def test_numeric_string_before_id_coerces(self):
+        mixin = self._mixin()
+        resp: dict = {"type": "", "data": {}}
+        result = mixin._extract_history_cursor({"before_timestamp": None, "before_id": "42"}, resp)
+        assert result == (None, 42)

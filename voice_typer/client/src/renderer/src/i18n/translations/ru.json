@@ -277,7 +277,7 @@
 		"emptyTitle": "Шаблонов пока нет",
 		"emptyDescription": "Скажите фразу, чтобы вызвать подстановку текста",
 		"createFirst": "Создать первый шаблон",
-		"variablesTooltip": "Variables: {vars}",
+		"variablesTooltip": "Переменные: {vars}",
 		"noVariablesTooltip": "Без переменных",
 		"editTemplate": "Редактировать шаблон",
 		"editAria": "Редактировать шаблон: {name}",
@@ -1247,7 +1247,7 @@
 			"failed": "Не удалось импортировать модель: {error}"
 		},
 		"progress": {
-			"eta": "ETA {time}",
+			"eta": "Осталось {time}",
 			"paused": "· Приостановлено"
 		},
 		"download": {
@@ -1516,7 +1516,7 @@
 		"multilingualBadge": "Многоязычный",
 		"downloadProgressAria": "Прогресс загрузки: {percent}%",
 		"backendAria": "Бэкенд транскрипции",
-		"backendLocalLabel": "Local model",
+		"backendLocalLabel": "Локальная модель",
 		"backendLocalDescription": "Скачайте модель на своё устройство. Транскрипция работает полностью офлайн: ваше аудио никогда не покидает компьютер.",
 		"backendCloudLabel": "Cloud API",
 		"backendCloudDescription": "Используйте облачный API транскрипции. Быстрее запускается, но ваше аудио отправляется провайдеру для транскрипции.",
@@ -1769,84 +1769,9 @@
 		}
 	},
 	"hotkey": {
-		"keys": {
-			"ctrl": "Ctrl",
-			"shift": "Shift",
-			"alt": "Alt",
-			"altGr": "AltGr",
-			"cmd": "Cmd",
-			"win": "Win",
-			"super": "Super",
-			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (только macOS)",
-			"space": "Space",
-			"enter": "Enter",
-			"tab": "Tab",
-			"esc": "Esc",
-			"capsLock": "Caps Lock",
-			"numLock": "Num Lock",
-			"scrollLock": "Scroll Lock",
-			"printScreen": "Print Screen",
-			"pause": "Pause",
-			"insert": "Insert",
-			"delete": "Delete",
-			"home": "Home",
-			"end": "End",
-			"pageUp": "Page Up",
-			"pageDown": "Page Down",
-			"up": "↑",
-			"down": "↓",
-			"left": "←",
-			"right": "→",
-			"alt_r": "Alt",
-			"cmd_r": "Cmd",
-			"print_screen": "Print Screen",
-			"alt_l": "Alt",
-			"page_down": "Page Down",
-			"page_up": "Page Up",
-			"scroll_lock": "Scroll Lock",
-			"shift_l": "Shift",
-			"caps_lock": "Caps Lock",
-			"shift_r": "Shift",
-			"cmd_l": "Cmd",
-			"ctrl_l": "Ctrl",
-			"return": "Enter",
-			"num_lock": "Num Lock",
-			"escape": "Esc",
-			"alt_gr": "AltGr",
-			"meta": "Super",
-			"ctrl_r": "Ctrl"
-		},
-		"combos": {
-			"ctrlShiftV": "Ctrl+Shift+V",
-			"ctrlAltV": "Ctrl+Alt+V",
-			"ctrlSpace": "Ctrl+Space",
-			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
-			"superSpace": "Super+Space"
-		},
-		"presets": {
-			"combo": {
-				"ctrlAltV": "Ctrl+Alt+V",
-				"superSpace": "Super+Space",
-				"cmdShiftV": "Cmd+Shift+V (macOS)",
-				"ctrlSpace": "Ctrl+Space",
-				"ctrlShiftV": "Ctrl+Shift+V"
-			},
-			"single": {
-				"fn": "Fn / Globe 🌐 (только macOS)",
-				"alt": "Alt",
-				"ctrl": "Ctrl",
-				"caps_lock": "Caps Lock"
-			}
-		},
 		"errors": {
-			"empty": "Горячая клавиша не задана",
-			"comboMustEndNonModifier": "Комбинация должна заканчиваться клавишей, не являющейся модификатором (например, Ctrl+Alt+V, а не Ctrl+Alt+V+Shift)",
 			"fnMacOnly": "Fn поддерживается только на macOS. На Windows/Linux приложения не видят Fn.",
-			"invalid": "Недопустимая горячая клавиша",
-			"noKeys": "В горячей клавише нет клавиш",
-			"fnMacOnlyShort": "Fn поддерживается только на macOS.",
-			"singleKeyOnly": "Клавиша диктовки должна быть одиночной (без модификаторов). Для комбинаций используйте клавишу повторной вставки."
+			"fnMacOnlyShort": "Fn поддерживается только на macOS."
 		},
 		"none": "Нет"
 	},
@@ -1953,6 +1878,7 @@
 			"microphone_selection_failed_title": "{appName}",
 			"microphone_selection_failed_body": "Не удалось изменить микрофон.",
 			"mic_changed": "Микрофон: {label}",
+			"system_default_device": "Системный по умолчанию",
 			"mic_next_recording": "Микрофон для следующей записи: {label}",
 			"autostart_failed": "Не удалось изменить настройку автозапуска.\n{error}",
 			"mic_save_failed": "Не удалось сохранить выбранный микрофон. Проверьте место на диске или разрешения."

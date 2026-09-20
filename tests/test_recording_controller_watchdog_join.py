@@ -85,11 +85,14 @@ def test_stop_watchdog_thread_join_is_bounded():
     """hung watchdog thread doesn't block the caller indefinitely."""
     ctrl = _make_controller_for_watchdog()
 
+    # Simulated hung duration. The elapsed budget below is a ratio of
+    # this value so it scales instead of flaking on slow runners.
+    hung_s = 5.0
     stop_flag = threading.Event()
 
     def _hung_loop():
         # Never checks _watchdog_stop_event, simulates a hung thread.
-        stop_flag.wait(timeout=5.0)
+        stop_flag.wait(timeout=hung_s)
 
     t = threading.Thread(target=_hung_loop, name="HungWatchdog", daemon=True)
     t.start()
@@ -99,8 +102,9 @@ def test_stop_watchdog_thread_join_is_bounded():
     ctrl._stop_watchdog_thread()
     elapsed = time.monotonic() - start
 
-    # Must return well under 5s (the join timeout is 1.0s + small margin).
-    assert elapsed < 3.0, (
+    # Must return well under the hung duration (the join timeout is
+    # 1.0s + small margin), expressed as a ratio of the simulation.
+    assert elapsed < 0.6 * hung_s, (
         f"DJ-23: _stop_watchdog_thread must bound the join at timeout=1.0s; "
         f"took {elapsed:.2f}s (a hung thread would block the caller "
         f"indefinitely without the timeout)."

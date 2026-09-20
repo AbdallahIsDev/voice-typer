@@ -58,6 +58,10 @@ redesign that proves heartbeat liveness under flood:
 import threading
 import time
 from collections import deque
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:  # pragma: no cover - type-checker-only
+    from voice_typer.server.ipc_server import IPCServer
 
 _RATE_LIMIT_WINDOW_SECONDS = 10.0
 _RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0
@@ -338,8 +342,9 @@ def _get_rate_limiter(server: "object", _cls: "type[_RateLimiter] | None" = None
         limiter = getattr(server, "_rate_limiter_instance", None)
         if not isinstance(limiter, _cls):
             limiter = _cls()
-            # ``setattr`` on a MagicMock overrides the auto-vivified child
-            server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
+            # ``IPCServer`` declares this slot; cast so the checker verifies
+            # the assignment instead of silencing it.
+            cast("IPCServer", server)._rate_limiter_instance = limiter
         return limiter
 
 

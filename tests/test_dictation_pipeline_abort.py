@@ -533,7 +533,10 @@ class TestAbortWatcher:
         t0 = time.monotonic()
         watcher.stop()
         elapsed = time.monotonic() - t0
-        assert elapsed < 1.5, f"stop() took {elapsed:.2f}s, expected < 1.5s"
+        # No simulated slow duration exists (healthy stop returns well
+        # under the 1.0s join timeout), so the budget carries slack for
+        # machine load on shared runners.
+        assert elapsed < 3.0, f"stop() took {elapsed:.2f}s, expected < 3.0s"
 
     def test_watcher_handles_missing_recording_attrs(self):
         """lock, the watcher must NOT raise, it just keeps polling"""

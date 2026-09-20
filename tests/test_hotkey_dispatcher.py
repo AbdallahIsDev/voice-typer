@@ -389,9 +389,13 @@ class TestStopAllTimeoutBudget:
 
         monkeypatch.setattr(hd_mod.concurrent.futures, "wait", _fast_wait)
 
+        # Simulated slow duration. The elapsed budget below is a ratio
+        # of this value so it scales instead of flaking on slow runners.
+        slow_stop_s = 2.0
+
         main = MagicMock()
-        # Sleep 2s, far longer than the patched 0.2s budget.
-        main.stop.side_effect = lambda: time.sleep(2.0)
+        # Sleep far longer than the patched 0.2s budget.
+        main.stop.side_effect = lambda: time.sleep(slow_stop_s)
         esc = MagicMock()
         repaste = MagicMock()
         dispatcher._hotkey_backend = main
@@ -402,8 +406,9 @@ class TestStopAllTimeoutBudget:
         dispatcher.stop_all()  # must return in ~0.2s, NOT ~2s
         elapsed = time.monotonic() - start
 
-        # Budget is 0.2s; allow generous slack for CI scheduling jitter.
-        assert elapsed < 1.0, f"stop_all took {elapsed:.2f}s, 3s budget not enforced"
+        # Budget is 0.2s; allow generous slack for CI scheduling jitter,
+        # expressed as a ratio of the simulated slow duration.
+        assert elapsed < 0.5 * slow_stop_s, f"stop_all took {elapsed:.2f}s, 0.2s budget not enforced"
         # The two fast backends stopped normally.
         esc.stop.assert_called_once()
         repaste.stop.assert_called_once()

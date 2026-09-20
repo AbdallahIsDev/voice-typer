@@ -51,8 +51,11 @@ jobs:
         run: npm ci
 
       # never ship in the Tauri installer — only runtime deps are a
-      - name: npm audit (high+ only, warn-only)
-        continue-on-error: true
+      # Hard gate: package.json overrides (each carrying its advisory ID)
+      # are the accepted-findings list; `npm audit` reported 0 vulns after
+      # overrides (see //overrides_note). Any new HIGH/CRITICAL advisory
+      # must fail CI visibly.
+      - name: npm audit (high+ only)
         run: npm audit --audit-level=high --omit=dev
 
       # CI-05 / cache-trap guard: `typecheck:ci` runs `tsc -b --force`,

@@ -335,38 +335,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "microphoneTest.volume",
     "about.documentationLink",  # "Documentation"
     "about.versionValue",  # "v{version}"
-    "hotkey.combos.cmdShiftVMacOS",  # "Cmd+Shift+V (macOS)"
-    "hotkey.combos.ctrlAltV",  # "Ctrl+Alt+V"
-    "hotkey.combos.ctrlShiftV",  # "Ctrl+Shift+V"
-    "hotkey.combos.ctrlSpace",  # "Ctrl+Space"
-    "hotkey.combos.superSpace",  # "Super+Space"
-    "hotkey.keys.alt",  # "Alt"
-    "hotkey.keys.altGr",  # "AltGr"
-    "hotkey.keys.capsLock",  # "Caps Lock"
-    "hotkey.keys.cmd",  # "Cmd"
-    "hotkey.keys.ctrl",  # "Ctrl"
-    "hotkey.keys.delete",  # "Delete"
-    "hotkey.keys.down",  # "↓"
-    "hotkey.keys.end",  # "End"
-    "hotkey.keys.enter",  # "Enter"
-    "hotkey.keys.esc",  # "Esc"
-    "hotkey.keys.fn",
-    "hotkey.keys.home",  # "Home"
-    "hotkey.keys.insert",  # "Insert"
-    "hotkey.keys.left",  # "←"
-    "hotkey.keys.numLock",  # "Num Lock"
-    "hotkey.keys.pageDown",  # "Page Down"
-    "hotkey.keys.pageUp",  # "Page Up"
-    "hotkey.keys.pause",  # "Pause"
-    "hotkey.keys.printScreen",  # "Print Screen"
-    "hotkey.keys.right",  # "→"
-    "hotkey.keys.scrollLock",  # "Scroll Lock"
-    "hotkey.keys.shift",  # "Shift"
-    "hotkey.keys.space",  # "Space"
-    "hotkey.keys.super",  # "Super"
-    "hotkey.keys.tab",  # "Tab"
-    "hotkey.keys.up",  # "↑"
-    "hotkey.keys.win",  # "Win"
     # hotkeyPicker (1 key)
     "hotkeyPicker.customLabel",  # "{label}"
     # settings (2 keys)
@@ -386,36 +354,9 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "format.duration.hourShort",
     "format.duration.minuteShort",
     "format.duration.secondShort",
-    "hotkey.keys.alt_gr",
-    "hotkey.keys.alt_l",
-    "hotkey.keys.alt_r",
-    "hotkey.keys.caps_lock",
-    "hotkey.keys.cmd_l",
-    "hotkey.keys.cmd_r",
-    "hotkey.keys.ctrl_l",
-    "hotkey.keys.ctrl_r",
-    "hotkey.keys.escape",
-    "hotkey.keys.meta",
-    "hotkey.keys.num_lock",
-    "hotkey.keys.page_down",
-    "hotkey.keys.page_up",
-    "hotkey.keys.print_screen",
-    "hotkey.keys.return",
-    "hotkey.keys.scroll_lock",
-    "hotkey.keys.shift_l",
-    "hotkey.keys.shift_r",
-    "hotkey.presets.combo.cmdShiftV",
-    "hotkey.presets.combo.ctrlAltV",
-    "hotkey.presets.combo.ctrlShiftV",
-    "hotkey.presets.combo.ctrlSpace",
-    "hotkey.presets.combo.superSpace",
-    "hotkey.presets.single.alt",
-    "hotkey.presets.single.caps_lock",
-    "hotkey.presets.single.ctrl",
     "hotkeyPicker.secondsRemainingSuffix",
     "models.speed.variable",
     "nav.group.system",
-    "onboarding.backendLocalLabel",
     "onboarding.backendCloudLabel",
     "onboarding.cloudProviderLabel",
 }

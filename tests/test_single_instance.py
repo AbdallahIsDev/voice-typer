@@ -282,12 +282,16 @@ class TestStartupSharedBudget:
         """Behavioral test: with BOTH autostart sync and mic enumeration"""
         from voice_typer.server import _timeout_utils, startup_tasks
 
+        # Simulated slow duration. The elapsed budget below is a ratio
+        # of this value so it scales instead of flaking on slow runners.
+        slow_task_s = 4.0
+
         # Slow tasks, far beyond the (patched) 0.5s budget, so every
         def slow_task(app, evt=None):
-            time.sleep(4.0)
+            time.sleep(slow_task_s)
 
         def slow_autostart(app):
-            time.sleep(4.0)
+            time.sleep(slow_task_s)
             return {"registered": False, "error": None, "actual_post_sync": False}
 
         monkeypatch.setattr(startup_tasks, "sync_autostart", slow_autostart)
@@ -316,9 +320,11 @@ class TestStartupSharedBudget:
         elapsed = time.monotonic() - start
 
         # Assert elapsed stays near the single mic budget (0.5s) plus
-        assert elapsed < 2.5, (
+        # scheduling slack, expressed as a ratio of the simulated slow
+        # duration so slow runners don't flake.
+        assert elapsed < 0.625 * slow_task_s, (
             f"startup must NOT wait on the fire-and-forget autostart "
             f"thread - elapsed {elapsed:.2f}s suggests a startup task "
-            "was waited on. Expected < 2.5s with the patched 0.5s mic "
-            "budget and 4.0s slow tasks."
+            "was waited on. Expected well under the simulated slow "
+            "duration with the patched 0.5s mic budget."
         )

@@ -195,7 +195,7 @@ IMPORT_TIME_DATA_FILES = [
     "voice_typer/server/corrections.json",
     "voice_typer/server/model_hashes.json",
     "voice_typer/server/native/binaries.json",
-    "voice_typer/server/silero_vad.jit",
+    "voice_typer/server/silero_vad.onnx",
 ]
 
 

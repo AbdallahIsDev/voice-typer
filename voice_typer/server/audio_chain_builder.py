@@ -21,6 +21,40 @@ from voice_typer.server.audio_filters.base import AudioFilter
 log = logging.getLogger(__name__)
 
 
+# Every ``config.<field>`` read in :func:`build_chain` below, in signature
+# order. :data:`voice_typer.server.audio_processor._CONFIG_SIGNATURE_FIELDS`
+# is this same tuple, so the rebuild short-circuit can never drift from the
+# fields the chain actually consumes.
+AUDIO_CHAIN_CONFIG_FIELDS: tuple[str, ...] = (
+    "audio_preset",
+    "noise_filter_highpass",
+    "noise_filter_highpass_cutoff_hz",
+    "noise_suppression_method",
+    "noise_filter_gate",
+    "noise_filter_gate_open_threshold_db",
+    "noise_filter_gate_close_threshold_db",
+    "noise_filter_gate_attack_ms",
+    "noise_filter_gate_hold_ms",
+    "noise_filter_gate_release_ms",
+    "noise_filter_gate_adaptive",
+    "noise_filter_eq",
+    "noise_filter_eq_low_db",
+    "noise_filter_eq_mid_db",
+    "noise_filter_eq_high_db",
+    "noise_filter_compressor",
+    "noise_filter_compressor_threshold_db",
+    "noise_filter_compressor_ratio",
+    "noise_filter_compressor_attack_ms",
+    "noise_filter_compressor_release_ms",
+    "noise_filter_compressor_output_gain_db",
+    "noise_filter_limiter",
+    "noise_filter_limiter_ceiling_db",
+    "noise_filter_limiter_release_ms",
+    "noise_filter_notch",
+    "noise_filter_notch_frequency_hz",
+)
+
+
 def build_chain(
     config: Any,
     sample_rate: int = WHISPER_SAMPLE_RATE,

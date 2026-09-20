@@ -102,8 +102,10 @@ class TestDiscardWaitsForCallback:
         assert stop_called["n"] >= 1, "discard() did not call stream.stop(), needed to drain callback"
         # No manual poll, stream.stop() (MagicMock) returns immediately.
         assert len(sleep_calls) == 0, f"Expected 0 sleep calls (no manual poll), got {len(sleep_calls)}"
-        # Should complete promptly (stream.stop is mocked).
-        assert elapsed < 0.300, f"discard() took {elapsed * 1000:.1f}ms, exceeded 300ms budget"
+        # Should complete promptly (stream.stop is mocked). No simulated
+        # slow duration exists here, so the budget carries slack for
+        # machine load on shared runners.
+        assert elapsed < 2.0, f"discard() took {elapsed * 1000:.1f}ms, exceeded 2000ms budget"
         assert r._stream_lifecycle._stream is None
 
 

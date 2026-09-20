@@ -1769,84 +1769,9 @@
 		}
 	},
 	"hotkey": {
-		"keys": {
-			"ctrl": "Ctrl",
-			"shift": "Shift",
-			"alt": "Alt",
-			"altGr": "AltGr",
-			"cmd": "Cmd",
-			"win": "Win",
-			"super": "Super",
-			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (macOS فقط)",
-			"space": "Space",
-			"enter": "Enter",
-			"tab": "Tab",
-			"esc": "Esc",
-			"capsLock": "Caps Lock",
-			"numLock": "Num Lock",
-			"scrollLock": "Scroll Lock",
-			"printScreen": "Print Screen",
-			"pause": "Pause",
-			"insert": "Insert",
-			"delete": "Delete",
-			"home": "Home",
-			"end": "End",
-			"pageUp": "Page Up",
-			"pageDown": "Page Down",
-			"up": "↑",
-			"down": "↓",
-			"left": "←",
-			"right": "→",
-			"alt_r": "Alt",
-			"cmd_r": "Cmd",
-			"print_screen": "Print Screen",
-			"alt_l": "Alt",
-			"page_down": "Page Down",
-			"page_up": "Page Up",
-			"scroll_lock": "Scroll Lock",
-			"shift_l": "Shift",
-			"caps_lock": "Caps Lock",
-			"shift_r": "Shift",
-			"cmd_l": "Cmd",
-			"ctrl_l": "Ctrl",
-			"return": "Enter",
-			"num_lock": "Num Lock",
-			"escape": "Esc",
-			"alt_gr": "AltGr",
-			"meta": "Super",
-			"ctrl_r": "Ctrl"
-		},
-		"combos": {
-			"ctrlShiftV": "Ctrl+Shift+V",
-			"ctrlAltV": "Ctrl+Alt+V",
-			"ctrlSpace": "Ctrl+Space",
-			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
-			"superSpace": "Super+Space"
-		},
-		"presets": {
-			"combo": {
-				"ctrlAltV": "Ctrl+Alt+V",
-				"superSpace": "Super+Space",
-				"cmdShiftV": "Cmd+Shift+V (macOS)",
-				"ctrlSpace": "Ctrl+Space",
-				"ctrlShiftV": "Ctrl+Shift+V"
-			},
-			"single": {
-				"fn": "Fn / Globe 🌐 (macOS فقط)",
-				"alt": "Alt",
-				"ctrl": "Ctrl",
-				"caps_lock": "Caps Lock"
-			}
-		},
 		"errors": {
-			"empty": "المفتاح فارغ",
-			"comboMustEndNonModifier": "يجب أن تنتهي المجموعة بمفتاح غير معدّل (مثل Ctrl+Alt+V، وليس Ctrl+Alt+V+Shift)",
 			"fnMacOnly": "مفتاح Fn مدعوم فقط على macOS. في Windows/Linux، Fn غير مرئي للتطبيقات.",
-			"invalid": "مفتاح اختصار غير صالح",
-			"noKeys": "المفتاح لا يحتوي على مفاتيح",
-			"fnMacOnlyShort": "مفتاح Fn مدعوم فقط على macOS.",
-			"singleKeyOnly": "مفتاح الإملاء يجب أن يكون مفتاحًا واحدًا (بدون معدّلات). استخدم مفتاح إعادة اللصق للمجموعات."
+			"fnMacOnlyShort": "مفتاح Fn مدعوم فقط على macOS."
 		},
 		"none": "لا شيء"
 	},
@@ -1953,6 +1878,7 @@
 			"microphone_selection_failed_title": "{appName}",
 			"microphone_selection_failed_body": "تعذّر تغيير الميكروفون.",
 			"mic_changed": "الميكروفون: {label}",
+			"system_default_device": "افتراضي للنظام",
 			"mic_next_recording": "الميكروفون للتسجيل التالي: {label}",
 			"autostart_failed": "تعذّر تغيير إعداد التشغيل التلقائي.\n{error}",
 			"mic_save_failed": "تعذّر حفظ تحديد الميكروفون. تحقق من مساحة القرص أو الأذونات."

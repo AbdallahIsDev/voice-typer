@@ -202,7 +202,7 @@ class VadProcessor:
                 if not self._silero_available:
                     log.warning(
                         "[VAD] use_silero_vad=True but Silero VAD "
-                        "unavailable (torch missing or bundled silero_vad.jit "
+                        "unavailable (onnxruntime missing or bundled silero_vad.onnx "
                         "not found), falling back to RMS"
                     )
             except Exception:

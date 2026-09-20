@@ -277,7 +277,7 @@
 		"emptyTitle": "暂无模板",
 		"emptyDescription": "说一个短语以触发文本展开",
 		"createFirst": "创建第一个模板",
-		"variablesTooltip": "Variables: {vars}",
+		"variablesTooltip": "变量：{vars}",
 		"noVariablesTooltip": "无变量",
 		"editTemplate": "编辑模板",
 		"editAria": "编辑模板：{name}",
@@ -1247,7 +1247,7 @@
 			"failed": "导入模型失败：{error}"
 		},
 		"progress": {
-			"eta": "ETA {time}",
+			"eta": "剩余时间 {time}",
 			"paused": "· 已暂停"
 		},
 		"download": {
@@ -1516,7 +1516,7 @@
 		"multilingualBadge": "多语言",
 		"downloadProgressAria": "下载进度：{percent}%",
 		"backendAria": "转录后端",
-		"backendLocalLabel": "Local model",
+		"backendLocalLabel": "本地模型",
 		"backendLocalDescription": "将模型下载到您的设备。转录完全离线运行: 您的音频永远不会离开您的计算机。",
 		"backendCloudLabel": "Cloud API",
 		"backendCloudDescription": "使用云端转录 API。启动更快，但您的音频会发送给提供商进行转录。",
@@ -1769,84 +1769,9 @@
 		}
 	},
 	"hotkey": {
-		"keys": {
-			"ctrl": "Ctrl",
-			"shift": "Shift",
-			"alt": "Alt",
-			"altGr": "AltGr",
-			"cmd": "Cmd",
-			"win": "Win",
-			"super": "Super",
-			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (仅 macOS)",
-			"space": "Space",
-			"enter": "Enter",
-			"tab": "Tab",
-			"esc": "Esc",
-			"capsLock": "Caps Lock",
-			"numLock": "Num Lock",
-			"scrollLock": "Scroll Lock",
-			"printScreen": "Print Screen",
-			"pause": "Pause",
-			"insert": "Insert",
-			"delete": "Delete",
-			"home": "Home",
-			"end": "End",
-			"pageUp": "Page Up",
-			"pageDown": "Page Down",
-			"up": "↑",
-			"down": "↓",
-			"left": "←",
-			"right": "→",
-			"alt_r": "Alt",
-			"cmd_r": "Cmd",
-			"print_screen": "Print Screen",
-			"alt_l": "Alt",
-			"page_down": "Page Down",
-			"page_up": "Page Up",
-			"scroll_lock": "Scroll Lock",
-			"shift_l": "Shift",
-			"caps_lock": "Caps Lock",
-			"shift_r": "Shift",
-			"cmd_l": "Cmd",
-			"ctrl_l": "Ctrl",
-			"return": "Enter",
-			"num_lock": "Num Lock",
-			"escape": "Esc",
-			"alt_gr": "AltGr",
-			"meta": "Super",
-			"ctrl_r": "Ctrl"
-		},
-		"combos": {
-			"ctrlShiftV": "Ctrl+Shift+V",
-			"ctrlAltV": "Ctrl+Alt+V",
-			"ctrlSpace": "Ctrl+Space",
-			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
-			"superSpace": "Super+Space"
-		},
-		"presets": {
-			"combo": {
-				"ctrlAltV": "Ctrl+Alt+V",
-				"superSpace": "Super+Space",
-				"cmdShiftV": "Cmd+Shift+V (macOS)",
-				"ctrlSpace": "Ctrl+Space",
-				"ctrlShiftV": "Ctrl+Shift+V"
-			},
-			"single": {
-				"fn": "Fn / Globe 🌐 (仅 macOS)",
-				"alt": "Alt",
-				"ctrl": "Ctrl",
-				"caps_lock": "Caps Lock"
-			}
-		},
 		"errors": {
-			"empty": "快捷键为空",
-			"comboMustEndNonModifier": "组合键必须以非修饰键结尾（例如 Ctrl+Alt+V，而非 Ctrl+Alt+V+Shift）",
 			"fnMacOnly": "Fn 键仅在 macOS 上受支持。在 Windows/Linux 上，应用无法看到 Fn 键。",
-			"invalid": "无效的快捷键",
-			"noKeys": "快捷键没有按键",
-			"fnMacOnlyShort": "Fn 键仅在 macOS 上受支持。",
-			"singleKeyOnly": "听写键必须是单个按键（无修饰键）。组合键请使用重新粘贴键。"
+			"fnMacOnlyShort": "Fn 键仅在 macOS 上受支持。"
 		},
 		"none": "无"
 	},
@@ -1953,6 +1878,7 @@
 			"microphone_selection_failed_title": "{appName}",
 			"microphone_selection_failed_body": "无法更改麦克风。",
 			"mic_changed": "麦克风：{label}",
+			"system_default_device": "系统默认",
 			"mic_next_recording": "下次录音的麦克风：{label}",
 			"autostart_failed": "无法更改自启动设置。\n{error}",
 			"mic_save_failed": "无法保存麦克风选择。请检查磁盘空间或权限。"

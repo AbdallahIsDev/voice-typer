@@ -1,21 +1,14 @@
-"""god-class decomposition: SettingsController, extracted from VoiceTyperApp.
-The actual logic lived on ``VoiceTyperApp`` as four private methods
-class boundary moved. ``VoiceTyperApp`` keeps thin delegate methods so
-    - ``_open_config_file``: stays on ``VoiceTyperApp`` because
-      ``inspect.getsource(VoiceTyperApp._open_config_file)`` to pin
-    - microphone selection (update config + recreate ``Recorder``)
-(``_toggle_autostart``, ``_set_autostart``, ``_set_notifications``,
-``_select_microphone``). The behaviour is preserved verbatim, only the
-the tray menu callbacks (and tests that call ``app._select_microphone``
-      ``tests/test_config_editor_lock.py`` and
-      ``tests/test_bugfix_regressions.py:943`` use
-      source-level invariants (macOS ``open -W`` branch, three platform
-      branches acquiring ``_config_mutation_lock``, etc.). Moving it
-``startup_tasks.py``): tests like the ``app`` fixture in
-``tests/test_app.py`` replace
-``voice_typer.server.server_platform.is_autostart_enabled`` /
-``enable_autostart`` / ``disable_autostart`` at call time. To keep
-each method (deferred import from the canonical ``server_platform``
+"""Settings mutations extracted from ``VoiceTyperApp`` (god-class split).
+
+Owns the four settings actions (autostart toggle/set, notifications,
+microphone selection) with behavior preserved verbatim; ``AppAdmin``
+keeps thin ``_toggle_autostart`` / ``_set_autostart`` /
+``_set_notifications`` / ``_select_microphone`` delegates so tray
+callbacks keep working. ``_open_config_file`` stays app-side (it now
+delegates to ``ConfigEditorLauncher``).
+
+Platform helpers are imported at call time from the canonical
+``server_platform`` modules so tests can patch those attributes.
 """
 
 from __future__ import annotations
@@ -88,7 +81,7 @@ class SettingsController:
                     APP_NAME,
                     i18n.t("notify.settings_controller.mic_save_failed"),
                 )
-            label = mic_name if mic_name else "System Default"
+            label = mic_name if mic_name else i18n.t("notify.settings_controller.system_default_device")
 
             try:
                 active_recorder = app.recorder

@@ -283,6 +283,10 @@ export function trayLabelsForLocale(): Record<string, string> {
 			"notify.settings_controller.mic_changed",
 		],
 		[
+			"notify.settings_controller.system_default_device",
+			"notify.settings_controller.system_default_device",
+		],
+		[
 			"notify.settings_controller.mic_next_recording",
 			"notify.settings_controller.mic_next_recording",
 		],

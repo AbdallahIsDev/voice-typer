@@ -236,6 +236,23 @@ def main(argv: list[str]) -> int:
                 entry["body"] = body
 
     if not grouped:
+        if files_checked == 0:
+            lines = [
+                "# CI Errors",
+                "",
+                "> Auto-generated from the latest GitHub Actions run via "
+                "`scripts/ci/write_ci_errors.py`. Do not edit by hand, it is "
+                "overwritten on every CI run.",
+                "",
+                "NO TEST DATA — tests did not run or report. (0 JUnit file(s) checked; this is not a green run.)",
+                "",
+            ]
+            if notes:
+                lines += ["Degraded inputs (no failures lost, files were empty):", ""]
+                lines += [f"- {note}" for note in notes] + [""]
+            OUTPUT.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+            print("CI-errors.md: no test data (0 junit file(s) checked)")
+            return 0
         lines = [
             "# CI Errors",
             "",

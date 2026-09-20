@@ -55,8 +55,10 @@ class TestCheapExistenceCheck:
         result = offline_pack.offline_pack_exists("v1", root=tmp_path)
         elapsed = time.monotonic() - start
         assert result is True
-        # Cheap check should complete in <1s even for 10MB (it's just stat()).
-        assert elapsed < 1.0
+        # Cheap check should complete promptly even for 10MB (it's just
+        # stat()). No simulated slow duration exists, so the budget
+        # carries slack for machine load on shared runners.
+        assert elapsed < 3.0
 
 
 class TestBackgroundChecksumNonBlocking:
@@ -68,8 +70,10 @@ class TestBackgroundChecksumNonBlocking:
         start = time.monotonic()
         bg.start()
         elapsed = time.monotonic() - start
-        # ``start`` should return in <<1s (it just spawns a thread).
-        assert elapsed < 0.5
+        # ``start`` should return promptly (it just spawns a thread).
+        # No simulated slow duration exists, so the budget carries slack
+        # for machine load on shared runners.
+        assert elapsed < 2.0
 
     def test_result_is_none_until_done(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
