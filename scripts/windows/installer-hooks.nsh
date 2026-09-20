@@ -64,9 +64,10 @@
 ; Finish). ``MUI_LICENSEPAGE_CHECKBOX`` turns the page's "I agree"
 ; button into a mandatory checkbox, the installer cannot proceed
 ; without ticking it, making the installer acceptance the single
-; up-front legal contract for the app's consent-gated features (the
-; app itself remains privacy-by-default; features only activate when
-; the user grants them in the onboarding Consent step / Settings).
+; up-front legal contract for the app's third-party network features
+; (cloud/model downloads still use consent; the offline engine pack
+; downloads silently/always-on — see installer-license.txt). The
+; app itself remains privacy-by-default for local processing.
 ;
 ; Guarded so a future re-include can't double-insert the page (NSIS
 ; macro guards via !ifndef are the standard idiom).
@@ -93,31 +94,26 @@ Var IncludeOfflineEnginePack
 ; auto-download, the user opts OUT, not IN.
 ;
 ; The section is EMPTY of file operations: the pack is downloaded at
-; first launch, not at install time (plan §4.8). The body's only job is
-; to flip ``$IncludeOfflineEnginePack`` to "1" so the ``customInstall``
-; macro knows the user consented.
+; first launch, not at install time (plan §4.8). Pack download is
+; always-on (silent, no user consent gate). This section remains for
+; installer-state compatibility; the backend does not require a consent flag.
 Section "Include offline engine pack" SecIncludePack
-  ; Default-selected: the Components page checkbox starts ticked.
-  ; (NSIS sections are selected by default unless ``SectionIn RO`` is
-  ; called inside the section body, we deliberately do NOT call it.)
+  ; Default-selected: Components page shows the optional pack row.
+  ; Pack auto-downloads regardless (always-on product decision).
   StrCpy $IncludeOfflineEnginePack "1"
-  DetailPrint "[voice-typer-installer] User selected: include offline engine pack (download starts on first launch)."
+  DetailPrint "[voice-typer-installer] Offline engine pack: silent auto-download on first launch (always-on)."
 SectionEnd
 
-; Human-readable description shown under the Components page list. NSIS
-; ``LangString`` lets us localize later (plan §9.3 adds 8 locale strings
-; for the pack UI; this description is one of them). The LangString MUST
-; be declared inside a SectionGroup or at the top level, top-level is
-; fine here.
+; Human-readable description shown under the Components page list.
 LangString DESC_SecIncludePack ${LANG_ENGLISH} \
-  "Downloads the offline ASR engine pack (~180 MB) on first launch. Cloud transcription works without it."
+  "Offline ASR engine pack (~180 MB). Downloads automatically in the background on first launch when needed. Cloud transcription works without it."
 
 ; ─── customInstall macro ─────────────────────────────────────────────────
 ; Tauri v2 invokes ``customInstall`` in the ``-post`` Section of the
 ; generated ``installer.nsi``: AFTER the main app files are written,
-; BEFORE the installer exits. We use it to persist the user's checkbox
-; choice to ``installer-state.json`` so the slim-core Python backend can
-; read it on first launch (plan §4.8 consent gate).
+; BEFORE the installer exits. installer-state.json is retained for
+; schema compatibility (tests pin the path/shape). Pack download is
+; always-on in the backend and does not depend on a user consent flag.
 ;
 ; The state file lives at ``%LOCALAPPDATA%\voice-typer\installer-state.json``
 ;, the SAME per-user data root the Python backend uses for the runtime

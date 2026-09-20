@@ -9,20 +9,21 @@ explicitly enable a cloud feature.
 
 2. FEATURE CONSENT
 Certain features send data to third parties only when you enable them:
-- Cloud speech recognition (OpenAI / Groq / Deepgram): sends audio
-  recordings to the selected provider for transcription when that
-  provider is the active speech recognition backend and you have granted
-  consent.
-- LLM text polishing: sends transcribed text (not audio) to an
-  OpenAI-compatible LLM API for grammar and punctuation cleanup when you
-  have granted consent.
+- Cloud speech recognition providers: when you configure a cloud speech
+  recognition provider and it is the active backend, audio recordings
+  are sent to that provider for transcription, under that provider's
+  terms and privacy policy.
+- LLM text polishing: sends transcribed text (not audio) to your
+  configured LLM API for grammar and punctuation cleanup when you have
+  granted consent.
 - Model downloads: local speech models are downloaded from Hugging Face,
   which reveals your IP address to a US-based third party (Hugging Face,
   Inc.). Audio is never sent. Downloads occur only when you explicitly
   initiate them and have granted consent.
-- Offline engine pack: an offline transcription engine (~180 MB) is
-  downloaded once from the release server when you have granted consent
-  or selected it during installation.
+- Offline engine pack: the offline transcription engine (about 180 MB)
+  is downloaded automatically in the background from the release server
+  when needed. No separate user consent is required; the download is
+  silent and only runs when the app needs the pack.
 
 3. VOICE BIOMETRIC ACKNOWLEDGEMENT
 Local voice recordings may be considered biometric data under the
@@ -32,9 +33,10 @@ recording. Raw audio is not stored after transcription - only the
 transcribed text is kept.
 
 4. REVOCATION
-You may revoke any consent at any time in Settings > Privacy with the
-same ease as granting it. Revoked features refuse to run until consent
-is re-granted.
+You may revoke any cloud or model-download consent at any time in
+Settings > Privacy with the same ease as granting it. Revoked features
+refuse to run until consent is re-granted. The offline engine pack does
+not use a user toggle: it downloads automatically when required.
 
 5. SOFTWARE UPDATES
 The application periodically checks for updates against the official
