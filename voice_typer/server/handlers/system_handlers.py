@@ -29,6 +29,8 @@ def _has_control_chars(value) -> bool:
 def _enumerate_polkit_actions() -> list[str]:
     """Enumerate polkit actions for the app namespace via ``pkaction``.
 
+    The canonical action is ``com.voicetyper.install-permissions`` (defined in
+    scripts/linux/install_permissions.py); the filter below matches that namespace.
     Tolerant of missing/timeout/non-zero pkaction (warn + empty list).
     """
 
