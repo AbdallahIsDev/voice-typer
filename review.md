@@ -80,7 +80,7 @@ observations before marking anything done.
 ## FV Medium Priority
 
 ### FV-2 — Microphone-change recovery path raises after a failed recorder build instead of recreating the recorder
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** When the user changes the microphone from the tray, the code first saves the new choice, then reads the current recorder object, and finally recreates the recorder with the new device. The recorder is built lazily in the background; if that initial build failed (for example no audio device was available at startup), reading it raises the stored build error — and because the microphone-change handler has no guard for that case, the exception aborts the handler before it reaches the recreate step. The new microphone choice is persisted, but the recorder is never rebuilt, so the failure persists until the app is restarted. The tray callback wrapper catches only SystemExit, so the exception escapes the handler silently — no error message reaches the user.
 **User Impact:** A user whose audio system was unavailable at startup (common after reboots with USB mic not yet plugged) fixes it by selecting their microphone from the tray — the one action that should recover — and nothing happens: no error, no recovery, dictation stays broken until they restart the app.
 **Root Cause:** Verified (static trace) — the mic-change path predates the lazy-raise/None semantics of the recorder property (app_lazy_hub.py:544-567) and was never updated; the correct guard reference is `service/microphone_test.py:102-112`, which handles both cases (per Review Wave 2).
@@ -98,7 +98,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-3 — History pagination: IPC layer allows offset up to 10,000,000 but the database layer asserts offset < 1000
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** Two safety limits were written independently and now disagree. The IPC validation layer clamps the requested page offset to at most ten million, and the database layer asserts that any offset is below 1000 and tells callers to use cursor pagination instead. Any client sending an offset between 1000 and ten million passes validation, then hits the database-layer assertion and gets an opaque internal-error response instead of a bounded page. The assert also uses Python's `assert` statement, which is stripped entirely when the app runs with optimizations enabled (`python -O`), which would re-open the slow deep-scan the clamp exists to prevent.
 **User Impact:** Under normal use the renderer pages with cursors, so most users never see this; a buggy, legacy, or hostile client triggers an opaque "something broke" error with no guidance. The real risk is future drift: the two limits can silently diverge further.
 **Root Cause:** Verified — the IPC clamp (SEC-010) and the DB-layer deep-offset contract were written independently and never unified (history_bounds.py:178 vs search.py:359).
@@ -117,7 +117,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-4 — Sidecar WS auth-failure cleanup can clear a newer connection's sender (race window ~30-45s dead commands)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** The Rust host guards most connection cleanup with a generation number so an old connection's cleanup never clobbers a new one. The auth-failure cleanup path missed that discipline: it unconditionally clears the shared sender slot. A specific interleaving — cold-start connection waiting in its 3-second auth window while the user clicks Retry (which establishes a newer connection) — lets the old connection's timeout wipe the new connection's live sender. Dispatches then fail fast against a healthy backend until the heartbeat notices and respawns (~30-45 seconds of dead commands), after which everything self-heals.
 **User Impact:** Rare but real: a user clicking Retry during startup can land in a half-minute window where every button acts dead ("Lost connection"-style) even though the backend is healthy, then it recovers by itself.
 **Root Cause:** Suspected (interleaving derived from code, not reproduced at runtime) — the generation-guard discipline added for reader/writer cleanup (C-WS-3 era) was not applied to `cleanup_and_trigger_respawn` in respawn_scheduler.rs:388-396; its comment justifies only the respawn trigger, not the ungated clear.
@@ -136,7 +136,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-5 — Residual TCP transport residue (test-only helpers, dead slots, argparse stub) left after the transport removal
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** The TCP IPC transport was removed in commit 50f4ad67 (2026-09-17, "remove Electron launcher + TCP IPC transport"): the `--port` entry mode now rejects with a clear error and exits (entrypoint.py:306-314), and no TCP listener exists in production code (start_tcp/_accept_tcp have no definitions). What remains is residue: `ipc/transport.py` still carries the test-only `_TCPLineIO` and `_pick_available_port` helpers (consumed by 12+ test files); `ipc_server.py` retains never-assigned `_tcp_*` state slots and TCP write-path machinery in the output mixin; and the entrypoint still parses the now-unsupported `--port` argument. (Corrected by Review Wave 2 — the original Wave-1 claim that the TCP listener surface was "live and invocable" was FALSE, verified at entrypoint.py:306-314 and git 50f4ad67.)
 **User Impact:** No direct user impact; maintenance cost only — dead slots and test-only helpers in production modules keep entry files above their wiring budget and invite confusion about which transport is live.
 **Root Cause:** Verified — the 50f4ad67 removal deleted the listener but left the helper/slot residue.
@@ -155,7 +155,7 @@ observations before marking anything done.
 **Severity:** 🟢 Low (downgraded from Medium by Review Wave 2 — the live-surface claim was false)
 
 ### FV-6 — Backend core docstrings/comments still describe the retired TCP/predecessor transport as live
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** ≈130 raw rg matches for TCP/predecessor references across the backend core (127 counted by the investigator, including identifiers) still describe events flowing "over the TCP channel" to "the predecessor renderer", including citations to line numbers that no longer exist (ipc_server.py was once ~1900 lines, now 862). The Electron-removal cutover (2026-09-17) updated the code but not the core-path documentation.
 **User Impact:** None directly; the cost lands on maintainers and future agents who read the dispatch path's own docs and are told the live architecture is TCP+predecessor — the exact stale-claim class the project's rules warn about, risking wrong "fixes" against a retired transport.
 **Root Cause:** Verified — the 2026-09-17 cutover did not sweep core-path docstrings.
@@ -174,7 +174,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-7 — E13 violation: `# type: ignore[no-untyped-def]` hides a missing return annotation (siblings show the correct pattern)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** One function in the settings editor carries a type-checker suppression even though its parameter is typed and only the return annotation is missing. The two sibling functions directly below it have the identical shape (typed param, untyped return) and carry no suppression. The suppression both violates the project's no-suppressed-errors rule and is trivially fixable.
 **User Impact:** None today; the suppression masks future genuine type errors on that line and sets a bad precedent (the checker was silenced instead of satisfied).
 **Root Cause:** Verified — annotation omitted and silenced rather than added.
@@ -192,7 +192,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-8 — 480 dead i18n keys: `hotkey.keys.*`, `hotkey.combos.*`, `hotkey.presets.*` duplicated by the live `hotkeyKeys.*` family
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** Three whole key families (60 keys) exist in all 8 locale files but nothing in the code reads them — the live keycap layer consumes the separate `hotkeyKeys.*` family which carries the same labels. Review Wave 2 found five more dead keys under `hotkey.errors.*` (empty, invalid, noKeys, singleKeyOnly, comboMustEndNonModifier — the other two, fnMacOnly/fnMacOnlyShort, are live in hotkey-capture-state.ts) — fold them into the same cleanup. This is dead duplication left behind after the keycap layer moved.
 **User Impact:** None at runtime; translation-file bloat (480 dead strings) and a real drift trap: a translator updating `hotkey.keys.capsLock` sees no effect and files a bug, or the dead values silently diverge from the live ones.
 **Root Cause:** Verified — legacy key families left behind after the keycap layer moved to `hotkeyKeys.*` (grep shows zero consumers of the dead families).
@@ -209,7 +209,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-9 — Four i18n keys ship untranslated English inside non-English locale files (C-I18N-2)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** Four keys were added to non-English locale files by pasting the English value instead of translating it: `onboarding.backendLocalLabel` ("Local model") is English in de/es/fr/hi/ru/zh; `templates.variablesTooltip` in es/ru/zh; `models.progress.eta` in fr/ru/zh; `about.cloudTitle` in de. This is exactly the failure mode the project's localization rule names as the #1 silent downgrade.
 **User Impact:** Non-English users hit occasional English strings in core surfaces — "Local model" in onboarding is the most visible (a first-run screen).
 **Root Cause:** Suspected — keys added at different times; the "add to all 8 files" step was satisfied by pasting English.
@@ -226,7 +226,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-10 — Tray "microphone changed" notification hardcodes English "System Default" inside localized text
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** When the microphone changes to the system default, the tray notification interpolates the hardcoded English label "System Default" into an otherwise localized sentence. In Arabic or Russian the message reads half English.
 **User Impact:** Mixed-language notifications ("تم تغيير الميكروفون إلى System Default") read as unfinished to non-English users.
 **Root Cause:** Verified — the concept is inlined instead of resolved through an i18n key (device names themselves are legitimately unlocalized).
@@ -243,7 +243,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-11 — CI-errors.md can record a vacuous green "No test failures ✅" when tests never ran
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** The script that writes the committed CI status file treats "zero JUnit files found" the same as "all tests passed": with no arguments it emits the green banner. The workflow's download step is continue-on-error, so a run whose test job crashed before pytest (or whose artifact download failed) gets recorded as green with "(0 JUnit file(s) checked)".
 **User Impact:** The file's whole purpose — surfacing the red state without CLI access — silently degrades: a broken run can be recorded as green, and the current file on disk is exactly that state.
 **Root Cause:** Verified mechanism (code path exact); the triggering run's cause suspected (no JUnit artifacts in the latest run).
@@ -262,7 +262,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-12 — Two modules with no dedicated behavioral tests (message_loop_strategy, app_admin)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** Review Wave 2 corrected the original Wave-1 claim: of eight candidate modules, six DO have behavioral tests reachable via documented re-export shims or direct imports — the Windows DACL builder is tested via the `_security_attributes.py` shim (`tests/test__security_attributes.py`), the hotkey spec parser has a dedicated suite (`TestParseHotkeySpec` in `tests/test_native_hotkeys.py`), and the config service, atexit safety, lifecycle signals, and dictation delegates are all covered. The genuinely untested modules are: `hotkeys/windows/message_loop_strategy.py` (108 lines) and `app_admin.py` (235 lines, with a pyrefly-baseline flag already noting a missing-attribute issue).
 **User Impact:** None immediate; regression risk on the Windows message-loop strategy (hotkey delivery) and admin-elevation paths.
 **Root Cause:** Verified — zero-hit searches on exported symbols for exactly these two modules; the other six were false negatives in the original filename-based Wave-1 search (shim-re-exported tests were missed).
@@ -280,7 +280,7 @@ observations before marking anything done.
 **Severity:** 🟢 Low (downgraded from Medium by Review Wave 2 — six of eight modules are tested)
 
 ### FV-13 — Flaky wall-clock budget assertions in performance tests (tightest: 100ms absolute)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** Thirty-eight wall-clock upper-bound assertions exist across the suite (range 0.1s to 7.0s; the tightest is 100 ms at `tests/test_model_manager_background_change.py:106`, per Review Wave 2). On loaded CI runners (the repo's own workflow files document weeks of cancelled 29.8-minute runs), these budgets blow without any code regression. The suite has the right pattern available (poll-based wait_for fixture) but the perf-regression tests don't use it.
 **User Impact:** Intermittent red CI legs, wasted re-runs, and the "works locally, flakes on runner" class of distrust.
 **Root Cause:** Verified pattern presence; flake frequency suspected (no run history in the sandbox).
@@ -300,7 +300,7 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 
 ### FV-14 — npm audit runs as a soft gate (continue-on-error) despite documented overrides being verified
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** The client CI's production-dependency audit runs with continue-on-error and an in-file TODO to switch to hard-fail "once the override list is verified in production CI". The package.json overrides now each carry advisory IDs and the notes claim npm audit = 0 vulnerabilities (2026-08-04) — the stated precondition appears met, but the gate was never flipped.
 **User Impact:** A new HIGH/CRITICAL advisory in production dependencies would not fail client CI; discovery depends on someone reading a warn-only log.
 **Root Cause:** Verified — deliberate temporary soft gate; TODO not actioned.
@@ -338,7 +338,7 @@ observations before marking anything done.
 ## FV Low Priority
 
 ### FV-16 — Dead 2.27 MB torch-format VAD asset (`silero_vad.jit`) ships in every installer and extracts per version
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** The project completed its torch-free migration (HEAD commit is literally "torch-free Phase 1c"), but the old torch-format Silero VAD model file is still in the tree and still packaged (package-data includes every data file). Only one reference remains — a stale log-message string. The onnx-format model the app actually uses sits next to it. Extraction happens into the per-version onefile cache dir (per Review Wave 2's softening — not literally every launch).
 **User Impact:** Every installer and every one-file extraction carries 2.27 MB of dead weight; a "VAD unavailable" diagnostic message names the wrong file, misleading anyone debugging audio issues.
 **Root Cause:** Verified — dead asset left behind by the torch→ONNX migration.
@@ -356,7 +356,7 @@ observations before marking anything done.
 **Severity:** 🟢 Low
 
 ### FV-17 — Audio filter rebuild signature is a hand-maintained parallel list with no test guard
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-20 FV fix session; focused suites green ON WINDOWS sandbox)
 **Description:** A 26-field config-signature tuple decides when the live audio filter chain rebuilds. It is currently in sync with the fields the chain builder actually reads, but the sync is maintained by hand with only a prose comment; no test checks it. A future config field added to the builder but not the tuple makes live config changes silently ignore the new setting until a restart.
 **User Impact:** None today; the failure mode is a future silent setting-ignore (e.g. a new noise-filter slider that "doesn't do anything until restart") with no test to catch it.
 **Root Cause:** Verified — hand-maintained parallel list with no guard of the tuple↔build_chain sync. (Review Wave 2 correction: two test files DO import `_CONFIG_SIGNATURE_FIELDS` — `tests/test_noise_gate_adaptive_config.py:43` and `tests/test_microphone_test_filters_contract.py:216` — but they pin other contracts, not the sync.)
