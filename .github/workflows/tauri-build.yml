@@ -98,6 +98,16 @@ jobs:
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows'
     needs: validate
     uses: ./.github/workflows/tauri-windows-build.yml
+    # The reusable workflow's job declares `contents: read, id-token: write,
+    # attestations: write` (SLSA attestation step); caller jobs inherit only
+    # the top-level `contents: read`, so without this block GitHub rejects
+    # the dispatch at validation time ("requesting attestations/id-token
+    # write, but only allowed none"). Forward the exact set the callee
+    # declares — nothing more. Same block on build-macos / build-linux.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     with:
       target: ${{ github.event.inputs.target }}
       sign: ${{ fromJSON(github.event.inputs.sign) }}
@@ -111,6 +121,11 @@ jobs:
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos'
     needs: validate
     uses: ./.github/workflows/tauri-macos-build.yml
+    # Same caller-side permission forwarding as build-windows (see above).
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     with:
       target: ${{ github.event.inputs.target }}
       sign: ${{ fromJSON(github.event.inputs.sign) }}
@@ -120,6 +135,11 @@ jobs:
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux'
     needs: validate
     uses: ./.github/workflows/tauri-linux-build.yml
+    # Same caller-side permission forwarding as build-windows (see above).
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     with:
       target: ${{ github.event.inputs.target }}
       sign: ${{ fromJSON(github.event.inputs.sign) }}
