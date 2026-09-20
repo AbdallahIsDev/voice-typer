@@ -128,6 +128,7 @@ class TestMonkeyPatchPropagates:
         import time
 
         monkeypatch.setattr(cs, "_KEYRING_TIMEOUT_SECONDS", 0.001)
+        baseline = cs._orphaned_thread_count
 
         def slow_fn():
             time.sleep(0.5)
@@ -135,6 +136,13 @@ class TestMonkeyPatchPropagates:
 
         with pytest.raises(TimeoutError):
             cs._run_keyring_call(slow_fn)
+        # The orphaned slow_fn still runs ~0.5s; wait for its late decrement
+        # to land so the shared _orphaned_thread_count is stable for the
+        # next test (wedge tests assert exact counts).
+        deadline = time.perf_counter() + 5.0
+        while cs._orphaned_thread_count != baseline and time.perf_counter() < deadline:
+            time.sleep(0.05)
+        assert cs._orphaned_thread_count == baseline
 
     def test_is_keyring_available_propagates_to_store_secret(self, monkeypatch):
         """package module, patching the package attribute must make"""

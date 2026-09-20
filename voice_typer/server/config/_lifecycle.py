@@ -258,7 +258,10 @@ class _ConfigLifecycleMixin:
 
     @classmethod
     def _validate_non_numeric_fields(cls, data: dict[str, Any]) -> dict[str, Any]:
-        """Validate and coerce bool / str / int / float fields in loaded config data."""
+        """Validate and coerce bool / str / int / float fields in loaded config data.
+
+        migration layer: fixes up legacy on-disk values before dataclass construction.
+        """
         return _sanitization_validate_non_numeric_fields(cast("type[Config]", cls), data)
 
     @property

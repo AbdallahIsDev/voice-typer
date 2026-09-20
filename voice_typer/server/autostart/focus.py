@@ -7,6 +7,7 @@ import logging
 from voice_typer.server.autostart._spawn import _spawn_login_child
 from voice_typer.server.autostart._spawn_env import (
     _launcher_child_env,
+    _spawn_flags,
 )
 
 # C-CROSS-3: explicit dotted logger name: see log_files.py for why
@@ -34,6 +35,7 @@ def _focus_running_app() -> bool:
     # Audit note: the sensitive-env audit line is emitted once by
     sk: dict = {}
     sk.update(_pkg._tauri_log_files())
+    sk.update(_spawn_flags(hidden=False))
     child = _spawn_login_child(
         [binary],
         env=env,

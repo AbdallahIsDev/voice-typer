@@ -57,7 +57,10 @@ class TranscribeStage:
 
 
 class EmptyCheckStage:
-    """Step 2: Handle the case where transcription produced no text."""
+    """Step 2: Handle the case where transcription produced no text.
+
+    Bypass note: never fires on BackendNotLoadedError (raised earlier in TranscribeStage).
+    """
 
     name = "empty_check"
     timed = False

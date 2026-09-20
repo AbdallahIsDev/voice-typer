@@ -61,7 +61,10 @@ def build_chain(
     *,
     quiet: bool = False,
 ) -> FilterChain:
-    """Build a FilterChain from the current config."""
+    """Build a FilterChain from the current config.
+
+    Order: Notch → HighPass → NoiseSuppressor → NoiseGate → EQ → Compressor → Limiter.
+    """
     filters: list[AudioFilter] = []
 
     # 1. Notch filter (optional, before high-pass to remove hum early)

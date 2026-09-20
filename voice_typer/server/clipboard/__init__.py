@@ -24,6 +24,10 @@ from voice_typer.server.platform_utils import (  # noqa: F401
 # Package-level logger. Tests patch ``voice_typer.server.clipboard.log``.
 log = logging.getLogger(__name__)
 
+# PLAT-007 retry lives in manager._copy: except OSError as copy_err with winerror == 5.
+# PLAT-CONTENT: contentEditable target check lives in safety/targets (informational).
+# PLAT-001: pynput fallback + UIPI notes live in linux/windows backends.
+
 # empty binding. No ``# type: ignore[assignment]`` marker is needed
 # ``# type: ignore[assignment]`` markers  removed stay dropped
 _Key: Any | None = None

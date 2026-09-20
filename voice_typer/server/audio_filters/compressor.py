@@ -96,6 +96,7 @@ class Compressor(AudioFilter):
         np.copyto(env_db, env, where=above_floor)
         env_db[~above_floor] = 1.0
         np.log10(env_db, out=env_db)
+        env_db *= 20.0
         # gain_db = slope * (threshold_db - env_db) in-place.
         env_db *= -self._slope
         env_db += self._slope * self._threshold_db

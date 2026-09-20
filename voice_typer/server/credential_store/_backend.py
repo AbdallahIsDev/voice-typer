@@ -69,6 +69,8 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
     state: dict[str, Any] = {
         "result": None,
         "exc": None,
+        "completed": False,
+        "orphaned": False,
     }
 
     def _runner() -> None:

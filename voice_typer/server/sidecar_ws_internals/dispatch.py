@@ -71,7 +71,7 @@ def _make_dispatch(server: IPCServer):
                 },
             }
 
-        # ADR-0019 +  rate limit check. Look up the shared limiter
+        # Per-frame gate: rate_limiter.allow() with per-command cost.
         if msg_type != "shutdown" and not rate_limiter.allow(command=msg_type):
             # allow() already increments _rejected atomically when
             return {

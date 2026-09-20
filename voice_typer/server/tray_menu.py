@@ -352,6 +352,8 @@ def build_models_submenu(tray) -> list:
     return build_models_menu_items(
         _config_dir,
         tray._controller.change_model,
+        wrap_callback,
+        tray._open_models_page,
         config_provider=config_provider,
     )
 

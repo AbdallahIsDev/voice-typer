@@ -233,7 +233,9 @@ def _tauri_manifest_path() -> Path | None:
             continue
     # (4) Installed copy in the user config dir, if ever shipped.
     try:
-        home_candidate = Path.home() / ".voice-typer" / "tauri-binaries.json"
+        from voice_typer.server._paths import config_dir as _canonical_config_dir
+
+        home_candidate = _canonical_config_dir() / "tauri-binaries.json"
         if home_candidate.is_file():
             log.debug("[AUTOSTART] _tauri_manifest_path: found config-dir manifest: %s", home_candidate)
             return home_candidate

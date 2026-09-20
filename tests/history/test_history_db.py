@@ -143,14 +143,18 @@ class TestOffsetGuard:
 
     def test_get_recent_offset_1000_raises_assertion(self, db):
         """OFFSET == 1000 must raise (forces cursor migration)."""
+        from voice_typer.server.history_db import HistoryDBError
+
         self._seed_rows(db, 1)
-        with pytest.raises(Exception, match="offset < 1000"):
+        with pytest.raises(HistoryDBError, match="offset <= 999"):
             db.get_recent(limit=1, offset=1000, raise_on_error=True)
 
     def test_get_recent_offset_above_1000_raises_assertion(self, db):
         """OFFSET > 1000 must raise."""
+        from voice_typer.server.history_db import HistoryDBError
+
         self._seed_rows(db, 1)
-        with pytest.raises(Exception, match="offset < 1000"):
+        with pytest.raises(HistoryDBError, match="offset <= 999"):
             db.get_recent(limit=1, offset=5000, raise_on_error=True)
 
     def test_get_recent_cursor_path_bypasses_offset_guard(self, db):
@@ -168,9 +172,11 @@ class TestOffsetGuard:
 
     def test_search_offset_1000_raises_assertion(self, db):
         """``search`` OFFSET path must also reject deep OFFSET."""
+        from voice_typer.server.history_db import HistoryDBError
+
         db.add_transcription("hello world")
         db.flush()
-        with pytest.raises(Exception, match="offset < 1000"):
+        with pytest.raises(HistoryDBError, match="offset <= 999"):
             db.search("hello", limit=1, offset=1000, raise_on_error=True)
 
     def test_search_cursor_path_bypasses_offset_guard(self, db):
@@ -190,13 +196,15 @@ class TestOffsetGuard:
 
     def test_get_favorites_offset_1000_raises_assertion(self, db):
         """``get_favorites`` OFFSET path must reject deep OFFSET too —"""
+        from voice_typer.server.history_db import HistoryDBError
+
         row_id = db.add_transcription("fav entry")
         db.flush()
         db.toggle_favorite(row_id)
         db.flush()
-        with pytest.raises(Exception, match="offset < 1000"):
+        with pytest.raises(HistoryDBError, match="offset <= 999"):
             db.get_favorites(limit=1, offset=1000, raise_on_error=True)
-        with pytest.raises(Exception, match="offset < 1000"):
+        with pytest.raises(HistoryDBError, match="offset <= 999"):
             db.get_favorites(limit=1, offset=10_000_000, raise_on_error=True)
 
     def test_get_favorites_shallow_offset_still_works(self, db):
@@ -230,9 +238,11 @@ class TestOffsetGuard:
 
     def test_get_recent_like_path_offset_guard_via_search(self, db):
         """``search``'s LIKE-fallback OFFSET branch is guarded by the"""
+        from voice_typer.server.history_db import HistoryDBError
+
         db.add_transcription("plain text entry")
         db.flush()
-        with pytest.raises(Exception, match="offset < 1000"):
+        with pytest.raises(HistoryDBError, match="offset <= 999"):
             db.search("%", limit=1, offset=1000, raise_on_error=True)
 
 

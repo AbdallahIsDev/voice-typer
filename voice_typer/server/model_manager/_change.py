@@ -278,6 +278,7 @@ class ChangeMixin:
                 "pending": {"backend": backend, "model_size": old_model_size},
             }
         # busy/recording guard, mirroring ``change_model``'s
+        # Background thread re-checks recorder.recording under the lock in _blocking.
         try:
             is_recording = bool(self._app.recorder.recording)
             is_busy = not self._app._busy_event.is_set()

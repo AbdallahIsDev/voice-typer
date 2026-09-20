@@ -282,7 +282,11 @@ class TrayIcon:
         return _notify_safety(self, title, message)
 
     def _do_notify(self, title: str, message: str) -> None:
-        """Send a notification through the icon (delegate)."""
+        """Send a notification through the icon.
+
+        Delegates to tray_notifications.do_notify, which calls
+        ``self._icon.notify(message, title)``.
+        """
         from voice_typer.server.tray_notifications import do_notify as _do_notify
 
         return _do_notify(self, title, message)
@@ -304,7 +308,11 @@ class TrayIcon:
         return _on_fallback(self, event)
 
     def _drain_pending(self) -> None:
-        """Drain pending state/notification queues (tray-unavailable run path)."""
+        """Drain pending queues (tray-unavailable path).
+
+        Publishes ``tray_fallback_notification`` gated by ws.rs
+        ALLOWED_EVENT_TYPES.
+        """
         with self._queue_lock:
             notifications = list(self._pending_notifications)
             self._pending_notifications.clear()

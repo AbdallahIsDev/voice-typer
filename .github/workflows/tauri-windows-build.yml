@@ -93,6 +93,10 @@ jobs:
             target: x86_64-pc-windows-msvc
             runner: windows-2022
             tauri_config: tauri.windows-x86_64.conf.json
+          # - arch: aarch64
+          #   target: aarch64-pc-windows-msvc
+          #   runner: windows-11-arm
+          #   tauri_config: tauri.windows-aarch64.conf.json
     # No job-level if: — matrix.* is illegal in jobs.<id>.if (C-CI-4 / TX-40).
     runs-on: ${{ matrix.runner }}
     # C-CI-3: timeout-minutes 240 — real build 90-110 min; 120 cancelled mid-build.

@@ -49,6 +49,10 @@ def vad_update(
 ) -> VadState:
     """Advance the VAD state machine one frame via VadProcessor.update_frame.
 
+    Grey-zone frames accumulate toward a hold limit; at the limit the
+    processor force-transitions (SPEECH seeds hangover silence frames,
+    SILENCE promotes toward speech, UNKNOWN decays both counters).
+
     Returns VadState.UNKNOWN when VAD is disabled (caller treats as not-silence).
     """
     return recorder._vad.update_frame(chunk_rms_db, vad_prob)

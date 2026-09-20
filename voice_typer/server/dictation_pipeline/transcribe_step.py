@@ -81,8 +81,9 @@ class _TranscribeStepMixin:
             log.debug("[PIPELINE] failed to persist shared resources-check timestamp", exc_info=True)
 
     def _check_resources(self) -> None:
-        """Delegates to ``resource_probe.check_resources`` (extracted to a
-        are logged at DEBUG level by the delegated ``check_resources``
+        """Delegates to ``resource_probe.check_resources`` (DEFERRED extraction target).
+
+        Probe failures are logged at DEBUG level by the delegated ``check_resources``.
         """
         from voice_typer.server.resource_probe import check_resources
 

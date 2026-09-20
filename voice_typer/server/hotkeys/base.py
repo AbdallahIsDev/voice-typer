@@ -66,7 +66,7 @@ class HotkeyBackend(ABC):
     def is_alive(self) -> bool:
         """Return True if the listener thread is running."""
 
-    # ``diagnose`` was previously @abstractmethod, forcing
+    # ``diagnose`` was previously abstract, forcing every subclass
     def diagnose(self) -> str:
         """Return a human-readable diagnostic string.
 

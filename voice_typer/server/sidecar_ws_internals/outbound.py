@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import logging
 
@@ -53,6 +54,7 @@ async def _safe_send(websocket, event: dict) -> str:
     """
     loop = asyncio.get_running_loop()
     raw_bytes = await loop.run_in_executor(_get_ws_encode_pool(), _encode_ws_frame, event)
+    # Byte count is authoritative: Rust tungstenite reader enforces max_size on receive.
     if len(raw_bytes) > _MAX_FRAME_BYTES:
         log.error(
             "[SIDECAR-WS] outbound frame exceeds %d bytes, dropping",
@@ -84,16 +86,37 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
 
     async def _writer() -> None:
         """Drain the outbound queue and write each event as a WS frame."""
+        loop = asyncio.get_running_loop()
         try:
             while True:
                 event = await outbound.get()
                 if event is None:
                     return
-                send_status = await _safe_send(websocket, event)
-                if send_status == "failed":
-                    # Timeout or send error, ``_safe_send`` already
+                raw_str = await loop.run_in_executor(
+                    _get_ws_encode_pool(), functools.partial(json.dumps, event, ensure_ascii=False)
+                )
+                if len(raw_str.encode("utf-8")) > _MAX_FRAME_BYTES:
+                    log.error(
+                        "[SIDECAR-WS] outbound frame exceeds %d bytes, dropping",
+                        _MAX_FRAME_BYTES,
+                    )
+                    continue
+                try:
+                    await asyncio.wait_for(
+                        websocket.send(raw_str),
+                        timeout=_WS_SEND_TIMEOUT_SECONDS,
+                    )
+                except (asyncio.TimeoutError, TimeoutError):
+                    log.warning(
+                        "[SIDECAR-WS] send timed out after %.1fs, closing connection",
+                        _WS_SEND_TIMEOUT_SECONDS,
+                    )
+                    with contextlib.suppress(Exception):
+                        await websocket.close(code=1011, reason="send timeout")
                     return
-                # ``"sent"`` → keep draining the queue.
+                except Exception:
+                    log.warning("[SIDECAR-WS] send failed", exc_info=True)
+                    return
         except asyncio.CancelledError:
             return
 

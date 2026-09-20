@@ -150,6 +150,12 @@ class DuckCrashRecovery:
             return state
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             log.warning("[VOLUME-CRASH] Failed to parse stale state: %s", exc)
+            try:
+                if self._path.exists():
+                    self._path.unlink()
+            except OSError:
+                log.debug("[VOLUME-CRASH] Could not delete corrupt state file", exc_info=True)
+            self._delete_restoring_sentinel()
             return None
 
     def _mark_consumed(self, data: dict) -> None:

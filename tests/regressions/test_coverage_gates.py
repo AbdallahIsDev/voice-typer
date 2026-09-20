@@ -26,9 +26,11 @@ class TestVkLookupBenchmarkExists:
 
     def test_vk_lookup_is_o1_dict_get(self):
         # KEEP, pins  (VK lookup uses dict.get, O(1)).
-        from voice_typer.server import hotkeys
+        # The lookup lives in hotkeys.win32_vk.vk_from_key_name, not the
+        # package init (which only re-exports the map).
+        from voice_typer.server.hotkeys import win32_vk
 
-        src = inspect.getsource(hotkeys)
+        src = inspect.getsource(win32_vk)
         # The lookup uses _VK_MAP.get(key_name)
         assert "_VK_MAP.get" in src or "_VK_MAP[" in src, "VK lookup must use dict.get (O(1))"
 

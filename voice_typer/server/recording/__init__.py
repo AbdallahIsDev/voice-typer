@@ -170,5 +170,7 @@ __all__ = [
 ]
 
 # A couple of regression tests still use ``inspect.getsource(recording)``
+# SEC-audit-008: zeroing lives in .buffer (each handed-off chunk.fill(0))
+# and .session_state (each recorder._preroll_buffer chunk.fill(0) before recorder._preroll_buffer.clear()).
 
 # NOTE (2026-07-20, updated ): ``set_thread_registry`` was

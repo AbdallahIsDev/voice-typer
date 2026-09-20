@@ -1,4 +1,7 @@
-"""Hotkey backend abstraction."""
+"""Hotkey backend abstraction.
+
+PLAT-VKMAP: US-layout VK map plus MapVirtualKey fallback for non-US layouts.
+"""
 
 # `sys` is imported (and re-exported) so that tests using
 

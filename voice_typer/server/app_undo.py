@@ -110,6 +110,7 @@ class UndoRepasteController:
             # Clear ``_last_transcription`` BEFORE the backspace
             app._last_transcription = ""
             for _i in range(char_count):
+                kb.press("\x08")
                 kb.release("\x08")
                 if (_i + 1) % _undo_chunk_size == 0 and (_i + 1) < char_count:
                     time.sleep(0.01)

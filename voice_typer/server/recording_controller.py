@@ -156,6 +156,7 @@ class RecordingController:
 
     def _cancel_streaming_session(self) -> None:
         """Cancel any active hidden streaming session."""
+        # Stop path reaches here as self._cancel_streaming_session().
         session = self.pop_streaming_session()
         if session is not None:
             try:

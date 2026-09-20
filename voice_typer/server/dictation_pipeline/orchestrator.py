@@ -197,6 +197,8 @@ class _OrchestratorMixin:
             try:
                 self._app._waveform_bubble.set_state("error")
 
+                # Post-error cleanup respects bubble_behavior via
+                # _hide_or_idle_bubble (always_visible → idle, else hide).
                 def _bubble_error_to_idle() -> None:
                     self._hide_or_idle_bubble("bubble error->idle transition")
 

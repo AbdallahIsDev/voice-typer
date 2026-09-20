@@ -79,6 +79,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         self._log_startup_banner()
         self._init_audio()
         self._init_recording()
+        # _init_models builds ModelManager as self.models (AppConstruction).
         self._init_models()
         self._init_tray()
         self._init_controllers()

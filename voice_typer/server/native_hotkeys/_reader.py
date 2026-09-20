@@ -214,6 +214,7 @@ class _ReaderMixin:
         """Handle an ``ERROR:<message>`` wire-protocol line."""
         self._failed = True
         self._error_message = payload
+        self._ready_event.set()
         log.error(
             "[NATIVE-HOTKEY] %s binary reported ERROR: %s",
             self.platform_name,

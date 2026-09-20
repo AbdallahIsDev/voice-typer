@@ -644,9 +644,11 @@ class TestNumpyVectorizedOpsRegression:
 
     def test_recording_uses_np_dot_for_rms(self):
         # KEEP, pins  (vectorized np.dot RMS computation).
-        from voice_typer.server import recording
+        # Post-4dd03625 split the recording-chunk RMS lives in
+        # recording.audio_pipeline.compute_rms_and_peak, not the package init.
+        from voice_typer.server.recording import audio_pipeline
 
-        src = inspect.getsource(recording)
+        src = inspect.getsource(audio_pipeline)
         # The callback uses np.dot for RMS: np.sqrt(np.dot(flat, flat) / flat.size)
         assert "np.dot(flat, flat)" in src or "np.dot(flat,flat)" in src, (
             "AUDIO-007: recording.py must use np.dot for vectorized RMS computation."

@@ -27,6 +27,8 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 async def _authenticate(websocket) -> bool:
     """Read the first WS frame and validate the bearer token.
 
+    One-shot bearer-token check, NOT an HMAC scheme (no per-message MAC);
+    compensating controls are loopback-only bind + ephemeral port + rotation.
     Returns ``True`` if authenticated, ``False`` if rejected.
     """
     # at CALL time (C-ARCH-2 canonical patch form). The mig15-17

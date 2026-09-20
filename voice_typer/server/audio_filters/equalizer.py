@@ -81,6 +81,7 @@ class Equalizer(AudioFilter):
             self._output_buf = np.empty(cap, dtype=np.float64)
             self._tmp_buf = np.empty(cap, dtype=np.float64)
         x = self._x_f64_buf[:n]
+        np.copyto(x, samples, casting="same_kind")
 
         # Low band: one-pole lowpass: low_s[i] = low_s[i-1] + lf * (x[i] - low_s[i-1])
 

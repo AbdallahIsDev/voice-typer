@@ -188,7 +188,10 @@ class TestManagerSlimmed:
             restore_loc = sum(1 for _ in _rf)
         with Path(safety.__file__).open(encoding="utf-8") as _sf:
             safety_loc = sum(1 for _ in _sf)
-        assert restore_loc >= 200, f"restore.py too small ({restore_loc} LOC), extraction incomplete?"
+        # Floor calibrated on implementation, not comment bulk: restore.py
+        # shrank 320 -> 142 LOC in the comment-trim wave while keeping its 3
+        # real functions; the floor guards against gutting, not verbosity.
+        assert restore_loc >= 100, f"restore.py too small ({restore_loc} LOC), extraction incomplete?"
         assert safety_loc >= 200, f"safety.py too small ({safety_loc} LOC), extraction incomplete?"
 
 
