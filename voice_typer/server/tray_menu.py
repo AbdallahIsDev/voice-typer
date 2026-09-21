@@ -33,7 +33,7 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
         try:
             fn()
         except SystemExit as _se:
-            # QUIT-CLEAN-001: this is the expected exit path for
+            # The quit path is the expected exit route from the tray:
             log.debug("[TRAY] Quit handler completed, pystray loop will exit")
             # Do NOT re-raise, tray.stop() inside quit()/restart_app()
 
@@ -79,6 +79,7 @@ def build_tray_menu_model(
         disabled: bool = False,
         checked: bool | None = None,
         submenu: list[dict] | None = None,
+        accelerator: str | None = None,
     ) -> dict:
         if callback is not None:
             id_map[item_id] = callback
@@ -89,6 +90,7 @@ def build_tray_menu_model(
             "separator": False,
             "checked": checked,
             "submenu": submenu,
+            "accelerator": accelerator,
         }
 
     def _sep() -> dict:
@@ -99,6 +101,7 @@ def build_tray_menu_model(
             "separator": True,
             "checked": None,
             "submenu": None,
+            "accelerator": None,
         }
 
     # Open App (default/bold action depends on left_click_action).
@@ -185,9 +188,11 @@ def build_tray_menu_model(
 
     items.append(_sep())
 
-    # Restart + Quit.
+    # Restart + Quit. Quit carries the conventional CmdOrCtrl+Q key
+    # equivalent so the OS renders the hint (Tauri grammar, display-only;
+    # not global wiring — see MenuItemData.accelerator docs in menu.rs).
     items.append(_item("restart", localize("restart"), callback=restart_app))
-    items.append(_item("quit", localize("quit"), callback=quit_app))
+    items.append(_item("quit", localize("quit"), callback=quit_app, accelerator="CmdOrCtrl+Q"))
 
     return items, id_map
 

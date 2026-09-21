@@ -35,12 +35,14 @@ pub(crate) struct MenuItemData {
     pub(crate) submenu: Option<Vec<MenuItemData>>,
     // Optional keyboard accelerator (e.g. "Cmd+Q",
     // "Ctrl+Shift+R", "F5"). Populated by the Python sidecar's
-    // `build_tray_menu_model` when an item has a shortcut. When
-    // present, the native menu item is built with `.accelerator(...)` so
-    // the OS renders the platform-correct keyboard equivalent hint next
-    // to the label (e.g. "⌘Q" on macOS, "Ctrl+Q" on Windows/Linux) AND
-    // wires the global shortcut so the user can trigger the item without
-    // opening the tray menu.
+    // `build_tray_menu_model` for items with a conventional shortcut
+    // (currently Quit → "CmdOrCtrl+Q"). When present, the native item
+    // is built with `.accelerator(...)` so the OS renders
+    // the platform-correct key hint beside the label (e.g. "⌘Q" on macOS,
+    // "Ctrl+Q" on Windows/Linux). NOTE: a Tauri v2 tray accelerator is a
+    // menu key-equivalent hint, NOT a global hotkey — global hotkeys are
+    // owned by `shortcuts.rs`. Do not populate this field expecting
+    // app-wide shortcut wiring.
     //
     // The string format is Tauri's accelerator grammar (NOT Qt or GTK):
     //   - Modifiers: "Control" / "Ctrl", "Shift", "Alt" / "Option",

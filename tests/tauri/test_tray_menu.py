@@ -52,6 +52,7 @@ def test_build_tray_menu_model_returns_well_formed_items():
             "separator",
             "checked",
             "submenu",
+            "accelerator",
         }, item
         assert isinstance(item["id"], str)
         assert isinstance(item["label"], str)
@@ -59,9 +60,20 @@ def test_build_tray_menu_model_returns_well_formed_items():
         assert isinstance(item["separator"], bool)
         assert item["checked"] is None or isinstance(item["checked"], bool)
         assert item["submenu"] is None or isinstance(item["submenu"], list)
+        assert item["accelerator"] is None or isinstance(item["accelerator"], str)
         if item["separator"]:
             assert item["id"] == ""
             assert item["label"] == ""
+
+
+def test_quit_item_carries_conventional_accelerator():
+    """Only Quit carries an accelerator (CmdOrCtrl+Q key-equivalent hint)."""
+    model, _id_map = _make_model()
+    by_id = {item["id"]: item for item in model}
+    assert by_id["quit"]["accelerator"] == "CmdOrCtrl+Q"
+    for item_id, item in by_id.items():
+        if item_id != "quit":
+            assert item["accelerator"] is None, item_id
 
 
 def test_build_tray_menu_model_top_level_ids_present():
