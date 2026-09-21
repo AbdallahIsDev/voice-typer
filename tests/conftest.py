@@ -134,8 +134,17 @@ def mock_heavy_imports_session():
         # BLOCK THE REAL ``winreg`` MODULE. Setting ``sys.modules["winreg"]``
         mp.setitem(sys.modules, "winreg", None)
 
-        # Volume-duck backend: never auto-detect a REAL platform volume
-        mp.setattr("voice_typer.server.server_platform.volume_factory.get_volume_backend", lambda: None)
+        # Never auto-detect a REAL platform volume backend during tests.
+        # Skip when third-party deps are absent (bare-pytest guard job):
+        # unimportable server_platform means no backend to patch.
+        try:
+            mp.setattr("voice_typer.server.server_platform.volume_factory.get_volume_backend", lambda: None)
+        except ImportError:
+            _warn_once(
+                "volume_factory",
+                "mock_heavy_imports_session: server_platform unimportable "
+                "(missing third-party dep); volume-backend patch skipped",
+            )
 
         yield
     finally:
