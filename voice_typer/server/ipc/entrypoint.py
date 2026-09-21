@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from voice_typer.server.ipc_server import IPCServer
 
 # Re-exported by ``ipc_server.py`` so existing
-from voice_typer.server.ipc._helpers import _STDIN_IPC_ENV_VAR, log
+from voice_typer.server.ipc._helpers import log
 from voice_typer.server.tray_types import is_tauri_sidecar
 
 
@@ -165,7 +165,15 @@ def _version_requested(argv: list[str]) -> bool:
     return any(arg == "--version" or (len(arg) > 2 and "version".startswith(arg[2:])) for arg in argv)
 
 
-# Environment variable selecting the early server-started launch order
+# Environment variable selecting the early server-started launch order.
+# Sunset: Tauri WS sidecar is the sole shipping path since the 2026-09-17
+# cutover (predecessor removed); keep this default-OFF escape hatch until
+# the 2026-Q4 host validation closes, then delete the early-bind branch.
+# Deletion checklist (symbol-anchored, FV-64): this flag +
+# ``_early_server_started_enabled`` + the ``_ws_early_bind`` branch in
+# ``main`` + ``_ws_startup_thread_main_early`` + ``_wrap_dispatch_for_early_bind``,
+# ``flush_early_dispatch_buffer`` and ``_drain_early_dispatch_buffer`` in
+# ``sidecar_ws`` + ``tests/server/test_early_ws_bind.py``.
 _EARLY_SERVER_STARTED_ENV_VAR = "VT_EARLY_SERVER_STARTED"
 
 
@@ -256,28 +264,14 @@ def parse_ipc_args() -> tuple[int | None, bool]:
         default=False,
         help="Enable debug logging to the console.",
     )
-    parser.add_argument(
-        "--allow-stdin",
-        action="store_true",
-        default=False,
-        help=(
-            "Explicitly enable the unauthenticated stdin/stdout "
-            "IPC listener (sets VOICE_TYPER_ALLOW_STDIN_IPC=1). The "
-            "stdin listener is gated off by default for security: "
-            "stdin commands bypass the VOICE_TYPER_IPC_TOKEN handshake. "
-            "Use this flag for development and testing only."
-        ),
-    )
     args, _unknown = parser.parse_known_args(sys.argv[1:])
     if args.debug:
         os.environ["VOICE_TYPER_DEBUG"] = "1"
-    # --allow-stdin sets the env var that ``IPCServer.start()``
-    if args.allow_stdin:
-        os.environ[_STDIN_IPC_ENV_VAR] = "1"
-        log.info(
-            "[IPC] --allow-stdin: %s=1 set (stdin listener will be spawned if _tcp_mode is False)",
-            _STDIN_IPC_ENV_VAR,
-        )
+    # The unauthenticated stdin/stdout listener is gated behind the
+    # VOICE_TYPER_ALLOW_STDIN_IPC env var only. It used to have a
+    # ``--allow-stdin`` CLI flag, but ``main`` hard-sets ``_tcp_mode = True``
+    # for every transport, so the flag could never take effect through the
+    # entry point; the env var remains the direct-API/test seam.
     port = args.port
     ws_mode = args.ws
     # TCP transport removed: --port is an unsupported leftover that
@@ -334,7 +328,8 @@ def main() -> None:
         # Not available on all platforms (Windows lacks SIGUSR1;
         pass
 
-    # parse arguments BEFORE acquiring the single-instance
+    # Parse arguments BEFORE acquiring the single-instance mutex so a
+    # duplicate invocation exits without touching the lock.
 
     # Import from the canonical homes (not via the app-module re-exports)
     from voice_typer.server.logging_setup import _setup_logging
@@ -342,128 +337,100 @@ def main() -> None:
 
     port, ws_mode = parse_ipc_args()
 
-    # Early server-started selection: read the env var ONCE here (the
+    # Early server-started selection: read the env var ONCE here so the
+    # launch order cannot change mid-startup.
     _ws_early_bind = _early_server_started_enabled() and ws_mode
 
-    # ADR-0020 §12: under the Tauri sidecar path (TAURI_SIDECAR=1), the
+    # ADR-0020 §12: under the Tauri sidecar path (TAURI_SIDECAR=1) the host
+    # owns the single-instance lock, so Python must not compete for it.
     _tauri_sidecar = is_tauri_sidecar()
 
-    # In standalone/terminal mode (``voice-typer`` from a terminal without
-    while True:
-        # Re-acquire the single-instance mutex each cycle.  The previous
-        _single_instance_mutex = None if _tauri_sidecar else _ensure_single_instance(silent=True)
+    # Single-instance mutex: the Tauri host owns it under the sidecar path
+    # (ADR-0020 §12), so Python acquires it only in terminal mode.
+    _single_instance_mutex = None if _tauri_sidecar else _ensure_single_instance(silent=True)
 
-        # initialized`` banner (C-LOG-1).  ``setup_logging`` is idempotent
-        _setup_logging()
-        if _tauri_sidecar:
-            log.info("[IPC] TAURI_SIDECAR=1, skipping Python-side single-instance mutex (Tauri host owns it)")
+    # ``setup_logging`` is idempotent; it emits the ``[STARTUP] logging
+    # initialized`` banner (C-LOG-1) at most once per process.
+    _setup_logging()
+    if _tauri_sidecar:
+        log.info("[IPC] TAURI_SIDECAR=1, skipping Python-side single-instance mutex (Tauri host owns it)")
 
-        # the os._exit monkey-patch that printed a stack trace
+    if _ws_early_bind:
+        # Bind-before-build: the WS listener binds first and construction
+        # proceeds on the startup thread behind the live listener.
+        from typing import cast
+
+        from voice_typer.server.providers import AppProtocol, build_ipc_server
+
+        log.info(
+            "[IPC] early server-started mode (%s=1), binding the WS listener "
+            "before app construction; construction proceeds on the startup thread",
+            _EARLY_SERVER_STARTED_ENV_VAR,
+        )
+        # ``cast`` (not a suppression): the app is DELIBERATELY absent here.
+        server = build_ipc_server(cast(AppProtocol, None))
+        # ``server.start()`` is DEFERRED to the startup thread, which owns the
+        # real app and wires ``app.tray.set_state``.
+        server._tcp_mode = True
+        # Marker read by ``sidecar_ws.run`` to install the bounded pre-app
+        # dispatch buffer.
+        server._early_ws_bind = True
+    else:
+        try:
+            # Single construction site (shared with the early-bind thread).
+            app = _construct_app_with_diagnostics()
+        except Exception:
+            # Use the standardized exit code instead of raw 1.
+            sys.exit(EXIT_CRASH)
+
+        # Keep the single-instance mutex handle on the app so cleanup releases it.
+        app._mutex_handle = _single_instance_mutex
+
+        from voice_typer.server.providers import build_ipc_server
+
+        server = build_ipc_server(app)
+        # ``main()`` never spawns the stdin listener; the WS transport owns I/O.
+        server._tcp_mode = True
+        server.start()
+    # ADR-0020 §2: ``--ws`` runs the WebSocket sidecar server. Both branches
+    # terminate the process, so nothing below ever returns into ``main``.
+    if ws_mode:
+        import threading
+
+        from voice_typer.server import sidecar_ws
 
         if _ws_early_bind:
-            # Bind-before-build: the WS listener binds and
-            from typing import cast
-
-            from voice_typer.server.providers import AppProtocol, build_ipc_server
-
-            log.info(
-                "[IPC] early server-started mode (%s=1), binding the WS listener "
-                "before app construction; construction proceeds on the startup thread",
-                _EARLY_SERVER_STARTED_ENV_VAR,
+            _ws_startup_thread = threading.Thread(
+                target=_ws_startup_thread_main_early,
+                args=(server, _single_instance_mutex),
+                name="ws-sidecar-startup",
+                daemon=True,
             )
-            # ``cast`` (not a suppression): the app is DELIBERATELY
-            server = build_ipc_server(cast(AppProtocol, None))
-            # ``server.start()`` is DEFERRED to the startup thread: it
-            server._tcp_mode = True
-            # Marker read by ``sidecar_ws.run`` to install the bounded
-            server._early_ws_bind = True
         else:
-            try:
-                # Single construction site (shared with the early-bind
-                app = _construct_app_with_diagnostics()
-            except Exception:
-                # use the standardized exit code instead of raw 1.
-                sys.exit(EXIT_CRASH)
-
-            # PLAT-HLEAK: store the mutex handle on the app instance so
-            app._mutex_handle = _single_instance_mutex
-
-            # use the providers.build_ipc_server composition
-            from voice_typer.server.providers import build_ipc_server
-
-            server = build_ipc_server(app)
-            #  ``main()`` NEVER uses the
-            server._tcp_mode = True
-            server.start()
-        # ADR-0020 §2: --ws mode starts the WebSocket sidecar server instead
-        if ws_mode:
-            import threading
-
-            from voice_typer.server import sidecar_ws
-
-            # This branch exits via sys.exit() below and never reaches
-            if _ws_early_bind:
-                _ws_startup_thread = threading.Thread(
-                    target=_ws_startup_thread_main_early,
-                    args=(server, _single_instance_mutex),
-                    name="ws-sidecar-startup",
-                    daemon=True,
-                )
-            else:
-                _ws_startup_thread = threading.Thread(
-                    target=_ws_startup_thread_main,
-                    args=(app,),
-                    name="ws-sidecar-startup",
-                    daemon=True,
-                )
-            _ws_startup_thread.start()
-            log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
-            # ADR-0020 round-2 fix: do NOT call server.push({"type": "ready"})
-            _ws_exit = sidecar_ws.run(server)
-            if _ws_exit != 0:
-                log.warning("[IPC] sidecar_ws.run exited with code %d", _ws_exit)
-            sys.exit(_ws_exit)
-        else:
-            # TCP transport and predecessor standalone spawn were removed.
-            log.error(
-                "[IPC] No transport specified. The TCP transport was removed; "
-                "run with --ws for the Tauri sidecar WebSocket transport."
+            _ws_startup_thread = threading.Thread(
+                target=_ws_startup_thread_main,
+                args=(app,),
+                name="ws-sidecar-startup",
+                daemon=True,
             )
-            from voice_typer.__main__ import EXIT_BAD_ARGS
+        _ws_startup_thread.start()
+        log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
+        # ADR-0020 round-2 fix: do NOT push a ``ready`` frame here; the
+        # post-auth handshake order is owned by sidecar_ws (C-WS-1).
+        _ws_exit = sidecar_ws.run(server)
+        if _ws_exit != 0:
+            log.warning("[IPC] sidecar_ws.run exited with code %d", _ws_exit)
+        sys.exit(_ws_exit)
 
-            sys.exit(EXIT_BAD_ARGS)
+    # TCP transport and the predecessor standalone spawn were removed; without
+    # ``--ws`` there is no transport to serve.
+    log.error(
+        "[IPC] No transport specified. The TCP transport was removed; "
+        "run with --ws for the Tauri sidecar WebSocket transport."
+    )
+    from voice_typer.__main__ import EXIT_BAD_ARGS
 
-        # Tell the frontend we're ready. (WS mode exits above via
-        server.push({"type": "ready"})
-        # DEBUG: the tray's own "[TRAY] Tray icon created; event loop
-        log.debug("[IPC] entering app.start() (tray event loop)")
-        try:
-            app.start()  # blocks (tray event loop)
-            # QUIT-CLEAN-001: keep shutdown quiet.  Only ``[QUIT] Quitting
-            log.debug("[IPC] Shutdown complete")
-        except SystemExit as _se:
-            # sys.exit() or os._exit() called from within pystray or runtime.
-            log.debug("[IPC] app.start() exited via sys.exit(%s)", _se.code)
-            raise
-        except Exception:
-            #  (fix): was `except BaseException` which also caught
-            log.exception("[FATAL] app.start() raised, shutting down")
-            #  route through the shared diagnostic helper
-            from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
-
-            write_startup_diagnostic("app.start()")
-            # use the standardized exit code instead of raw 1.
-            sys.exit(EXIT_CRASH)
-        else:
-            pass
-        finally:
-            pass
-        # ``app.start()`` returned: the tray loop was broken by
-        if not vars(app).get("_in_place_restart", False):
-            break
-        log.info("[RESTART] In-place restart, re-initializing app in the same process")
-        # Loop back: the next iteration re-acquires the single-instance
-    _ = _single_instance_mutex
+    sys.exit(EXIT_BAD_ARGS)
 
 
 def _construct_app_with_diagnostics() -> VoiceTyperApp:
