@@ -39,6 +39,7 @@ REQUIRED_NAMESPACED_CODES: frozenset[str] = frozenset(
         "client.missing_field",
         "client.path_not_allowed",
         "client.not_found",
+        "client.onboarding_already_complete",
         "server.file_locked",
         "server.model_switch_failed",
     }
@@ -75,17 +76,34 @@ _CODE_LITERAL_RE = re.compile(
     re.MULTILINE,
 )
 
+# Keyword-argument form: ``_error_response(..., code="...")``. The dict-literal
+# regex above never saw these, which let an unregistered code ship unnoticed.
+_CODE_KWARG_RE = re.compile(
+    r"""\bcode\s*=\s*['"]([a-zA-Z_][a-zA-Z0-9_.]*)['"]""",
+    re.MULTILINE,
+)
+
 
 def _iter_emitted_code_literals():
-    """Yield ``(path, lineno, code)`` for every ``\"code\": \"<value>\"`` literal."""
+    """Yield ``(path, lineno, code)`` for every emitted error-code literal.
+
+    Covers both the dict-literal form (``"code": "..."``) and the
+    keyword-argument form (``code="..."``).
+    """
     for py_file in sorted(SERVER_DIR.rglob("*.py")):
         try:
             text = py_file.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for match in _CODE_LITERAL_RE.finditer(text):
-            lineno = text.count("\n", 0, match.start()) + 1
-            yield py_file, lineno, match.group(1)
+        seen: set[tuple[int, str]] = set()
+        for regex in (_CODE_LITERAL_RE, _CODE_KWARG_RE):
+            for match in regex.finditer(text):
+                lineno = text.count("\n", 0, match.start()) + 1
+                key = (lineno, match.group(1))
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield py_file, lineno, match.group(1)
 
 
 class TestErrorCodesRegistryContents:

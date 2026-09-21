@@ -136,54 +136,30 @@ class TestServiceLayerMicCacheInvalidator:
 
 
 class TestNameBasedDeviceResolution:
-    """``_resolve_device`` must parse the compound"""
+    """``_resolve_device`` delegates to the canonical id resolver."""
 
-    def test_resolve_device_parses_compound_form(self):
+    def test_resolve_device_delegates_to_canonical_resolver(self):
         src = _read(_DEVICE_MANAGER)
-        # The guard may be expressed as either ``"|" in mic`` (positive)
-        assert '"|"' in src and "mic" in src, (
-            "_resolve_device must check for the '|' separator in config.microphone to detect the compound form."
-        )
-        assert 'mic.split("|"' in src, (
-            "_resolve_device must split the compound form on '|' to "
-            "extract the saved index, name, and host_api components."
+        assert "resolve_mic_id_to_device_index" in src, (
+            "_resolve_device must delegate to resolve_mic_id_to_device_index()."
         )
 
-    def test_resolve_device_prefers_name_lookup(self):
+    def test_resolve_device_has_no_parallel_ladder(self):
         src = _read(_DEVICE_MANAGER)
-        assert "find_microphone_by_name" in src, (
-            "_resolve_device must call find_microphone_by_name() to "
-            "resolve the device by its stable name (survives hot-swap "
-            "renumbering) before falling back to the saved index."
-        )
+        assert "find_microphone_by_name" not in src, "_resolve_device must not keep a parallel name-lookup ladder."
+        assert "saved_index" not in src, "_resolve_device must not fall back to a stale saved index."
 
     def test_find_microphone_by_name_exists_in_microphone_list(self):
         src = _read(_MICROPHONE_LIST)
         assert "def find_microphone_by_name(" in src, (
             "microphone_list.py must define find_microphone_by_name() so "
-            "DeviceManager._resolve_device can resolve a device by name."
+            "legacy compound ids keep resolving through the canonical path."
         )
 
-    def test_resolve_device_emits_one_time_mismatch_warning(self):
+    def test_resolve_device_returns_none_when_unresolvable(self):
         src = _read(_DEVICE_MANAGER)
-        # The one-shot flag prevents the warning from firing on every
-        assert "_device_name_mismatch_warned" in src, (
-            "DeviceManager must track a one-shot flag so the name-mismatch "
-            "warning fires at most once per instance (avoids log spam on "
-            "every _resolve_device call)."
-        )
-        # The warning text must mention "now points to" so users can
-        assert "now points to" in src, (
-            "_resolve_device must emit a warning mentioning 'now points to' "
-            "when the saved index resolves to a differently-named device, "
-            "so the user knows to re-select the microphone in Settings."
-        )
-
-    def test_resolve_device_falls_back_to_saved_index(self):
-        src = _read(_DEVICE_MANAGER)
-        assert "saved_index" in src, (
-            "_resolve_device must keep the parsed saved_index so it can "
-            "fall back to it when name-based resolution fails."
+        assert "return None" in src, (
+            "_resolve_device must return None (System Default) when the canonical resolver cannot map the persisted id."
         )
 
 

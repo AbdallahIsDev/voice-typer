@@ -33,19 +33,21 @@ class TestStartupErrorLogOverwrite:
     """``startup-error.log`` must be overwritten, not appended."""
 
     def test_main_source_overwrites_not_appends(self):
-        """The source of ``main()`` must NOT read existing content"""
-        src = inspect.getsource(_entrypoint_module.main)
-        assert 'write_startup_diagnostic("app.start()")' in src, (
-            "main() must route the app.start()-failure diagnostic through "
-            'write_startup_diagnostic("app.start()") (EC-8 shared helper, overwrite, not append).'
+        """The live ``app.start()`` failure path must not read existing content."""
+        # ``app.start()`` runs on the ws startup thread (main() hands the tray
+        # loop to it), so the app.start()-failure diagnostic lives there.
+        src = inspect.getsource(_entrypoint_module._ws_startup_thread_main)
+        assert 'write_startup_diagnostic("ws app.start()")' in src, (
+            "the ws startup thread must route the app.start()-failure diagnostic through "
+            'write_startup_diagnostic("ws app.start()") (EC-8 shared helper, overwrite, not append).'
         )
         assert "existing = diag_path.read_text" not in src, (
-            "CR-10 regression: main() reads existing startup-error.log "
-            "content to append.  The fix overwrites, cap the file at one "
-            "entry."
+            "CR-10 regression: the app.start() failure path reads existing "
+            "startup-error.log content to append.  The fix overwrites, cap the file at one entry."
         )
         assert "existing + buf.getvalue()" not in src, (
-            "CR-10 regression: main() appends to startup-error.log.  The fix overwrites, cap the file at one entry."
+            "CR-10 regression: the app.start() failure path appends to startup-error.log.  "
+            "The fix overwrites, cap the file at one entry."
         )
 
     def test_repeated_failures_do_not_grow_file(self, tmp_path, monkeypatch):
@@ -89,22 +91,23 @@ class TestStartupErrorLogOverwrite:
         )
 
     def test_overwrite_matches_construction_failure_path(self):
-        """The ``app.start()`` failure path must use the SAME diagnostic"""
-        src = inspect.getsource(_entrypoint_module.main)
-        assert 'write_startup_diagnostic("app.start()")' in src, (
-            'main()\'s app.start()-failure path must call write_startup_diagnostic("app.start()") (EC-8 shared helper).'
+        """The ``app.start()`` failure path must use the SAME diagnostic helper."""
+        ws_src = inspect.getsource(_entrypoint_module._ws_startup_thread_main)
+        assert 'write_startup_diagnostic("ws app.start()")' in ws_src, (
+            'the ws app.start()-failure path must call write_startup_diagnostic("ws app.start()") (EC-8 shared helper).'
         )
-        assert "_construct_app_with_diagnostics()" in src, (
+        main_src = inspect.getsource(_entrypoint_module.main)
+        assert "_construct_app_with_diagnostics()" in main_src, (
             "main() must delegate VoiceTyperApp construction to the shared "
             "_construct_app_with_diagnostics helper (construction-failure "
             "diagnostics live there, EC-8 single source of truth, shared by "
             "both launch orders)."
         )
-        assert _ENTRYPOINT_MODULE_DIAGNOSTIC_CALLS >= 3, (
+        assert _ENTRYPOINT_MODULE_DIAGNOSTIC_CALLS >= 2, (
             "The entrypoint module must route ALL startup-failure "
             "diagnostics through write_startup_diagnostic(...) (EC-8): "
-            "one construction call (the shared helper) + one per "
-            "app.start()-failure site (main + the ws-startup thread). "
+            "one construction call (the shared helper) + one for the "
+            "ws-startup thread's app.start()-failure site. "
             f"Found {_ENTRYPOINT_MODULE_DIAGNOSTIC_CALLS} occurrence(s)."
         )
 
@@ -114,7 +117,7 @@ class TestStartupErrorLogConstructionFailureAlsoOverwrites:
 
     def test_construction_failure_path_uses_secure_atomic_write(self):
         """The ``except Exception`` clause around ``VoiceTyperApp()``"""
-        src = inspect.getsource(_entrypoint_module.main)
+        src = inspect.getsource(_entrypoint_module._construct_app_with_diagnostics)
         assert "write_startup_diagnostic(" in src, (
             "The construction-failure path must call "
             "write_startup_diagnostic(...) (EC-8 shared helper), "

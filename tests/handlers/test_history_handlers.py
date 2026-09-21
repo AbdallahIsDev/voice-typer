@@ -321,3 +321,43 @@ class TestHistoryKeysetCursor:
 
         assert resp["type"] == "history"
         service.assert_called_once_with(*positional_args)
+
+
+class TestGetTranscriptionText:
+    """``_handle_get_transcription_text``, full-text fetch + frame cap."""
+
+    def test_happy_path_returns_full_text(self, ipc_server, fake_service):
+        fake_service.get_transcription_text.return_value = {"id": 7, "text": "hello world"}
+        resp = ipc_server._handle_get_transcription_text({"id": 7}, {})
+        assert resp["type"] == "transcription_text"
+        assert resp["data"] == {"id": 7, "text": "hello world"}
+
+    def test_oversized_row_returns_payload_too_large_instead_of_dropping(self, ipc_server, fake_service):
+        """An extreme-length row must not be silently dropped by the WS frame cap.
+
+        The transport discards frames above its size ceiling, so the handler
+        has to surface an explicit error the renderer can degrade on rather
+        than a response that never arrives.
+        """
+        from voice_typer.server.handlers.history_handlers import _HISTORY_MAX_FRAME_BYTES
+
+        fake_service.get_transcription_text.return_value = {
+            "id": 1,
+            "text": "x" * (_HISTORY_MAX_FRAME_BYTES + 1),
+        }
+        resp = ipc_server._handle_get_transcription_text({"id": 1}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.payload_too_large"
+        assert "exceeds" in resp["data"]["message"]
+
+    def test_row_just_under_the_cap_still_returns_the_text(self, ipc_server, fake_service):
+        """The guard must not reject rows that fit (no false positives)."""
+        from voice_typer.server.handlers.history_handlers import _HISTORY_MAX_FRAME_BYTES
+
+        fake_service.get_transcription_text.return_value = {
+            "id": 2,
+            "text": "y" * (_HISTORY_MAX_FRAME_BYTES - 4096),
+        }
+        resp = ipc_server._handle_get_transcription_text({"id": 2}, {})
+        assert resp["type"] == "transcription_text"
+        assert len(resp["data"]["text"]) == _HISTORY_MAX_FRAME_BYTES - 4096

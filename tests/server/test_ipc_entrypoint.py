@@ -60,6 +60,23 @@ class TestParseIpcArgs:
         assert os.environ.get("TAURI_SIDECAR") is None
         assert os.environ.get("VOICE_TYPER_ALLOW_STDIN_IPC") is None
 
+    def test_allow_stdin_flag_removed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The inert ``--allow-stdin`` CLI flag is gone; only the env var gates stdin.
+
+        ``main`` hard-sets ``_tcp_mode = True`` for every transport, so the
+        flag could never enable the stdin listener. Passing it must now be a
+        no-op that leaves the env var unset (the direct-API/test seam stays).
+        """
+        import os
+
+        monkeypatch.delenv("VOICE_TYPER_ALLOW_STDIN_IPC", raising=False)
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--allow-stdin"])
+        entrypoint.parse_ipc_args()
+        assert os.environ.get("VOICE_TYPER_ALLOW_STDIN_IPC") is None, (
+            "--allow-stdin must no longer set VOICE_TYPER_ALLOW_STDIN_IPC; the flag was "
+            "removed because main() forces _tcp_mode = True so it could never take effect."
+        )
+
     def test_port_arg_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``--port`` is unsupported after TCP removal: EXIT_BAD_ARGS (4)."""
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])

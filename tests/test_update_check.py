@@ -371,22 +371,29 @@ class TestCheckOfflinePackUpdate:
         assert result["remote_version"] == "1.2.3"
         assert result["download_triggered"] is True
 
-    def test_consent_missing_returns_consent_required(
+    def test_consent_false_still_checks_and_downloads(
         self,
         fake_manifest_url: str,
         fake_event_bus,
         fake_config_no_consent,
         monkeypatch,
     ):
-        """When ``offline_pack_consent=False`` → ``{success: False, consent_required: True}``"""
+        """Always-on: consent flag False does NOT block fetch or download."""
         monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
         http_called: list[str] = []
+        triggered: list[bool] = []
 
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             http_called.append(url)
             return body
+
+        monkeypatch.setattr(
+            update_check,
+            "_trigger_background_download",
+            lambda **kwargs: triggered.append(True) or True,
+        )
 
         result = check_offline_pack_update(
             fake_config_no_consent,
@@ -395,21 +402,14 @@ class TestCheckOfflinePackUpdate:
             manifest_url=fake_manifest_url,
         )
 
-        assert result["success"] is False
-        assert result.get("consent_required") is True
-        assert result["download_triggered"] is False
-        assert "error" in result
-        assert result["reason"] == "consent_required"
-        # download it would trigger is forbidden anyway (C-DATA-1).
-        assert http_called == [], f"consent-off check must not fetch: {http_called}"
-
-        # The consent_required event should have been published.
+        assert http_called != [], "always-on must fetch the remote manifest"
+        assert result["success"] is True
+        assert result.get("consent_required") is not True
+        assert result["update_available"] is True
+        assert result["download_triggered"] is True
+        assert triggered == [True]
         consent_events = [e for e in fake_event_bus.events if e["type"] == "consent_required"]
-        assert len(consent_events) == 1, (
-            f"expected 1 consent_required event, got {len(consent_events)}: {fake_event_bus.events}"
-        )
-        assert consent_events[0]["data"]["provider"] == "github"
-        assert consent_events[0]["data"]["scope"] == "offline_pack"
+        assert consent_events == []
 
     def test_consent_off_with_local_pack_still_checks_remote(
         self,
@@ -418,7 +418,7 @@ class TestCheckOfflinePackUpdate:
         fake_config_no_consent,
         monkeypatch,
     ):
-        """Consent off BUT a local pack is installed → remote check still runs."""
+        """Local pack installed → remote check still runs regardless of consent flag."""
         monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: "1.2.3")
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
@@ -695,25 +695,54 @@ class TestTriggerBackgroundDownload:
         assert captured["expected_sha256"] == manifest["sha256"]
         assert captured["version"] == "1.2.3"
 
-    def test_consent_missing_raises(
+    def test_trigger_allows_without_consent(
         self,
         fake_manifest_url: str,
         fake_event_bus,
         fake_config_no_consent,
+        monkeypatch,
     ):
-        """When consent is missing, ``_trigger_background_download`` raises"""
-        from voice_typer.server.service.offline_pack import OfflinePackConsentRequiredError
-
+        """Always-on: missing consent does not raise; download path is opened."""
+        monkeypatch.setattr(
+            update_check.offline_pack,
+            "download_offline_pack_with_resume",
+            lambda *a, **k: False,
+        )
+        monkeypatch.setattr(
+            update_check.offline_pack,
+            "check_offline_pack_disk_space",
+            lambda *a, **k: None,
+        )
+        monkeypatch.setattr(
+            update_check.offline_pack,
+            "install_offline_pack",
+            lambda *a, **k: None,
+        )
+        monkeypatch.setattr(
+            update_check.offline_pack,
+            "offline_pack_exists",
+            lambda *a, **k: False,
+        )
+        monkeypatch.setattr(
+            update_check.offline_pack,
+            "OfflinePackLock",
+            lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda *a: False),
+        )
+        monkeypatch.setattr(
+            update_check.offline_pack,
+            "offline_pack_partial_path",
+            lambda version, root=None: Path(f"tmp_pack_{version}") / "partial.zip",
+        )
         manifest = _make_manifest("1.2.3")
-        with pytest.raises(OfflinePackConsentRequiredError):
-            update_check._trigger_background_download(
-                manifest=manifest,
-                manifest_url=fake_manifest_url,
-                config=fake_config_no_consent,
-                event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
-                root=None,
-                http_get=None,
-            )
+        ok = update_check._trigger_background_download(
+            manifest=manifest,
+            manifest_url=fake_manifest_url,
+            config=fake_config_no_consent,
+            event_bus=fake_event_bus.bus,  # type: ignore[arg-type]
+            root=None,
+            http_get=None,
+        )
+        assert ok is True
 
     def test_second_concurrent_trigger_is_skipped(
         self,
@@ -845,8 +874,8 @@ class TestHandleCheckPackUpdateIpc:
 
         result = handle_check_offline_pack_update_ipc(None, None, http_get=fake_http_get)
         assert isinstance(result, dict)
-        assert result["success"] is False
-        assert result.get("consent_required") is True
+        # Always-on: no consent_required path; fetch failed (no local pack path mocked well).
+        assert result.get("consent_required") is not True
 
     def test_app_without_event_bus_attribute_falls_back_to_module(
         self,

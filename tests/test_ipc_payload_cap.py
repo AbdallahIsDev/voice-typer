@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from voice_typer.server.ipc.validation import (
     MAX_EXPORT_PAYLOAD_BYTES,
     _enforce_payload_size_cap,
@@ -113,3 +115,27 @@ class TestHistoryFrameCapFallback:
         result = server._enforce_history_frame_cap(rows, command="get_history")
         assert isinstance(result, list)
         assert result == rows
+
+
+def test_measure_payload_bytes_counts_wire_bytes_not_escaped_ascii():
+    """Payload size must match the compact UTF-8 frame the sender writes."""
+    from voice_typer.server.ipc.validation import _measure_payload_bytes
+
+    payload = {"text": "你好世界，这是一段中文文本"}
+
+    expected = len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    assert _measure_payload_bytes(payload) == expected
+    # The old ASCII-escaped measurement inflated CJK payloads several-fold.
+    assert _measure_payload_bytes(payload) < len(json.dumps(payload))
+
+
+def test_cap_accepts_cjk_payload_that_fits_the_wire_but_not_the_escaped_form():
+    from voice_typer.server.ipc.validation import _enforce_payload_size_cap
+
+    payload = {"text": "中" * 40}
+    wire = len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    escaped = len(json.dumps(payload))
+
+    assert escaped > wire
+    assert _enforce_payload_size_cap(payload, wire) is None
+    assert _enforce_payload_size_cap(payload, wire - 1) is not None

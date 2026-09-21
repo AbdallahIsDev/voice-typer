@@ -80,7 +80,11 @@ async def test_other_frames_still_go_through_dispatch() -> None:
 
 
 def test_is_graceful_loop_stop_classification() -> None:
-    """unrequested loop stop) stays fatal."""
+    """A stop we requested classifies clean; anything else stays fatal.
+
+    Classification is flag + RuntimeError + no cause chain, not CPython's
+    error text (which can be reworded across versions).
+    """
     exc = RuntimeError("Event loop stopped before Future completed.")
 
     flagged = SimpleNamespace(_ws_graceful_stop_requested=True)
@@ -90,8 +94,13 @@ def test_is_graceful_loop_stop_classification() -> None:
     assert _is_graceful_loop_stop(flagged, exc) is True
     assert _is_graceful_loop_stop(unflagged, exc) is False
     assert _is_graceful_loop_stop(unset, exc) is False
-    # Right message but no flag → fatal (unknown stop origin).
-    assert _is_graceful_loop_stop(flagged, RuntimeError("other")) is False
+
+    # A failure with an attached cause chain is a real error, not our stop.
+    chained = RuntimeError("boom")
+    chained.__cause__ = ValueError("root cause")
+    assert _is_graceful_loop_stop(flagged, chained) is False
+    # A non-RuntimeError never classifies as the designed stop.
+    assert _is_graceful_loop_stop(flagged, ValueError("x")) is False
 
 
 def test_ws_graceful_shutdown_sets_stop_requested_flag() -> None:

@@ -282,3 +282,55 @@ class TestInsertSqlSingleSource:
             assert [r[0] for r in rows] == ["a", "b", "c", "solo"]
         finally:
             conn.close()
+
+
+def test_batch_resolves_each_future_with_its_own_row_id(db, monkeypatch):
+    """Every batched future resolves with ITS OWN row id (not the batch's last)."""
+    import concurrent.futures
+
+    from voice_typer.server import _text_crypto, history_db as hd
+    from voice_typer.server.history_db import _BatchableInsert
+    from voice_typer.server.history_db_internals import writer as writer_mod
+
+    # Assert plaintext row ids, not the at-rest ciphertext (this test pins the
+    # future-resolution arithmetic, not encryption).
+    monkeypatch.setattr(_text_crypto, "get_dek_cached", lambda: None)
+
+    def _item(text: str, future):
+        return _BatchableInsert(
+            text=text,
+            duration=1.0,
+            model="m",
+            device="d",
+            word_count=2,
+            char_count=len(text),
+            language="en",
+            future=future,
+        )
+
+    futures = [concurrent.futures.Future() for _ in range(3)]
+    conn = sqlite3.connect(str(db.db_path))
+    try:
+        monkeypatch.setattr(hd, "_BATCH_INSERT_MIN", 1)
+        queue_swap = queue.Queue()
+        queue_swap.put_nowait(_item("b", futures[1]))
+        queue_swap.put_nowait(_item("c", futures[2]))
+        real_queue = db._queue
+        db._queue = queue_swap
+        try:
+            writer_mod._drain_batchable_inserts(db, conn, _item("a", futures[0]))
+        finally:
+            db._queue = real_queue
+
+        resolved = [f.result(timeout=1) for f in futures]
+        assert len(set(resolved)) == 3, f"each future must get its own id; got {resolved}"
+        assert resolved == [resolved[0], resolved[0] + 1, resolved[0] + 2], (
+            f"contiguous ids in batch order expected; got {resolved}"
+        )
+
+        for expected_text, row_id in zip(("a", "b", "c"), resolved, strict=True):
+            row = conn.execute("SELECT id, text FROM transcriptions WHERE id = ?", (row_id,)).fetchone()
+            assert row is not None, f"no row with reported id {row_id}"
+            assert row[1] == expected_text, f"future for {expected_text!r} reported row {row_id} ({row[1]!r})"
+    finally:
+        conn.close()

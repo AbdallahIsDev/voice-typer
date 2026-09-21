@@ -777,6 +777,71 @@ class TestWindowsRestoreReturnsFalseOnAllFailures:
         mock_log.warning.assert_called_once()
 
 
+class TestWindowsRestoreFormatIdSelection:
+    """Clipboard restore must address builtin formats by NUMBER.
+
+    Builtin formats (``CF_UNICODETEXT``=13, ``CF_TEXT``=1, ...) are
+    predefined ids, they have no ``RegisterClipboardFormat`` name. Asking
+    the API to look one up by its display name returns a NEW custom id, so
+    the restored bytes land under that id and the builtin lookup finds
+    nothing: the user's clipboard content does not come back.
+    """
+
+    def test_builtin_format_id_is_not_re_registered_by_name(self):
+        """A CF_UNICODETEXT item must be written back as format 13."""
+        snap = ClipboardSnapshot(
+            platform="windows",
+            items=[(13, "CF_UNICODETEXT", b"hello\0")],
+            captured_at=0.0,
+        )
+        windll, user32, _ = _install_fake_windll_for_restore(
+            set_clipboard_data_returns=0xDEADBEEF,  # non-NULL = success
+        )
+
+        with (
+            patch("ctypes.windll", windll, create=True),
+            patch("ctypes.memmove"),
+            patch.object(snap_mod, "log"),
+        ):
+            result = snap._restore_windows()
+
+        assert result is True
+        user32.RegisterClipboardFormatW.assert_not_called()
+        user32.SetClipboardData.assert_called_once()
+        target_fmt = user32.SetClipboardData.call_args.args[0]
+        assert target_fmt == 13, (
+            f"SetClipboardData must receive the builtin CF_UNICODETEXT id (13); got {target_fmt!r}. "
+            "Re-registering the display name would create a bogus custom id and lose the user's text."
+        )
+
+    def test_registered_format_is_still_re_registered_by_name(self):
+        """Custom formats (id >= 0xC000) keep the dynamic-id re-registration."""
+        name = "ExcludeClipboardContentFromMonitorProcessing"
+        snap = ClipboardSnapshot(
+            platform="windows",
+            items=[(0xC001, name, b"payload")],
+            captured_at=0.0,
+        )
+        windll, user32, _ = _install_fake_windll_for_restore(
+            set_clipboard_data_returns=0xDEADBEEF,
+        )
+        # Windows hands out a different custom id this session.
+        user32.RegisterClipboardFormatW.return_value = 0xC042
+
+        with (
+            patch("ctypes.windll", windll, create=True),
+            patch("ctypes.memmove"),
+            patch.object(snap_mod, "log"),
+        ):
+            result = snap._restore_windows()
+
+        assert result is True
+        user32.RegisterClipboardFormatW.assert_called_once_with(name)
+        assert user32.SetClipboardData.call_args.args[0] == 0xC042, (
+            "A registered format must be written back under its CURRENT id, not the captured one"
+        )
+
+
 def _install_fake_appkit_for_restore(
     *,
     set_data_returns: bool = True,

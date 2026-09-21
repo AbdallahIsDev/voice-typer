@@ -439,51 +439,36 @@ class TestDeviceManagerResolveDeviceStableId:
     def test_stable_id_resolves_to_enumerated_index(self, monkeypatch):
         dm, _ = self._make_dm("Windows WASAPI|Blue Yeti")
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
-            lambda mic_id: {"id": mic_id, "index": 5, "name": "Blue Yeti"},
+            "voice_typer.server.server_platform.microphone_list.resolve_mic_id_to_device_index",
+            lambda mic_id: 5,
         )
         assert dm._resolve_device() == 5
 
-    def test_unresolvable_stable_id_falls_through_to_legacy_parsers(self, monkeypatch):
+    def test_unresolvable_stable_id_returns_none(self, monkeypatch):
         dm, _ = self._make_dm("Windows WASAPI|Gone")
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
+            "voice_typer.server.server_platform.microphone_list.resolve_mic_id_to_device_index",
             lambda mic_id: None,
         )
-        # Falls through to the legacy compound parser: no numeric leading
-        assert dm._resolve_device() == "Gone"
+        assert dm._resolve_device() is None
 
-    def test_legacy_digit_string_skips_enumeration(self, monkeypatch):
+    def test_bare_numeric_string_resolves_via_canonical(self, monkeypatch):
         dm, _ = self._make_dm("5")
+        seen: list = []
+        from voice_typer.server.server_platform import microphone_list as mic_list
 
-        def boom(_mic_id):
-            raise AssertionError("bare digit ids must not trigger enumeration")
+        real = mic_list.resolve_mic_id_to_device_index
 
-        monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.find_microphone_by_id", boom)
-        assert dm._resolve_device() == 5
+        def spy(mic_id):
+            seen.append(mic_id)
+            return real(mic_id)
 
-    def test_legacy_compound_form_still_works(self, monkeypatch):
-        dm, _ = self._make_dm("5|Blue Yeti|Windows WASAPI")
         monkeypatch.setattr(
-            "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
-            lambda mic_id: (
-                {"id": "x", "index": 99, "name": "wrong"} if mic_id == "5|Blue Yeti|Windows WASAPI" else None
-            ),
+            "voice_typer.server.server_platform.microphone_list.resolve_mic_id_to_device_index",
+            spy,
         )
-        # Exact match on the compound string would be wrong if it pointed
-        assert dm._resolve_device() == 99
-
-    def test_legacy_compound_form_prefers_name_lookup(self, monkeypatch):
-        dm, _ = self._make_dm("5|Blue Yeti|Windows WASAPI")
-        monkeypatch.setattr(
-            "voice_typer.server.server_platform.microphone_list.find_microphone_by_id",
-            lambda mic_id: None,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.server_platform.microphone_list.find_microphone_by_name",
-            lambda name: {"id": "Windows WASAPI|Blue Yeti", "index": 12, "name": name},
-        )
-        assert dm._resolve_device() == 12
+        dm._resolve_device()
+        assert seen == ["5"]
 
 
 class TestSetConfigMicrophoneValidator:

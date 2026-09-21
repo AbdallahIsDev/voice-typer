@@ -386,8 +386,8 @@ class TestOnboardingStartRerunGuard:
         resp = ipc_server._handle_onboarding_start({}, {})
 
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "onboarding_already_complete", (
-            f"DE-39: expected code 'onboarding_already_complete'; got: {resp['data'].get('code')!r}"
+        assert resp["data"]["code"] == "client.onboarding_already_complete", (
+            f"DE-39: expected code 'client.onboarding_already_complete'; got: {resp['data'].get('code')!r}"
         )
         assert "force" in resp["data"]["message"].lower(), "DE-39: error message must mention the force flag"
         fake_service.onboarding_start.assert_not_called()
@@ -419,7 +419,7 @@ class TestOnboardingStartRerunGuard:
         # Empty string → falsy → guard fires.
         resp = ipc_server._handle_onboarding_start({"force": ""}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "onboarding_already_complete"
+        assert resp["data"]["code"] == "client.onboarding_already_complete"
 
     def test_non_dict_data_does_not_crash_guard(self, ipc_server, fake_service):
         """non-dict (renderer may send no payload). The handler coerces"""
@@ -428,7 +428,7 @@ class TestOnboardingStartRerunGuard:
         # None payload, must not raise TypeError.
         resp = ipc_server._handle_onboarding_start(None, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "onboarding_already_complete"
+        assert resp["data"]["code"] == "client.onboarding_already_complete"
 
     def test_guard_logs_warning_when_blocking(self, ipc_server, fake_service, caplog):
         """DE-39: when the guard blocks, the handler logs a WARNING so"""

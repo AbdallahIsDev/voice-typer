@@ -26,24 +26,28 @@ class TestResolveDevice:
         r = Recorder(config)
         assert r._devices._resolve_device() is None
 
-    def test_string_index_converts_to_int(self):
+    def test_string_index_converts_to_int(self, monkeypatch):
         from voice_typer.server.recording import Recorder
 
         config = MagicMock()
         config.microphone = "7"
         config.sample_rate = 16000
         r = Recorder(config)
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.microphone_list.resolve_mic_id_to_device_index",
+            lambda mic_id: 7,
+        )
         assert r._devices._resolve_device() == 7
 
-    def test_legacy_name_string_passes_through(self):
-        """If someone put a device name (not numeric), pass it as-is."""
+    def test_unresolvable_name_returns_none(self):
+        """Unresolvable ids fall back to System Default (None)."""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock()
         config.microphone = "Blue Yeti"
         config.sample_rate = 16000
         r = Recorder(config)
-        assert r._devices._resolve_device() == "Blue Yeti"
+        assert r._devices._resolve_device() is None
 
 
 def _force_resample_fallback(monkeypatch) -> None:
@@ -884,19 +888,29 @@ class TestRecordingParametrized:
         "device_input,expected",
         [
             (None, None),
-            ("7", 7),
-            ("0", 0),
-            ("Blue Yeti", "Blue Yeti"),
-            ("", ""),
         ],
     )
-    def test_resolve_device_various_inputs(self, device_input, expected):
-        """_resolve_device should handle various input formats."""
+    def test_resolve_device_various_inputs(self, device_input, expected, monkeypatch):
+        """_resolve_device delegates every id shape to the canonical resolver."""
         from voice_typer.server.recording import Recorder
+        from voice_typer.server.server_platform import microphone_list as mic_list
 
+        real = mic_list.resolve_mic_id_to_device_index
+        seen: list = []
+
+        def spy(mic_id):
+            seen.append(mic_id)
+            return real(mic_id)
+
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.microphone_list.resolve_mic_id_to_device_index",
+            spy,
+        )
         config = MagicMock(sample_rate=16000, microphone=device_input)
         r = Recorder(config)
         assert r._devices._resolve_device() == expected
+        if device_input is not None:
+            assert seen == [device_input]
 
     @pytest.mark.parametrize("silence_val", [0.0, -100.0, -50.0, -30.0])
     def test_silence_timer_starts_at_zero_regardless_of_threshold(self, silence_val):

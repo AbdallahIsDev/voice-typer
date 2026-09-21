@@ -125,14 +125,14 @@ class TestIsPasswordFieldLinux:
             if saved is not None:
                 sys.modules["pyatspi"] = saved
 
-        assert result1 is False
-        assert result2 is False
+        assert result1 is True
+        assert result2 is True
         # First call logs a WARNING with the install hint.
         warning_calls = [c for c in mock_log.warning.call_args_list if "pyatspi not installed" in str(c)]
         assert len(warning_calls) == 1, "expected exactly ONE warning (once-only guard)"
-        # Second call logs at DEBUG (already-warned path).
+        # Second call logs at DEBUG (already-warned / fail-closed path).
         debug_calls = [
-            c for c in mock_log.debug.call_args_list if "pyatspi not installed" in str(c) and "already warned" in str(c)
+            c for c in mock_log.debug.call_args_list if "pyatspi not installed" in str(c) and "fail closed" in str(c)
         ]
         assert len(debug_calls) >= 1
 
@@ -255,17 +255,17 @@ class TestIsPasswordFieldMacOS:
             if saved_app_services is not None:
                 sys.modules["ApplicationServices"] = saved_app_services
 
-        assert result1 is False
-        assert result2 is False
+        assert result1 is True
+        assert result2 is True
         warning_calls = [c for c in mock_log.warning.call_args_list if "pyobjc" in str(c) and "not installed" in str(c)]
         assert len(warning_calls) == 1, "expected exactly ONE warning (once-only guard)"
         debug_calls = [
-            c for c in mock_log.debug.call_args_list if "pyobjc not installed" in str(c) and "already warned" in str(c)
+            c for c in mock_log.debug.call_args_list if "pyobjc not installed" in str(c) and "fail closed" in str(c)
         ]
         assert len(debug_calls) >= 1
 
     def test_returns_false_when_no_frontmost_app(self):
-        """If NSWorkspace.frontmostApplication() returns None, return False."""
+        """If NSWorkspace.frontmostApplication() returns None, fail closed (True)."""
         fakes = _make_fake_pyobjc(role="AXSecureTextField")
 
         # Override frontmostApplication to return None.
@@ -275,7 +275,7 @@ class TestIsPasswordFieldMacOS:
             patch.object(clip_mod, "log"),
         ):
             result = safety_mod._is_password_field_macos()
-        assert result is False
+        assert result is True
 
     def test_returns_true_when_ax_call_raises(self):
         """If AXUIElementCopyAttributeValue raises, fail closed (return True)."""
@@ -338,8 +338,8 @@ class TestIsSafePasteTargetDispatch:
             result = ClipboardManager._is_safe_paste_target()
         assert result is True
 
-    def test_fails_open_when_platform_helper_raises(self):
-        """If the platform helper itself raises, the dispatcher logs + returns True."""
+    def test_fails_closed_when_platform_helper_raises(self):
+        """If the platform helper itself raises, the dispatcher logs + returns False (FV-21)."""
         with (
             patch.object(clip_mod, "is_windows", return_value=False),
             patch.object(clip_mod, "is_macos", return_value=False),
@@ -348,7 +348,7 @@ class TestIsSafePasteTargetDispatch:
             patch.object(clip_mod, "log") as mock_log,
         ):
             result = ClipboardManager._is_safe_paste_target()
-        assert result is True  # fail-open on dispatcher exception
+        assert result is False  # fail-closed on dispatcher exception
         # The dispatcher logs a warning about the failure.
         warning_calls = [
             c for c in mock_log.warning.call_args_list if "non-Windows password-field check raised" in str(c)

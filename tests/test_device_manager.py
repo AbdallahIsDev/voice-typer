@@ -153,84 +153,50 @@ class TestNameBasedDeviceResolution:
         dm.recorder.config.microphone = None
         assert dm._resolve_device() is None
 
-    def test_bare_index_string_still_works(self):
-        """Legacy ``config.microphone = \"5\"`` → return int 5 (backward compat)."""
+    def test_bare_index_string_resolves_via_canonical(self, monkeypatch):
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5"
+        import voice_typer.server.server_platform.microphone_list as server_platform_mod
+
+        monkeypatch.setattr(server_platform_mod, "resolve_mic_id_to_device_index", lambda mic_id: 5)
         assert dm._resolve_device() == 5
 
-    def test_compound_form_prefers_name_resolution(self, monkeypatch):
-        """``\"5|USB Mic A|CoreAudio\"`` → name lookup returns index 7 → return 7"""
-        dm = _make_device_manager()
-        dm.recorder.config.microphone = "5|USB Mic A|CoreAudio"
-
-        # Patch find_microphone_by_name to return a different index.
-        fake_match = {"id": "7", "index": 7, "name": "USB Mic A", "host_api": "CoreAudio"}
-        import voice_typer.server.server_platform.microphone_list as server_platform_mod
-
-        monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: fake_match)
-
-        result = dm._resolve_device()
-        assert result == 7, "DJ-69: name resolution must take precedence over saved index"
-
-    def test_compound_form_falls_back_to_saved_index_when_name_not_found(self, monkeypatch):
-        """If ``find_microphone_by_name`` returns None, fall back to the saved index."""
+    def test_unresolvable_id_returns_none(self, monkeypatch):
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
-
         import voice_typer.server.server_platform.microphone_list as server_platform_mod
 
-        monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
+        monkeypatch.setattr(server_platform_mod, "resolve_mic_id_to_device_index", lambda mic_id: None)
+        assert dm._resolve_device() is None
 
-        result = dm._resolve_device()
-        assert result == 5, "DJ-69: must fall back to saved index when name lookup fails"
-
-    def test_compound_form_warns_on_name_mismatch(self, monkeypatch, caplog):
-        """When name resolution fails AND the saved index now points at a"""
+    def test_compound_form_unresolvable_returns_none(self, monkeypatch, caplog):
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5|USB Mic A|CoreAudio"
 
-        import voice_typer.server.recording.device_manager as dm_mod
         import voice_typer.server.server_platform.microphone_list as server_platform_mod
 
-        # Name lookup fails.
-        monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
-        # Saved index 5 now points to "Webcam Mic B" (different name).
-        monkeypatch.setattr(
-            dm_mod.sd,
-            "query_devices",
-            lambda *a, **k: {"name": "Webcam Mic B", "index": 5, "max_input_channels": 1},
-        )
+        monkeypatch.setattr(server_platform_mod, "resolve_mic_id_to_device_index", lambda mic_id: None)
 
         with caplog.at_level(
             logging.WARNING,
             logger="voice_typer.server.recording",
         ):
             result1 = dm._resolve_device()
-            # Second call should NOT re-warn (one-time).
             result2 = dm._resolve_device()
 
-        assert result1 == 5
-        assert result2 == 5
-        warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert sum("saved microphone index" in m and "now points to" in m for m in warning_messages) == 1, (
-            f"Expected exactly one DJ-69 mismatch warning, got: {warning_messages}"
-        )
+        assert result1 is None
+        assert result2 is None
 
-    def test_compound_form_no_warn_when_saved_index_gone(self, monkeypatch, caplog):
-        """When the saved index is no longer queryable, no mismatch warning"""
+    def test_resolver_exception_returns_none(self, monkeypatch, caplog):
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
 
-        import voice_typer.server.recording.device_manager as dm_mod
         import voice_typer.server.server_platform.microphone_list as server_platform_mod
 
-        monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
-
-        def raising_query(*a, **k):
+        def raising_resolver(mic_id):
             raise RuntimeError("device gone")
 
-        monkeypatch.setattr(dm_mod.sd, "query_devices", raising_query)
+        monkeypatch.setattr(server_platform_mod, "resolve_mic_id_to_device_index", raising_resolver)
 
         with caplog.at_level(
             logging.WARNING,
@@ -238,61 +204,7 @@ class TestNameBasedDeviceResolution:
         ):
             result = dm._resolve_device()
 
-        assert result == 5  # falls back to int(saved_index_str)
-        warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert not any("saved microphone index" in m and "now points to" in m for m in warning_messages), (
-            f"Expected NO DJ-69 warning when saved index is gone, got: {warning_messages}"
-        )
-
-    @pytest.mark.parametrize(
-        "exc",
-        [
-            RuntimeError("device gone"),
-            OSError("PortAudio: Invalid device index"),
-            KeyError("hostapi"),
-            AttributeError("'NoneType' object has no attribute 'get'"),
-            ValueError("invalid device number"),
-            Exception("any other PortAudio error"),
-        ],
-        ids=[
-            "runtime_error",
-            "oserror_portaudio",
-            "keyerror_hostapi",
-            "attributeerror_partial_init",
-            "valueerror_invalid_index",
-            "generic_exception",
-        ],
-    )
-    def test_compound_form_no_warn_when_query_raises_any_exception(self, monkeypatch, caplog, exc):
-        """The DJ-69 diagnostic probe's ``except`` clause must catch any"""
-        dm = _make_device_manager()
-        dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
-
-        import voice_typer.server.recording.device_manager as dm_mod
-        import voice_typer.server.server_platform.microphone_list as server_platform_mod
-
-        monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
-
-        def raising_query(*a, **k):
-            raise exc
-
-        monkeypatch.setattr(dm_mod.sd, "query_devices", raising_query)
-
-        with caplog.at_level(
-            logging.WARNING,
-            logger="voice_typer.server.recording",
-        ):
-            # Must NOT raise, the diagnostic probe's except clause
-            result = dm._resolve_device()
-
-        assert result == 5, (
-            f"_resolve_device must fall back to the saved index (5) when "
-            f"sd.query_devices raises {type(exc).__name__}; got {result!r}"
-        )
-        warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert not any("saved microphone index" in m and "now points to" in m for m in warning_messages), (
-            f"Expected NO DJ-69 warning when query raises {type(exc).__name__}; got: {warning_messages}"
-        )
+        assert result is None
 
 
 # BT-aware retry policy ──────────────────────────────────────

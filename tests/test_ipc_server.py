@@ -1822,8 +1822,13 @@ class TestStdinGate:
         finally:
             server.stop()
 
-    def test_allow_stdin_cli_flag_sets_env_var(self, monkeypatch) -> None:
-        """``--allow-stdin`` CLI flag in ``parse_ipc_args()``"""
+    def test_allow_stdin_cli_flag_is_inert(self, monkeypatch) -> None:
+        """``--allow-stdin`` is no longer a recognized flag.
+
+        The flag used to set ``VOICE_TYPER_ALLOW_STDIN_IPC=1``, but ``main()``
+        hard-sets ``_tcp_mode = True`` for every transport, so it could never
+        take effect. The env var remains the only stdin-listener gate.
+        """
         import sys
 
         from voice_typer.server.ipc_server import parse_ipc_args
@@ -1832,10 +1837,9 @@ class TestStdinGate:
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--allow-stdin"])
         try:
             port, ws_mode = parse_ipc_args()
-            assert os.environ.get("VOICE_TYPER_ALLOW_STDIN_IPC") == "1", (
-                "--allow-stdin CLI flag must set "
-                "VOICE_TYPER_ALLOW_STDIN_IPC=1 so the gate at start() "
-                "allows the stdin listener."
+            assert os.environ.get("VOICE_TYPER_ALLOW_STDIN_IPC") is None, (
+                "--allow-stdin must no longer set VOICE_TYPER_ALLOW_STDIN_IPC; the flag was "
+                "removed because main() forces _tcp_mode = True so it could never take effect."
             )
             assert port is None
             assert ws_mode is False
@@ -2058,15 +2062,45 @@ class TestRegistryExtraction:
         )
 
     def test_readonly_commands_unchanged(self) -> None:
-        """``_READONLY_COMMANDS`` is the documented 4-element"""
+        """``_READONLY_COMMANDS`` is the documented audited pure-read set.
+
+        Membership means the handler cannot mutate shared state, so the
+        dispatcher may run it outside ``_dispatch_lock``. The expected set is
+        pinned here; ``tests/test_readonly_commands_audit.py`` enforces the
+        classification invariant for every ``get_*`` command.
+        """
         from voice_typer.server.ipc import registry
 
-        assert (
-            frozenset({"get_status", "get_config", "get_model_catalog", "heartbeat"}) == registry._READONLY_COMMANDS
-        ), (
-            f"registry._READONLY_COMMANDS must be the 4-element "
-            f"frozenset {{'get_status', 'get_config', 'get_model_catalog', "
-            f"'heartbeat'}}; got {registry._READONLY_COMMANDS!r}."
+        expected = frozenset(
+            {
+                "get_status",
+                "get_config",
+                "get_model_catalog",
+                "heartbeat",
+                "get_defaults",
+                "get_history",
+                "get_history_count",
+                "get_today_stats",
+                "get_favorites",
+                "get_transcription_text",
+                "get_microphones",
+                "get_volume_backend_status",
+                "get_model_status",
+                "get_prewarm_status",
+                "get_vocabulary",
+                "get_correction_usage",
+                "get_templates",
+                "get_download_queue",
+                "microphone_test_get_level",
+                "onboarding_is_first_run",
+                "onboarding_get_microphones",
+                "onboarding_get_model_options",
+                "onboarding_get_hotkey_presets",
+                "onboarding_check_permissions",
+            }
+        )
+        assert expected == registry._READONLY_COMMANDS, (
+            f"registry._READONLY_COMMANDS changed; expected\n{expected!r}\ngot\n{registry._READONLY_COMMANDS!r}."
         )
 
     def test_registry_history_comment_block_present(self) -> None:

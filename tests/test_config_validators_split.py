@@ -99,7 +99,6 @@ _PRE_SPLIT_ALLOWLIST_KEYS: frozenset[str] = frozenset(
         "noise_filter_notch",
         "noise_filter_notch_frequency_hz",
         "noise_suppression_method",
-        "offline_pack_consent",
         "onboarding_completed",
         "openai_api_key",
         "paste_on_stop",
@@ -153,9 +152,9 @@ class TestAllowlistSnapshot:
     """SEC-002 byte-for-byte parity for ``IPC_CONFIG_ALLOWLIST``."""
 
     def test_allowlist_size_unchanged(self) -> None:
-        """The allowlist must still contain exactly 127 keys."""
-        assert len(IPC_CONFIG_ALLOWLIST) == 127, (
-            f"IPC_CONFIG_ALLOWLIST size drifted: expected 127, got {len(IPC_CONFIG_ALLOWLIST)}. "
+        """The allowlist must still contain exactly 126 keys."""
+        assert len(IPC_CONFIG_ALLOWLIST) == 126, (
+            f"IPC_CONFIG_ALLOWLIST size drifted: expected 126, got {len(IPC_CONFIG_ALLOWLIST)}. "
             "SEC-002 contract (AGENTS.md §6.3), adding/removing keys is a "
             "security-sensitive change that must be reviewed explicitly."
         )

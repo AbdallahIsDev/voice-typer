@@ -299,8 +299,8 @@ class TestIsPasswordFieldWindows:
         safety_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
         safety_mod._WE_ELEVATED = None
 
-    def test_returns_false_when_no_foreground_window(self, fake_win32):
-        """No focused window → False (comtypes path returns False too)."""
+    def test_returns_true_when_no_foreground_window(self, fake_win32):
+        """Unresolvable field state → True (fail closed, target treated unsafe)."""
         fake_win32["user32"].GetForegroundWindow.return_value = 0
         # Make comtypes import fail so we exercise the ImportError branch.
         with (
@@ -311,9 +311,9 @@ class TestIsPasswordFieldWindows:
                 return_value=False,
             ),
         ):
-            # Function should not raise; returns False.
+            # Function should not raise; the unknown state blocks the paste.
             result = _is_password_field()
-        assert result is False
+        assert result is True
 
     def test_returns_true_for_password_field_via_uia(self, fake_win32):
         """When UIA reports IsPassword=True → True + warning logged."""
@@ -380,8 +380,12 @@ class TestIsPasswordFieldWindows:
             result = _is_password_field()
         assert result is False
 
-    def test_returns_false_on_comtypes_import_error(self, fake_win32):
-        """comtypes ImportError → fallback to window-class heuristic."""
+    def test_returns_true_on_comtypes_import_error(self, fake_win32):
+        """comtypes ImportError → the unknown field state fails CLOSED.
+
+        The window-class probe is still consulted for the log line, but the
+        block decision no longer depends on it.
+        """
         # Setting sys.modules entries to None makes Python raise
         with (
             patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}),
@@ -392,7 +396,7 @@ class TestIsPasswordFieldWindows:
             ) as mock_cred,
         ):
             result = _is_password_field()
-        assert result is False
+        assert result is True
         mock_cred.assert_called_once()
 
     def test_returns_true_when_comtypes_missing_and_cred_dialog_present(self, fake_win32):
@@ -408,8 +412,8 @@ class TestIsPasswordFieldWindows:
             result = _is_password_field()
         assert result is True
 
-    def test_returns_false_on_uia_call_exception(self, fake_win32):
-        """comtypes installed but UIA call raises → fail open (False)."""
+    def test_returns_true_on_uia_call_exception(self, fake_win32):
+        """comtypes installed but UIA raises → field state UNKNOWN → fail CLOSED."""
         fake_comtypes = MagicMock(name="comtypes")
         fake_comtypes_client = MagicMock(name="comtypes.client")
         fake_comtypes.client = fake_comtypes_client
@@ -422,12 +426,17 @@ class TestIsPasswordFieldWindows:
                 {"comtypes": fake_comtypes, "comtypes.client": fake_comtypes_client},
             ),
             patch.object(clip_mod, "log"),
+            patch(
+                "voice_typer.server.clipboard_target_safety._focused_window_is_credential_dialog",
+                return_value=False,
+            ),
         ):
             result = _is_password_field()
-        assert result is False
+        # An unresolved field state must never be treated as "safe".
+        assert result is True
 
-    def test_returns_false_on_outer_exception(self, fake_win32):
-        """Any unexpected exception in the outer try → False."""
+    def test_returns_true_on_outer_exception(self, fake_win32):
+        """An unexpected exception while resolving the field → fail CLOSED."""
         with (
             patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}),
             patch.object(clip_mod, "log"),
@@ -437,11 +446,11 @@ class TestIsPasswordFieldWindows:
             ),
         ):
             result = _is_password_field()
-        # Outer except catches and returns False.
-        assert result is False
+        # An unresolved field state must never be treated as "safe".
+        assert result is True
 
-    def test_returns_false_when_wintypes_import_fails(self, fake_win32):
-        """If ``from ctypes import wintypes`` raises → outer except → False."""
+    def test_returns_true_when_wintypes_import_fails(self, fake_win32):
+        """If ``from ctypes import wintypes`` raises → fail CLOSED."""
         saved_attr = getattr(ctypes, "wintypes", None)
         had_attr = hasattr(ctypes, "wintypes")
         if had_attr:
@@ -449,7 +458,7 @@ class TestIsPasswordFieldWindows:
         try:
             with patch.dict(sys.modules, {"ctypes.wintypes": None}):
                 result = _is_password_field()
-            assert result is False
+            assert result is True
         finally:
             if had_attr:
                 # Restore the attribute so other tests aren't affected.

@@ -803,6 +803,34 @@ class TestDynamicSampleRateResolution:
                 f"{len(result)}-tuple, expected 2-tuple (rate, info). Got: {result!r}"
             )
 
+    @pytest.mark.parametrize("bad_rate", [0, -1, 1_000_000])
+    def test_implausible_native_rate_falls_back_to_target(self, bad_rate):
+        """A driver-supplied rate outside the plausible audio range is ignored.
+
+        PortAudio rejects ``InputStream(samplerate=0)`` with
+        paInvalidSampleRate, so a device reporting 0 (or another nonsense
+        value) must resolve to the configured target rate, the same fallback
+        the query-failure branch already uses.
+        """
+        from voice_typer.server.config import Config
+        from voice_typer.server.recording import Recorder
+
+        cfg = Config()
+        cfg.sample_rate = 16000
+        rec = Recorder(cfg)
+
+        with patch("sounddevice.query_devices") as mock_qd:
+            mock_qd.return_value = {
+                "name": "Broken Endpoint",
+                "default_samplerate": bad_rate,
+                "max_input_channels": 1,
+            }
+            rate, _info = rec._devices._resolve_effective_sample_rate(None)
+
+        assert rate == cfg.sample_rate, (
+            f"native rate {bad_rate!r} must resolve to the configured target rate {cfg.sample_rate} Hz, got {rate!r}"
+        )
+
 
 class TestPeakMeterAccuracy:
     """AUDIO-017."""

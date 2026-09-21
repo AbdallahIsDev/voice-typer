@@ -438,19 +438,26 @@ class TestSourceStringContracts:
         )
 
     def test_stop_recording_uses_max_min_for_peak(self) -> None:
-        """``stop_recording`` must compute peak via"""
+        """``stop_recording`` must compute peak without an ``np.abs`` copy."""
         from voice_typer.server.recording._recorder_split import stop_recording
 
         src = inspect.getsource(stop_recording)
-        assert "max(float(flat.max()), -float(flat.min()))" in src, (
-            "stop_recording must compute peak allocation-free via "
-            "max(float(flat.max()), -float(flat.min())), mirrors "
-            "AudioPipeline.compute_rms_and_peak. Pre-fix used "
-            "np.abs(flat).max() which allocated a ~115 MB transient."
+        # The peak/silence math is shared with transcription_result via
+        # _audio_constants.peak_amplitude / silence_percent (E7); both keep
+        # the allocation-free max/max(x,-x) form and a boolean silence mask,
+        # never a full-size np.abs copy.
+        assert "peak_amplitude(flat)" in src, (
+            "stop_recording must compute peak via the shared allocation-free "
+            "peak_amplitude helper. Pre-fix used np.abs(flat).max() which "
+            "allocated a ~115 MB transient for a 30-min dictation."
         )
-        # The old np.abs(flat).max() pattern must NOT appear.
-        assert "np.abs(flat).max()" not in src, (
-            "stop_recording must NOT use np.abs(flat).max(), that allocates a ~115 MB transient for a 30-min dictation."
+        assert "np.abs(flat)" not in src, (
+            "stop_recording must NOT materialise np.abs(flat), that is the "
+            "~115 MB transient this contract exists to prevent."
+        )
+        assert "silence_percent(flat)" in src, (
+            "stop_recording must derive silence_pct via the shared "
+            "silence_percent helper (boolean mask, no np.abs copy)."
         )
 
 

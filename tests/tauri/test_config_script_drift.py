@@ -334,6 +334,23 @@ class TestTauriNsisInstallerHooks:
             target = (SRC_TAURI / hook).resolve()
             assert target.is_file(), f"nsis.installerHooks entry {hook!r} resolves to {target} which does not exist."
 
+    def test_nsis_installer_icon_is_app_logo(self) -> None:
+        """NSIS setup/uninstaller PE icons must be the app logo, not NSIS stock.
+
+        Without installerIcon, tauri-bundler leaves the stock NSIS installer
+        icon on ``*-setup.exe`` (generic monitor/download glyph in Explorer).
+        """
+        nsis = _tauri_conf()["bundle"]["windows"]["nsis"]
+        for key in ("installerIcon", "uninstallerIcon"):
+            rel = nsis.get(key)
+            assert rel, (
+                f"bundle.windows.nsis.{key} must be set to icons/icon.ico; "
+                "unset means NSIS stock installer icon on the setup.exe."
+            )
+            target = (SRC_TAURI / rel).resolve()
+            assert target.is_file(), f"nsis.{key} {rel!r} resolves to missing {target}"
+            assert target.suffix.lower() == ".ico", f"nsis.{key} must be a .ico, got {rel!r}"
+
 
 def _path_components(template: str) -> tuple[str, ...]:
     """Split a path template into components (both separators normalized)."""

@@ -541,7 +541,7 @@ class TestPynputFallbackDocumentation:
         import voice_typer.server.clipboard as clip_mod
 
         source = inspect.getsource(clip_mod)
-        assert "PLAT-001" in source
+        assert "pynput" in source
         assert "UIPI" in source
 
 

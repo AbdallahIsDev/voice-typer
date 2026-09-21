@@ -323,3 +323,34 @@ class TestFinallyBlockDoesNotRaise:
             "_busyness.set_idle() fails, the original exception path must be "
             f"preserved. Got propagated exception: {propagated!r}"
         )
+
+    def test_empty_cycle_id_does_not_raise_in_finally(self):
+        """An empty ``cycle_id`` must not break the finally-block cleanup.
+
+        The correlation-id token is only assigned when ``cycle_id`` is
+        truthy, so reading it unconditionally in the finally block raised
+        ``UnboundLocalError``, masking the very failure the cleanup was
+        handling.
+        """
+
+        app = _TestApp()
+        _configure_recording_for_finally(app)
+        pipeline = _new_pipeline(app)
+
+        propagated: list[BaseException] = []
+        try:
+            pipeline.run(
+                audio=None,
+                duration=0.0,
+                recorded_rms=0.0,
+                cycle_id="",
+            )
+        except BaseException as e:  # noqa: BLE001
+            propagated.append(e)
+
+        unbound = [e for e in propagated if isinstance(e, UnboundLocalError)]
+        assert not unbound, (
+            "run() with an empty cycle_id leaked UnboundLocalError from the "
+            "finally block; the correlation-id token must be pre-initialized. "
+            f"Got: {unbound!r}"
+        )
