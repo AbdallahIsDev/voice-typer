@@ -60,7 +60,8 @@ _CRED_DIALOG_CLASSES: set[str] = {
 }
 
 
-# On macOS/Linux, ``_is_safe_paste_target`` previously returned ``True``
+# On macOS/Linux, ``_is_safe_paste_target`` dispatches to the platform-native
+# password checks below, which fail closed when detection infra is unavailable.
 _PYOBJC_UNAVAILABLE_WARNED: bool = False
 _PYATSPI_UNAVAILABLE_WARNED: bool = False
 
@@ -74,6 +75,7 @@ _MACOS_SECURE_INPUT_WARNED: bool = False
 # Import order: each submodule is self-contained (no inter-submodule
 
 from .injection import (  # noqa: E402,F401
+    UiaUnavailableError,
     _get_uia_focused_element,
     _get_uia_singleton,
 )
@@ -118,6 +120,7 @@ __all__ = [
     "_is_content_editable",
     "_is_elevated_target",
     # UIA infrastructure (injection.py)
+    "UiaUnavailableError",
     "_get_uia_focused_element",
     "_get_uia_singleton",
     # Safety validation (validation.py)

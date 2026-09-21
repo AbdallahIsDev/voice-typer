@@ -14,8 +14,10 @@ paste destination:
   out-parameter tuple (consolidates three near-identical shape checks
   in :func:`_is_password_field_macos`).
 * :func:`_is_password_field`: Windows password-field detection via
-  UIA (``IsPasswordPropertyId``), with a credential-dialog heuristic
-  fallback when comtypes is unavailable or the UIA call raises.
+  UIA (``IsPasswordPropertyId``). When comtypes is unavailable or the
+  UIA call raises, the field's state is UNKNOWN and the target is
+  treated as unsafe (fail closed, auto-paste suppressed); a
+  credential-dialog probe runs only to sharpen the log line.
 * :func:`_is_password_field_macos`: macOS password-field detection
   via pyobjc (Accessibility API: ``AXRole == "AXSecureTextField"`` or
   ``AXIsSecure == True``).
@@ -52,15 +54,15 @@ def _warn_paste_safety_once(key: str, fn_name: str, exc: BaseException) -> None:
     if key not in _pkg._PASTE_SAFETY_WARNED:
         _pkg._PASTE_SAFETY_WARNED.add(key)
         _pkg._log().warning(
-            "[CLIPBOARD] %s failed: %s, failing open (paste allowed); "
-            "further occurrences of this failure will be logged at DEBUG",
+            "[CLIPBOARD] %s failed: %s, treating the paste target as unsafe "
+            "(fail closed); further occurrences of this failure will be logged at DEBUG",
             fn_name,
             exc,
             exc_info=True,
         )
     else:
         _pkg._log().debug(
-            "[CLIPBOARD] %s failed: %s, failing open (paste allowed)",
+            "[CLIPBOARD] %s failed: %s, treating the paste target as unsafe (fail closed)",
             fn_name,
             exc,
             exc_info=True,
@@ -113,20 +115,24 @@ def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
                     with contextlib.suppress(Exception):
                         comtypes.CoUninitialize()
         except ImportError:
-            # No comtypes: fail CLOSED for known credential dialogs; else open + WARNING.
+            # comtypes missing: the focused field's password state is UNKNOWN,
+            # and an unknown target is treated as UNSAFE (fail closed).
+            # Auto-paste is skipped and the dictated text stays on the
+            # clipboard for a manual Ctrl+V.
             _pkg._log().warning(
                 "[CLIPBOARD] comtypes not installed, password field detection "
-                "disabled. Install 'comtypes' (pip install comtypes) to enable "
-                "password field protection. Falling back to window-class heuristic."
+                "unavailable. Install 'comtypes' (pip install comtypes) to enable "
+                "password field protection. Treating the focused field as unsafe "
+                "(auto-paste suppressed; text stays on the clipboard)."
             )
-            # window-class heuristic for known credential
+            # The window-class probe only sharpens the log line; the decision
+            # to block does not depend on it (we already returned True above).
             try:
                 if _pkg._focused_window_is_credential_dialog(hwnd):
                     _pkg._log().warning(
                         "[CLIPBOARD] Credential dialog window detected (comtypes "
                         "fallback), dictation blocked for security"
                     )
-                    return True
             except Exception as exc:
                 # Wire the one-shot paste-safety warning so the
                 _warn_paste_safety_once(
@@ -134,10 +140,15 @@ def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
                     "_is_password_field",
                     exc,
                 )
+            return True
         except Exception as exc:
-            # UIA raised: fall back to credential-dialog class heuristic (fail closed if match).
+            # UIA raised: the focused field's password state is UNKNOWN, so the
+            # target is treated as UNSAFE (fail closed) instead of assuming
+            # "safe". Auto-paste is skipped; text stays on the clipboard.
             _pkg._log().warning(
-                "[CLIPBOARD] UIA password field check failed: %s, falling back to credential-dialog heuristic (CLIP-2)",
+                "[CLIPBOARD] UIA password field check failed: %s. Treating the "
+                "focused field as unsafe (auto-paste suppressed; text stays on "
+                "the clipboard for a manual Ctrl+V).",
                 exc,
             )
             try:
@@ -146,7 +157,6 @@ def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
                         "[CLIPBOARD] Credential dialog window detected (UIA "
                         "failed), dictation blocked for security (CLIP-2)"
                     )
-                    return True
             except Exception as exc:
                 # Wire the one-shot paste-safety warning so the
                 _warn_paste_safety_once(
@@ -154,8 +164,12 @@ def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
                     "_is_password_field",
                     exc,
                 )
+            return True
 
-        # No raw ctypes fallback: implementing IsPassword via raw ctypes
+        # No raw ctypes fallback: re-implementing IsPassword through raw
+        # ctypes would duplicate the COM marshalling comtypes already does,
+        # and a wrong vtable offset could report "not a password" for a real
+        # password field. Without comtypes we fail closed above instead.
         return False
     except Exception as exc:
         # fail-closed, the outer try covers the whole password-field
@@ -182,17 +196,10 @@ def _is_password_field_macos() -> bool:
     Returns ``True`` if a password field is detected (paste should be
     blocked), ``False`` otherwise.
 
-    Lazy import: if ``pyobjc`` is not installed (Linux/Windows hosts
-    or a headless macOS without the AppKit bridge), logs a WARNING
-    (once) and returns ``False``: the caller falls back to the
-    legacy fail-open behavior of allowing paste. Residual risk:
-    dictated text can still be pasted into macOS password fields
-    until ``pyobjc`` is installed.
-
-    Exceptions from the AX API (broken accessibility permission, app
-    doesn't expose AX tree, etc.) are caught and logged at DEBUG —
-    fail-open to avoid blocking legitimate dictation when the AX
-    infrastructure is degraded.
+    When password state is UNKNOWN (pyobjc missing, AX tree
+    unavailable, API raises) the target is treated as unsafe (fail
+    closed, FV-21): auto-paste is suppressed and text stays on the
+    clipboard for manual Ctrl+V.
     """
     try:
         import AppKit  # noqa: F401
@@ -201,23 +208,24 @@ def _is_password_field_macos() -> bool:
         if not _pkg._PYOBJC_UNAVAILABLE_WARNED:
             _pkg._log().warning(
                 "[CLIPBOARD] pyobjc (ApplicationServices/AppKit) not installed, "
-                "macOS password field detection disabled. Install pyobjc "
+                "macOS password field detection unavailable. Install pyobjc "
                 "(pip install pyobjc-framework-ApplicationServices "
                 "pyobjc-framework-Cocoa) to enable password field protection. "
-                "Falling back to fail-open (paste allowed)."
+                "Treating the focused field as unsafe (auto-paste suppressed; "
+                "text stays on the clipboard)."
             )
             _pkg._PYOBJC_UNAVAILABLE_WARNED = True
         else:
-            _pkg._log().debug("[CLIPBOARD] pyobjc not installed, macOS password field check skipped (already warned)")
-        return False
+            _pkg._log().debug("[CLIPBOARD] pyobjc not installed, macOS password check unavailable (fail closed)")
+        return True
 
     try:
         workspace = AppKit.NSWorkspace.sharedWorkspace()
         if workspace is None:
-            return False
+            return True
         front_app = workspace.frontmostApplication()
         if front_app is None:
-            return False
+            return True
         try:
             pid = front_app.processIdentifier()
         except Exception as exc:
@@ -225,11 +233,11 @@ def _is_password_field_macos() -> bool:
             _pkg._log().warning("paste-safety check failed; failing closed: %s", exc)
             return True
         if pid is None or pid <= 0:
-            return False
+            return True
 
         app_elem = ApplicationServices.AXUIElementCreateApplication(pid)
         if app_elem is None:
-            return False
+            return True
 
         # Get the focused UI element within the app.
         try:
@@ -241,7 +249,7 @@ def _is_password_field_macos() -> bool:
         # Consolidated AX-tuple shape check.
         focused = _ax_result_value(focused_result)
         if focused is None:
-            return False
+            return True
 
         # Check role: "AXSecureTextField" is the canonical macOS
         try:
@@ -273,13 +281,9 @@ def _is_password_field_macos() -> bool:
 
         return False
     except Exception as exc:
-        # Surface a one-shot WARNING (deduped via _warn_paste_safety_once)
-        _warn_paste_safety_once(
-            "macos_ax_outer_exception",
-            "_is_password_field_macos",
-            exc,
-        )
-        return False
+        # Password state UNKNOWN — fail closed (FV-21).
+        _pkg._log().warning("paste-safety check failed; failing closed: %s", exc)
+        return True
 
 
 def _is_password_field_linux() -> bool:
@@ -297,19 +301,12 @@ def _is_password_field_linux() -> bool:
     Returns ``True`` if a password field is detected (paste should be
     blocked), ``False`` otherwise.
 
-    Lazy import: if ``pyatspi`` is not installed (Linux hosts without
-    the AT-SPI2 Python bindings, or non-Linux platforms), logs a
-    WARNING (once) and returns ``False``: the caller falls back to
-    the legacy fail-open behavior of allowing paste. Residual risk:
-    dictated text can still be pasted into Linux password fields until
-    ``pyatspi`` is installed (``pip install pyatspi`` or ``apt install
-    python3-pyatspi``).
+    Lazy import: if ``pyatspi`` is not installed, password state is
+    UNKNOWN — fail closed (return True) so auto-paste is suppressed
+    and text stays on the clipboard (FV-21).
 
-    Exceptions from AT-SPI2 (no desktop bus, broken registry, app that
-    doesn't expose an accessible tree) are caught and logged at DEBUG —
-    fail-open to avoid blocking legitimate dictation when the AT-SPI2
-    infrastructure is degraded (e.g. raw framebuffer apps, headless
-    sessions).
+    AT-SPI2 failures (no desktop bus, broken registry) also fail
+    closed: an unknown target must never auto-paste.
     """
     try:
         import pyatspi
@@ -317,15 +314,15 @@ def _is_password_field_linux() -> bool:
         if not _pkg._PYATSPI_UNAVAILABLE_WARNED:
             _pkg._log().warning(
                 "[CLIPBOARD] pyatspi not installed. Linux password field "
-                "detection disabled. Install pyatspi (pip install pyatspi) "
-                "or your distro's equivalent (apt install python3-pyatspi) "
-                "to enable password field protection. Falling back to "
-                "fail-open (paste allowed)."
+                "detection unavailable. Install pyatspi (pip install pyatspi) "
+                "or your distro's equivalent (apt install python3-pyatspi). "
+                "Treating the focused field as unsafe (auto-paste suppressed; "
+                "text stays on the clipboard)."
             )
             _pkg._PYATSPI_UNAVAILABLE_WARNED = True
         else:
-            _pkg._log().debug("[CLIPBOARD] pyatspi not installed. Linux password field check skipped (already warned)")
-        return False
+            _pkg._log().debug("[CLIPBOARD] pyatspi not installed, Linux password check unavailable (fail closed)")
+        return True
 
     # The defensive fallback chain (try the canonical attribute, then
     try:
@@ -340,20 +337,18 @@ def _is_password_field_linux() -> bool:
         try:
             desktop = pyatspi.Registry.getDesktop(0)
         except Exception as exc:
-            # fail-closed, if the AT-SPI2 desktop is unavailable, we
             _pkg._log().warning("paste-safety check failed; failing closed: %s", exc)
             return True
         if desktop is None:
-            return False
+            return True
 
         focused = _pkg._find_focused_atspi_accessible(desktop, state_focused, max_depth=10)
         if focused is None:
-            return False
+            return True
 
         try:
             role = focused.getRole()
         except Exception as exc:
-            # fail-closed, if we cannot read the focused accessible's
             _pkg._log().warning("paste-safety check failed; failing closed: %s", exc)
             return True
 
@@ -371,13 +366,12 @@ def _is_password_field_linux() -> bool:
 
         return False
     except Exception as exc:
-        # Surface a one-shot WARNING (deduped via _warn_paste_safety_once)
-        _warn_paste_safety_once(
-            "linux_atspi_outer_exception",
-            "_is_password_field_linux",
+        # Password state is UNKNOWN — fail closed (FV-21).
+        _pkg._log().warning(
+            "paste-safety check failed; failing closed: %s",
             exc,
         )
-        return False
+        return True
 
 
 # Once-only warning guard for the macOS secure-input check below. Lives
