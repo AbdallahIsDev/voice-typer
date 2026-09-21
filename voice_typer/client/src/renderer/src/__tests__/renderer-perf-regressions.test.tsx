@@ -323,17 +323,20 @@ describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 	// capture the registered callbacks to simulate backend pushes.
 	async function renderHook() {
 		const { useConnection } = await import("@/hooks/useConnection");
-		const captured: Array<(data?: Record<string, unknown>) => void> = [];
+		const captured: Array<{
+			type: string;
+			cb: (data?: Record<string, unknown>) => void;
+		}> = [];
 		// mockPythonEvent is called once per usePythonEvent(...)
 		// invocation inside the hook. Each call registers a
 		// callback for a specific event type, we record all of
 		// them so the test can dispatch a synthetic push to
-		// every subscriber.
+		// the matching subscriber.
 		mockPythonEvent.mockImplementation(((
-			_type: string,
+			type: string,
 			cb: (data?: Record<string, unknown>) => void,
 		) => {
-			captured.push(cb);
+			captured.push({ type, cb });
 			return undefined;
 		}) as unknown as typeof mockPythonEvent);
 
@@ -364,9 +367,14 @@ describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 		).length;
 
 		// Simulate a backend push event (status_change), this
-		// refreshes the ``lastEventTs`` tracked by the hook.
+		// refreshes the ``lastEventTs`` tracked by the hook. Only the
+		// status_change subscriber fires: a real backend never emits the
+		// lifecycle events (reconnected/reconnecting/error) as a routine
+		// status push, and the reconnected handler legitimately performs
+		// its own get_status catch-up (C-HOME-1).
 		act(() => {
-			for (const cb of captured) cb({ status: "idle" });
+			for (const { type, cb } of captured)
+				if (type === "status_change") cb({ status: "idle" });
 		});
 
 		// Advance 45s, inside the 60s grace (HEALTH_CHECK_EVENT_GRACE_MS).
