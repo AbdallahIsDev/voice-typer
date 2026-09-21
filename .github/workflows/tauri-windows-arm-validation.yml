@@ -1,9 +1,9 @@
 #   - download the x64 NSIS installer artifact from a completed
 #   - silently install the NSIS bundle (the installer bootstraps
 #     the C-CI-14 .NET Process pattern (GUI-subsystem PE; onefile
-# C-CI-2) and the native aarch64 build leg stays disabled BY DESIGN (see
+#     C-CI-2) and the native aarch64 build leg stays disabled BY DESIGN
 
-name: Tauri Windows ARM Validation (x64 emulation)
+name: Build Windows ARM validation
 
 on:
   workflow_dispatch:
@@ -143,7 +143,7 @@ jobs:
           Write-Host "Install root: $installRoot"
           "INSTALL_ROOT=$installRoot" | Out-File $evidence -Append -Encoding utf8
 
-      - name: Sidecar smoke test under emulation (C-CI-14 pattern, 420 s ceiling)
+      - name: Sidecar smoke test under emulation (420 s ceiling)
         shell: pwsh
         run: |
           $evidence = "arm-validation/evidence/arch-evidence.txt"

@@ -9,7 +9,7 @@
 # (C-CI-4: do not uncomment push/PR). Runbook:
 # docs/migration/windows-validation-runbook.md. See docs/code-notes/ci-workflows.md
 
-name: Tauri Windows Build (Phase 0-W / Phase 1-W)
+name: Build Windows
 
 # GATE STATUS — VALIDATE ON WINDOWS HOST (aarch64 / TX-40 / C-CI-4)
 # aarch64 matrix stays a COMMENTED template (no public windows-11-arm runner;
@@ -114,6 +114,13 @@ jobs:
       # (sign=true + missing secrets hard-fail; empty on forks → signing steps skip.)
       WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
       WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      # Normalized sign flag. Required because GitHub compares a boolean input
+      # differently per event (actions/runner#3571): workflow_call (tauri-build.yml
+      # passes `fromJSON(...)` → a real boolean) matches TRUE, direct dispatch
+      # (string 'true') matches 'true'. A single form leaves the whole TX-23/S1-CR-99
+      # signing gate set inert on the other path. env context is available in step
+      # if: (the secrets rule above), so gate on this string instead of inputs.sign.
+      SIGN_ENABLED: ${{ inputs.sign == true || inputs.sign == 'true' }}
       # S10-CC-1 / C-CI-12: CLCACHE_DISABLE must be job-level — step-level does not
       # reach Nuitka/SCons; torch C compile hangs indefinitely without it.
       CLCACHE_DISABLE: "1"
@@ -209,7 +216,7 @@ jobs:
           Write-Host "PYBS python:"
           C:\tools\pybs\python\python.exe --version
           # Add PYBS to GITHUB_ENV so subsequent steps can use it.
-          echo "PYBS=C:\tools\pybs\python" >> $env:GITHUB_ENV
+          echo "PYBS=C:\tools\pybs\python\python.exe" >> $env:GITHUB_ENV
           # Install the project + Nuitka into the PYBS env (the env that
           C:\tools\pybs\python\python.exe -m pip install --upgrade --no-warn-script-location pip
           C:\tools\pybs\python\python.exe -m pip install --no-warn-script-location nuitka==2.8.10 zstandard ordered-set
@@ -308,12 +315,16 @@ jobs:
           test -f "$BIN" || { echo "ERROR: sidecar binary missing at $BIN"; exit 1; }
           bash scripts/build/check_bundle_torch_free.sh "$BIN"
 
-      # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
-      - name: Build the worker binary with Nuitka (Phase 2a, plan §4.4)
+      # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build.
+      # FV-58: PYBS extracts to C:\tools\pybs\python\python.exe; the script
+      # expects VOICE_TYPER_PYBS_DIR to be that tree's PARENT (C:\tools\pybs)
+      # so $DIR/python/python.exe resolves. Workspace-relative .python-build-standalone
+      # never existed on this runner and silently fell back to PATH python.
+      - name: Build the worker binary with Nuitka (plan §4.4)
         if: ${{ hashFiles('scripts/build/build_worker_windows.sh') != '' }}
         shell: bash
         env:
-          VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
+          VOICE_TYPER_PYBS_DIR: C:\tools\pybs
         run: |
           set -euo pipefail
           bash scripts/build/build_worker_windows.sh
@@ -328,7 +339,7 @@ jobs:
         run: |
           $worker = "src-tauri\bin\voice-typer-worker-${{ matrix.target }}.exe"
           if (-not (Test-Path $worker)) {
-            Write-Host "Worker binary not present (Phase 2a pending) — skipping pack size gate."
+            Write-Host "Worker binary not present — skipping pack size gate."
             exit 0
           }
           $size = (Get-Item $worker).Length / 1MB
@@ -352,7 +363,7 @@ jobs:
       # TX-23: honor the `sign` workflow_call input instead of gating
       # fail (a misconfigured release must not silently ship unsigned);
       - name: Fail fast — sign=true but signing secrets missing
-        if: ${{ inputs.sign == 'true' && (env.WIN_CSC_LINK == '' || env.WIN_CSC_KEY_PASSWORD == '') }}
+        if: ${{ env.SIGN_ENABLED == 'true' && (env.WIN_CSC_LINK == '' || env.WIN_CSC_KEY_PASSWORD == '') }}
         shell: pwsh
         run: |
           Write-Error "sign=true was requested but WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD are missing. Add the secrets to the repository, or dispatch with sign=false."
@@ -365,7 +376,7 @@ jobs:
       # a stable OV/EV cert, consistent signing, and the SmartScreen
       # migration path (Azure Trusted Signing) is tracked in the security
       - name: Sign sidecar + native listener (optional — ADR-0020 §13.1)
-        if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
+        if: ${{ env.SIGN_ENABLED == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
         run: |
           # Write the PFX (base64-encoded in the secret) to a temp file
@@ -401,7 +412,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $workerExe"; exit 1 }
             & $signtool verify /pa /v $workerExe
           } else {
-            Write-Host "Worker exe not present (Phase 2a pending) — skipping worker signing (5th binary gate is inert until Sub-agent 11 ships build_worker_windows.sh)."
+            Write-Host "Worker exe not present — skipping worker signing (5th binary gate; worker build is live)."
           }
           Remove-Item $pfxPath -Force
 
@@ -549,7 +560,7 @@ jobs:
           Write-Host "Slim core size within 45 MB limit (size gate passed)."
 
       - name: Sign the final NSIS installer (optional — ADR-0020 §13.1)
-        if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
+        if: ${{ env.SIGN_ENABLED == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
         run: |
           $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
@@ -570,7 +581,7 @@ jobs:
       # NSIS installer trips SmartScreen (Intune deploy hit this). Tauri does NOT
       # sign the MSI via bundle.windows.signCommand; sign it here when present.
       - name: Sign the final MSI installer (optional — ADR-0020 §13.1)
-        if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' && steps.artifacts.outputs.msi_path != '' }}
+        if: ${{ env.SIGN_ENABLED == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' && steps.artifacts.outputs.msi_path != '' }}
         shell: pwsh
         run: |
           $msi = "${{ steps.artifacts.outputs.msi_path }}"
@@ -596,7 +607,7 @@ jobs:
       # over time, EV immediate; migration path Azure Trusted Signing (HSM).
       # Sign every shipped PE with the same cert (C-CI-11).
       - name: Sign standalone voice-typer-tauri.exe (optional — ADR-0020 §13.1)
-        if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
+        if: ${{ env.SIGN_ENABLED == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
         run: |
           $standalone = "src-tauri\target\${{ matrix.target }}\release\voice-typer-tauri.exe"
@@ -742,7 +753,7 @@ jobs:
       # TX-24: gate SLSA attestation on a manual signed release build
       # ``startsWith(github.ref, 'refs/tags/v')`` gate never fired.
       - name: Attest build provenance (SLSA)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && env.SIGN_ENABLED == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
           # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to

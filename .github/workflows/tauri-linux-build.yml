@@ -16,7 +16,7 @@
 # Display smoke is NOT run in CI (no display server); runbook:
 # docs/migration/linux-validation-runbook.md (X11 + Wayland host, Phase 0-L handoff).
 
-name: Tauri Linux build (Phase 0-L)
+name: Build Linux
 
 # Phase 0-L: Nuitka sidecar + prewarm + native listener + Tauri bundle.
 # ENABLED for Phase 0-L validation — workflow_dispatch / workflow_call ONLY
@@ -260,6 +260,13 @@ jobs:
       PYTHON_VERSION: "3.12"
       # The arch being built. For aarch64, the script uses qemu-user-static.
       BUILD_ARCH: ${{ matrix.arch }}
+      # Normalized sign flag. Required because GitHub compares a boolean input
+      # differently per event (actions/runner#3571): workflow_call (tauri-build.yml
+      # passes `fromJSON(...)` → a real boolean) matches TRUE, direct dispatch
+      # (string 'true') matches 'true'. Linux must still FAIL FAST on sign=true
+      # (ADR-0020 §13.3, unsigned by design) — with a single form the gate silently
+      # skipped on the orchestrator path. env context is available in step if:.
+      SIGN_ENABLED: ${{ inputs.sign == true || inputs.sign == 'true' }}
 
     steps:
       - name: Checkout
@@ -267,7 +274,7 @@ jobs:
 
       # exist), so sign=true is a misconfiguration and must fail fast
       - name: Fail fast — sign=true is not supported on Linux
-        if: ${{ inputs.sign == 'true' }}
+        if: ${{ env.SIGN_ENABLED == 'true' }}
         run: |
           echo "::error::sign=true is not supported on Linux — Linux bundles are unsigned by design (ADR-0020 §13.3). Dispatch with sign=false."
           exit 1
@@ -725,7 +732,7 @@ jobs:
 
       # ``startsWith(github.ref, 'refs/tags/v')`` gate never fired.
       - name: Attest build provenance (SLSA)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && env.SIGN_ENABLED == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
           # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to

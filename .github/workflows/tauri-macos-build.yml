@@ -1,7 +1,7 @@
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
 # See docs/code-notes/ci-workflows.md
 
-name: Tauri macOS Build (Phase 0-M)
+name: Build macOS
 
 # GATE STATUS — ENABLED (Phase 0-M validation runnable via manual dispatch)
 # PHASE 0-M VALIDATION HANDOFF: dispatch with sign=true; follow
@@ -386,6 +386,13 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # Normalized sign flag. Required because GitHub compares a boolean input
+      # differently per event (actions/runner#3571): workflow_call (tauri-build.yml
+      # passes `fromJSON(...)` → a real boolean) matches TRUE, direct dispatch
+      # (string 'true') matches 'true'. A single form leaves the TX-23 / S1-CR-37
+      # codesign + notarization gate set inert on the other path. env context is
+      # available in step if: (the secrets rule above), so gate on this string.
+      SIGN_ENABLED: ${{ inputs.sign == true || inputs.sign == 'true' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -617,13 +624,13 @@ jobs:
       # TX-23: honor the `sign` workflow_call input instead of gating
       # fail (a misconfigured release must not silently ship unsigned);
       - name: Fail fast — sign=true but signing/notarization secrets missing
-        if: ${{ inputs.sign == 'true' && (env.MAC_SIGNING_IDENTITY == '' || env.APPLE_ID == '' || env.APPLE_APP_SPECIFIC_PASSWORD == '' || env.APPLE_TEAM_ID == '') }}
+        if: ${{ env.SIGN_ENABLED == 'true' && (env.MAC_SIGNING_IDENTITY == '' || env.APPLE_ID == '' || env.APPLE_APP_SPECIFIC_PASSWORD == '' || env.APPLE_TEAM_ID == '') }}
         run: |
           echo "::error::sign=true was requested but MAC_SIGNING_IDENTITY / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID are missing. Add the secrets to the repository, or dispatch with sign=false."
           exit 1
 
       - name: Codesign nested Mach-O binaries (S1-CR-37)
-        if: ${{ inputs.sign == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
+        if: ${{ env.SIGN_ENABLED == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
         run: |
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
           # S1-CR-37: cargo tauri build signs the main .app executable via
@@ -669,14 +676,14 @@ jobs:
             --entitlements src-tauri/entitlements.plist "$APP_PATH"
 
       - name: Verify codesign (before notarization)
-        if: ${{ inputs.sign == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
+        if: ${{ env.SIGN_ENABLED == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
         run: |
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
           codesign --verify --verbose=4 "$APP_PATH"
           spctl --assess --verbose=4 "$APP_PATH"
 
       - name: Notarize + staple (if secrets present)
-        if: ${{ inputs.sign == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
+        if: ${{ env.SIGN_ENABLED == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
         run: |
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
           DMG_PATH="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
@@ -775,7 +782,7 @@ jobs:
       # WR-17 / TX-24: SLSA build provenance attestation. Mirrors
       # ``startsWith(github.ref, 'refs/tags/v')`` gate never fired. PR/fork
       - name: Attest build provenance (SLSA)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && env.SIGN_ENABLED == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
           # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to

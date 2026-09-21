@@ -1,7 +1,7 @@
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (C-CI-1 / C-CI-5): Node 24 majors only
 # Orchestrator: macOS bundle jobs `if: true`; Linux/Windows via workflow_call.
 # See docs/code-notes/ci-workflows.md
-name: Tauri Build (all platforms)
+name: Build all platforms
 
 on:
   workflow_dispatch:
