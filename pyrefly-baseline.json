@@ -733,10 +733,10 @@
       "severity": "error"
     },
     {
-      "line": 541,
-      "column": 39,
-      "stop_line": 541,
-      "stop_column": 42,
+      "line": 383,
+      "column": 35,
+      "stop_line": 383,
+      "stop_column": 38,
       "path": "voice_typer/server/ipc/entrypoint.py",
       "code": -2,
       "name": "bad-argument-type",
