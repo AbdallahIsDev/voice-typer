@@ -1,6 +1,6 @@
 // src/renderer/src/lib/tauri-bridge/index.ts
 //
-// ADR-0020 §6.3 (Phase 3 UI port): Tauri ↔ React bridge orchestrator.
+// ADR-0020 §6.3: Tauri ↔ React bridge orchestrator.
 //
 // This module is the public entry point of the `@/lib/tauri-bridge`
 // package. It exports `installTauriBridge()` and the namespace
@@ -87,7 +87,7 @@ import { createWindowNamespace } from "./window-namespace";
  * Install `window.python`, `window.bubble`, and `window.window_` using
  * Tauri's global API. Idempotent, safe to call multiple times.
  *
- * This is the Phase 3 UI port (ADR-0020 §6.3): the React renderer code
+ * This is the UI port per ADR-0020 §6.3: the React renderer code
  * (including `usePython.ts`) is unchanged on both predecessor and Tauri
  * paths because the bridge namespaces have identical shapes.
  *

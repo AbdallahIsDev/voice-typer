@@ -7,6 +7,8 @@ export interface SetConfigRequest {
 	data: Record<string, unknown>;
 }
 
+// Pushes localized tray-menu labels to the host so the native tray can be
+// rebuilt in the user's language without a backend restart.
 export interface SetTrayLocaleRequest {
 	type: "set_tray_locale";
 	data: { locale: string; labels: Record<string, string> };
@@ -28,7 +30,8 @@ export interface ResetLinuxPermissionsRequest {
 	type: "reset_linux_permissions";
 }
 
-// `suggest_reset: false`). The renderer must treat missing
+// Probing may report `suggest_reset` in its response payload; the renderer
+// must treat a missing flag as "no action suggested".
 export interface CheckAccessibilityRequest {
 	type: "check_accessibility";
 }
@@ -217,8 +220,7 @@ export interface TranscribeOfflineRequest {
 	};
 }
 
-// the remote `pack-manifest.json` from GitHub Releases (C-DATA-1
-// (`config.offline_pack_consent` must be true, C-DATA-1 category-3
+// GitHub Releases pack-manifest check (always-on pack auto-update).
 export interface CheckPackUpdateRequest {
 	type: "check_offline_pack_update";
 	data?: Record<string, unknown>;

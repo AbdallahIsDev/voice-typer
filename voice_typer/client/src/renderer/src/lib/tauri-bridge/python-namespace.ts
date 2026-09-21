@@ -10,12 +10,12 @@
 //     all server-initiated events. On Tauri this listens to the
 //     `python-event` Tauri event (emitted by main.rs:455 with
 //     `{type, data}` envelope).
-// here because `onEvent` subscribes to THREE Tauri events with a shared
-// `cancelled` flag (the primary `python-event` channel + two relay
-// channels). Using `makeListener` per channel collapses each
-// subscription to ~5 LOC and lets each listener own its own
-// cancellation state, the shared flag is no longer needed because
-// each listener's cleanup is independent.
+// here because `onEvent` subscribes to FOUR Tauri events (the primary
+// `python-event` channel + three relay channels: `supervisor_relaunching`,
+// `supervisor_reconnected`, `supervisor_failed`). Using `makeListener` per
+// channel collapses each subscription to ~5 LOC and lets each listener own
+// its own cancellation state; a shared flag is not needed because each
+// listener's cleanup is independent.
 
 import type { PythonBridge, PythonPushEvent } from "@/types/ipc";
 

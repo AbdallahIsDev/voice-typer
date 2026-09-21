@@ -2,10 +2,8 @@
 // push event's TS payload type.
 //
 // The `ConsentRequiredEvent` interface in `types/ipc/push_events.ts`
-// declares every payload field OPTIONAL. That shape was derived from an
-// inventory of the FOUR real Python emitters (each sends a different
-// subset, only the HuggingFace model-download gate sends
-// offline-pack gate sends all five fields). The renderer's single
+// declares every payload field OPTIONAL. Derived from the Python
+// emitters (each sends a different subset). The renderer's single
 // consumer (`useConsentRequiredEvent`) reads only `consent_field`.
 //
 // This test pins BOTH directions so the seam cannot silently drift:
@@ -16,7 +14,7 @@
 //   2. Compile-time: sample objects mirroring each emitter's exact
 //      field set are assignable to `ConsentRequiredEvent` (and a
 //      non-declared field is NOT, the optionality can never quietly
-//      four emitters).
+//      slip through).
 //
 // Python files are read as TEXT (TS cannot import Python); the same
 // headless source-scan approach as `tests/test_event_types_parity.py`
@@ -38,7 +36,7 @@ interface EmitterSpec {
 	readonly keys: readonly string[];
 }
 
-// The four real emitters, with the field sets verified at their current
+// The three real emitters, with the field sets verified at their current
 // update its entry here AND widen `ConsentRequiredEvent` in the same
 // change, the source-scan assertions below keep this list honest.
 const EMITTERS: readonly EmitterSpec[] = [
@@ -49,10 +47,6 @@ const EMITTERS: readonly EmitterSpec[] = [
 	{
 		path: "voice_typer/server/dictation_pipeline/enhancement_steps.py",
 		keys: ["consent_field"],
-	},
-	{
-		path: "voice_typer/server/service/update_check.py",
-		keys: ["consent_field", "message", "model", "provider", "scope"],
 	},
 	{
 		path: "voice_typer/server/service/model/_downloads.py",
@@ -67,7 +61,6 @@ const DECLARED_FIELDS = [
 	"message",
 	"model",
 	"provider",
-	"scope",
 ] as const;
 
 /** Extract the payload keys of the `consent_required` publish in a
@@ -149,16 +142,6 @@ describe("consent_required emitter inventory ↔ ConsentRequiredEvent payload ty
 			{
 				type: "consent_required",
 				data: { consent_field: "llm_polish_consent" },
-			},
-			{
-				type: "consent_required",
-				data: {
-					provider: "github",
-					scope: "offline_pack",
-					model: "1.2.3",
-					consent_field: "offline_pack_consent",
-					message: "Runtime pack consent required.",
-				},
 			},
 			{
 				type: "consent_required",

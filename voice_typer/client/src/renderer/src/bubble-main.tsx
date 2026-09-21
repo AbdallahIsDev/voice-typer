@@ -36,7 +36,7 @@ await ensureTauriBridgeInstalled();
 // `window.bubble?.signalReady?.()` below.
 installGlobalErrorHandlers();
 
-// MO-105: the bubble is a SEPARATE BrowserWindow / JS context from the
+// The bubble is a SEPARATE BrowserWindow / JS context from the
 // main renderer. Under predecessor the main process captured console
 // output from BOTH webviews; under Tauri each entrypoint must install
 // the shared sink itself. `installConsoleCapture()` is idempotent and

@@ -4,24 +4,19 @@ import { describe, expect, it } from "vitest";
 
 const RENDERER_SRC = resolve(__dirname, "..", "..");
 
-const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
-	// credits `<span>`. The violation was refactored into
-	// `components/common/ReadonlyRow.tsx` and migrated to `text-end`
-	// (logical property that auto-flips in RTL). Removed from the set so
-	// a future regression in either About.tsx or ReadonlyRow.tsx is
-	// caught immediately by the stale-entry check below.
-
-	// `components/feedback/Spinner.tsx`, carries `ml-2` on its inline
-	// label while being reworked on another branch; pending migration to
-	// `ms-2` (logical property) by its owning agent. Remove this entry
-	// once the file uses logical utilities only, the stale-entry check
-	// below will then demand its removal automatically.
-	"components/feedback/Spinner.tsx",
-]);
+// Currently empty: every renderer file uses logical side utilities. Add
+// an entry only for a file genuinely mid-migration (and raise the bound
+// below with a comment); the stale-entry check demands its removal once
+// the file is clean, so the list can never accumulate dead tolerance.
+const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>();
 
 const CURRENTLY_VIOLATING_SIZE_BOUND = 5;
 
-const PHYSICAL_INLINE_CLASSNAME = /(?:^|[\s":])(?:ml|mr|pl|pr)-\d+(?:\.\d+)?/;
+// Matches numeric (`ml-2`), keyword (`ml-auto`) and arbitrary-value
+// (`ml-[10px]`) physical side utilities. The keyword/arbitrary forms are
+// included because the numeric-only form let `ml-auto` slip through.
+const PHYSICAL_INLINE_CLASSNAME =
+	/(?:^|[\s":])(?:ml|mr|pl|pr)-(?:\d+(?:\.\d+)?|auto|\[[^\]]*\])/;
 const PHYSICAL_TEXT_ALIGN = /(?:^|\s)text-(?:left|right)(?=\s|["'`$])/;
 
 /** Strip /* block comments *\/ and // line comments from a source string. */

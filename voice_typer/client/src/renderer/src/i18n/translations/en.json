@@ -102,6 +102,7 @@
 		"save": "Save",
 		"delete": "Delete",
 		"undo": "Undo",
+		"showMore": "Show more",
 		"lastUpdated": "Last updated",
 		"lastUpdatedNever": "Never",
 		"lastUpdatedJustNow": "Just now",
@@ -438,6 +439,11 @@
 		"description": "What {appName} is, and how your audio and data are handled."
 	},
 	"about": {
+		"updateOutcome": {
+			"upToDate": "Up to date. No offline pack update available.",
+			"downloading": "Update found. The offline pack is downloading in the background.",
+			"failed": "Check failed. Verify your internet connection and try again."
+		},
 		"title": "About",
 		"productTagline": "Desktop voice-to-text",
 		"description": "What this app is, what it does, and where it runs.",
@@ -445,7 +451,7 @@
 		"localTitle": "Local & Offline",
 		"localDesc": "Transcription runs on your device with local speech models. Audio is processed locally and works without an internet connection.",
 		"cloudTitle": "Cloud (optional)",
-		"cloudDesc": "You can opt in to cloud speech providers (OpenAI, Groq, Deepgram) with an API key. Audio is then sent to that provider for transcription.",
+		"cloudDesc": "You can opt in to cloud speech recognition providers with an API key. Audio is then sent to that provider for transcription.",
 		"version": "Version",
 		"connected": "Connected",
 		"disconnected": "Disconnected",
@@ -463,7 +469,7 @@
 		"hotkey": "Hotkey",
 		"microphone": "Microphone",
 		"audioProcessingTitle": "Audio processing",
-		"audioProcessingDesc": "When using local speech recognition, {appName} processes audio on your device. No audio leaves your machine unless you explicitly configure a cloud speech recognition provider (OpenAI/Groq/Deepgram).",
+		"audioProcessingDesc": "When using local speech recognition, {appName} processes audio on your device. No audio leaves your machine unless you explicitly configure a cloud speech recognition provider.",
 		"modelWeightsTitle": "Model weights",
 		"modelWeightsDesc": "Speech recognition model weights are downloaded from Hugging Face the first time you download a model. Downloading model weights requires a connection to Hugging Face, which receives your IP address as part of the request (a US-headquartered third party). See Hugging Face's privacy policy for details.",
 		"cloudAsrTitle": "Cloud speech recognition",
@@ -673,8 +679,6 @@
 		"launchAtLoginDescription": "Automatically start {appName} when you log into Windows.",
 		"fastStartup": "Fast Startup (Prewarm)",
 		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from Settings → Advanced → Cache Status.",
-		"offlinePackConsent": "Download offline engine pack",
-		"offlinePackConsentDescription": "Allow the offline engine (speech recognition models) to be downloaded in the background from GitHub Releases. Only checked when you want offline dictation after a fresh install; the download starts only after you enable this.",
 		"notifications": "Notifications",
 		"notificationsDescription": "Show a desktop notification when transcription completes or an error occurs.",
 		"trayClick": "Tray Click",
@@ -861,6 +865,7 @@
 			"duckLevelInfoSearch": "How quiet to make system audio.",
 			"duckLevelAria": "Duck Level",
 			"microphoneQuality": "Microphone Quality",
+			"microphoneQualityEnable": "Enable filtering",
 			"microphoneQualityInfo": "Presets configure the entire filter chain for common scenarios. Choose 'Custom' for advanced control of individual filters.",
 			"microphoneQualityInfoSearch": "Presets configure the entire filter chain.",
 			"microphoneQualityAria": "Microphone Quality Preset",
@@ -1045,8 +1050,8 @@
 			"exportAllDataInfoSearch": "Download your templates and full configuration as JSON files.",
 			"consentBannerDesc": "{appName} processes voice, text, and metadata locally by default. The features below require sending specific data to third parties: click Agree to All to enable every consent at once, or toggle individual features.",
 			"huggingFaceItem": "HuggingFace: downloads Whisper model weights (reveals your IP to a US third party; audio never leaves your machine).",
-			"cloudAsrItem": "Cloud speech recognition (OpenAI / Groq / Deepgram): sends audio recordings for transcription when that provider is the active backend.",
-			"llmPolishItem": "LLM polish: sends transcribed text (not audio) to an OpenAI-compatible LLM API for refinement.",
+			"cloudAsrItem": "Cloud speech recognition: sends audio recordings for transcription when a cloud provider is the active backend.",
+			"llmPolishItem": "LLM polish: sends transcribed text (not audio) to a configured LLM API for refinement.",
 			"voiceBiometricItem": "Voice biometric: acknowledges that local voice recordings may be considered biometric data under BIPA / GDPR Art. 9.",
 			"revokeNotice": "You can revoke any consent at any time by toggling it off below. Cloud features will refuse to run until the relevant consent is re-granted.",
 			"consentsGranted": "{granted} of 6 consents granted",
@@ -1069,7 +1074,7 @@
 			"deepgramCloudAsrInfo": "Allows sending audio recordings to Deepgram's nova-2 API for transcription. Only takes effect when Deepgram is the active speech recognition backend AND an API key is configured.",
 			"deepgramCloudAsrAria": "Deepgram cloud speech recognition consent",
 			"llmTextPolishing": "LLM text polishing",
-			"llmTextPolishingInfo": "Allows sending transcribed TEXT (not audio) to an OpenAI-compatible LLM API for polishing. Requires an LLM API key in the Post-Processing section.",
+			"llmTextPolishingInfo": "Allows sending transcribed TEXT (not audio) to a configured LLM API for polishing. Requires an LLM API key in the Post-Processing section.",
 			"llmTextPolishingAria": "LLM polish consent",
 			"exportAllData": "Export all data (GDPR Art. 15/20)",
 			"exportAllDataInfo": "Download your templates and full configuration as JSON files. API keys are redacted in the config export.",
@@ -1082,7 +1087,7 @@
 			"exportFailedError": "Export failed: {error}",
 			"fileFallback": "file",
 			"agreeConfirmTitle": "Grant all 6 consents?",
-			"agreeConfirmMessage": "This enables HuggingFace downloads, cloud transcription (OpenAI / Groq / Deepgram), and LLM text polishing all at once. You can revoke any consent individually below."
+			"agreeConfirmMessage": "This enables HuggingFace downloads, cloud transcription, and LLM text polishing all at once. You can revoke any consent individually below."
 		},
 		"troubleshooting": {
 			"title": "Troubleshooting",
@@ -1956,11 +1961,10 @@
 		"field": {
 			"voice_biometric_consent": "Voice biometric consent is required to start recording. Your voice is processed as biometric data (GDPR Art. 9). Allow recording?",
 			"huggingface_consent": "Model downloads from Hugging Face reveal your IP address to a US-based third party (Hugging Face, Inc.). Audio is never sent: only model weights. Allow model downloads?",
-			"cloud_openai_consent": "Cloud transcription sends your audio to OpenAI for transcription. OpenAI's privacy policy applies to the audio sent. Allow?",
-			"cloud_groq_consent": "Cloud transcription sends your audio to Groq for transcription. Groq's privacy policy applies to the audio sent. Allow?",
-			"cloud_deepgram_consent": "Cloud transcription sends your audio to Deepgram for transcription. Deepgram's privacy policy applies to the audio sent. Allow?",
-			"llm_polish_consent": "LLM polish sends your transcribed text to the configured LLM provider for grammar and punctuation cleanup. Allow?",
-			"offline_pack_consent": "The offline engine pack (~180 MB) is downloaded once from the release server and enables fully local transcription. Allow the download?"
+			"cloud_openai_consent": "Cloud transcription sends your audio to the selected cloud speech recognition provider for transcription. That provider's privacy policy applies. Allow?",
+			"cloud_groq_consent": "Cloud transcription sends your audio to the selected cloud speech recognition provider for transcription. That provider's privacy policy applies. Allow?",
+			"cloud_deepgram_consent": "Cloud transcription sends your audio to the selected cloud speech recognition provider for transcription. That provider's privacy policy applies. Allow?",
+			"llm_polish_consent": "LLM polish sends your transcribed text to the configured LLM provider for grammar and punctuation cleanup. Allow?"
 		}
 	},
 	"degradation": {

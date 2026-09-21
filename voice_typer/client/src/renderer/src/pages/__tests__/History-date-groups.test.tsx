@@ -56,8 +56,8 @@ vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { t } from "@/i18n/i18n";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
 
 const zeroStats: TodayStats = {

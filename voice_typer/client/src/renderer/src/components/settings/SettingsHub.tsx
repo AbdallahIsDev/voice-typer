@@ -21,10 +21,10 @@ import {
 	type SettingsSectionPage,
 } from "@/components/settings/settingsSections";
 import { getSectionLabels } from "@/components/settings/settingsTabLabels";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { getLocale, getLocaleLabel, t, useT } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import { LANGUAGE_OPTIONS } from "@/lib/utils/languages";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { VoiceTyperConfig } from "@/types/config";
 
 /** Current-value label for an audio filter-chain preset. */

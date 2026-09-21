@@ -18,6 +18,7 @@ import { CollectionListHeader } from "@/components/common/CollectionListHeader";
 import { CollectionToolbar } from "@/components/common/CollectionToolbar";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
+import { ShowMoreButton } from "@/components/common/ShowMoreButton";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -245,14 +246,10 @@ export default function TemplatesPage() {
 									</div>
 								</div>
 								{filteredSortedTemplates.length > displayCount && (
-									<button
-										type="button"
-										data-testid="templates-show-more"
+									<ShowMoreButton
+										testid="templates-show-more"
 										onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
-										className="mx-auto flex items-center gap-2 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
-									>
-										{t("templates.showMore")}
-									</button>
+									/>
 								)}
 							</>
 						)}

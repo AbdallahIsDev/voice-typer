@@ -21,10 +21,8 @@ import { Switch } from "@/components/ui/switch";
 import { t, useT } from "@/i18n/i18n";
 import { HEADING_CLASS } from "../lib/constants";
 
-/** The six consent fields surfaced on this step (Settings-row subset —
- *  `offline_pack_consent` has no Settings row and is granted at the
- *  pack-download point of use instead). Labels + descriptions reuse
- *  the settings.privacy.* keys (single source of truth, 8 locales). */
+/** Consent fields surfaced on this step (Settings-row subset).
+ *  `offline_pack_consent` is always-on (no UI, not disableable). */
 const CONSENT_STEP_FIELDS: {
 	field: string;
 	labelKey: string;

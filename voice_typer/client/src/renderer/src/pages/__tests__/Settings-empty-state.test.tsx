@@ -53,7 +53,7 @@ describe("UX-18: Settings search empty state", () => {
 		// (vi.resetModules re-evaluates the store module; the dynamic
 		// import below resolves the SAME fresh instance SettingsPage
 		// will consume, same pattern as Vocabulary tests).
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.setState({ query: "" });
 	});
 
@@ -77,7 +77,7 @@ describe("UX-18: Settings search empty state", () => {
 		});
 
 		// Set a nonsense query via the global store (the per-page
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("zzzqqqxxxyyy999");
 
 		//the empty-state banner must appear, interpolating the
@@ -103,7 +103,7 @@ describe("UX-18: Settings search empty state", () => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		// Type a non-matching query.
 		useGlobalSearch.getState().setQuery("zzzqqqxxxyyy999");
 		await waitFor(() => {
@@ -155,7 +155,7 @@ describe("UX-18: Settings search empty state", () => {
 
 		// "appearance" matches the Appearance tab label AND the
 		// Appearance section title, so it's a positive match (no banner).
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("appearance");
 
 		// After the layout effect settles, the positive match means

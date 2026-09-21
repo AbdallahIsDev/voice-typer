@@ -10,7 +10,8 @@ type EmptyStateVariant = "info" | "error";
 interface EmptyStateProps {
 	icon: IconSvgElement;
 	title: string;
-	description?: string;
+	/** Plain text, or a node when the copy embeds inline elements (e.g. hotkey chips). */
+	description?: ReactNode;
 	/** Optional action button label */
 	actionLabel?: string;
 	/** Optional action button click handler */

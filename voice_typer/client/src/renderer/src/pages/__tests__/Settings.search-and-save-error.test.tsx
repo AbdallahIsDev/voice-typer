@@ -65,7 +65,7 @@ describe("Settings, cross-tab search results", () => {
 
 	it("renders grouped results from other tabs and navigates on click", async () => {
 		happyCallMock();
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.setState({ query: "" });
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
@@ -110,7 +110,7 @@ describe("Settings, cross-tab search results", () => {
 
 	it("does NOT list the active tab's own rows in the cross-tab section", async () => {
 		happyCallMock();
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.setState({ query: "" });
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
@@ -129,7 +129,7 @@ describe("Settings, cross-tab search results", () => {
 
 	it("keeps the 'No settings match' banner when nothing matches anywhere", async () => {
 		happyCallMock();
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.setState({ query: "" });
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
@@ -187,8 +187,10 @@ describe("Settings, save-error banner", () => {
 		const banner = await waitFor(() =>
 			screen.getByTestId("settings-save-error"),
 		);
-		expect(banner.getAttribute("aria-live")).toBe("polite");
-		expect(banner.getAttribute("role")).toBe("status");
+		// A failed save is data-loss-risk: it must announce assertively
+		// (role="alert"), with no explicit aria-live overriding that.
+		expect(banner.getAttribute("role")).toBe("alert");
+		expect(banner.getAttribute("aria-live")).toBeNull();
 		expect(banner.textContent).toContain("history_max_entries");
 	});
 

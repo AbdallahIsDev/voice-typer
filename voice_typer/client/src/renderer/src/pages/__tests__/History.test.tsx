@@ -66,8 +66,8 @@ vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
 import { toast } from "sonner";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { t } from "@/i18n/i18n";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { HistoryRecord, TodayStats, WindowBridge } from "@/types/ipc";
 
 const sampleRecord = (

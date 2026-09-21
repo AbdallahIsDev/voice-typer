@@ -1,5 +1,4 @@
 import {
-	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -26,15 +25,7 @@ vi.mock("next-themes", () => nextThemesMock());
 
 import { useConsentGateStore } from "@/lib/consentGate";
 
-/** Shape of the `check_offline_pack_update` response (mirrors About). */
-function packResult(overrides: Record<string, unknown> = {}) {
-	return {
-		success: false,
-		...overrides,
-	};
-}
-
-describe("About & Privacy page, offline-pack consent gate (point-of-use)", () => {
+describe("About & Privacy page, pack update check (always-on, no consent gate)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation(() => Promise.resolve({}));
@@ -59,15 +50,15 @@ describe("About & Privacy page, offline-pack consent gate (point-of-use)", () =>
 	const clickCheck = () =>
 		fireEvent.click(screen.getByRole("button", { name: "Check for Updates" }));
 
-	it("opens the shared consent dialog when the check is refused for missing consent", async () => {
+	it("calls check_offline_pack_update and never opens a consent dialog", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "check_offline_pack_update") {
-				return Promise.resolve(
-					packResult({
-						consent_required: true,
-						remote_version: "2.0.0",
-					}),
-				);
+				return Promise.resolve({
+					success: true,
+					update_available: true,
+					remote_version: "2.0.0",
+					download_triggered: true,
+				});
 			}
 			return Promise.resolve({});
 		});
@@ -76,34 +67,22 @@ describe("About & Privacy page, offline-pack consent gate (point-of-use)", () =>
 		clickCheck();
 
 		await waitFor(() => {
-			const req = useConsentGateStore.getState().request;
-			expect(req).not.toBeNull();
-			expect(req?.consentField).toBe("offline_pack_consent");
-			expect(req?.bodyKey).toBe("consentDialog.field.offline_pack_consent");
+			expect(mockCall).toHaveBeenCalledWith(
+				"check_offline_pack_update",
+				expect.anything(),
+			);
 		});
-
-		// No persistent "go enable it in Settings" instruction, the
-		// refusal surfaces ONLY as the point-of-use dialog (there is no
-		// status readout on the page to carry it).
-		expect(screen.queryByText(/enable them in Settings/i)).toBeNull();
+		expect(useConsentGateStore.getState().request).toBeNull();
 	});
 
-	it("re-runs the pack check after Allow (the retry that triggers the download)", async () => {
-		let checkCount = 0;
+	it("never opens the consent dialog even if backend returns consent_required (legacy shape)", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "check_offline_pack_update") {
-				checkCount += 1;
-				if (checkCount === 1) {
-					return Promise.resolve(packResult({ consent_required: true }));
-				}
-				return Promise.resolve(
-					packResult({
-						success: true,
-						update_available: true,
-						remote_version: "2.0.0",
-						download_triggered: true,
-					}),
-				);
+				return Promise.resolve({
+					success: false,
+					consent_required: true,
+					remote_version: "2.0.0",
+				});
 			}
 			return Promise.resolve({});
 		});
@@ -111,85 +90,6 @@ describe("About & Privacy page, offline-pack consent gate (point-of-use)", () =>
 		await renderAbout();
 		clickCheck();
 
-		await waitFor(() => {
-			expect(useConsentGateStore.getState().request).not.toBeNull();
-		});
-		expect(checkCount).toBe(1);
-
-		// Allow → (the dialog persisted the consent before this in the
-		// real flow) → the blocked action is retried.
-		const onAllow = useConsentGateStore.getState().request?.onAllow;
-		expect(onAllow).toBeDefined();
-		await act(async () => {
-			await onAllow?.();
-		});
-
-		await waitFor(() => {
-			expect(checkCount).toBe(2);
-		});
-		// The retried check ran to completion (button re-enabled), the
-		// page shows no status readout, so the call count IS the signal.
-		await waitFor(() => {
-			expect(
-				(
-					screen.getByRole("button", {
-						name: "Check for Updates",
-					}) as HTMLButtonElement
-				).disabled,
-			).toBe(false);
-		});
-	});
-
-	it("keeps everything untouched after Cancel, no retry, no download", async () => {
-		let checkCount = 0;
-		mockCall.mockImplementation((type: string) => {
-			if (type === "check_offline_pack_update") {
-				checkCount += 1;
-				return Promise.resolve(packResult({ consent_required: true }));
-			}
-			return Promise.resolve({});
-		});
-
-		await renderAbout();
-		clickCheck();
-
-		await waitFor(() => {
-			expect(useConsentGateStore.getState().request).not.toBeNull();
-		});
-
-		// Cancel = close without granting.
-		useConsentGateStore.getState().close();
-
-		await waitFor(() => {
-			expect(screen.queryByText(/Checking…/)).toBeNull();
-		});
-		expect(checkCount).toBe(1);
-		expect(mockCall).not.toHaveBeenCalledWith(
-			"download_offline_pack",
-			expect.anything(),
-		);
-	});
-
-	it("never opens the consent dialog when the check succeeds without refusal", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "check_offline_pack_update") {
-				return Promise.resolve(
-					packResult({
-						success: true,
-						update_available: false,
-						local_version: "1.0.0",
-					}),
-				);
-			}
-			return Promise.resolve({});
-		});
-
-		await renderAbout();
-		clickCheck();
-
-		// The check ran to completion (button re-enabled) and opened NO
-		// dialog, a clean result is silent by design (no status
-		// readout exists on the page).
 		await waitFor(() => {
 			expect(
 				(
@@ -200,5 +100,31 @@ describe("About & Privacy page, offline-pack consent gate (point-of-use)", () =>
 			).toBe(false);
 		});
 		expect(useConsentGateStore.getState().request).toBeNull();
+	});
+
+	it("button re-enables after the check completes", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "check_offline_pack_update") {
+				return Promise.resolve({
+					success: true,
+					update_available: false,
+					local_version: "1.0.0",
+				});
+			}
+			return Promise.resolve({});
+		});
+
+		await renderAbout();
+		clickCheck();
+
+		await waitFor(() => {
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Check for Updates",
+					}) as HTMLButtonElement
+				).disabled,
+			).toBe(false);
+		});
 	});
 });

@@ -218,15 +218,15 @@ describe("Home reloads the hotkey from config_changed instead of status_change",
 
 // ── Home: initialLoading avoids redundant localStorage reads ─────────
 
-describe("Home initialLoading initializer dedupes localStorage reads through ref-cached loaders", () => {
-	it("initializes initialLoading from the ref-backed cached loaders", () => {
+describe("Home initialLoading initializer reads each cache exactly once", () => {
+	it("derives initialLoading from the already-loaded state values", () => {
 		const src = stripLineComments(readSrc("pages/Home.tsx"));
-		// The lazy useState initializer consults BOTH caches. Each call
-		// routes through the component-scoped refs (cachedStatsRef /
-		// cachedRecentRef), so the second read of the same cache is
-		// served from memory instead of localStorage.
+		// The lazy useState initializer must reuse the `stats` / `recent`
+		// values loaded above instead of re-invoking the loaders: on an
+		// empty cache the refs stay empty, so each extra loader call would
+		// hit localStorage again (4 reads on a cold first run instead of 2).
 		expect(src).toMatch(
-			/loadCachedStats\(\s*cachedStatsRef\s*\)\s*===\s*null\s*&&\s*loadCachedRecent\(\s*cachedRecentRef\s*\)\.length\s*===\s*0/,
+			/useState\(\s*\(\)\s*=>\s*stats\s*===\s*null\s*&&\s*recent\.length\s*===\s*0\s*,?\s*\)/,
 		);
 		// The pre-fix module-level mutable bindings must stay gone (they
 		// leaked across HMR / test re-mounts and were not React-aware).

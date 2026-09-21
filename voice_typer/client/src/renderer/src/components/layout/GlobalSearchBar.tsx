@@ -4,8 +4,8 @@ import {
 	isSettingsSurface,
 	SETTINGS_SECTION_PAGES,
 } from "@/components/settings/settingsSections";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { t } from "@/i18n/i18n";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { Page } from "@/types/ipc";
 
 const SEARCHABLE_PAGES: ReadonlySet<Page> = new Set<Page>([

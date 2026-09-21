@@ -84,11 +84,6 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	// Defaults ON.
 	const FAST_STARTUP_LABEL = t("settings.fastStartup");
 	const FAST_STARTUP_INFO = t("settings.fastStartupDescription");
-	//runtime-pack download consent (auto-update feature,
-	// docs/auto-update-feature.md §8.4). Defaults OFF, the pack is
-	// never downloaded without explicit opt-in (C-DATA-1 consent gate).
-	const RUNTIME_PACK_CONSENT_LABEL = t("settings.offlinePackConsent");
-	const RUNTIME_PACK_CONSENT_INFO = t("settings.offlinePackConsentDescription");
 
 	//section-level visibility check for the General section. The title
 	// constant feeds BOTH the `<SettingsSection title>` prop AND the
@@ -101,7 +96,6 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 		{ label: NOTIFICATIONS_LABEL, info: NOTIFICATIONS_INFO },
 		{ label: TRAY_CLICK_LABEL, info: TRAY_CLICK_INFO },
 		{ label: FAST_STARTUP_LABEL, info: FAST_STARTUP_INFO },
-		{ label: RUNTIME_PACK_CONSENT_LABEL, info: RUNTIME_PACK_CONSENT_INFO },
 	];
 	const generalVisible = generalItems.some((item) =>
 		isVisible(item.label, item.info, generalSectionTitle),
@@ -112,8 +106,6 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 		updateConfig({ autostart: checked });
 	const handleFastStartupChange = (checked: boolean) =>
 		updateConfig({ fast_startup: checked });
-	const handleRuntimePackConsentChange = (checked: boolean) =>
-		updateConfig({ offline_pack_consent: checked });
 	const handleNotificationsChange = (checked: boolean) =>
 		updateConfig({ show_notifications: checked });
 	const handleTrayClickChange = (v: string) =>
@@ -160,27 +152,6 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 						checked={config.fast_startup ?? true}
 						onCheckedChange={handleFastStartupChange}
 						aria-label={FAST_STARTUP_LABEL}
-					/>
-				</SettingRow>
-			)}
-			{/*Offline engine pack download consent (auto-update feature,
-                                docs/auto-update-feature.md §8.4). Defaults OFF, the pack is
-                                never downloaded without explicit opt-in. When enabled, the
-                                network-is-back trigger (useNetworkOnline) can start a
-                                consent-gated background download of the offline engines. */}
-			{isVisible(
-				RUNTIME_PACK_CONSENT_LABEL,
-				RUNTIME_PACK_CONSENT_INFO,
-				generalSectionTitle,
-			) && (
-				<SettingRow
-					label={RUNTIME_PACK_CONSENT_LABEL}
-					info={RUNTIME_PACK_CONSENT_INFO}
-				>
-					<Switch
-						checked={config.offline_pack_consent ?? false}
-						onCheckedChange={handleRuntimePackConsentChange}
-						aria-label={RUNTIME_PACK_CONSENT_LABEL}
 					/>
 				</SettingRow>
 			)}

@@ -36,12 +36,12 @@ await ensureTauriBridgeInstalled();
 // for the defensive guard).
 installGlobalErrorHandlers();
 
-// MO-105: console capture. Under predecessor the main process listened to
+// Console capture. Under predecessor the main process listened to
 // each webview's `console-message` and routed WARN/ERROR into the host
 // log; Tauri has no such listener, so `console.warn` / `console.error`
 // from UI code that never reached React's boundary left no trace in
 // `voice-typer-rust.log`. INFO/DEBUG stay out of the file (the host file
-// is WARN-only by default, MO-114) and the forwarding volume is
+// is WARN-only by default) and the forwarding volume is
 // token-bucketed inside the module.
 installConsoleCapture();
 

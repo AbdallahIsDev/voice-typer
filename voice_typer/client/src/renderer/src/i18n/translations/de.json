@@ -95,6 +95,7 @@
 		"save": "Speichern",
 		"delete": "Löschen",
 		"undo": "Rückgängig",
+		"showMore": "Mehr anzeigen",
 		"lastUpdated": "Zuletzt aktualisiert",
 		"lastUpdatedNever": "Nie",
 		"lastUpdatedJustNow": "Gerade eben",
@@ -431,6 +432,11 @@
 		"description": "Was {appName} ist und wie mit Ihren Audio- und Daten umgegangen wird."
 	},
 	"about": {
+		"updateOutcome": {
+			"upToDate": "Auf dem neuesten Stand. Kein Update für das Offline-Paket verfügbar.",
+			"downloading": "Update gefunden. Das Offline-Paket wird im Hintergrund heruntergeladen.",
+			"failed": "Prüfung fehlgeschlagen. Prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
+		},
 		"title": "Über",
 		"productTagline": "Sprache-zu-Text für den Desktop",
 		"description": "Was diese App ist, was sie tut und wo sie läuft.",
@@ -438,7 +444,7 @@
 		"localTitle": "Lokal & offline",
 		"localDesc": "Die Transkription läuft auf Ihrem Gerät mit lokalen Sprachmodellen. Audio wird lokal verarbeitet und funktioniert ohne Internetverbindung.",
 		"cloudTitle": "Cloud (optional)",
-		"cloudDesc": "Sie können optional Cloud-Sprachanbieter (OpenAI, Groq, Deepgram) mit einem API-Schlüssel aktivieren. Das Audio wird dann zur Transkription an diesen Anbieter gesendet.",
+		"cloudDesc": "Sie können optional Cloud-Spracherkennungsanbieter mit einem API-Schlüssel aktivieren. Das Audio wird dann zur Transkription an diesen Anbieter gesendet.",
 		"version": "Version",
 		"connected": "Verbunden",
 		"disconnected": "Getrennt",
@@ -456,7 +462,7 @@
 		"hotkey": "Tastenkombination",
 		"microphone": "Mikrofon",
 		"audioProcessingTitle": "Audioverarbeitung",
-		"audioProcessingDesc": "Wenn Sie lokale Spracherkennung verwenden, verarbeitet {appName} das Audio auf Ihrem Gerät. Es verlässt kein Audio Ihren Rechner, es sei denn, Sie konfigurieren explizit einen Cloud-Spracherkennungs-Anbieter (OpenAI/Groq/Deepgram).",
+		"audioProcessingDesc": "Wenn Sie lokale Spracherkennung verwenden, verarbeitet {appName} das Audio auf Ihrem Gerät. Es verlässt kein Audio Ihren Rechner, es sei denn, Sie konfigurieren explizit einen Cloud-Spracherkennungsanbieter.",
 		"modelWeightsTitle": "Modellgewichte",
 		"modelWeightsDesc": "Spracherkennungs-Modellgewichte werden von Hugging Face heruntergeladen, wenn Sie zum ersten Mal ein Modell herunterladen. Das Herunterladen von Modellgewichten erfordert eine Verbindung zu Hugging Face, das Ihre IP-Adresse als Teil der Anfrage erhält (ein Dritter mit Sitz in den USA). Einzelheiten finden Sie in der Datenschutzrichtlinie von Hugging Face.",
 		"cloudAsrTitle": "Cloud-Spracherkennung",
@@ -838,6 +844,7 @@
 			"duckLevelInfoSearch": "Wie leise das Systemaudio gemacht werden soll.",
 			"duckLevelAria": "Senkungspegel",
 			"microphoneQuality": "Mikrofonqualität",
+			"microphoneQualityEnable": "Filterung aktivieren",
 			"microphoneQualityInfo": "Voreinstellungen konfigurieren die gesamte Filterkette für gängige Szenarien. Wählen Sie 'Benutzerdefiniert' für erweiterte Kontrolle einzelner Filter.",
 			"microphoneQualityInfoSearch": "Voreinstellungen konfigurieren die gesamte Filterkette.",
 			"microphoneQualityAria": "Mikrofonqualität-Voreinstellung",
@@ -1022,8 +1029,8 @@
 			"exportAllDataInfoSearch": "Lädt Ihre Vorlagen und vollständige Konfiguration als JSON-Dateien herunter.",
 			"consentBannerDesc": "{appName} verarbeitet Sprache, Text und Metadaten standardmäßig lokal. Die folgenden Funktionen erfordern das Senden bestimmter Daten an Dritte: klicken Sie auf Allen zustimmen, um alle Zustimmungen auf einmal zu aktivieren, oder schalten Sie einzelne Funktionen um.",
 			"huggingFaceItem": "HuggingFace: lädt Whisper-Modellgewichte herunter (offenbart Ihre IP an einen US-Dritten; Audio verlässt nie Ihren Rechner).",
-			"cloudAsrItem": "Cloud-Spracherkennung (OpenAI / Groq / Deepgram): sendet Audioaufnahmen zur Transkription, wenn dieser Anbieter das aktive Backend ist.",
-			"llmPolishItem": "LLM-Politur: sendet transkribierten Text (kein Audio) an eine OpenAI-kompatible LLM-API zur Verfeinerung.",
+			"cloudAsrItem": "Cloud-Spracherkennung: sendet Audioaufnahmen zur Transkription, wenn ein Cloud-Anbieter das aktive Backend ist.",
+			"llmPolishItem": "LLM-Feinschliff: sendet transkribierten Text (kein Audio) an eine konfigurierte LLM-API zur Verfeinerung.",
 			"voiceBiometricItem": "Stimmbiometrie: bestätigt, dass lokale Sprachaufnahmen nach BIPA / DSGVO Art. 9 als biometrische Daten gelten können.",
 			"revokeNotice": "Sie können jede Zustimmung jederzeit widerrufen, indem Sie sie unten ausschalten. Cloud-Funktionen werden erst wieder ausgeführt, wenn die entsprechende Zustimmung erneut erteilt wurde.",
 			"consentsGranted": "{granted} von 6 Zustimmungen erteilt",
@@ -1046,7 +1053,7 @@
 			"deepgramCloudAsrInfo": "Erlaubt das Senden von Audioaufnahmen an die nova-2-API von Deepgram zur Transkription. Wirkt sich nur aus, wenn Deepgram das aktive Spracherkennungs-Backend ist UND ein API-Schlüssel konfiguriert ist.",
 			"deepgramCloudAsrAria": "Zustimmung zu Deepgram Cloud-Spracherkennung",
 			"llmTextPolishing": "LLM-Textpolitur",
-			"llmTextPolishingInfo": "Erlaubt das Senden von transkribiertem TEXT (kein Audio) an eine OpenAI-kompatible LLM-API zur Politur. Erfordert einen LLM-API-Schlüssel im Abschnitt Nachbearbeitung.",
+			"llmTextPolishingInfo": "Erlaubt das Senden von transkribiertem TEXT (kein Audio) an eine konfigurierte LLM-API zur Verfeinerung. Erfordert einen LLM-API-Schlüssel im Bereich Nachbearbeitung.",
 			"llmTextPolishingAria": "Zustimmung zu LLM-Politur",
 			"exportAllData": "Alle Daten exportieren (DSGVO Art. 15/20)",
 			"exportAllDataInfo": "Lädt Ihre Vorlagen und vollständige Konfiguration als JSON-Dateien herunter. API-Schlüssel werden im Konfigurations-Export geschwärzt.",
@@ -1059,7 +1066,7 @@
 			"exportFailedError": "Export fehlgeschlagen: {error}",
 			"fileFallback": "Datei",
 			"agreeConfirmTitle": "Allen 6 Zustimmungen zustimmen?",
-			"agreeConfirmMessage": "Dies aktiviert HuggingFace-Downloads, Cloud-Transkription (OpenAI / Groq / Deepgram) und LLM-Textverfeinerung gleichzeitig. Sie können jede Zustimmung unten einzeln widerrufen."
+			"agreeConfirmMessage": "Dies aktiviert HuggingFace-Downloads, Cloud-Transkription und LLM-Textverfeinerung gleichzeitig. Sie können jede Zustimmung unten einzeln widerrufen."
 		},
 		"troubleshooting": {
 			"title": "Fehlerbehebung",
@@ -1108,8 +1115,6 @@
 		},
 		"fastStartup": "Schnellstart (Prewarm)",
 		"fastStartupDescription": "Wärmt den OS-Dateicache beim Start, damit das Sprachmodell in Sekunden statt 30+ Sekunden lädt. Deaktivieren Sie dies, wenn Sie den Festplatten-/RAM-Speicherplatz für andere Apps benötigen. Sie können das Modell bei Bedarf unter Einstellungen → Erweitert → Cache-Status erneut vorwärmen.",
-		"offlinePackConsent": "Offline-Engine-Paket herunterladen",
-		"offlinePackConsentDescription": "Erlaubt den Hintergrund-Download der Offline-Engine (Spracherkennungsmodelle) von GitHub Releases. Nur aktivieren, wenn Sie nach einer Neuinstallation Offline-Diktat wünschen; der Download startet erst nach Aktivierung.",
 		"keyring": {
 			"secure": "Sicher",
 			"plaintext": "Klartext",
@@ -1956,11 +1961,10 @@
 		"field": {
 			"voice_biometric_consent": "Für die Aufnahme ist die Zustimmung zur Stimmbiometrie erforderlich. Ihre Stimme wird als biometrisches Datum verarbeitet (DSGVO Art. 9). Aufnahme zulassen?",
 			"huggingface_consent": "Modell-Downloads von Hugging Face geben Ihre IP-Adresse an ein US-Unternehmen weiter (Hugging Face, Inc.). Audio wird nie gesendet: nur Modellgewichte. Downloads zulassen?",
-			"cloud_openai_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an OpenAI. Die Datenschutzrichtlinie von OpenAI gilt für das gesendete Audio. Zulassen?",
-			"cloud_groq_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an Groq. Die Datenschutzrichtlinie von Groq gilt für das gesendete Audio. Zulassen?",
-			"cloud_deepgram_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an Deepgram. Die Datenschutzrichtlinie von Deepgram gilt für das gesendete Audio. Zulassen?",
-			"llm_polish_consent": "Die LLM-Textverbesserung sendet Ihren transkribierten Text zur Korrektur von Grammatik und Zeichensetzung an den konfigurierten LLM-Anbieter. Zulassen?",
-			"offline_pack_consent": "Das Offline-Engine-Paket (~180 MB) wird einmalig vom Release-Server heruntergeladen und ermöglicht vollständig lokale Transkription. Download zulassen?"
+			"cloud_openai_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an den ausgewählten Cloud-Spracherkennungsanbieter. Die Datenschutzrichtlinie dieses Anbieters gilt. Zulassen?",
+			"cloud_groq_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an den ausgewählten Cloud-Spracherkennungsanbieter. Die Datenschutzrichtlinie dieses Anbieters gilt. Zulassen?",
+			"cloud_deepgram_consent": "Cloud-Transkription sendet Ihr Audio zur Transkription an den ausgewählten Cloud-Spracherkennungsanbieter. Die Datenschutzrichtlinie dieses Anbieters gilt. Zulassen?",
+			"llm_polish_consent": "Die LLM-Textverbesserung sendet Ihren transkribierten Text zur Korrektur von Grammatik und Zeichensetzung an den konfigurierten LLM-Anbieter. Zulassen?"
 		}
 	},
 	"degradation": {

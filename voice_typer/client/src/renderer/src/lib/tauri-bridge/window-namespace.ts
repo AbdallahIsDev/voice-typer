@@ -201,7 +201,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// dev-tools + main-process console-forwarding path, so a
 		// failing persistence command must never crash the
 		// ErrorBoundary itself.
-		// MO-113: webview liveness heartbeat consumed by the Rust host's
+		// Webview liveness heartbeat consumed by the Rust host's
 		// `platform::renderer_watchdog` (the Tauri stand-in for the predecessor's
 		// `child-process-gone` telemetry: no wry platform surfaces a
 		// renderer/GPU crash event, but a visible webview whose timers
@@ -221,7 +221,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 				// to the user (intentional, see comment above).
 			}),
 
-		// MO-120a: restart the Python sidecar from the "Lost connection"
+		// Restart the Python sidecar from the "Lost connection"
 		// Retry escalation. Invokes the Rust `restart_sidecar` command
 		// (predecessor `backend:restart` parity, `main/ipc/
 		// backend-restart-handler.ts`): process-control only, no TCP
@@ -247,7 +247,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
-		// MO-121: save the share-stats PNG through the host (predecessor
+		// Save the share-stats PNG through the host (predecessor
 		// `stats-image:save` parity). `mode: "downloads"` instant-saves
 		// to the OS Downloads folder with a non-colliding name;
 		// `mode: "saveAs"` opens the localized native save dialog
@@ -277,7 +277,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
-		// MO-121 (deliberate omission): `copyStatsImage` has NO host
+		// Deliberate omission: `copyStatsImage` has NO host
 		// command under Tauri. Image clipboard writes stay on the
 		// renderer's web-API `navigator.clipboard` path (the hook's
 		// fallback), which is not ACL-gated and needs no plugin.
@@ -285,7 +285,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// clipboard dependency to the Rust host for zero functional
 		// gain (E13: no unnecessary dependencies).
 
-		// MO-118: open an https URL in the user's default browser.
+		// Open an https URL in the user's default browser.
 		// Replaces the renderer's `window.open(url, "_blank")` calls,
 		// which the Tauri webview either blocks (CSP `default-src
 		// 'self'`) or traps inside the app. The Rust
@@ -310,7 +310,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
-		// MO-120b: reveal a saved file in the OS file manager (Analytics
+		// Reveal a saved file in the OS file manager (Analytics
 		// share-image "Show in folder"). Invokes the Rust
 		// `reveal_path_command` (`shell.showItemInFolder` parity:
 		// `explorer /select,` on Windows, `open -R` on macOS, the parent

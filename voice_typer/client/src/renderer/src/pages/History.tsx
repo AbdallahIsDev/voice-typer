@@ -17,11 +17,11 @@ import ActivityList from "@/components/dashboard/ActivityList";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { getLocale, t } from "@/i18n/i18n";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import { HistorySkeleton } from "./history/components/HistorySkeleton";
 import {
 	HISTORY_PAGE_SIZE,

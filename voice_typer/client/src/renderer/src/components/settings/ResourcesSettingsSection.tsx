@@ -125,7 +125,7 @@ export const ResourcesSettingsSection = memo(function ResourcesSettingsSection({
 							{/* A real anchor (role=link, copy-link, middle-click),
 							    activating it through the shared host opener so the
 							    Tauri webview never traps the page in the app
-							    (MO-118, C-TAURI-2). */}
+							    (C-TAURI-2). */}
 							<ExternalLink href={link.href}>
 								<HugeiconsIcon
 									icon={link.icon}

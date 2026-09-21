@@ -263,7 +263,6 @@ export interface ConsentRequiredEvent {
 	data: {
 		consent_field?: string;
 		provider?: string;
-		scope?: string;
 		model?: string;
 		message?: string;
 	};
@@ -460,7 +459,7 @@ export interface OfflinePackCorruptEvent {
 
 /**
  * Pack ready, the worker process has started AND prewarmed the ASR
- * engine (Phase 2 of the worker lifecycle per §6.2). The renderer's
+ * engine (worker lifecycle per §6.2). The renderer's
  * "Offline engine" status flips to "Ready"; queued `transcribe_offline`
  */
 export interface OfflinePackReadyEvent {

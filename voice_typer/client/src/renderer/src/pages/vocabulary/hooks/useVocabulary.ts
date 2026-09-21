@@ -18,12 +18,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useFilterState } from "@/hooks/useFilterState";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import type { PythonCall } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 import { sortEntries, type VocabSortOrder } from "../lib/sort";
 import {

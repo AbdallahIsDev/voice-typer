@@ -859,7 +859,7 @@ describe("Vocabulary page, search + sort interactions", () => {
 		// through the global title-bar search store. Drive it directly
 		// (the title bar's GlobalSearchBar is not rendered in this
 		// page-level test).
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("teh");
 
 		// Only the matching row remains, the other two are filtered

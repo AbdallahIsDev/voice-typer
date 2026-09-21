@@ -28,11 +28,12 @@ import { CollectionListHeader } from "@/components/common/CollectionListHeader";
 import { CollectionToolbar } from "@/components/common/CollectionToolbar";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
+import { ShowMoreButton } from "@/components/common/ShowMoreButton";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t, useT } from "@/i18n/i18n";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import { VocabDuplicateBanner } from "./vocabulary/components/VocabDuplicateBanner";
 import { VocabInlineForm } from "./vocabulary/components/VocabInlineForm";
 import { VocabListRow } from "./vocabulary/components/VocabListRow";
@@ -65,23 +66,6 @@ export default function VocabularyPage() {
 	//: "Clear All" is gated by a confirmation dialog, granting it
 	// wipes every entry (an irreversible privacy-adjacent action).
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
-
-	const handleClearAllConfirm = async () => {
-		setShowClearConfirm(false);
-		try {
-			await persistVocabulary([]);
-			setEntries([]);
-			// The list is now empty, any leftover selection (ids of
-			// rows that no longer exist) must be cleared too, otherwise
-			// the floating bulk bar stays visible showing a stale
-			// "N selected" count over an empty list.
-			selection.clearSelection();
-			showSnack(t("vocabulary.clearAllToast"), "success");
-		} catch (err) {
-			console.error("[renderer:Vocabulary] Failed to clear vocabulary:", err);
-			showSnack(t("vocabulary.clearAllFailed"), "error");
-		}
-	};
 
 	const {
 		entries,
@@ -171,6 +155,27 @@ export default function VocabularyPage() {
 	const handleEdit = useCallback((entry: VocabRow) => {
 		openEditRef.current(entry);
 	}, []);
+
+	// Clear All (gated by the confirm dialog rendered at the bottom):
+	// defined AFTER the hooks it closes over (persistVocabulary,
+	// setEntries, selection) so the declaration order matches the
+	// data flow.
+	const handleClearAllConfirm = async () => {
+		setShowClearConfirm(false);
+		try {
+			await persistVocabulary([]);
+			setEntries([]);
+			// The list is now empty, any leftover selection (ids of
+			// rows that no longer exist) must be cleared too, otherwise
+			// the floating bulk bar stays visible showing a stale
+			// "N selected" count over an empty list.
+			selection.clearSelection();
+			showSnack(t("vocabulary.clearAllToast"), "success");
+		} catch (err) {
+			console.error("[renderer:Vocabulary] Failed to clear vocabulary:", err);
+			showSnack(t("vocabulary.clearAllFailed"), "error");
+		}
+	};
 
 	// Per-entry "Test this entry", runs the entry's wrong phrase
 	// through the LIVE server engine (no client mirror): the result is
@@ -377,7 +382,11 @@ export default function VocabularyPage() {
                                                                                 page-unique testid are injected. */}
 									<CollectionListHeader
 										testId="vocab-list-header"
-										visibleIds={filteredSorted.map((e) => e._id)}
+										// Select-all must operate on what is actually rendered; the
+										// list below is display-capped (same contract as Templates).
+										visibleIds={filteredSorted
+											.slice(0, displayCount)
+											.map((e) => e._id)}
 										selectedIds={selection.selectedIds}
 										onSelectAll={selection.setSelectMany}
 										selectAllAriaKey="vocabulary.selectAll"
@@ -427,13 +436,10 @@ export default function VocabularyPage() {
 									</div>
 								</div>
 								{filteredSorted.length > displayCount && (
-									<button
-										type="button"
+									<ShowMoreButton
+										testid="vocabulary-show-more"
 										onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
-										className="mx-auto flex items-center gap-2 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
-									>
-										{t("vocabulary.showMore")}
-									</button>
+									/>
 								)}
 							</>
 						)}

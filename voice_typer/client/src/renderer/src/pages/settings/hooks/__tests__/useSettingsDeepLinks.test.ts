@@ -2,9 +2,9 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { makeConfig } from "@/__tests__/helpers/fixtures";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 import { useSettingsDeepLinks } from "@/pages/settings/hooks/useSettingsDeepLinks";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { VoiceTyperConfig } from "@/types/config";
 
 const config: VoiceTyperConfig = makeConfig({});

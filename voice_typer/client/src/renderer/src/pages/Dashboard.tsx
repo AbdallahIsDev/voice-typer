@@ -1,7 +1,7 @@
 //thin composition root. Data-fetch / refresh / event-subscription
 // lives in `./dashboard/hooks/useDashboardData`; pure helpers in
-// `./dashboard/lib/{streaks,format}`; presentational sub-components in
-// `./dashboard/components/`. LOC history: 732 (pre-split) → <150 (post-split).
+// `./dashboard/lib/{streaks,format,trend}`; presentational sub-components in
+// `./dashboard/components/`. Only page-local composition stays here.
 // Analytics layout:
 //   1. Range selector (Today / 7 Days / 30 Days / All Time), drives
 //      the stat cards AND the chart together (single source: one
@@ -35,10 +35,11 @@ import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
 import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
-import { StatCard, type StatTrend } from "@/components/dashboard/StatCard";
+import { StatCard } from "@/components/dashboard/StatCard";
 import { formatCompactNumber } from "@/components/dashboard/StatCards";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
 // the MicrophonePermissionBanner placement on the Microphone page.
@@ -58,6 +59,7 @@ import {
 	formatLanguage,
 	formatModel,
 } from "@/lib/utils/configDisplay";
+import { computeTrend } from "@/pages/dashboard/lib/trend";
 import { DashboardSkeleton } from "./dashboard/components/DashboardSkeleton";
 import { ActivityChart } from "./dashboard/components/SevenDayActivityChart";
 import { TimeRangeSelector } from "./dashboard/components/TimeRangeSelector";
@@ -73,6 +75,27 @@ import { useDashboardData } from "./dashboard/hooks/useDashboardData";
 // html-to-image capture but never visible or interactive to the user.
 // The values are static (no render-time computation), so a single
 // module-level instance is correct for all Dashboard renders.
+// Placeholder the translated no-data sentence is split on so the shortcut
+// renders as `HotkeyChips` (C-UI-1) instead of the raw config syntax
+// (`<caps_lock>`). A private-use codepoint can't collide with translated text.
+const NO_DATA_HOTKEY_MARKER = "\uFFF0";
+
+function renderNoDataDescription(template: string, hotkey: string) {
+	const [before, after] = template.split(NO_DATA_HOTKEY_MARKER);
+	if (after === undefined) {
+		// Translation dropped the placeholder, show it verbatim rather than
+		// silently swallowing a chunk of the sentence.
+		return template;
+	}
+	return (
+		<>
+			{before}
+			<HotkeyChips keys={hotkey} />
+			{after}
+		</>
+	);
+}
+
 const SHARE_IMAGE_CAPTURE_STYLE: CSSProperties = {
 	position: "absolute",
 	top: 0,
@@ -80,16 +103,6 @@ const SHARE_IMAGE_CAPTURE_STYLE: CSSProperties = {
 	zIndex: -100,
 	pointerEvents: "none",
 };
-
-function computeTrend(
-	cur: number,
-	prev: number | null | undefined,
-): StatTrend | null {
-	if (prev === null || prev === undefined || prev <= 0) return null;
-	const delta = cur - prev;
-	if (delta === 0) return { pct: 0, up: true };
-	return { pct: Math.abs(Math.round((delta / prev) * 100)), up: delta > 0 };
-}
 
 //DashboardPage obtains `navigate` via useNavigation directly.
 export default function DashboardPage() {
@@ -229,9 +242,10 @@ export default function DashboardPage() {
 				<EmptyState
 					icon={Mic02Icon}
 					title={t("analytics.noDataTitle")}
-					description={t("analytics.noDataDescription", {
-						hotkey: configRaw?.hotkey || "F2",
-					})}
+					description={renderNoDataDescription(
+						t("analytics.noDataDescription", { hotkey: NO_DATA_HOTKEY_MARKER }),
+						configRaw?.hotkey || "F2",
+					)}
 					actionLabel={t("analytics.startDictation")}
 					actionIcon={SpeechToTextIcon}
 					onAction={() => navigate("home")}

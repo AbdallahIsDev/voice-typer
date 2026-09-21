@@ -35,12 +35,12 @@ import {
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 import { SettingsPageSkeleton } from "./settings/components/SettingsPageSkeleton";
@@ -378,13 +378,13 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
                                     indicator, by design), but a failed write must not be
                                     invisible: the hook's per-flush `error` carries the
                                     backend's specific validator text and is shown here
-                                    until the next successful save clears it. aria-live so
-                                    screen readers announce the failure. data-testid pins
-                                    the contract for tests. */}
+                                    until the next successful save clears it. role="alert"
+                                    (assertive) so screen readers announce the failure
+                                    immediately, matching Home's error convention.
+                                    data-testid pins the contract for tests. */}
 				{saveError && (
 					<div
-						role="status"
-						aria-live="polite"
+						role="alert"
 						data-testid="settings-save-error"
 						className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive"
 					>

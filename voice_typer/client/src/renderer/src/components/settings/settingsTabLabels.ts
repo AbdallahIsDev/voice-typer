@@ -17,7 +17,6 @@ export function getSectionLabels(): Record<SettingsSectionPage, string[]> {
 			t("settings.general"),
 			t("settings.launchAtLogin"),
 			t("settings.fastStartup"),
-			t("settings.offlinePackConsent"),
 			t("settings.appLanguage"),
 			t("settings.notifications"),
 			t("settings.trayClick"),

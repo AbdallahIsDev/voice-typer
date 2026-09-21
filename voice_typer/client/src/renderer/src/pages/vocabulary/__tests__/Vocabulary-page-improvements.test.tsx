@@ -148,7 +148,7 @@ describe("Vocabulary page, display cap + Show more", () => {
 		// into the shared useGlobalSearch store so the title-bar
 		// placeholder can show "Search 5 corrections". The count badge
 		const { useGlobalSearch: storeModule } = await import(
-			"@/hooks/useGlobalSearch"
+			"@/stores/useGlobalSearch"
 		);
 		await waitFor(() => {
 			expect(storeModule.getState().vocabEntryCount).toBe(5);
@@ -157,7 +157,7 @@ describe("Vocabulary page, display cap + Show more", () => {
 		// Type a search query that matches nothing, set it via the
 		// global store (the title-bar search field is not rendered in
 		// this page-level test).
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("zzzzznomatch");
 
 		// No results empty state appears.
@@ -191,7 +191,7 @@ describe("Vocabulary page, display cap + Show more", () => {
 
 		// Set a search query that matches nothing via the global store
 		// (the title-bar search field is not rendered in this test).
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("zzzzznomatch");
 
 		await waitFor(() => {

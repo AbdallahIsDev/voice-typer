@@ -348,6 +348,7 @@
 			"duckLevelInfoSearch": "Rendre l'audio système plus silencieux.",
 			"duckLevelAria": "Niveau d'atténuation",
 			"microphoneQuality": "Qualité du microphone",
+			"microphoneQualityEnable": "Activer le filtrage",
 			"microphoneQualityInfo": "Les préréglages configurent toute la chaîne de filtres pour des scénarios courants. Choisissez 'Personnalisé' pour un contrôle avancé des filtres individuels.",
 			"microphoneQualityInfoSearch": "Les préréglages configurent toute la chaîne de filtres.",
 			"microphoneQualityAria": "Préréglage de qualité du microphone",
@@ -532,8 +533,8 @@
 			"exportAllDataInfoSearch": "Téléchargez vos modèles et la configuration complète sous forme de fichiers JSON.",
 			"consentBannerDesc": "{appName} traite la voix, le texte et les métadonnées localement par défaut. Les fonctionnalités ci-dessous nécessitent l'envoi de données spécifiques à des tiers: cliquez sur Accepter tout pour activer tous les consentements à la fois, ou activez les fonctionnalités individuelles.",
 			"huggingFaceItem": "HuggingFace : télécharge les poids du modèle Whisper (révèle votre IP à un tiers américain ; l'audio ne quitte jamais votre machine).",
-			"cloudAsrItem": "Reconnaissance vocale cloud (OpenAI / Groq / Deepgram) : envoie les enregistrements audio pour transcription lorsque ce fournisseur est le backend actif.",
-			"llmPolishItem": "Polissage LLM : envoie le texte transcrit (pas l'audio) à une API LLM compatible OpenAI pour affinement.",
+			"cloudAsrItem": "Reconnaissance vocale cloud : envoie les enregistrements audio pour transcription lorsque un fournisseur cloud est le backend actif.",
+			"llmPolishItem": "Polissage LLM : envoie le texte transcrit (pas l'audio) à une API LLM configurée pour l'affinement.",
 			"voiceBiometricItem": "Biométrie vocale : reconnaît que les enregistrements vocaux locaux peuvent être considérés comme des données biométriques au titre du BIPA / RGPD Art. 9.",
 			"revokeNotice": "Vous pouvez révoquer tout consentement à tout moment en le désactivant ci-dessous. Les fonctionnalités cloud refuseront de fonctionner jusqu'à ce que le consentement pertinent soit à nouveau accordé.",
 			"consentsGranted": "{granted} sur 6 consentements accordés",
@@ -556,7 +557,7 @@
 			"deepgramCloudAsrInfo": "Permet d'envoyer des enregistrements audio à l'API nova-2 de Deepgram pour la transcription. Ne prend effet que lorsque Deepgram est le backend de reconnaissance vocale actif ET qu'une clé d'API est configurée.",
 			"deepgramCloudAsrAria": "Consentement reconnaissance vocale cloud Deepgram",
 			"llmTextPolishing": "Polissage de texte LLM",
-			"llmTextPolishingInfo": "Permet d'envoyer du TEXTE transcrit (pas d'audio) à une API LLM compatible OpenAI pour le polissage. Nécessite une clé d'API LLM dans la section Post-traitement.",
+			"llmTextPolishingInfo": "Permet d'envoyer le TEXTE transcrit (pas l'audio) à une API LLM configurée pour le polissage. Nécessite une clé API LLM dans la section Post-traitement.",
 			"llmTextPolishingAria": "Consentement au polissage LLM",
 			"exportAllData": "Exporter toutes les données (RGPD Art. 15/20)",
 			"exportAllDataInfo": "Téléchargez vos modèles et la configuration complète sous forme de fichiers JSON. Les clés d'API sont caviardées dans l'export de configuration.",
@@ -569,7 +570,7 @@
 			"exportFailedError": "Échec de l'exportation : {error}",
 			"fileFallback": "fichier",
 			"agreeConfirmTitle": "Accepter les 6 consentements ?",
-			"agreeConfirmMessage": "Cela active les téléchargements HuggingFace, la transcription cloud (OpenAI / Groq / Deepgram) et le polissage de texte par LLM en une seule fois. Vous pouvez révoquer chaque consentement individuellement ci-dessous."
+			"agreeConfirmMessage": "Cela active les téléchargements HuggingFace, la transcription cloud et le polissage de texte par LLM en une seule fois. Vous pouvez révoquer chaque consentement individuellement ci-dessous."
 		},
 		"troubleshooting": {
 			"title": "Dépannage",
@@ -626,8 +627,6 @@
 		},
 		"fastStartup": "Démarrage rapide (préchauffage)",
 		"fastStartupDescription": "Réchauffe le cache de fichiers du système au démarrage pour que le modèle vocal se charge en quelques secondes au lieu de 30+ secondes. Désactivez si vous avez besoin de l'espace disque/RAM pour d'autres applications. Vous pouvez toujours réchauffer à la demande depuis Paramètres → Avancé → État du cache.",
-		"offlinePackConsent": "Télécharger le pack du moteur hors ligne",
-		"offlinePackConsentDescription": "Autorise le téléchargement en arrière-plan du moteur hors ligne (modèles de reconnaissance vocale) depuis GitHub Releases. À activer uniquement si vous voulez dicter hors ligne après une nouvelle installation ; le téléchargement ne démarre qu'après activation.",
 		"keyring": {
 			"secure": "Sécurisé",
 			"plaintext": "Texte brut",
@@ -1009,6 +1008,7 @@
 		"save": "Enregistrer",
 		"delete": "Supprimer",
 		"undo": "Annuler",
+		"showMore": "Afficher plus",
 		"lastUpdated": "Dernière mise à jour",
 		"lastUpdatedNever": "Jamais",
 		"lastUpdatedJustNow": "À l'instant",
@@ -1345,6 +1345,11 @@
 		"description": "Ce qu'est {appName} et comment vos données audio sont traitées."
 	},
 	"about": {
+		"updateOutcome": {
+			"upToDate": "À jour. Aucune mise à jour du pack hors ligne disponible.",
+			"downloading": "Mise à jour trouvée. Le pack hors ligne se télécharge en arrière-plan.",
+			"failed": "Échec de la vérification. Vérifiez votre connexion Internet et réessayez."
+		},
 		"title": "À propos",
 		"productTagline": "Dictée vocale pour ordinateur",
 		"description": "Ce qu'est cette application, ce qu'elle fait et où elle s'exécute.",
@@ -1352,7 +1357,7 @@
 		"localTitle": "Local et hors ligne",
 		"localDesc": "La transcription s'exécute sur votre appareil avec des modèles vocaux locaux. L'audio est traité localement et fonctionne sans connexion internet.",
 		"cloudTitle": "Cloud (optionnel)",
-		"cloudDesc": "Vous pouvez activer facultativement des fournisseurs vocaux cloud (OpenAI, Groq, Deepgram) avec une clé API. L'audio est alors envoyé à ce fournisseur pour transcription.",
+		"cloudDesc": "Vous pouvez activer facultativement des fournisseurs de reconnaissance vocale cloud avec une clé API. L'audio est alors envoyé à ce fournisseur pour transcription.",
 		"version": "Version",
 		"connected": "Connecté",
 		"disconnected": "Déconnecté",
@@ -1370,7 +1375,7 @@
 		"hotkey": "Raccourci clavier",
 		"microphone": "Micro",
 		"audioProcessingTitle": "Traitement audio",
-		"audioProcessingDesc": "Lorsque vous utilisez la reconnaissance vocale locale, {appName} traite l'audio sur votre appareil. Aucun audio ne quitte votre machine sauf si vous configurez explicitement un fournisseur de reconnaissance vocale cloud (OpenAI/Groq/Deepgram).",
+		"audioProcessingDesc": "Lorsque vous utilisez la reconnaissance vocale locale, {appName} traite l'audio sur votre appareil. Aucun audio ne quitte votre machine sauf si vous configurez explicitement un fournisseur de reconnaissance vocale cloud.",
 		"modelWeightsTitle": "Poids du modèle",
 		"modelWeightsDesc": "Les poids du modèle de reconnaissance vocale sont téléchargés depuis Hugging Face lors du premier téléchargement d'un modèle. Le téléchargement des poids du modèle nécessite une connexion à Hugging Face, qui reçoit votre adresse IP dans le cadre de la requête (un tiers basé aux États-Unis). Consultez la politique de confidentialité de Hugging Face pour plus de détails.",
 		"cloudAsrTitle": "Reconnaissance vocale cloud",
@@ -1956,11 +1961,10 @@
 		"field": {
 			"voice_biometric_consent": "Le consentement à la biométrie vocale est requis pour démarrer l'enregistrement. Votre voix est traitée comme donnée biométrique (RGPD art. 9). Autoriser l'enregistrement ?",
 			"huggingface_consent": "Les téléchargements de modèles depuis Hugging Face révèlent votre adresse IP à une entreprise américaine (Hugging Face, Inc.). L'audio n'est jamais envoyé: seuls les poids du modèle. Autoriser les téléchargements ?",
-			"cloud_openai_consent": "La transcription cloud envoie votre audio à OpenAI pour transcription. La politique de confidentialité d'OpenAI s'applique à l'audio envoyé. Autoriser ?",
-			"cloud_groq_consent": "La transcription cloud envoie votre audio à Groq pour transcription. La politique de confidentialité de Groq s'applique à l'audio envoyé. Autoriser ?",
-			"cloud_deepgram_consent": "La transcription cloud envoie votre audio à Deepgram pour transcription. La politique de confidentialité de Deepgram s'applique à l'audio envoyé. Autoriser ?",
-			"llm_polish_consent": "La correction par LLM envoie votre texte transcrit au fournisseur LLM configuré pour corriger la grammaire et la ponctuation. Autoriser ?",
-			"offline_pack_consent": "Le pack moteur hors ligne (~180 Mo) est téléchargé une fois depuis le serveur de publication et permet une transcription entièrement locale. Autoriser le téléchargement ?"
+			"cloud_openai_consent": "La transcription cloud envoie votre audio au fournisseur de reconnaissance vocale cloud sélectionné pour transcription. La politique de confidentialité de ce fournisseur s'applique. Autoriser ?",
+			"cloud_groq_consent": "La transcription cloud envoie votre audio au fournisseur de reconnaissance vocale cloud sélectionné pour transcription. La politique de confidentialité de ce fournisseur s'applique. Autoriser ?",
+			"cloud_deepgram_consent": "La transcription cloud envoie votre audio au fournisseur de reconnaissance vocale cloud sélectionné pour transcription. La politique de confidentialité de ce fournisseur s'applique. Autoriser ?",
+			"llm_polish_consent": "La correction par LLM envoie votre texte transcrit au fournisseur LLM configuré pour corriger la grammaire et la ponctuation. Autoriser ?"
 		}
 	},
 	"degradation": {

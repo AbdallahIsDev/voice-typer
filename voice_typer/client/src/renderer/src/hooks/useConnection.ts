@@ -332,10 +332,39 @@ export function useConnection({
 				.then((cfg) => {
 					setConfig(cfg);
 					setConnectionStatus("connected");
+					// Same status catch-up as the other connect paths: without it the
+					// pill/description keep the pre-respawn state (C-HOME-1).
+					call<{ status?: string; message?: string }>("get_status")
+						.then((s) => {
+							if (s?.status) {
+								const validated = asRecordingState(s.status);
+								if (validated) {
+									applyStatusWithReason(
+										validated,
+										typeof s.message === "string" ? s.message : null,
+										setRecordingState,
+										setLastError,
+									);
+								}
+							}
+						})
+						.catch((err) =>
+							console.warn(
+								"[renderer:useConnection] reconnected get_status failed:",
+								err,
+							),
+						);
 				})
 				.catch(() => setConnectionStatus("disconnected"));
 			return undefined;
-		}, [markEventReceived, call, setConfig, setConnectionStatus]),
+		}, [
+			markEventReceived,
+			call,
+			setConfig,
+			setConnectionStatus,
+			setRecordingState,
+			setLastError,
+		]),
 	);
 
 	usePythonEvent(

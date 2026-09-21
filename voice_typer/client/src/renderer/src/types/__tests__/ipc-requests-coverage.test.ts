@@ -148,9 +148,10 @@ const _RENDERER_CALLED_COMMANDS = {
 // sync manually: if a future Python-side change adds or removes a
 // command, this list AND the matching
 // ``tests/test_ec4_python_command_registry_parity.py`` (Python-side
-// parity test) AND ``src/main/allowed-commands.ts`` MUST all be
-// updated in lockstep (the 4-way parity contract documented in the
-// registry module's docstring).
+// parity test) AND the Rust host allowlist
+// ``src-tauri/src/commands/sidecar_cmds/allowlist.rs`` MUST all be
+// updated in lockstep (the two-allowlist parity contract in
+// CONTRIBUTING.md §6.4; the renderer carries NO dispatch allowlist).
 // This list asserts the "PythonRequest["type"] ⊆ server_registry -
 // _PYTHON_ONLY_COMMANDS" half of the parity invariant: every member
 // of the ``PythonRequest`` union must be a real, dispatcher-

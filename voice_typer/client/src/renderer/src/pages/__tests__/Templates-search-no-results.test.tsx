@@ -58,7 +58,7 @@ describe("Templates page, search-no-results uses dedicated i18n keys", () => {
 	});
 
 	it("renders templates.noResults title when search returns no matches", async () => {
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		const { default: TemplatesPage } = await import("@/pages/Templates");
 		renderWithProviders(<TemplatesPage />);
 

@@ -109,7 +109,7 @@ function _rendererErrorLocation(
 }
 
 /**
- * Build the `renderer_log_error` payload for a crash (MO-102).
+ * Build the `renderer_log_error` payload for a crash.
  *
  * Pure, so the wire shape is unit-testable: `kind` + `message` +
  * optional `stack` and `location`. The Rust command renders these into
@@ -157,7 +157,7 @@ function _buildLogErrorPayload(
 }
 
 /**
- * Persist a generic renderer crash to the host log (MO-102).
+ * Persist a generic renderer crash to the host log.
  *
  * The `console.error` calls below only reach DevTools: the host does
  * NOT capture the webview console (the bridge does dispatch/listen
@@ -410,7 +410,7 @@ export function installGlobalErrorHandlers(): void {
 	const onError = (event: ErrorEvent) => {
 		const detail = _formatForConsole(event.error ?? event.message);
 		console.error("[renderer:globalErrorHandler] uncaught error:", detail);
-		// MO-102: persist to the host log (no-op where the bridge is
+		// Persist to the host log (no-op where the bridge is
 		// absent). Fired BEFORE the toast so a toast failure can never
 		// suppress the persistence path. `event` is passed as the
 		// SOURCE so the payload carries the `filename:lineno:colno`
@@ -437,7 +437,7 @@ export function installGlobalErrorHandlers(): void {
 			"[renderer:globalErrorHandler] unhandled promise rejection:",
 			detail,
 		);
-		// MO-102: persist to the host log (no-op where the bridge is
+		// Persist to the host log (no-op where the bridge is
 		// absent), before the toast (same ordering rationale as above).
 		// A rejection carries no source position, so no `source` arg.
 		_persistForTests.persist("unhandledrejection", event.reason);

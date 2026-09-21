@@ -74,19 +74,18 @@ describe("useConsentRequiredEvent", () => {
 		expect(mockCall).toHaveBeenCalledWith("toggle_dictation");
 	});
 
-	it.each([
-		"llm_polish_consent",
-		"offline_pack_consent",
-		"huggingface_consent",
-	])("opens the gate WITHOUT a retry for %s", (field) => {
-		renderHook(() => useConsentRequiredEvent({ call: mockCall }));
-		getHandler()({ consent_field: field });
+	it.each(["llm_polish_consent", "huggingface_consent"])(
+		"opens the gate WITHOUT a retry for %s",
+		(field) => {
+			renderHook(() => useConsentRequiredEvent({ call: mockCall }));
+			getHandler()({ consent_field: field });
 
-		const req = useConsentGateStore.getState().request;
-		expect(req?.consentField).toBe(field);
-		// No re-runnable action from here, granting is enough.
-		expect(req?.onAllow).toBeUndefined();
-	});
+			const req = useConsentGateStore.getState().request;
+			expect(req?.consentField).toBe(field);
+			// No re-runnable action from here, granting is enough.
+			expect(req?.onAllow).toBeUndefined();
+		},
+	);
 
 	it("does NOT open the gate for an unknown consent field", () => {
 		renderHook(() => useConsentRequiredEvent({ call: mockCall }));

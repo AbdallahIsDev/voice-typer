@@ -177,23 +177,28 @@ export function PresetAccordionSelector({
 						/>
 					</span>
 				</AccordionTrigger>
-				{/* No extra padding on AccordionContent itself: the shared
-                                primitive already pads horizontally (px-4) and vertically
-                                (inner pb-4), a second layer there produced a double
-                                indent/double bottom gap vs the header. The RadioGroup adds
-                                ONE deliberate px-2 so option text and right-aligned radios
-                                sit at 24px insets, balanced breathing room, never touching
-                                the container edges. The hairline separates options from
-                                header. Rows keep the radio FIRST in DOM (Radix
-                                roving-tabindex/reading order) and push it to the visual far
-                                end via ms-auto, aligning its inset with the header chevron. */}
+				{/* Padding contract (C-MIC-15): the shared primitive's
+                                AccordionContent supplies NO horizontal padding — only the
+                                inner pb-4 bottom gap. Horizontal insets come from THIS
+                                instance: the RadioGroup/switch row carry px-4, and each
+                                option row adds p-2, so option text and right-aligned
+                                radios land at the pinned 24px total (16 + 8) and never
+                                touch the container edges. Do not "restore" a px-4 on the
+                                primitive: that would double the inset. The hairline
+                                separates options from header. Rows keep the radio FIRST
+                                in DOM (Radix roving-tabindex/reading order) and push it to
+                                the visual far end via ms-auto, aligning its inset with the
+                                header chevron. */}
 				<AccordionContent className="flex flex-col gap-2">
 					{/* Master enable-Switch (first row): "off" lives ONLY
                                         here, never among the radios below. The radios
                                         (and the Custom panel) render only while enabled. */}
 					<div className="flex items-center gap-3 px-4">
+						{/* Distinct from the trigger's label: reusing
+                                        `microphoneQuality` here echoed the section title
+                                        twice on screen while the panel was expanded. */}
 						<span className="text-sm font-medium text-(--text-primary)">
-							{t("settings.audioEnhancement.microphoneQuality")}
+							{t("settings.audioEnhancement.microphoneQualityEnable")}
 						</span>
 						<Switch
 							checked={enabled}

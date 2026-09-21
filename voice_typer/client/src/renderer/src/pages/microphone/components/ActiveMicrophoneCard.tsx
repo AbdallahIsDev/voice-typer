@@ -200,7 +200,7 @@ export function ActiveMicrophoneCard({
                                     duration (a single, stable value) IS announced via
                                     aria-live="polite" so users with AT know when a test
                                     completes and how long it ran. Only the FIRST trailing
-                                    span carries ``ml-auto``, a second one would fight it
+                                    span carries ``ms-auto``, a second one would fight it
                                     for the free space and push the duration readout off.
 
                                     aria-hidden={true} is UNCONDITIONAL on the live-level

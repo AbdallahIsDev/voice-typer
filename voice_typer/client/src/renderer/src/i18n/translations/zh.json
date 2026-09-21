@@ -95,6 +95,7 @@
 		"save": "保存",
 		"delete": "删除",
 		"undo": "撤销",
+		"showMore": "显示更多",
 		"lastUpdated": "最后更新",
 		"lastUpdatedNever": "从未",
 		"lastUpdatedJustNow": "刚刚",
@@ -431,6 +432,11 @@
 		"description": "{appName} 是什么，以及您的音频和数据如何被处理。"
 	},
 	"about": {
+		"updateOutcome": {
+			"upToDate": "已是最新版本。没有可用的离线包更新。",
+			"downloading": "发现更新。离线包正在后台下载。",
+			"failed": "检查失败。请检查您的网络连接并重试。"
+		},
 		"title": "关于",
 		"productTagline": "桌面语音转文字",
 		"description": "这个应用是什么、做什么以及在哪里运行。",
@@ -438,7 +444,7 @@
 		"localTitle": "本地与离线",
 		"localDesc": "转写使用本地语音模型在您的设备上运行。音频在本地处理，无需联网即可工作。",
 		"cloudTitle": "云端（可选）",
-		"cloudDesc": "您可以选择使用 API 密钥启用云端语音提供商（OpenAI、Groq、Deepgram）——音频随后会被发送给该提供商进行转写。",
+		"cloudDesc": "您可以选择使用 API 密钥启用云端语音识别提供商——音频随后会被发送给该提供商进行转写。",
 		"version": "版本",
 		"connected": "已连接",
 		"disconnected": "已断开",
@@ -456,7 +462,7 @@
 		"hotkey": "快捷键",
 		"microphone": "麦克风",
 		"audioProcessingTitle": "音频处理",
-		"audioProcessingDesc": "{appName} 在您的设备上本地处理所有音频。除非您明确配置云端语音识别提供商（OpenAI/Groq/Deepgram），否则音频不会离开您的机器。",
+		"audioProcessingDesc": "使用本地语音识别时，{appName} 在您的设备上处理音频。除非您明确配置云端语音识别提供商，否则音频不会离开您的机器。",
 		"modelWeightsTitle": "模型权重",
 		"modelWeightsDesc": "语音识别模型权重会在您首次下载模型时从 HuggingFace 下载。此下载会向 HuggingFace（一家总部位于美国的第三方）透露您的 IP 地址。详情请参见 HuggingFace 的隐私政策。",
 		"cloudAsrTitle": "云端语音识别",
@@ -832,6 +838,7 @@
 			"duckLevelInfoSearch": "系统音频降低到多安静。",
 			"duckLevelAria": "降低级别",
 			"microphoneQuality": "麦克风质量",
+			"microphoneQualityEnable": "启用过滤",
 			"microphoneQualityInfo": "预设为常见场景配置整个滤波器链。选择「自定义」以单独控制各滤波器。",
 			"microphoneQualityInfoSearch": "预设配置整个滤波器链。",
 			"microphoneQualityAria": "麦克风质量预设",
@@ -1016,8 +1023,8 @@
 			"exportAllDataInfoSearch": "将您的模板和完整配置下载为 JSON 文件。",
 			"consentBannerDesc": "{appName} 默认在本地处理语音、文本和元数据。以下功能需要向第三方发送特定数据: 点击「全部同意」一次性启用所有许可，或切换个别功能。",
 			"huggingFaceItem": "HuggingFace：下载 Whisper 模型权重（向美国第三方透露您的 IP；音频从不离开您的机器）。",
-			"cloudAsrItem": "云端语音识别（OpenAI / Groq / Deepgram）：当该提供商为活动后端时发送音频录音进行转写。",
-			"llmPolishItem": "LLM 润色：将转写文本（非音频）发送至兼容 OpenAI 的 LLM API 进行精修。",
+			"cloudAsrItem": "云端语音识别：当云服务提供商为活动后端时发送音频录音进行转写。",
+			"llmPolishItem": "LLM 润色：将转写文本（非音频）发送至已配置的 LLM API 进行精修。",
 			"voiceBiometricItem": "语音生物识别：确认本地语音录音可能根据 BIPA / GDPR 第 9 条被视为生物识别数据。",
 			"revokeNotice": "您可以随时在下方切换关闭以撤销任何许可。在相关许可被重新授予之前，云端功能将拒绝运行。",
 			"consentsGranted": "已授予 {granted} / 6 项许可",
@@ -1040,7 +1047,7 @@
 			"deepgramCloudAsrInfo": "允许将音频录音发送至 Deepgram 的 nova-2 API 进行转写。仅在 Deepgram 为活动语音识别后端且配置了 API 密钥时生效。",
 			"deepgramCloudAsrAria": "Deepgram 云端语音识别许可",
 			"llmTextPolishing": "LLM 文本润色",
-			"llmTextPolishingInfo": "允许将转写文本（非音频）发送至兼容 OpenAI 的 LLM API 进行润色。需要在「后处理」部分配置 LLM API 密钥。",
+			"llmTextPolishingInfo": "允许将转写文本（非音频）发送至已配置的 LLM API 进行润色。需要在「后处理」部分配置 LLM API 密钥。",
 			"llmTextPolishingAria": "LLM 润色许可",
 			"exportAllData": "导出所有数据（GDPR 第 15/20 条）",
 			"exportAllDataInfo": "将您的模板和完整配置下载为 JSON 文件。配置导出中 API 密钥会被遮蔽。",
@@ -1053,7 +1060,7 @@
 			"exportFailedError": "导出失败：{error}",
 			"fileFallback": "文件",
 			"agreeConfirmTitle": "同意全部 6 项授权？",
-			"agreeConfirmMessage": "这将同时启用 HuggingFace 下载、云端转写（OpenAI / Groq / Deepgram）和 LLM 文本润色。您可以在下方单独撤销任一授权。"
+			"agreeConfirmMessage": "这将同时启用 HuggingFace 下载、云端转写和 LLM 文本润色。您可以在下方单独撤销任一授权。"
 		},
 		"troubleshooting": {
 			"title": "故障排除",
@@ -1108,8 +1115,6 @@
 		},
 		"fastStartup": "快速启动（预热）",
 		"fastStartupDescription": "在启动时预热操作系统文件缓存，使语音模型在几秒内加载完成，而不是 30 多秒。如果其他应用需要磁盘/内存资源，可禁用。您仍可从「设置 → 高级 → 缓存状态」按需预热。",
-		"offlinePackConsent": "下载离线引擎包",
-		"offlinePackConsentDescription": "允许从 GitHub Releases 后台下载离线引擎（语音识别模型）。仅在新安装后需要离线听写时启用；只有启用后才会开始下载。",
 		"keyring": {
 			"secure": "安全",
 			"plaintext": "明文",
@@ -1956,11 +1961,10 @@
 		"field": {
 			"voice_biometric_consent": "开始录音需要语音生物识别同意。您的语音将作为生物识别数据处理（GDPR 第 9 条）。允许录音吗？",
 			"huggingface_consent": "从 Hugging Face 下载模型会向美国第三方公司（Hugging Face, Inc.）暴露您的 IP 地址。音频绝不会被发送: 仅下载模型权重。允许下载模型吗？",
-			"cloud_openai_consent": "云端转录会将您的音频发送到 OpenAI 进行转录。OpenAI 的隐私政策适用于所发送的音频。允许吗？",
-			"cloud_groq_consent": "云端转录会将您的音频发送到 Groq 进行转录。Groq 的隐私政策适用于所发送的音频。允许吗？",
-			"cloud_deepgram_consent": "云端转录会将您的音频发送到 Deepgram 进行转录。Deepgram 的隐私政策适用于所发送的音频。允许吗？",
-			"llm_polish_consent": "LLM 润色会将您的转录文本发送到所配置的 LLM 提供商，用于语法和标点修正。允许吗？",
-			"offline_pack_consent": "离线引擎包（约 180 MB）将从发布服务器下载一次，支持完全本地转录。允许下载吗？"
+			"cloud_openai_consent": "云端转录会将您的音频发送到所选的云端语音识别提供商进行转写。适用该提供商的隐私政策。允许吗？",
+			"cloud_groq_consent": "云端转录会将您的音频发送到所选的云端语音识别提供商进行转写。适用该提供商的隐私政策。允许吗？",
+			"cloud_deepgram_consent": "云端转录会将您的音频发送到所选的云端语音识别提供商进行转写。适用该提供商的隐私政策。允许吗？",
+			"llm_polish_consent": "LLM 润色会将您的转录文本发送到所配置的 LLM 提供商，用于语法和标点修正。允许吗？"
 		}
 	},
 	"degradation": {

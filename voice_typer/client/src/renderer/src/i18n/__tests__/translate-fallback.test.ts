@@ -8,7 +8,7 @@ import {
 	registerTranslations,
 	setLocale,
 } from "@/i18n/store";
-import { _invalidateResolvedCache, t } from "@/i18n/translate";
+import { _invalidateResolvedCache, t, tChoice } from "@/i18n/translate";
 
 function asLocale(s: string): Locale {
 	return s as unknown as Locale;
@@ -198,5 +198,54 @@ describe("t() primary-subtag fallback for regional locales", () => {
 		registerTranslations("zh", { app: { zhOnly: "MUTATED value" } });
 		const second = t(fixtureKey("app.zhOnly"));
 		expect(second).toBe("ZH value");
+	});
+});
+
+describe("tChoice() primary-subtag fallback mirrors t()", () => {
+	const ZH_CN = asLocale("zh-CN");
+	// `tChoice`'s loose overload accepts a runtime-built base key.
+	const KEY: string = "inbox.messages";
+
+	beforeEach(() => {
+		setLocale("en");
+		registerTranslations("en", {
+			inbox: { messages_other: "EN other" },
+		});
+		registerTranslations("zh", {
+			inbox: { messages_other: "ZH other" },
+		});
+		_invalidateResolvedCache("en");
+		_invalidateResolvedCache("zh");
+		_invalidateResolvedCache(ZH_CN);
+	});
+
+	afterEach(() => {
+		setLocale("en");
+		_translations.delete(ZH_CN);
+		_invalidateResolvedCache(ZH_CN);
+	});
+
+	it("resolves a plural key through the primary subtag before English (zh-CN → zh)", () => {
+		registerTranslations(ZH_CN, {});
+		_setCurrentLocale(ZH_CN);
+		// zh-CN has no catalog, its primary subtag does: the plural
+		// family must resolve to the zh value, never English.
+		expect(tChoice(KEY, 5)).toBe("ZH other");
+	});
+
+	it("prefers the regional map over the primary subtag when both define the key", () => {
+		registerTranslations(ZH_CN, {
+			inbox: { messages_other: "CN other" },
+		});
+		_setCurrentLocale(ZH_CN);
+		expect(tChoice(KEY, 5)).toBe("CN other");
+	});
+
+	it("falls back to English when neither the regional map nor its subtag has the key", () => {
+		registerTranslations("zh", {});
+		registerTranslations(ZH_CN, {});
+		_invalidateResolvedCache("zh");
+		_setCurrentLocale(ZH_CN);
+		expect(tChoice(KEY, 5)).toBe("EN other");
 	});
 });

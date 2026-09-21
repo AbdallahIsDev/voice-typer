@@ -500,7 +500,7 @@ describe("Settings search auto-switch navigation", () => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("appearance");
 
 		await waitFor(() => {
@@ -529,7 +529,7 @@ describe("Settings search auto-switch navigation", () => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("Prewarm Status");
 
 		const section = await waitFor(() =>
@@ -568,7 +568,7 @@ describe("Settings search auto-switch navigation", () => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("a");
 
 		await new Promise((resolve) => setTimeout(resolve, 100));
@@ -590,7 +590,7 @@ describe("Settings search auto-switch navigation", () => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
+		const { useGlobalSearch } = await import("@/stores/useGlobalSearch");
 
 		// strict semantic must NOT navigate and MUST show the banner.
 		useGlobalSearch.getState().setQuery("the llm polishing rows");

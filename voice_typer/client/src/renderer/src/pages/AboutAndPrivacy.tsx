@@ -39,17 +39,12 @@ import { Button } from "@/components/ui/button";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { t, useT } from "@/i18n/i18n";
-import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import pkg from "../../../../package.json";
 
 // App version, read directly from package.json (see VERSION-SOURCE-FIX
 // comment at the top of the file) so this never drifts from the
 // canonical source of truth on a release bump.
 const APP_VERSION = pkg.version as string;
-
-interface PackUpdateCheckResult {
-	consent_required?: boolean;
-}
 
 /** Privacy topics, icon + existing i18n title/description keys. */
 const PRIVACY_TOPICS = [
@@ -90,38 +85,35 @@ export default function AboutAndPrivacyPage() {
 
 	// Runtime-pack update check, user-initiated only. No fetch on
 	// mount: the check hits the GitHub Releases manifest (C-DATA-1
-	// category-2 allowed update check) and may trigger a consent-gated
-	// background download, so it must never fire implicitly. There is
-	// deliberately NO status readout on this page, the button label
-	// flips to "Checking…" while in flight, and the shared consent gate
-	// opens at the moment the backend refuses the download for missing
-	// consent.
+	// category-2 allowed update check) and may trigger a background
+	// download. Pack updates are always-on (no consent gate). The
+	// button label flips to "Checking…" while in flight and the
+	// outcome line below the version row reports what happened.
 	const [packChecking, setPackChecking] = useState(false);
+	const [packOutcome, setPackOutcome] = useState<
+		"upToDate" | "downloading" | "failed" | null
+	>(null);
 
 	const runPackUpdateCheck = async () => {
 		setPackChecking(true);
+		setPackOutcome(null);
 		try {
-			const result = (await callRef.current(
-				"check_offline_pack_update",
-				{},
-			)) as PackUpdateCheckResult;
-			// Point-of-use consent gate: the backend found an update but
-			// `offline_pack_consent` is off. Ask via the SHARED consent
-			// dialog right now, Allow persists the consent and re-runs
-			// the check (which then triggers the download); Cancel
-			// leaves the pack untouched. No persistent "enable in
-			// Settings" nag, the modal only opens at the moment of the
-			// blocked attempt, and only while the consent is missing.
-			if (result?.consent_required) {
-				openConsentGate({
-					consentField: "offline_pack_consent",
-					bodyKey: consentBodyKey("offline_pack_consent"),
-					onAllow: () => void runPackUpdateCheck(),
-				});
+			const result = await callRef.current<{
+				success?: boolean;
+				update_available?: boolean;
+				download_triggered?: boolean;
+			}>("check_offline_pack_update", {});
+			if (!result?.success) {
+				// Network failure, unreachable manifest, malformed manifest.
+				setPackOutcome("failed");
+			} else if (result.update_available) {
+				setPackOutcome("downloading");
+			} else {
+				setPackOutcome("upToDate");
 			}
 		} catch {
-			// Silent by design, there is no status readout to update;
-			// the user can simply click the button again.
+			// Transport-level failure (sidecar down / command rejected).
+			setPackOutcome("failed");
 		} finally {
 			setPackChecking(false);
 		}
@@ -245,6 +237,22 @@ export default function AboutAndPrivacyPage() {
 						{packChecking ? t("about.checking") : t("about.checkForUpdates")}
 					</Button>
 				</div>
+				{/* Outcome readout: without it the user cannot tell "no update",
+				    "download started" and "the check failed" apart. */}
+				{packOutcome && (
+					<p
+						role="status"
+						aria-live="polite"
+						data-testid="update-check-outcome"
+						className={`border-t border-border/5 px-4 py-2 text-xs ${
+							packOutcome === "failed"
+								? "text-destructive"
+								: "text-(--text-muted)"
+						}`}
+					>
+						{t(`about.updateOutcome.${packOutcome}`)}
+					</p>
+				)}
 			</div>
 
 			{/* The privacy disclosure, five topic rows with thin dividers (the

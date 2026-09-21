@@ -314,11 +314,17 @@ describe("Dashboard noDataDescription interpolates {hotkey} from config", () => 
 		// The empty-state CTA copy is "Press {hotkey} on the Home page to
 		// dictate, your stats will appear here." The previous call omitted
 		// the params object, so the literal "{hotkey}" token leaked into
-		// the rendered UI. The fix passes the resolved hotkey (falling back
-		// to "F2" when configRaw is null or the field is missing).
+		// the rendered UI. The call now passes a split marker plus the
+		// resolved hotkey (falling back to "F2" when configRaw is null or
+		// the field is missing), and the marker is swapped for HotkeyChips
+		// so the shortcut renders as keycaps (C-UI-1) rather than raw
+		// config syntax (`<caps_lock>`).
 		expect(DASHBOARD_SRC).toMatch(
-			/noDataDescription",\s*\{[\s\S]*?hotkey:\s*configRaw\?\.hotkey\s*\|\|\s*"F2"[\s\S]*?\}/,
+			/noDataDescription",\s*\{\s*hotkey:\s*NO_DATA_HOTKEY_MARKER\s*\}\)[\s\S]*?configRaw\?\.hotkey\s*\|\|\s*"F2"/,
 		);
+		// The marker is rendered through HotkeyChips, not as plain text.
+		expect(DASHBOARD_SRC).toMatch(/renderNoDataDescription\(/);
+		expect(DASHBOARD_SRC).toMatch(/<HotkeyChips keys=\{hotkey\} \/>/);
 		// The bare no-arg call is gone (would re-introduce the literal
 		// {hotkey} token in the rendered string).
 		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.noDataDescription"\)\s/);

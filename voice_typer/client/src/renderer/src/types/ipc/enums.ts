@@ -73,6 +73,7 @@ export type ErrorCodes =
 	| "client.not_found"
 	| "client.auth_failed"
 	| "client.consent_required"
+	| "client.onboarding_already_complete"
 	// Backend duplicate enforcement (save_vocabulary): the write would
 	// create a duplicate correction (same wrong phrase,
 	// case-insensitive). The renderer surfaces the localized "This
@@ -141,14 +142,15 @@ export type ErrorCodes =
 	| "disallowed_window";
 
 // ── Python-call envelope error codes ──────────────────────────────
-//the predecessor main process's `python-call` IPC handler
-// (`src/main/ipc/python-call-handler.ts`) stamps a structured `_code`
-// field on its `{_error, _code}` error envelope so the renderer can
-// branch on the failure class (timeout vs. not-connected vs.
-// backend-exited) without parsing the human-readable message text.
-// The canonical declaration lives in
-// `src/shared/python-call-error-code.ts`, a cross-boundary module
-// included by BOTH `tsconfig.web.json` and `tsconfig.node.json` (both
+// The host's sidecar dispatch path stamps a structured `_code` field on
+// its `{_error, _code}` error envelope so the renderer can branch on the
+// failure class (timeout vs. not-connected vs. backend-exited) without
+// parsing the human-readable message text. (The predecessor Electron
+// main-process handler that first emitted it was removed with the Tauri
+// cutover.) The canonical declaration lives in
+// `voice_typer/client/src/shared/python-call-error-code.ts`, a
+// cross-boundary module included by BOTH `tsconfig.web.json` and
+// `tsconfig.node.json` (both
 // tsconfigs now list `src/shared` recursively in their `include`
 // arrays). This file re-exports the type so existing imports
 // (`@/types/ipc/enums` -> `PythonCallErrorCode`) keep resolving; the

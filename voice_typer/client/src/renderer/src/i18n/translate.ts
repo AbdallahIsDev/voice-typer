@@ -190,6 +190,8 @@ export function t(key: string, params?: Record<string, string>): string {
 //      been pluralized yet, preserves backwards compatibility with
 //      existing single-form strings.
 //   5. Last resort: return the raw key (matching `t()` semantics).
+// Each candidate is resolved through the same locale chain as `t()`:
+//   currentLocale → primary subtag (regional locales only) → en.
 // After resolving the catalog value, `{placeholder}` interpolation runs
 // just like `t()`, pass `{ count: "5" }` (or any other params) to
 // substitute into the resolved string. The `count` used for plural
@@ -252,12 +254,23 @@ export function tChoice(
 	//   3. {key}               (bare key, backwards compat)
 	const candidates = [`${key}_${category}`, `${key}_other`, key];
 
+	// Locale chain per candidate, mirroring `t()` exactly:
+	//   currentLocale → primary subtag (regional locales only) → en.
+	// Keep the two functions' chains in lockstep; a regional locale must
+	// resolve against its base catalog before English.
 	let resolved: string | undefined;
 	const currentMap = _translations.get(currentLocale);
+	const primaryMap = currentLocale.includes("-")
+		? _translations.get(currentLocale.split("-")[0] as Locale)
+		: undefined;
 	const enMap = _translations.get("en");
 	for (const candidate of candidates) {
 		if (currentMap?.has(candidate)) {
 			resolved = currentMap.get(candidate);
+			break;
+		}
+		if (primaryMap?.has(candidate)) {
+			resolved = primaryMap.get(candidate);
 			break;
 		}
 		if (enMap?.has(candidate)) {

@@ -417,7 +417,7 @@ export default function PrewarmAndUpdates({
 						{/* "View Changelog", a real `<a href>` link to the
                                                 GitHub releases page. This is NOT a renderer
                                                 network call: it's a user-activated OS-browser
-                                                navigation (MO-118: the shared `ExternalLink`
+                                                navigation (the shared `ExternalLink`
                                                 routes the activation through the host opener so
                                                 the Tauri webview doesn't trap the page inside the
                                                 app, while keeping the anchor semantics). C-DATA-1

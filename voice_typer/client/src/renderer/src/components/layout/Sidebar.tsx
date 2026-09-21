@@ -328,7 +328,7 @@ function SidebarInner({
 						// surrounding flex gaps, net cluster separation 16px
 						// vs the 4px item rhythm, so clusters read as designed
 						// groups instead of a vertically stretched sidebar.
-						collapsed ? "gap-2" : "gap-4",
+						collapsed ? "gap-2" : "gap-5",
 					)}
 				>
 					{NAV_GROUPS.map((group) => {

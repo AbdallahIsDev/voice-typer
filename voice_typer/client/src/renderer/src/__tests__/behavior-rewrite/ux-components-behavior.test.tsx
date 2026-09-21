@@ -159,7 +159,7 @@ import type { Page } from "@/types/ipc";
 const baseConfig: VoiceTyperConfig = {
 	schema_version: 1,
 	fast_startup: true,
-	offline_pack_consent: false,
+	offline_pack_consent: true,
 	hotkey: "F2",
 	sample_rate: 16000,
 	microphone: null,

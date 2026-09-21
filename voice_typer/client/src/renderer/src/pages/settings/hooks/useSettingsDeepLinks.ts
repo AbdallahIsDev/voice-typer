@@ -17,9 +17,9 @@
 // reads it. The page must call this hook BEFORE `useSettingsSurfaceScroll`.
 
 import { useEffect, useRef, useState } from "react";
-import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useNavigation } from "@/hooks/useNavigation";
 import { scrollToRowWithHighlight } from "@/pages/settings/lib/scrollToRowWithHighlight";
+import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 

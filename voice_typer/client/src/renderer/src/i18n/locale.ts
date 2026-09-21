@@ -11,7 +11,7 @@
 // SUPPORTED_LOCALES so first-run users see their language automatically.
 
 /**
- * Locales shipped with Voice Typer. Kept alphabetical (locale code order)
+ * Locales shipped with the app. Kept alphabetical (locale code order)
  * so the list stays scannable; the Settings → UI language dropdown and
  * the onboarding selector both derive their display order from this array.
  */

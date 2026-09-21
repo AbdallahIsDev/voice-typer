@@ -70,7 +70,7 @@ export interface VoiceTyperConfig {
 	paste_on_stop: boolean;
 	show_notifications: boolean;
 	fast_startup: boolean;
-	offline_pack_consent: boolean;
+	offline_pack_consent: boolean; // always-on; forced true on backend load
 
 	clipboard_save_restore: boolean;
 	clipboard_restore_delay_ms: number;

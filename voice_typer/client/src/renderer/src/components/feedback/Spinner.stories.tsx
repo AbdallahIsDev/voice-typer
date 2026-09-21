@@ -10,7 +10,7 @@ const meta: Meta<typeof Spinner> = {
 		docs: {
 			description: {
 				component:
-					"Shared loading spinner (UX-021). Replaces the duplicated `h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent` pattern that was previously copy-pasted across 9 pages. Renders a `<span role='img' aria-label='Loading'>` element for accessibility (S5-CR-100, the previous `<output>` root had an implicit `aria-live='polite'` region, which caused screen readers to announce 'Loading' on every page that rendered a Spinner). Pass `decorative` to render a plain `<div aria-hidden>` when the spinner is nested inside an already-labeled parent. Pages that want a status announcement (e.g. ConnectionStatusScreen) wrap the Spinner in their own `<output aria-live='polite'>`.",
+					"Shared loading spinner. Replaces the duplicated `h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent` pattern that was previously copy-pasted across 9 pages. Renders a `<span role='img' aria-label='Loading'>` element for accessibility (the previous `<output>` root had an implicit `aria-live='polite'` region, which caused screen readers to announce 'Loading' on every page that rendered a Spinner). Pass `decorative` to render a plain `<div aria-hidden>` when the spinner is nested inside an already-labeled parent. Pages that want a status announcement (e.g. ConnectionStatusScreen) wrap the Spinner in their own `<output aria-live='polite'>`.",
 			},
 		},
 	},
@@ -91,7 +91,7 @@ export const WithLiveRegion: Story = {
 		docs: {
 			description: {
 				story:
-					"S5-CR-100: the Spinner default no longer carries an implicit `aria-live='polite'` region. When the spinner IS the primary status message for the page (e.g. ConnectionStatusScreen while the backend is starting), wrap it in `<output aria-live='polite'>` to restore the polite live-region announcement. Pages where the spinner is incidental (History, Vocabulary, Models, etc.) should NOT wrap, they get the focusable-image semantics without the redundant live-region announcement.",
+					"The Spinner default no longer carries an implicit `aria-live='polite'` region. When the spinner IS the primary status message for the page (e.g. ConnectionStatusScreen while the backend is starting), wrap it in `<output aria-live='polite'>` to restore the polite live-region announcement. Pages where the spinner is incidental (History, Vocabulary, Models, etc.) should NOT wrap, they get the focusable-image semantics without the redundant live-region announcement.",
 			},
 		},
 	},

@@ -54,13 +54,10 @@ import type { WindowBridge } from "@/types/ipc";
 export default function App() {
 	const t = useT();
 
-	// Auto-update feature (docs/auto-update-feature.md §10.1):
-	// network-is-back trigger, calls the `check_offline_pack_update` IPC
-	// command on the false → true `online` transition so the slim
-	// core re-fetches the pack manifest (and, consent-gated,
-	// restarts a background download). C-DATA-1 category-2 allowed
-	// (silent update check against the GitHub API); the download is
-	// gated on `config.offline_pack_consent`.
+	// Auto-update feature (docs/auto-update-feature.md):
+	// network-is-back trigger: calls check_offline_pack_update on the
+	// false → true online transition. Pack updates are always-on
+	// (C-DATA-1 category 2/4 allowed; no consent gate).
 	useNetworkOnline();
 
 	// ── Routing (extracted to useNavigation) ──────────────────────
@@ -229,7 +226,7 @@ export default function App() {
 	// are extracted to `useNavigateEvent`, the entry file stays
 	// wiring-only.
 	useNavigateEvent({ navigate });
-	// MO-113: webview liveness beacon for the host's watchdog (the Tauri
+	// Webview liveness beacon for the host's watchdog (the Tauri
 	// stand-in for the predecessor's `child-process-gone` telemetry).
 	useRendererHeartbeat();
 

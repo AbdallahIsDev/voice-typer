@@ -51,7 +51,7 @@ export interface WindowBridge {
 	// log. The sandboxed renderer can't write to userData directly.
 	// Optional so a bridge without that capability can omit it without
 	// breaking the type contract.
-	// MO-113: webview liveness beacon. The Rust host's
+	// Webview liveness beacon. The Rust host's
 	// `renderer_heartbeat` command stamps the receipt; the watchdog
 	// reports a stall when beats stop while the main window is visible.
 	heartbeat?: () => Promise<void>;
@@ -59,7 +59,7 @@ export interface WindowBridge {
 		kind: string;
 		// `level` selects the log level on both runtimes (`"warn"` →
 		// the WARN line, anything else → ERROR, the fail-loud default).
-		// The console capture (MO-105) passes the captured method's own
+		// The console capture passes the captured method's own
 		// name; the Rust `renderer_log_error` command and the predecessor
 		// `renderer:log-error` handler both route on it, so a captured
 		// `console.warn` is never promoted to an error.
@@ -69,7 +69,7 @@ export interface WindowBridge {
 		message?: string;
 		// Source position for a window `error` event
 		// (`{file, line, column}`), forwarded by the shared
-		// `globalErrorHandler` (MO-102) and rendered into the
+		// `globalErrorHandler` and rendered into the
 		// `[renderer-error]` line's `(src=file:line:col)` suffix by the
 		// Rust `renderer_log_error` command.
 		location?: { file: string; line?: number; column?: number };
@@ -130,7 +130,7 @@ export interface WindowBridge {
 		success: boolean;
 		error?: string;
 	}>;
-	// MO-118: open an https URL in the user's default browser. The
+	// Open an https URL in the user's default browser. The
 	// replacement for the renderer's bare `window.open(url, "_blank")`
 	// / `target="_blank"` anchors, which are blocked or trapped under
 	// Tauri (CSP `default-src 'self'`, `plugins.shell.open = false` per

@@ -95,6 +95,7 @@
 		"save": "Guardar",
 		"delete": "Eliminar",
 		"undo": "Deshacer",
+		"showMore": "Mostrar más",
 		"lastUpdated": "Última actualización",
 		"lastUpdatedNever": "Nunca",
 		"lastUpdatedJustNow": "Justo ahora",
@@ -431,6 +432,11 @@
 		"description": "Qué es {appName} y cómo se tratan tu audio y tus datos."
 	},
 	"about": {
+		"updateOutcome": {
+			"upToDate": "Está actualizado. No hay ninguna actualización del paquete sin conexión.",
+			"downloading": "Actualización encontrada. El paquete sin conexión se está descargando en segundo plano.",
+			"failed": "La comprobación falló. Comprueba tu conexión a internet e inténtalo de nuevo."
+		},
 		"title": "Acerca de",
 		"productTagline": "Voz a texto para escritorio",
 		"description": "Qué es esta aplicación, qué hace y dónde se ejecuta.",
@@ -438,7 +444,7 @@
 		"localTitle": "Local y sin conexión",
 		"localDesc": "La transcripción se ejecuta en tu dispositivo con modelos de voz locales. El audio se procesa localmente y funciona sin conexión a internet.",
 		"cloudTitle": "Nube (opcional)",
-		"cloudDesc": "Puedes activar opcionalmente proveedores de voz en la nube (OpenAI, Groq, Deepgram) con una clave de API. El audio se envía entonces a ese proveedor para su transcripción.",
+		"cloudDesc": "Puedes activar opcionalmente proveedores de reconocimiento de voz en la nube con una clave de API. El audio se envía entonces a ese proveedor para su transcripción.",
 		"version": "Versión",
 		"connected": "Conectado",
 		"disconnected": "Desconectado",
@@ -456,7 +462,7 @@
 		"hotkey": "Atajo de teclado",
 		"microphone": "Micrófono",
 		"audioProcessingTitle": "Procesamiento de audio",
-		"audioProcessingDesc": "Cuando usas el reconocimiento de voz local, {appName} procesa el audio en tu dispositivo. Ningún audio sale de tu máquina a menos que configures explícitamente un proveedor de reconocimiento de voz en la nube (OpenAI/Groq/Deepgram).",
+		"audioProcessingDesc": "Cuando usas el reconocimiento de voz local, {appName} procesa el audio en tu dispositivo. Ningún audio sale de tu máquina a menos que configures explícitamente un proveedor de reconocimiento de voz en la nube.",
 		"modelWeightsTitle": "Pesos del modelo",
 		"modelWeightsDesc": "Los pesos del modelo de reconocimiento de voz se descargan de Hugging Face la primera vez que descargas un modelo. Descargar los pesos del modelo requiere una conexión con Hugging Face, que recibe tu dirección IP como parte de la solicitud (un tercero con sede en EE. UU.). Consulta la política de privacidad de Hugging Face para más detalles.",
 		"cloudAsrTitle": "Reconocimiento de voz en la nube",
@@ -839,6 +845,7 @@
 			"duckLevelInfoSearch": "Qué tan silencioso hacer el audio del sistema.",
 			"duckLevelAria": "Nivel de atenuación",
 			"microphoneQuality": "Calidad del micrófono",
+			"microphoneQualityEnable": "Activar el filtrado",
 			"microphoneQualityInfo": "Los preajustes configuran toda la cadena de filtros para escenarios comunes. Elige 'Personalizado' para control avanzado de filtros individuales.",
 			"microphoneQualityInfoSearch": "Los preajustes configuran toda la cadena de filtros.",
 			"microphoneQualityAria": "Preajuste de calidad del micrófono",
@@ -1023,8 +1030,8 @@
 			"exportAllDataInfoSearch": "Descarga tus plantillas y configuración completa como archivos JSON.",
 			"consentBannerDesc": "{appName} procesa voz, texto y metadatos localmente por defecto. Las características siguientes requieren enviar datos específicos a terceros: haz clic en Aceptar todo para activar todos los consentimientos a la vez, o activa características individuales.",
 			"huggingFaceItem": "HuggingFace: descarga pesos del modelo Whisper (revela tu IP a un tercero estadounidense; el audio nunca sale de tu máquina).",
-			"cloudAsrItem": "Reconocimiento de voz en la nube (OpenAI / Groq / Deepgram): envía grabaciones de audio para transcripción cuando ese proveedor es el backend activo.",
-			"llmPolishItem": "Pulido LLM: envía texto transcrito (no audio) a una API LLM compatible con OpenAI para su refinamiento.",
+			"cloudAsrItem": "Reconocimiento de voz en la nube: envía grabaciones de audio para transcripción cuando un proveedor en la nube es el backend activo.",
+			"llmPolishItem": "Pulido con LLM: envía el texto transcrito (no el audio) a una API de LLM configurada para refinarlo.",
 			"voiceBiometricItem": "Biometría de voz: reconoce que las grabaciones de voz locales pueden considerarse datos biométricos según BIPA / GDPR Art. 9.",
 			"revokeNotice": "Puedes revocar cualquier consentimiento en cualquier momento desactivándolo a continuación. Las características en la nube se negarán a ejecutarse hasta que se vuelva a otorgar el consentimiento correspondiente.",
 			"consentsGranted": "{granted} de 6 consentimientos otorgados",
@@ -1047,7 +1054,7 @@
 			"deepgramCloudAsrInfo": "Permite enviar grabaciones de audio a la API nova-2 de Deepgram para transcripción. Solo surte efecto cuando Deepgram es el backend de reconocimiento de voz activo Y hay una clave de API configurada.",
 			"deepgramCloudAsrAria": "Consentimiento de reconocimiento de voz en la nube de Deepgram",
 			"llmTextPolishing": "Pulido de texto con LLM",
-			"llmTextPolishingInfo": "Permite enviar TEXTO transcrito (no audio) a una API LLM compatible con OpenAI para su pulido. Requiere una clave de API LLM en la sección de Posprocesamiento.",
+			"llmTextPolishingInfo": "Permite enviar el TEXTO transcrito (no el audio) a una API de LLM configurada para pulirlo. Requiere una clave de API de LLM en la sección de posprocesamiento.",
 			"llmTextPolishingAria": "Consentimiento de pulido LLM",
 			"exportAllData": "Exportar todos los datos (GDPR Art. 15/20)",
 			"exportAllDataInfo": "Descarga tus plantillas y configuración completa como archivos JSON. Las claves de API se redactan en la exportación de configuración.",
@@ -1060,7 +1067,7 @@
 			"exportFailedError": "Exportación fallida: {error}",
 			"fileFallback": "archivo",
 			"agreeConfirmTitle": "¿Aceptar las 6 autorizaciones?",
-			"agreeConfirmMessage": "Esto habilita las descargas de HuggingFace, la transcripción en la nube (OpenAI / Groq / Deepgram) y el pulido de texto con LLM a la vez. Puedes revocar cualquier autorización individualmente abajo."
+			"agreeConfirmMessage": "Esto habilita las descargas de HuggingFace, la transcripción en la nube y el pulido de texto con LLM a la vez. Puedes revocar cualquier autorización individualmente abajo."
 		},
 		"troubleshooting": {
 			"title": "Solución de problemas",
@@ -1109,8 +1116,6 @@
 		},
 		"fastStartup": "Inicio rápido (precalentamiento)",
 		"fastStartupDescription": "Calienta el caché de archivos del sistema al inicio para que el modelo de voz se cargue en segundos en lugar de 30+ segundos. Desactívelo si necesita espacio en disco/RAM para otras aplicaciones. Puede calentar bajo demanda desde Configuración → Avanzado → Estado del caché.",
-		"offlinePackConsent": "Descargar paquete del motor sin conexión",
-		"offlinePackConsentDescription": "Permite descargar en segundo plano el motor sin conexión (modelos de reconocimiento de voz) desde GitHub Releases. Actívelo solo si desea dictado sin conexión tras una instalación nueva; la descarga solo comienza tras activarlo.",
 		"keyring": {
 			"secure": "Seguro",
 			"plaintext": "Texto plano",
@@ -1956,11 +1961,10 @@
 		"field": {
 			"voice_biometric_consent": "Se requiere consentimiento de biometría de voz para iniciar la grabación. Su voz se procesa como dato biométrico (RGPD art. 9). ¿Permitir la grabación?",
 			"huggingface_consent": "Las descargas de modelos de Hugging Face revelan su dirección IP a una empresa estadounidense (Hugging Face, Inc.). El audio nunca se envía: solo los pesos del modelo. ¿Permitir descargas?",
-			"cloud_openai_consent": "La transcripción en la nube envía su audio a OpenAI para transcribirlo. La política de privacidad de OpenAI se aplica al audio enviado. ¿Permitir?",
-			"cloud_groq_consent": "La transcripción en la nube envía su audio a Groq para transcribirlo. La política de privacidad de Groq se aplica al audio enviado. ¿Permitir?",
-			"cloud_deepgram_consent": "La transcripción en la nube envía su audio a Deepgram para transcribirlo. La política de privacidad de Deepgram se aplica al audio enviado. ¿Permitir?",
-			"llm_polish_consent": "El pulido con LLM envía su texto transcrito al proveedor LLM configurado para corregir gramática y puntuación. ¿Permitir?",
-			"offline_pack_consent": "El paquete del motor sin conexión (~180 MB) se descarga una vez desde el servidor de lanzamiento y permite la transcripción totalmente local. ¿Permitir la descarga?"
+			"cloud_openai_consent": "La transcripción en la nube envía su audio al proveedor de reconocimiento de voz en la nube seleccionado para transcribirlo. Se aplica la política de privacidad de ese proveedor. ¿Permitir?",
+			"cloud_groq_consent": "La transcripción en la nube envía su audio al proveedor de reconocimiento de voz en la nube seleccionado para transcribirlo. Se aplica la política de privacidad de ese proveedor. ¿Permitir?",
+			"cloud_deepgram_consent": "La transcripción en la nube envía su audio al proveedor de reconocimiento de voz en la nube seleccionado para transcribirlo. Se aplica la política de privacidad de ese proveedor. ¿Permitir?",
+			"llm_polish_consent": "El pulido con LLM envía su texto transcrito al proveedor LLM configurado para corregir gramática y puntuación. ¿Permitir?"
 		}
 	},
 	"degradation": {

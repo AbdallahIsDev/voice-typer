@@ -149,9 +149,6 @@ export function compactNumber(n: number, opts?: CompactNumberOptions): string {
 		const display = Math.floor(k * 10) / 10;
 		const usePlus = opts?.plusSuffix ?? false;
 		const suffix = usePlus && n % 1000 > 0 ? "K+" : "K";
-		if (display === Math.floor(display)) {
-			return `${Math.floor(display)}${suffix}`;
-		}
 		return `${display}${suffix}`;
 	}
 	if (opts?.localeAware) {

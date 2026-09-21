@@ -109,10 +109,10 @@ export default function Home() {
 		loadCachedRecent(cachedRecentRef),
 	);
 	// Only show a loading spinner when we have NO cached data to render.
+	// Derived from the two state values above: re-invoking the loaders here
+	// would re-read localStorage on an empty cache (the refs stay empty).
 	const [initialLoading, setInitialLoading] = useState(
-		() =>
-			loadCachedStats(cachedStatsRef) === null &&
-			loadCachedRecent(cachedRecentRef).length === 0,
+		() => stats === null && recent.length === 0,
 	);
 	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
 

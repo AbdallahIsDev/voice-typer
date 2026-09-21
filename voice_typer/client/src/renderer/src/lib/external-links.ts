@@ -1,5 +1,5 @@
 // lib/external-links.ts
-// MO-118: the ONE helper every external https link routes through.
+// The ONE helper every external https link routes through.
 // Under predecessor, bare `<a target="_blank">` anchors and `window.open`
 // calls are intercepted by `setWindowOpenHandler` +
 // `will-navigate`(`input-nav-guard.ts`), which `shell.openExternal`s the

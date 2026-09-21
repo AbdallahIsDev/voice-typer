@@ -1,5 +1,5 @@
 // components/common/ExternalLink.tsx
-// MO-118: the ONE anchor every in-app link to an EXTERNAL https page
+// The ONE anchor every in-app link to an EXTERNAL https page
 // renders through.
 // Why an anchor instead of a `Button onClick={() => open(url)}`:
 // - Semantics/a11y: the element IS a link, so it keeps `role="link"`,

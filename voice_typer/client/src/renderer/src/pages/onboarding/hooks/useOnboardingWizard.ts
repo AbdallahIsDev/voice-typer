@@ -15,7 +15,7 @@ import { HOTKEY_DEFAULT, MODEL_DEFAULT } from "../lib/constants";
 import type { ModelOption, StepInfo } from "../lib/types";
 
 // The six consent flags surfaced on the consolidated Consent step
-// (voice biometric, HuggingFace, OpenAI / Groq / Deepgram cloud ASR,
+// (voice biometric, HuggingFace, configured cloud ASR,
 // LLM polish). Module-level so useCallbacks/effects can list it as a
 // stable dep without re-creating the array every render.
 const CONSENT_FIELDS = [
