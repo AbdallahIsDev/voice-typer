@@ -326,7 +326,12 @@ voice-typer = "voice_typer.server.ipc_server:main"
 # pytest-cov: coverage reporting.
 # pytest-mock: MagicMock fixture.
 test = [
-    "pytest>=7,<9",
+    # Runner tracks the current stable major (FV-60): floor 9 chosen
+    # because the full suite is green on 9.1.1 (14660 passed, 0 failed)
+    # with all plugins loaded (xdist/asyncio/timeout/cov/benchmark/
+    # hypothesis), no pytest_itemstart/inicfg usage exists in tests/ or
+    # conftest.py, and CI jobs already install unpinned latest pytest.
+    "pytest>=9,<10",
     # pytest-mock removed, verified zero usages of `mocker` fixture
     # across tests/ (tests use monkeypatch + unittest.mock.patch instead).
     "pytest-asyncio>=0.23,<1",
