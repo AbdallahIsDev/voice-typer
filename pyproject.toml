@@ -334,7 +334,15 @@ test = [
     "pytest>=9,<10",
     # pytest-mock removed, verified zero usages of `mocker` fixture
     # across tests/ (tests use monkeypatch + unittest.mock.patch instead).
-    "pytest-asyncio>=0.23,<1",
+    # Floor is 1.2: first release with pytest 9 support (#1279). 0.23.x
+    # lacks asyncio_default_fixture_loop_scope (added in 0.24, set in
+    # [tool.pytest.ini_options] below) so --strict-config fails with
+    # "Unknown config option", and its pytest_collectstart crashes on
+    # pytest 9 ("'Package' object has no attribute 'obj'"). The floor
+    # also forces CI runners with a pre-installed 0.23.x to upgrade:
+    # `uv pip install --system ".[test]"` keeps any version that
+    # already satisfies the range unless the floor excludes it.
+    "pytest-asyncio>=1.2,<2",
     "pytest-timeout>=2.3,<3",
     "pytest-cov>=4.1,<8",
     # hypothesis for property-based testing
