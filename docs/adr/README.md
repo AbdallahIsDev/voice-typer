@@ -26,7 +26,7 @@ Tooling note: `adr-tools` and similar expect unique `NNNN-*.md` names; this dire
 | 0018 | `0018-heartbeat-watchdog.md` | predecessor-Alive Heartbeat Watchdog (RW-10) | SUPERSEDED — predecessor host removed 2026-09-17; Tauri is sole host (ADR-0020). Rust supervisor owns liveness; heartbeat loop disabled under `TAURI_SIDECAR=1`. Historical record only. |
 | 0019 | `0019-per-connection-rate-limiter.md` | Per-Connection Rate Limiter (RELIABILITY-006) | Accepted / live under Tauri WS: `_RateLimiter` in `ipc_server.py` (instantiated per connection via `_get_rate_limiter`). predecessor/TCP context in the body is historical. |
 | 0020 | `0020-desktop-runtime-migration-analysis.md` | Desktop Runtime Migration to Tauri v2 + Python Sidecar (Cross-Platform Edition) | **Current authority.** Cutover complete 2026-09-17: predecessor removed; Tauri is the sole desktop host. Cross-platform rewrite of ADR-0013. |
-| 0021 | `0021-at-rest-encryption.md` | At-Rest Encryption for User Data (Design-Gated) | Proposed (design-only: no production code changes; implementation tracked under the "Phased rollout" section of the ADR). |
+| 0021 | `rest-encryption.md` | At-Rest Encryption for User Data (Design-Gated) | Proposed (design-only: no production code changes; implementation tracked under the "Phased rollout" section of the ADR). |
 | 0022 | `0022-ws-tcp-protocol-version-asymmetry.md` | Sidecar WS Protocol-Version Check Stays Advisory While TCP Rejects | Accepted: deliberate asymmetry (WS warns-and-continues, TCP rejects with `server.protocol_version_mismatch`); revisit at the ADR-0020 single-transport cutover. |
 
 ## Template

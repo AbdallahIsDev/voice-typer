@@ -596,7 +596,7 @@ python scripts/build/generate_beeps.py --check
 # This is a HARD GATE: see C-TEST-6, no deliverable ships without a green full-suite
 # run on the final code state)
 python -m pytest tests/ -n auto --dist=loadgroup -q --cov=voice_typer \
-  --cov-fail-under=65 --cov-report=term-missing --timeout=120 --timeout-method=thread
+  --cov-fail-under=78 --cov-report=term-missing --timeout=120 --timeout-method=thread
 python scripts/coverage_ratchet_check.py
 python scripts/ruff_ratchet_check.py
 
@@ -1028,7 +1028,7 @@ Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting
 ```
 C-TEST-4
 Rule: Do NOT add `--cov` or `--coverage` flags to local test runs (Makefile `test-client`, individual `pytest` invocations). Coverage instrumentation adds 15-25% overhead. Use `--no-coverage` for local dev; CI (`build.yml`) and pre-push hooks are the correct places for coverage enforcement.
-Rationale: Added as part of PERF-007 on 2026-08-02. The Makefile `test-client` target now passes `--no-coverage` to Vitest. The Makefile `test` target does not pass `--cov` (it relies on `addopts` which includes `--cov`, but local devs can override with `--no-cov`). CI explicitly passes `--cov` and `--cov-fail-under=65` in its own step.
+Rationale: Added as part of PERF-007 on 2026-08-02. The Makefile `test-client` target now passes `--no-coverage` to Vitest. The Makefile `test` target does not pass `--cov` (it relies on `addopts` which includes `--cov`, but local devs can override with `--no-cov`). CI explicitly passes `--cov` and `--cov-fail-under=78` in its own step.
 Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 6 (Testing & CI).
 ```
 

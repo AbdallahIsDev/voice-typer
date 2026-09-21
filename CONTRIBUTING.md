@@ -941,25 +941,33 @@ Adding a new **ASR engine** has its own touchpoint set: see
 
 Voice Typer ships **8 UI locales** (`en`, `ar`, `de`, `es`, `fr`, `hi`,
 `ru`, `zh`), see `SUPPORTED_LOCALES` in
-`voice_typer/client/src/renderer/src/i18n/locale.ts`. There are **two**
-translation stores, both of which must be updated for every new string:
+`voice_typer/client/src/renderer/src/i18n/locale.ts`. The app has **one**
+translation store, the renderer catalog:
 
-- **Renderer**, `voice_typer/client/src/renderer/src/i18n/translations/*.json`
+- `voice_typer/client/src/renderer/src/i18n/translations/*.json`
   (8 files), consumed through the `@/i18n/i18n` package (`t`, `tChoice`,
   `useT`, `useTChoice`, `setLocale`, `getLocale`).
-- **Main process**, `voice_typer/client/src/main/i18n/locales/*.json`
-  (8 files), consumed through `mainT()` (`voice_typer/client/src/main/i18n.ts`)
-  for dialogs and tray labels that render outside the React tree.
+
+Surfaces that render outside the React tree do NOT have a second catalog.
+`i18n/push.ts` resolves the tray-menu, notification and tray-state label
+keys in the renderer and ships them to the Python backend with
+`set_tray_locale` (`{ locale, labels }`), so the server's
+`voice_typer/server/i18n.py` fallbacks and the pushed labels agree in every
+locale. There is no main-process store: the predecessor
+`voice_typer/client/src/main/` tree (and its `mainT()`) was removed with the
+Tauri cutover.
 
 **Rules (enforced by `tests/.../locale-key-parity.test.ts` + the i18n
 completeness suite):**
 
-1. **Never hardcode a user-visible string.** Use `t("key")` / `tChoice(...)`
-   in the renderer, `mainT(...)` in the main process. A bare literal like
-   `"Save"` in a `tsx`/`ts` file is a violation.
+1. **Never hardcode a user-visible string.** Use `t("key")` /
+   `tChoice(...)` in the renderer. A bare literal like `"Save"` in a
+   `tsx`/`ts` file is a violation. Server-side user-visible text goes
+   through `voice_typer/server/i18n.py` (tray + notification labels),
+   whose keys are pushed from the renderer catalog (see above).
 2. **Add the key to ALL 8 locale files** (C-I18N-1). The parity test
    asserts every non-English file defines the *same dot-key set* as
-   `en.json` A key added only to English silently falls back for the
+   `en.json`. A key added only to English silently falls back for the
    other 7 locales.
 3. **Every non-English value must be a genuine translation** (C-I18N-2) —
    never paste the English text into `ar.json` / `de.json` / etc. If you
@@ -971,6 +979,11 @@ completeness suite):**
 5. **Pluralize with `tChoice` + `_category` suffixes.** `tChoice("key", n)`
    resolves `key_{category}` → `key_other` → bare `key`, where `category`
    comes from `Intl.PluralRules` (`zero`/`one`/`two`/`few`/`many`/`other`).
+   Each candidate is looked up through the same locale chain as `t()`:
+   current locale → primary subtag (regional locales only, e.g. `zh-CN` →
+   `zh`) → `en`. Keeping the two chains identical is what makes a future
+   regional locale resolve plurals consistently; they are pinned together
+   by `i18n/__tests__/translate-fallback.test.ts`.
    Add the category-suffixed keys your locale needs (e.g. `_one`/`_other`
    for English, `_few`/`_many` for Russian, `_zero`/`_two`/`_few`/`_many`
    for Arabic). When a locale does not distinguish a category, fall back

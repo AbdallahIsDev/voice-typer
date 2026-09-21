@@ -126,7 +126,7 @@ in `allowed_commands()` (renderer-reachable); "—" means host-dispatched
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
 | `transcribe_offline` | `_handle_transcribe_offline` | ✓ | Master plan §7.4: slim core forwards this request to the runtime-pack worker over the worker's dedicated WS hop. The worker may take seconds to minutes to transcribe, so the result is returned asynchronously via the `transcribe_offline_result` push event rather than a synchronous response. |
-| `check_offline_pack_update` | `_handle_check_offline_pack_update` | ✓ | Auto-update feature (docs/auto-update-feature.md): runtime-pack manifest check against GitHub Releases (C-DATA-1 category-2 allowed update check) + consent-gated background download (`config.offline_pack_consent` must be true). |
+| `check_offline_pack_update` | `_handle_check_offline_pack_update` | ✓ | Auto-update feature (docs/auto-update-feature.md): runtime-pack manifest check against GitHub Releases + always-on background download (no consent gate). |
 
 ### History (CRUD, favorites, search, today stats, count, transcription text)
 

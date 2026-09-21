@@ -24,11 +24,9 @@ The implementation consists of three components:
 1. **Pack-version checker** (Python, `voice_typer/server/service/update_check.py`)
  Fetches the remote `pack-manifest.json` from GitHub Releases,
    compares its `version` field against the locally installed pack,
-   and (if newer + consent given) triggers a background download via
-   `voice_typer/server/service/offline_pack.py::download_offline_pack_with_resume`.
-   Consent-gated via `config.offline_pack_consent` (NOT
-   `huggingface_consent` The pack phones home to GitHub/Microsoft,
-   not HuggingFace).
+   and (if newer) triggers a background download via the offline-pack
+   downloader. **Always-on** (user product decision): no consent gate,
+   no Settings toggle, not set_config-able.
 2. **GitHub Releases publisher** (`scripts/release/publish_pack_release.py`)
  Release-engineering CLI that publishes the pack onefile + manifest
    to GitHub Releases. Two backends: `gh` CLI (preferred) and GitHub
@@ -68,7 +66,7 @@ https://github.com/AbdallahIsDev/voice-typer/releases/download/v<version>/pack-<
 ```
 
 The manifest schema is defined by
-`voice_typer/server/service/offline_pack.py::load_offline_pack_manifest` and includes
+`voice_typer/server/service/offline_pack/core.py::load_offline_pack_manifest` and includes
 `version`, `sha256`, `files` (list of `{name, sha256, size}`), and
 `min_proto_version`. Manifests larger than `MAX_MANIFEST_BYTES = 1 MiB`
 are rejected (defense-in-depth: chunked read in transport +
@@ -80,15 +78,9 @@ are rejected (defense-in-depth: chunked read in transport +
 ### Python (`voice_typer/server/service/update_check.py`)
 
 - `check_offline_pack_update(config, event_bus, *, http_get=None, manifest_url=None, local_version=None, root=None, trigger_download=True) -> UpdateCheckResult`
- Main entry point. Consent-gated (raises / publishes
-  `consent_required` event when `config.offline_pack_consent` is
-  False). Triggers `pack.download_offline_pack_with_resume` on a daemon thread
-  when a newer version is found.
+ Main entry point. Always-on: consent never blocks fetch/download.
 - `handle_check_offline_pack_update_ipc(app, data, *, http_get=None, ...) -> dict`
- Thin IPC handler wrapper. **NOT auto-registered in
-  `ipc/registry.py`**: wiring is owned by whoever owns the shared
-  registry file. The renderer hook fails gracefully (caught + logged
-  at debug) until the command is registered.
+ Thin IPC handler wrapper. Registered in `ipc/registry.py:_COMMAND_REGISTRY`.
 - `fetch_remote_manifest(url, *, http_get=None) -> PackManifest | None`
  Pure helper. SSRF-gated (`pack.assert_offline_pack_url_allowed`), max-bytes-capped.
 - `is_newer_version(remote, local) -> bool` Semver-ish comparison
@@ -135,7 +127,7 @@ function useNetworkOnline(): UseNetworkOnlineResult
 ────────────────────────────────────────────────────────────────────────────────
 ## Security inheritance (Implemented)
 
-- **SSRF:** `voice_typer.server.service.offline_pack.assert_offline_pack_url_allowed`
+- **SSRF:** `voice_typer.server.service.offline_pack.gates.assert_offline_pack_url_allowed`
   extends the URL allowlist with `github.com` /
   `objects.githubusercontent.com` / `codeload.github.com` AND inherits
   the IP-literal blocklist + DNS-rebinding defense from
@@ -145,14 +137,12 @@ function useNetworkOnline(): UseNetworkOnlineResult
   where `MAX_MANIFEST_BYTES = 1 MiB` (defense-in-depth: chunked read
   in transport + `_secure_read_text` on temp file). Tested by
   `tests/test_secure_file_io_max_bytes.py`.
-- **Proxy:** `voice_typer.server.service.offline_pack.proxy_env()` returns
+- **Proxy:** `voice_typer.server.service.offline_pack.gates.proxy_env()` returns
   the system proxy env vars (`HTTP_PROXY` / `HTTPS_PROXY` + lowercase
   variants) for the urllib request.
-- **Consent:** `voice_typer.server.service.offline_pack.require_offline_pack_consent(config, version=...)`
-  raises `OfflinePackConsentRequiredError` when
-  `config.offline_pack_consent` is False. `check_offline_pack_update` catches
-  it + publishes a `consent_required` event (mirrors
-  `ModelMixin._require_huggingface_consent`).
+- **Consent:** Always-on (user product decision). `require_offline_pack_consent`
+  is a no-op; `offline_pack_consent` is forced True on load and is not
+  in the SEC-002 `set_config` allowlist.
 
 ────────────────────────────────────────────────────────────────────────────────
 ## C-DATA-1 constraint (Resolved 2026-08-15 by the user)
@@ -162,10 +152,9 @@ calls: (1) cloud transcription / LLM providers, (2) auto-update —
 "Check for Updates" / silent update check against the GitHub API, (3)
 model downloads, (4) the offline-pack (runtime pack) download from
 GitHub Releases. Category (4) was added by the USER on 2026-08-15 so
-that the pack download is explicitly permitted, the code keeps the
-`offline_pack_consent` toggle (currently default OFF) as a
-product/UX choice, and the user may flip that default without needing
-another rule change.
+that the pack download is explicitly permitted. **User decision
+(2026-08):** pack auto-update is always-on — default True, no Settings
+toggle, not disableable via set_config.
 
 ────────────────────────────────────────────────────────────────────────────────
 ## Wiring status (2026-08-14: wired)
@@ -176,24 +165,28 @@ The auto-update mechanism is now wired end-to-end:
   `voice_typer/server/ipc/registry.py:_COMMAND_REGISTRY` (handler
   `_handle_check_offline_pack_update` in `server/ipc/lifecycle.py`, which
   delegates to `update_check.handle_check_offline_pack_update_ipc`),
-  `voice_typer/client/src/main/allowed-commands.ts:ALLOWED_COMMANDS`,
   the Rust `allowed_commands()` literal
   (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`), the
   `PythonRequest` TS union, and the rate-limiter cost table, all in
-  lockstep (Python 70 / TS 68 / Rust 66).
-- **`offline_pack_consent` config field.** Added to
-  `voice_typer/server/config/__init__.py` (dataclass field
-  `offline_pack_consent: bool = False`, renamed from
-  `runtime_pack_consent` on 2026-08-14 with a schema v3→v4 migration)
-  + the SEC-002 `IPC_CONFIG_ALLOWLIST` + the renderer
-  `VoiceTyperConfig` type. Defaults `False` Consent required.
-- **Settings consent toggle.** `GeneralSettingsSection.tsx` renders a
-  Switch bound to `offline_pack_consent` (i18n keys
-  `settings.offlinePackConsent` / `settings.offlinePackConsentDescription`
-  in all 8 locales).
+  lockstep. There are exactly TWO dispatch allowlists post-cutover
+  (CONTRIBUTING.md §6.4): the Python `_COMMAND_REGISTRY` (75 entries) and
+  the Rust `allowed_commands()` set (71 entries = 75 minus the four
+  host-dispatched commands `heartbeat`, `relaunch_ack`, `shutdown`,
+  `tray_click`). There is no TypeScript allowlist; parity is pinned by
+  `tests/test_ipc_command_parity.py`.
+- **`offline_pack_consent` config field.** Schema default `True`
+  (always-on). Forced True on load. **Not** in the SEC-002
+  `IPC_CONFIG_ALLOWLIST` (renderer cannot disable it).
+- **Settings consent toggle.** REMOVED (always-on product decision).
+  Pack download/update requires no user toggle.
 - **Mount `useNetworkOnline` in the App component.** The hook is now
   mounted at the renderer top level (`App.tsx`); on the false → true
   `online` transition it calls `check_offline_pack_update`.
+- **Launch-time check.** `startup_tasks.check_offline_pack_on_launch`
+  (wired in `startup_sequence/_phases_late.py`) runs on every app start:
+  background checksum when the pack is present, plus
+  `check_offline_pack_update(trigger_download=True)` whether the pack
+  is present or missing (always-on; short `LAUNCH_MANIFEST_TIMEOUT_S`).
 - **Vitest test for `useNetworkOnline.ts`.** A Python structural test
   (`tests/test_update_network_online.py`) pins the contract; a
   vitest test would verify the runtime behavior (event listener
@@ -363,7 +356,7 @@ The Rust-side update runner proposed the following state machine:
 > transitions the pack through `idle → checking → update_available →
 > downloading → downloaded → verified → installed` (with `error` and
 > `consent_required` as terminal branches). See
-> `voice_typer/server/service/offline_pack.py` + `update_check.py` for the
+> `voice_typer/server/service/offline_pack/` + `update_check.py` for the
 > canonical state machine.
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -558,8 +551,8 @@ An "Updates & Version" section in Settings showing:
 > 2. **Reuses pack downloader**, `download_offline_pack_with_resume` is the
 >    same path the first-launch pack download uses (no second
 >    downloader to maintain).
-> 3. **Reuses consent UI**, `offline_pack_consent` mirrors the
->    existing `huggingface_consent` flow.
+> 3. **Consent UI removed** for the pack (always-on product decision;
+>    `offline_pack_consent` is not user-disableable).
 > 4. **Renderer hook is minimal**, `useNetworkOnline.ts` only fires
 >    the IPC call on the false → true online transition (no
 >    per-second timer, no Tauri plugin dependency).

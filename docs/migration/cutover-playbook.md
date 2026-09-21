@@ -135,7 +135,7 @@ for that version:
 - Tag a release candidate: `v<version>-rc.<platform>` (e.g.
   `v1.2.0-rc.windows`).
 - Run the top-level CI workflow manually:
-  `Actions → Tauri Build (all platforms) → Run workflow → platform: <platform>`.
+  `Actions → Build all platforms → Run workflow → platform: <platform>`.
   Confirm the per-platform workflow produces a signed installer artifact.
 - Have a rollback pilot user (NOT the implementer) install the RC + run
   the user acceptance test.

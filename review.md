@@ -63,24 +63,6 @@ observations before marking anything done.
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟢 Low
 
-### FV-21 — Clipboard password-field safety fails open when UIA is unavailable
-**Status:** ✅ Fixed (2026-09-21: macOS/Linux password checks and the non-Windows dispatcher now fail closed when detection infra is unavailable; auto-paste suppressed, text stays on clipboard. Windows UIA path was already fail-closed. Tests: tests/clipboard/test_password_field_fail_closed.py + updated test_clipboard_password_detection.py.)
-**Description:** The check that prevents auto-pasting into password fields degrades to "not a password field" when the Windows accessibility API (UIA) is unavailable, so dictation auto-paste can land in a password field during those windows. This is a documented deliberate tradeoff (a UIA hiccup must never block pasting), flagged here for the record.
-**User Impact:** Rare: dictated text could auto-paste into a password field during a UIA failure window. The alternative (fail closed) would block all pasting whenever UIA hiccups — worse for the core flow.
-**Root Cause:** Deliberate fail-open design (documented inline).
-**Gain vs Trade-off:** Optional hardening: suppress auto-paste on check failure, keeping the text in the clipboard for manual paste — the fallback path already exists. Trade-off: pasting silently requires one manual Ctrl+V during UIA hiccups.
-**If We Do It:** Password fields can never receive auto-pasted dictation even during UIA failures.
-**If We Don't:** The rare window persists; dictated text in a password field is masked and must be cleared manually.
-**My Recommendation:** 🟡 Try and revert — product call between availability and fail-closed.
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/clipboard_target_safety/validation.py:47-70`
-- `voice_typer/server/clipboard_target_safety/injection.py:127-134`
-**Fix:** When the safety check fails open, suppress auto-paste and keep text in clipboard for manual paste (fallback message already exists at clipboard/manager/_paste.py:163).
-**Simplified Fix:** In the rare moments Windows can't tell the app what field is focused, the app currently guesses "safe" and pastes. The safer guess is "hold the text and let the user paste it themselves."
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
 ### FV-31 — tests/ root holds 716 flat test files (243 already live in 26 domain subdirs)
 **Status:** ❌ Not Fixed (2026-09-21 FV session: re-confirmed 727 flat root files; the entry's own recommendation is 🟡 Defer — opportunistic migration only when a file is already being edited, since a bulk move is churn-for-churn. No bulk move performed.)
 **Description:** Newer test domains get subdirectories, but 716 legacy files still sit flat at the tests/ root. Largest sampled files are single-domain (no catch-all mixing found — the E3 violation pattern is absent), so this is navigability cost, not a correctness risk.
@@ -145,27 +127,8 @@ observations before marking anything done.
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🔴 Critical
 
-## FV Medium Priority
-
-### FV-48 — `_handle_set_config` is a single 413-line method mixing eight concerns
-**Status:** ❌ Not Fixed
-**Description:** The config-set handler — the single most security-sensitive handler (the SEC-002 allowlist path) — is one method mixing payload validation, echo accounting, bubble-position clearing, model swap with loading status, backend swap, failed-key persistence filtering, URL-allowlist re-apply, tray-cache invalidation, config/bubble pushes, and envelope assembly.
-**User Impact:** None directly; the change-risk on this handler is disproportionately high and review burden grows with every accreted concern.
-**Root Cause:** Verified — accretion; the comments narrate each addition.
-**Gain vs Trade-off:** Extract phases into helpers with explicit inputs/outputs; no behavior change; handler-envelope pins stay green.
-**If We Do It:** The most-audited handler becomes reviewable in units.
-**If We Don't:** Every future settings feature grows the monolith.
-**My Recommendation:** ✅ Implement (next time the handler is touched, or as a dedicated refactor).
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/handlers/config_handlers.py:93-506`
-**Fix:** Extract phases (validate → apply model/backend → persist → side-effects → respond) into helpers with explicit inputs/outputs; keep response envelopes identical.
-**Simplified Fix:** The function that saves settings is one giant block doing eight different jobs. Splitting it into named steps makes it safe to change and much easier to review.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
 ### FV-50 — 158 task-ID comment remnants (57 Python + 101 Rust) violate the no-task-IDs-in-code rule
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed (2026-09-21: both trees swept — 0 retired IDs remain in `voice_typer/server` + `src-tauri/src`; ruff + `py_compile` + `cargo check --all-targets` green, full pytest run recorded in `worklog.md`).
 **Description:** 57 occurrences across 27 Python server files plus 101 across 43 Rust source files (per Review Wave 4's repo-wide recount; the Wave-3 count of 14 was slice-scoped) still carry session/task tags (`R13-F3`, `F11-FIX`, `P4-A9`, `SVC-10`, `WAL-CHECKPOINT-FIX`, `MO-1xx`, `T3-05`, `TR-4`, …) — the residue of a past sweep that stripped tags incompletely. Pervasive grammar artifacts of the stripping ("(fix):", " : replaces", dangling double spaces) compound the readability cost.
 **User Impact:** None; the IDs are meaningless noise for future sessions (their review.md entries are long gone) and the dangling artifacts hurt readability.
 **Root Cause:** Verified — incomplete tag-stripping sweep.
@@ -173,30 +136,12 @@ observations before marking anything done.
 **If We Do It:** Comments describe durable facts; the rule's letter is met.
 **If We Don't:** Noise persists and invites more tagging.
 **My Recommendation:** ✅ Implement (opportunistic sweep; a dedicated session could finish it in one pass).
-**Progress:** `None yet.`
+**Progress:** 2026-09-21: swept 215 lines across 90 files (54 Python server + 36 Rust) — every retired session ID deleted and the prose around it repaired (`# M-62: persists first-then-mutates` → `# Persists first-then-mutates`; the user-visible log string `"[ASR_REGISTRY] active backend %s is disabled, refusing to load (OI-15)"` → `"…refusing to load"`; Rust assertion messages `"UE-4: breaker …"` → `"breaker …"`). Sanctioned anchors preserved (SEC-*/RACE-*/PERF-*/ADR-*/NU-*/IPD-*/TX-*/C-*/CRIT-*/BRAND-001, plus component topic prefixes such as THREAD-REGISTRY / PLAT-RUN / AUDIO-*); non-tag false positives left alone (`Parakeet-TDT-0.6b-V3`, `Qwen3-ASR-1.7B` model names) and the live plan anchor `P-1` (§6.2 of `docs/plan-runtime-pack-split.md`). The earlier sweep's grammar artifacts were repaired in the same pass: `"(fix):"`, `" : replaces"`, `",): auto-paste"`, `"(partial)"`, `"(combined)"`, `"(rate-scaled)"`, `"(Task 2.4)"`, `".  Never read …"`, `"# extracted from the original"`, `"pre- callers"`, `"class:`_ArchAwareBinaryNameMap`"`, `"owned by) and"`. One comment-pinned test found and updated per C-COMMENT-9: `tests/test_platform_fix_regressions.py` asserted the literal `"PLAT-001"` in clipboard source; it now asserts the durable content (`"pynput"`). Re-scan of both trees: 0 legacy IDs. Out-of-scope residue recorded, not touched (outside this entry's 27 Python + 43 Rust file scope): `tests/` 1,760 hits in 248 files, `voice_typer/client/src` 107 in 56, `scripts/` 7 — extendable only via a new entry.
 **Related Files:**
 - `voice_typer/server/ipc/validation.py:10,759`, `handlers/history_handlers.py:324,386,406,430`, `handlers/config_handlers.py:143`, `ipc/registry.py:431`, `service/onboarding.py:233` (Python representative sites)
 - `src-tauri/src/sidecar/supervisor.rs:230`, `platform/power.rs`, `main.rs:1`, `state.rs`, `spawn.rs` (Rust representative sites — 90 of the 101 are MO-NNN line-tags; full list via `rg 'MO-[0-9]+|T3-05|TR-4|M-65' src-tauri/src`)
 **Fix:** Sweep the ~70 affected files replacing task-ID tags with purpose-named prose (the Python families QUIT-CLEAN-001/PLAT-HLEAK/DB-LOCK-FIX/WAL-CHECKPOINT-FIX/IMPL-A are residue to replace, per Review Wave 4); KEEP the sanctioned greppable tags (SEC-*, RACE-*, PERF-*, ADR-*, NU-*, IPD-*, TX-* — these are documented conventions); fix the stripping grammar artifacts. Opportunistic per-file or one dedicated session — never a blind batch (E1).
 **Simplified Fix:** Comments in the code still reference long-retired work-item numbers, leftovers of a half-finished cleanup. Rewording them to describe what the code does makes the comments useful again.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
-### FV-52 — Recorder duplicates the canonical microphone-id resolver in a ~130-line hand-rolled ladder (E7)
-**Status:** ❌ Not Fixed
-**Description:** The recorder's device-resolution code re-implements the id-resolution ladder that the project's own rules designate as THE shared resolvers (`resolve_mic_id_to_device_index` / `find_microphone_by_id` in `server_platform/microphone_list.py`, per C-MIC-2) — with divergent unresolvable-fallback semantics (the copy falls back to a stale index/name string; the canonical one falls back to None → System Default).
-**User Impact:** Latent: the two ladders drift apart per future id-shape change; today they agree by luck.
-**Root Cause:** Verified — the recorder path predates the canonical resolver and was never consolidated. (Nuance per Review Wave 4: the ladder already consults `find_microphone_by_id` for non-digit strings; the true duplication is the legacy-compound tail plus the divergent unresolvable-fallback semantics.)
-**Gain vs Trade-off:** Delegating to the canonical resolver (keeping the recorder's candidate policy on top) removes the duplication; C-MIC-2 actively favors this.
-**If We Do It:** One id-resolution truth; C-MIC-2's contract is enforced by construction.
-**If We Don't:** Two ladders to maintain and fix per change.
-**My Recommendation:** ✅ Implement.
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/recording/device_manager.py:1006-1137` (the ladder)
-- `voice_typer/server/server_platform/microphone_list.py:246,579` (the canonical resolvers)
-**Fix:** Delegate the resolution step to the canonical resolvers; keep the recorder's candidate-selection policy layered on top; add a test that patches a resolver to confirm the recorder path consults it.
-**Simplified Fix:** Two copies of the "find the chosen microphone" logic exist, one of them old and slightly different. Making the old copy call the shared one removes the difference.
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
 
@@ -217,42 +162,7 @@ observations before marking anything done.
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟡 Medium
 
-### FV-60 — pytest is pinned `<9` while current stable is 9.1.1 (deliberate cap, undocumented reason)
-**Status:** ❌ Not Fixed
-**Description:** pyproject caps `pytest>=7,<9` — the current stable major (9.1.1, June 2026) is excluded. Every other toolchain dependency is current (ruff 0.16.8, mypy 1.20, react 19.3, vite 8.3, vitest 5.0.1, tauri 2.6.3, tokio 1.47 LTS; lockfile hash-pinned; npm audit clean). The one-major-behind runner cap has no documented reason.
-**User Impact:** None direct; the suite misses current pytest fixes/features and the eventual major-bump becomes larger the longer it waits.
-**Root Cause:** Verified pin + current-version check (web); reason for the cap undocumented.
-**Gain vs Trade-off:** Evaluate `<10` after reviewing pytest 9's breaking changes (plugin API, assertion repr changes) against the suite's heavy customization (xdist, importlib mode, custom conftest).
-**If We Do It:** The runner tracks current; the bump is reviewed rather than accidental.
-**If We Don't:** The gap grows until an unrelated dependency forces a rushed migration.
-**My Recommendation:** 🟡 Try and revert — bump on a branch, run the full suite, revert if red (web-search the pytest 9 breaking-changes list first).
-**Progress:** `None yet.`
-**Related Files:**
-- `pyproject.toml:329`
-**Fix:** Evaluate the `<10` cap after a pytest 9 breaking-change review + full-suite run.
-**Simplified Fix:** The test runner is held one major version back with no written reason. Checking what changed in the new version, then upgrading on a trial branch, keeps the project current without gambling the suite.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
 ## FV Low Priority
-
-### FV-64 — `VT_EARLY_SERVER_STARTED` migration escape hatch has no recorded sunset (~270 LOC permanent second path)
-**Status:** ❌ Not Fixed
-**Description:** A default-OFF env-var escape hatch for a launch-order migration carries ~270 production lines across two modules (early-bind branch, startup thread, bounded buffer/drain/flush) plus a test file — with no sunset date recorded anywhere. If never retired, it doubles the entry point's reasoning surface permanently.
-**User Impact:** None; maintenance-only.
-**Root Cause:** Verified — deliberate escape hatch, no sunset recorded.
-**Gain vs Trade-off:** If the migration release shipped, delete the mode (E15); otherwise record the sunset release in the comment.
-**If We Do It:** One launch-order code path.
-**If We Don't:** The second path lives forever.
-**My Recommendation:** 🟡 Defer to user — retirement timing is a product call.
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/ipc/entrypoint.py:176-196,467-507,593-599,745-813`
-- `voice_typer/server/sidecar_ws.py:674-813`
-**Fix:** If the migration release has shipped: delete the mode (record per E15). Otherwise: record the sunset release in the env-var comment.
-**Simplified Fix:** A temporary alternate startup mode, added to ease a past transition, was never given an end date. Either removing it now that the transition is done, or writing down when it ends, stops it from becoming permanent.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟢 Low
 
 ### FV-69 — `_recorder_split.py` (1668 lines) still holds 4 concerns + machine-generated locals (`_uu36_*`)
 **Status:** ❌ Not Fixed
@@ -287,94 +197,6 @@ observations before marking anything done.
 **Simplified Fix:** While switching microphones, the level meter holds an internal lock through the slow device-opening step, briefly freezing the on-screen level bar. Doing the slow step first and taking the lock only to record the result keeps the bar live.
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🟢 Low
-
-### FV-88 — URL allowlist resolves DNS at validation time; the connection re-resolves at connect time (TOCTOU)
-**Status:** ❌ Not Fixed
-**Description:** The allowlist check resolves the hostname to an IP at validation; the HTTP client then re-resolves at connect time — a classic check-then-connect race. An attacker controlling DNS for an allowlisted host could pass validation with a public IP and connect to a private one (the API-key-exfiltration class the check targets). Allowlist + HTTPS are still enforced; the gap is documented in the docstring.
-**User Impact:** Low under current threats; a documented defense-in-depth gap.
-**Root Cause:** Verified design limitation (acknowledged inline).
-**Gain vs Trade-off:** Pin the resolved IP with Host/SNI, or re-verify the peer IP post-connect; moderate complexity.
-**If We Do It:** Validation and connection agree on the target.
-**If We Don't:** The acknowledged gap persists.
-**My Recommendation:** 🟡 Try and revert — evaluate the pinning approach; the docstring's acknowledgment may be the accepted state.
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/security/url_allowlist.py:517-542`
-**Fix:** Pin the validated IP into the request (Host/SNI) or re-verify the peer IP post-connect.
-**Simplified Fix:** The "is this address allowed?" check looks up where the address points at approval time, but the actual connection looks it up again — and the answer can change between the two. Making the connection use the address that was approved closes the window.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟢 Low
-
-### FV-90 — Tray menu `accelerator` field: documented as Python-populated and shortcut-wiring; no producer exists
-**Status:** ✅ Fixed (2026-09-21 FV session: the struct doc now states no producer exists, that a producer would only render a key-equivalent hint, and that global hotkeys live in `shortcuts.rs`; verified zero `accelerator` producers in the Python tree — `cargo check` Finished ON WINDOWS).
-**Description:** The tray menu struct's `accelerator` field doc claims it's "populated by the Python sidecar's build_tray_menu_model" and wires a global shortcut — but grep finds no producer anywhere in the Python tree; only tests exercise it. Tauri v2 tray accelerators are (suspected) open-menu key-equivalents, not global hotkeys.
-**User Impact:** None today; a future agent populating accelerators expecting global hotkeys gets silent nothing.
-**Root Cause:** Verified no-producer; suspected platform-semantics overclaim.
-**Gain vs Trade-off:** Correct the comment or drop the field.
-**If We Do It:** The tray struct's docs stop promising a feature that doesn't exist.
-**If We Don't:** Misdirection persists on a C-TRAY-protected surface.
-**My Recommendation:** ✅ Implement (comment fix; dropping the field touches tray code — C-TRAY rules apply to menu CONTENT, not struct docs, so a doc fix is safe).
-**Progress:** `None yet.`
-**Related Files:**
-- `src-tauri/src/tray/menu.rs:36-53,124-137`
-**Fix:** Correct the comment (no producer; accelerators are menu key-equivalents at most) or drop the unused field.
-**Simplified Fix:** The tray menu's shortcut field is documented as filled in by the backend and wiring global hotkeys — but nothing fills it. Fixing the note stops someone from building on the phantom feature.
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### FV-92 — Dismiss-hotkey on an idle bubble fire-and-forgets a dictation toggle (suspected hidden recording)
-**Status:** ✅ Fixed (2026-09-21: Python `toggle_dictation` is start/stop (`service/dictation.py`). Host now caches last `tray_state` icon (`SidecarState.last_tray_icon`); dismiss accelerator calls `toggle_dictation` only when last icon is `recording`/`transcribing`, else hide-only. Tests: shortcuts_tests.rs + global_shortcut_parity.py green. cargo check Finished.)
-**Description:** The bubble-dismiss path always fire-and-forgets `toggle_dictation` before hiding the window. If the bubble is visible-but-idle (not recording), the toggle STARTS a dictation and then the bubble hides — potentially leaving the microphone recording with no visible indicator. The documented Python semantics (`service/dictation.py:36-38`: "Start or stop dictation") directly contradict the in-code comment's claim that idle toggle "returns the current state" (citation added by Review Wave 4); a host run is still needed to confirm the end-to-end behavior.
-**User Impact:** Suspected: a user pressing the dismiss key on an idle bubble starts a recording they can't see. Needs Python-side verification + a Windows/macOS host for the bubble window.
-**Root Cause:** Suspected — blind toggle instead of state-gated cancel.
-**Gain vs Trade-off:** Gate on the host-known recording state or use an idempotent cancel command.
-**If We Do It:** Dismiss never starts recording.
-**If We Don't:** The suspected hidden-recording edge persists.
-**My Recommendation:** 🟡 Try and revert — verify Python-side toggle semantics first; if confirmed, gate the dismiss path.
-**Progress:** `None yet.`
-**Related Files:**
-- `src-tauri/src/shortcuts.rs:63-88`
-**Fix:** Verify `toggle_dictation`'s idle behavior Python-side; if it starts recording, gate the dismiss path on the host-known recording state (or call an idempotent cancel). VALIDATE on host.
-**Simplified Fix:** The key that dismisses the small floating window also fires a "start/stop dictation" command blindly — so dismissing an idle window might start a recording with no window showing it. Checking the actual state before toggling prevents the invisible recording.
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### FV-93 — Workflow comment drift: line-number citations rotted across tauri-*.yml and mutation.yml
-**Status:** ✅ Fixed (2026-09-21: comment-bloat pass already replaced rotted line-number citations with named steps / `docs/code-notes/ci-workflows.md` pointers; numpy pin comments cite `nuitka==2.8.10` + lockfile guidance without stale `numpy==2.5.1` line refs; mutation.yml no longer cites pyproject `:281`; re-grepped workflows — no remaining `:line` / `see :N` citations. Comment-only C-CI-2-safe.)
-**Description:** Multiple workflow comments cite line numbers that have drifted (uv/PYBS step refs off by ~20 lines; a job-level block cited at its old location; "numpy==2.5.1" vs lockfile 2.5.2; mutation.yml's pyproject line refs off by ~128 (mutmut config now at :409 vs cited :281 — magnitude corrected by Review Wave 4); codeql's "8 workflow files" vs 12). AGENTS.md calls these tags greppable anchors — drift misleads every audit that trusts them.
-**User Impact:** None; audit misdirection on protected files.
-**Root Cause:** Verified — comments not updated as files grew.
-**Gain vs Trade-off:** Comment-text refresh only (no structural change — C-CI-2 safe); prefer naming symbols over line numbers where possible.
-**If We Do It:** The anchors point where they claim.
-**If We Don't:** Audits keep chasing moved lines.
-**My Recommendation:** ✅ Implement (comment-only edits inside protected files are documentation, not structure — but batch with the next user-validated workflow change to minimize churn).
-**Progress:** `None yet.`
-**Related Files:**
-- `.github/workflows/tauri-windows-build.yml:14,16,160`, `tauri-macos-build.yml:503`, `mutation.yml:9,32`, `codeql.yml:63`
-**Fix:** Refresh the stale line refs (or replace line numbers with named steps/symbols); fix the numpy version citation.
-**Simplified Fix:** Cross-reference notes inside the build recipes point at line numbers that have shifted as the files grew. Refreshing the pointers (or naming steps instead of lines) keeps the notes reliable.
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🟢 Low
-
-### FV-94 — Fresh-clone build breakage: tauri.conf.json still references 5 linux-scripts resources that the wipe wave deleted from the tree
-**Status:** ✅ Fixed (2026-09-21 option b): `src-tauri/resources/linux-scripts/*` restored + tracked (5 files); `scripts/gen_tauri_icons_stub.py` now `_sync_linux_scripts()` on generate and `_linux_scripts_problems()` on `--check` (copies from canonical `scripts/linux/`). Config refs kept — they are intentional bundle.resources. Tests: `tests/tauri/test_gen_tauri_icons_stub.py` **52 passed, 2 skipped** (verified 2026-09-21; `test_linux_installer_paths.py` does not exist — earlier "134 passed" claim was wrong). `cargo tauri build` still needs those files present at build time; generator now heals missing copies.)
-**Description:** `src-tauri/tauri.conf.json:86-90` (and both per-arch Linux configs) reference five files under `resources/linux-scripts/` (install_permissions.py, uninstall_permissions.py, 99-voice-typer.rules, 00-voice-typer-capslock.conf, voice-typer.polkit) — but commit 647daa5f ("complete Electron/Torch wipe waves") deleted the tracked `src-tauri/resources/linux-scripts/` files AND the guarding test (`tests/test_windows_installer_extra_resources.py`) while leaving the config references live. A fresh clone therefore fails `cargo check` (and any tauri build) with `resource path 'resources/linux-scripts/install_permissions.py' doesn't exist` — reproduced live this session after the stub generator correctly created `bin/` and `resources/native/` but not `linux-scripts/`. The .gitignore asymmetry (native/ and prewarm-* are ignored; linux-scripts/ is not) shows the deletion wave expected the whole resources tree gone. Sibling of FV-39 (same incomplete-removal class, different mechanism: config resource refs vs workflow steps).
-**User Impact:** A new contributor's first `cargo check`/dev build fails on a fresh clone with an error that names a file they cannot find anywhere in the repo (the canonical copies live at `scripts/linux/`, undocumented for this purpose); the C-TDEV-1 one-command dev recipe is broken until manual copies are made. CI release builds fail the same way unless a workflow step copies the files (the last full CI success predates the wipe wave — see FV-39's evidence).
-**Root Cause:** Verified — git show 647daa5f --stat (deletions) vs tauri.conf.json:86-90 (live references) vs live cargo-check reproduction on a fresh clone.
-**Gain vs Trade-off:** Two candidate fixes: (a) remove the config references if the resources are genuinely retired (coordinated with FV-39's user-validated workflow cleanup), or (b) restore the files / add a generator step that copies them from scripts/linux/ (the canonical source, verified byte-identical by check_linux_scripts_lf.py's design). Decision belongs to the user (intent of the wipe wave).
-**If We Do It:** Fresh clones build; the dev recipe works as documented.
-**If We Don't:** Every new contributor and every CI dispatch hits the same wall and burns time diagnosing a config-vs-tree mismatch.
-**My Recommendation:** 🟡 Defer to user — one product question (were the linux-scripts resources meant to be retired with the wipe wave, or kept?) decides between (a) and (b).
-**Progress:** `None yet.` (dev-env workaround applied this session: untracked copies from scripts/linux/ — the tracked tree is untouched)
-**Related Files:**
-- `src-tauri/tauri.conf.json:86-90`, `src-tauri/tauri.linux-x86_64.conf.json:7-11`, `src-tauri/tauri.linux-aarch64.conf.json`
-- `scripts/linux/` (the canonical sources)
-- `scripts/gen_tauri_icons_stub.py` (creates bin/ + native/ but not linux-scripts/)
-- git 647daa5f (the deletion), `tests/test_windows_installer_extra_resources.py` (deleted guard)
-**Fix:** User decision: (a) remove the resource references from tauri.conf.json + per-arch Linux configs (retire them; coordinate with FV-39's cleanup and record in archive/deleted_files.txt), or (b) make the stub generator (or a documented prep step) copy the five files from scripts/linux/ into src-tauri/resources/linux-scripts/ AND add a .gitignore rule for the directory (matching native/ + prewarm-*).
-**Simplified Fix:** The build recipe lists five Linux helper files that were deleted from the project but never removed from the recipe — so a fresh copy of the project cannot build. Either take them off the recipe (if they're retired) or put them back automatically from the folder that still holds the originals.
-**Implementation Difficulty:** 🟢 Easy
-**Severity:** 🔴 High
 
 ### FV-95 — 10 pre-existing pytest failures at HEAD on Linux (5 clustered in mic-test quality grading, order-dependent)
 **Status:** ❌ Not Fixed

@@ -96,6 +96,8 @@ from pathlib import Path
 SCRIPT_PATH = Path(__file__).resolve()
 PROJECT_ROOT = SCRIPT_PATH.parent.parent
 SRC_TAURI = PROJECT_ROOT / "src-tauri"
+LINUX_SCRIPTS_SRC = PROJECT_ROOT / "scripts" / "linux"
+LINUX_SCRIPTS_DST = SRC_TAURI / "resources" / "linux-scripts"
 
 # ─── Configuration (must match src-tauri/tauri.conf.json) ─────────────────
 # The Windows resource icon path, validated by ``--check-icons``. The
@@ -110,6 +112,17 @@ SRC_TAURI = PROJECT_ROOT / "src-tauri"
 # The MSI bundler likewise errors ("Couldn't find a .ico icon") when the
 # icon list contains no ``.ico``.
 ICO_ICON: str = "icons/icon.ico"
+
+# Canonical Linux permission scripts referenced by tauri.conf.json
+# bundle.resources as resources/linux-scripts/*. FV-94: wipe wave deleted
+# only the bundled copies; generator copies them from scripts/linux/.
+LINUX_SCRIPTS_FILES: tuple[str, ...] = (
+    "install_permissions.py",
+    "uninstall_permissions.py",
+    "99-voice-typer.rules",
+    "00-voice-typer-capslock.conf",
+    "voice-typer.polkit",
+)
 
 # The macOS bundle icon, validated by ``--check-icons``. Also a REAL
 # committed artifact (see the module docstring); the macOS bundler
@@ -639,12 +652,45 @@ def _all_stub_paths() -> list[Path]:
 
 
 # ─── Commands ─────────────────────────────────────────────────────────────
+def _sync_linux_scripts() -> list[Path]:
+    """Copy scripts/linux/* into src-tauri/resources/linux-scripts/ when missing or diverged (FV-94)."""
+    LINUX_SCRIPTS_DST.mkdir(parents=True, exist_ok=True)
+    copied: list[Path] = []
+    for name in LINUX_SCRIPTS_FILES:
+        src = LINUX_SCRIPTS_SRC / name
+        dst = LINUX_SCRIPTS_DST / name
+        if not src.is_file():
+            print(f"[gen_tauri_icons_stub] ERROR: canonical source missing: {src}", file=sys.stderr)
+            continue
+        if not dst.is_file() or dst.read_bytes() != src.read_bytes():
+            dst.write_bytes(src.read_bytes())
+            copied.append(dst)
+    return copied
+
+
+def _linux_scripts_problems() -> list[str]:
+    problems: list[str] = []
+    for name in LINUX_SCRIPTS_FILES:
+        src = LINUX_SCRIPTS_SRC / name
+        dst = LINUX_SCRIPTS_DST / name
+        if not src.is_file():
+            problems.append(f"canonical scripts/linux/{name} missing")
+        elif not dst.is_file():
+            problems.append(f"resources/linux-scripts/{name} missing (run gen_tauri_icons_stub.py)")
+        elif dst.read_bytes() != src.read_bytes():
+            problems.append(f"resources/linux-scripts/{name} differs from scripts/linux/{name}")
+    return problems
+
+
 def generate() -> list[Path]:
     """Generate all binary stubs. Returns the list of created file paths.
 
     Icons are NOT generated here, they are committed real files.
     """
     created: list[Path] = []
+
+    # 0. Linux permission scripts (bundle.resources; FV-94).
+    created.extend(_sync_linux_scripts())
 
     # 1. Sidecar binaries (externalBin. Tauri resolves per-arch at build time).
     bin_dir = SRC_TAURI / "bin"
@@ -788,6 +834,7 @@ def check() -> int:
             problems.append(f"{path.relative_to(PROJECT_ROOT)} MISSING")
             continue
         problems.extend(_stub_problems(path, platform, kind))
+    problems.extend(_linux_scripts_problems())
     if problems:
         print(
             f"[gen_tauri_icons_stub] {len(problems)}/{len(specs)} stub files missing or structurally invalid:",

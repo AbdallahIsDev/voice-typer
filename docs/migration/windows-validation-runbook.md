@@ -45,7 +45,7 @@ explanation in the cited section.
 4.  rustup default stable-x86_64-pc-windows-msvc
 5.  git clone https://github.com/AbdallahIsDev/voice-typer.git ; cd voice-typer
 6.  pip install uv ; uv venv ; .venv\Scripts\activate
-7.  uv pip install -e ".[dev,test]" nuitka==2.5.4 zstandard ordered-set
+7.  uv pip install -e ".[dev,test]" nuitka==2.8.10 zstandard ordered-set
 8.  cd voice_typer\client ; npm install ; cd ..\..
 
 # ─── §0.7 Download python-build-standalone (Nuitka target interpreter) ──
@@ -249,7 +249,7 @@ Nuitka will actually freeze):
 
 ```powershell
 **VALIDATE ON WINDOWS HOST** C:\tools\pybs\python\python.exe -m pip install --upgrade pip
-**VALIDATE ON WINDOWS HOST** C:\tools\pybs\python\python.exe -m pip install nuitka==2.5.4 zstandard ordered-set
+**VALIDATE ON WINDOWS HOST** C:\tools\pybs\python\python.exe -m pip install nuitka==2.8.10 zstandard ordered-set
 **VALIDATE ON WINDOWS HOST** C:\tools\pybs\python\python.exe -m pip install -e ".[dev,test]"
 **VALIDATE ON WINDOWS HOST** C:\tools\pybs\python\python.exe -c "import faster_whisper, ctranslate2; print('ctranslate2', ctranslate2.__version__)"
 # Expected: ctranslate2 <version>  (proves faster-whisper + ctranslate2 wheels installed)
@@ -257,15 +257,21 @@ Nuitka will actually freeze):
 
 ### §0.8 Nuitka + supporting deps
 
-**VALIDATE ON WINDOWS HOST** Nuitka 2.5.4 (pinned to match the CI
-workflow) + `zstandard` (Nuitka's onefile compression backend) +
-`ordered-set` (Nuitka dependency).
+**VALIDATE ON WINDOWS HOST** Nuitka **2.8.10** (the mandated pin, matching
+`.github/workflows/tauri-windows-build.yml`) + `zstandard` (Nuitka's
+onefile compression backend) + `ordered-set` (Nuitka dependency).
+
+Do NOT pin anything below 2.8: Nuitka < 2.8.0 crashes compiling
+numpy >= 2.5 (PEP 695 type-generic aliases, Nuitka issue #3469) and the
+lockfile carries numpy 2.5.x. The rule is documented in `AGENTS.md` as
+C-CI-6 / NU-105. Bump the pin FORWARD if a build fails here, never
+downgrade numpy.
 
 Already installed in §0.7: verify:
 
 ```powershell
 **VALIDATE ON WINDOWS HOST** C:\tools\pybs\python\python.exe -m nuitka --version
-# Expected: 2.5.4
+# Expected: 2.8.10
 ```
 
 ### §0.9 Final prerequisite verification
@@ -426,7 +432,17 @@ print('SMOKE-OK')
 
 ---
 
-## §2 Build prewarm `.exe` with Nuitka (ADR-0020 §5)
+## §2 Build prewarm `.exe` with Nuitka (ADR-0020 §5) — HISTORICAL, DO NOT RUN
+
+> **HISTORICAL — the command in this section targets a module that no
+> longer exists.** The prewarm pipeline was migrated to the slim-core
+> worker: `voice_typer/server/prewarm/__main__.py` was deleted (commit
+> `46cf40fa`) and the directory now holds only `__init__.py`,
+> `cache_probe.py`, and `status.py`. `tauri-windows-build.yml` removed
+> its prewarm build step as well. The section is kept for reference only.
+> The sibling macOS (`.github/workflows/tauri-macos-build.yml`) and Linux
+> (`tauri-linux-build.yml`) workflows still invoke the deleted module;
+> they are tracked separately because they are C-CI-2-protected files.
 
 **VALIDATE ON WINDOWS HOST** Prewarm is frozen the same Nuitka way into
 `prewarm-x86_64-pc-windows-msvc.exe` (kept as a separate binary per

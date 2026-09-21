@@ -28,18 +28,18 @@ via ``pytest_addoption`` is the correct hook, it runs before the
 ini-addopts argv is parsed, so both CLI-passed and ini-sourced flags
 are accepted.
 
-Coverage threshold location: ``--cov-fail-under=65`` is NOT in
+Coverage threshold location: ``--cov-fail-under=78`` is NOT in
 ``[tool.pytest.ini_options].addopts`` in ``pyproject.toml`` (it was
 removed from there so subset runs don't trip the gate). The threshold
 lives only in ``[tool.coverage.report].fail_under`` and is passed
 explicitly by the CI pytest step in ``build.yml``
-(``pytest tests/ --cov-fail-under=65``). As a result, plain
+(``pytest tests/ --cov-fail-under=78``). As a result, plain
 ``pytest tests/test_foo.py`` works fine without ``--no-cov`` or
 ``-o addopts=""``; it will not fail on coverage locally.
 
 If you want to enforce coverage locally, run::
 
-    pytest tests/ --cov-fail-under=65
+    pytest tests/ --cov-fail-under=78
 """
 
 from __future__ import annotations

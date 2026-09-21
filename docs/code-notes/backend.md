@@ -14,7 +14,7 @@ behavior unchanged.
   re-runnable; whole migration in explicit BEGIN/COMMIT so schema version
   only advances if every statement succeeds.
 - **V4 at-rest encryption** (`text_is_encrypted`, design:
-  `docs/adr/XZ-R11-04-at-rest-encryption.md`, cipher `_text_crypto.py`):
+  `docs/adr/rest-encryption.md`, cipher `_text_crypto.py`):
   - Migration is PLAIN (no embedded BEGIN) so the runner can reconcile
     partial prior state (fresh DB already has the column; older DB needs
     the ALTER).

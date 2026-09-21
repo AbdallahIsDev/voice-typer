@@ -302,11 +302,15 @@ def _restore_windows(self) -> bool:
             if fmt in (2, 3, 14):
                 continue
 
-            # For registered formats, re-register to get the format ID.
-            # The ID may differ from the original (Windows assigns IDs
-            # dynamically), but the name match is what matters.
+            # Builtin formats are addressed by NUMBER: skip
+            # RegisterClipboardFormatW for them. Looking up a builtin's
+            # display name ("CF_UNICODETEXT") returns a NEW custom id, so
+            # the data would land under that id and GetClipboardData(13)
+            # would find nothing, silently losing the user's text.
+            # Only registered formats (ids >= 0xC000) need the name lookup,
+            # because Windows assigns their ids dynamically per session.
             target_fmt = fmt
-            if name:
+            if fmt >= 0xC000 and name:
                 target_fmt = user32.RegisterClipboardFormatW(name)
                 if target_fmt == 0:
                     continue
@@ -333,7 +337,7 @@ def _restore_windows(self) -> bool:
 
 **Edge cases handled:**
 - `CF_BITMAP` (2), `CF_METAFILEPICT` (3), `CF_ENHMETAFILE` (14) are GDI handles, not byte streams, skipped on restore (documented limitation; rare in practice since `CF_DIB` / `CF_DIBV5` carry the actual image bits).
-- Registered format IDs are re-obtained via `RegisterClipboardFormatW(name)` The ID may differ from the original but the name match ensures correct rendering.
+- Registered format IDs (>= `0xC000`) are re-obtained via `RegisterClipboardFormatW(name)`; the ID may differ from the original but the name match ensures correct rendering. Builtin/predefined format IDs (< `0xC000`) are used as-is: they are numbers, not names, and re-registering a builtin name creates a bogus custom id instead.
 - `SetClipboardData` ownership transfer: if it fails, we free the handle to avoid leaks.
 
 ### 4.4 macOS capture and restore (NSPasteboard)

@@ -70,7 +70,7 @@ This rewrite corrects them:
 | 6 | "It already probes the network for update checks, same mechanism." | `docs/auto-update-feature.md` is explicitly **"NOT IMPLEMENTED (design only)"**. No GitHub Releases publishing step exists in CI. | §10: build the auto-update mechanism from scratch. |
 | 7 | "The exact same websocket bridge." | Today's sidecar IS the WS server; Tauri is the client. Adding a worker means the slim core talks to TWO processes, a NEW second hop. | §7: define the worker IPC architecture explicitly. |
 | 8 | "Three allowlists in lockstep." | There are **four** allowlists. The fourth (`ALLOWED_EVENT_TYPES` at `event_protocol.rs:49`) has no parity test. | §9.4: add the fourth allowlist + parity test. |
-| 9 | "Pack auto-downloads on first launch by default... no progress bar, no dialog, no toast." | Conflicts with the GDPR-driven `huggingface_consent` gate (`service/model.py:854-912`, CR-11). Pack download phones home to GitHub Releases, revealing user IP to Microsoft. | §8.4: pack download is consent-gated, same as model downloads. |
+| 9 | "Pack auto-downloads on first launch by default... no progress bar, no dialog, no toast." | **NOW TRUE (user decision 2026-08):** pack download is always-on, silent, no consent gate. Historical note: it was temporarily consent-gated after the 2026-08-12 draft. | §8.4 superseded: always-on silent download. |
 | 10 | "Installer drops to ~180 MB; disk drops from ~850 MB to ~430 MB." | Split adds a SECOND Python runtime (~50 MB) inside the worker onefile. Post-split disk is ~530 MB, not ~430 MB. | §5.5: corrected disk footprint. |
 | 11 | "C-CI-8/NU-106 retire." | NU-106 is NOT a AGENTS.md rule, it's an inline evidence tag in the workflow YAML, cited in C-CI-8's rationale. Only C-CI-8 is the rule. | §11.2: correct the rule reference. |
 | 12 | "Size gate asserts the sidecar stays ≤ ~185 MB." | No such size gate exists in CI today. `tauri-windows-build.yml:509-510` only `Write-Host`s the size. | §11.5: add the size gate. |
@@ -673,7 +673,9 @@ section re-specifies each against the real codebase.
 - **2026-08-12 plan said:** "no progress bar, no dialog, no toast" for the
   pack. This **violates** the consent pattern, the pack download phones
   home to GitHub Releases, revealing user IP to Microsoft.
-- **Corrected plan:** the pack download is consent-gated, same as model
+- **Corrected plan (current):** the pack download is **always-on**
+  (silent background download; no user consent toggle). User decision
+  2026-08 supersedes the earlier consent-gated design.
   downloads. The consent is requested once (on first launch or first
   offline-transcription attempt) via the existing consent UI. After
   consent, the pack downloads silently (no progress bar in the main UI, but
@@ -715,6 +717,7 @@ section re-specifies each against the real codebase.
   for model downloads. Not reused for the pack.
 - **Plan:** reuse `_check_disk_space_for_download()` with the pack size
   (180 MB compressed + 450 MB unpacked = 630 MB required). If insufficient,
+  the download fails with a disk-space error; there is no user consent gate.
   show one tray notification + defer.
 - **Test:** `tests/test_pack_disk_space_check.py` (new).
 

@@ -25,9 +25,11 @@ EN_FILE = TRANSLATIONS_DIR / "en.json"
 
 # Hand-curated translations for the keys added in Round 0.
 # Format: { locale: { dot_key: translated_value } }
-# Brand names ("Voice Typer", "HuggingFace", "OpenAI", "Groq", "Deepgram",
-# "NVIDIA Parakeet") are kept as-is.  Technical terms (API, URL, GPU, VRAM)
-# are kept as-is in most locales.
+# Brand/product names used ONLY for actual Settings/Models labels
+# (e.g. a provider toggle for a currently supported backend) stay as-is.
+# Generic disclosure/license copy must use "cloud speech recognition
+# provider(s)" and must NOT enumerate vendor names (dynamic providers).
+# Technical terms (API, URL, GPU, VRAM) stay as-is in most locales.
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "ar": {
         "models.description": "تكوين محركات تحويل الكلام إلى نص",

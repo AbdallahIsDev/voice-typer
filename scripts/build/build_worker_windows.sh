@@ -46,7 +46,7 @@
 #   - --windows-console-mode=disable (C-CI-9), newer Nuitka form of the
 #     deprecated --windows-disable-console flag. Makes the worker a
 #     GUI-subsystem PE so it doesn't pop a console window at startup;
-#     the CI smoke-test step depends on this behavior (C-CI-14).
+#     the CI smoke-test step depends on this behavior.
 #   - --onefile-tempdir-spec (C-CI-9), pinned per-worker extraction dir
 #     so stale extracts are cleanable and don't collide with the sidecar's.
 #   - Output binary name: voice-typer-worker-<triple>.exe (C-CI-13) —
@@ -124,22 +124,42 @@ echo "[build_worker_windows] OUTPUT=$OUTPUT_PATH"
 
 # ─── Locate the python-build-standalone interpreter (same as sidecar) ────────
 # Priority:
-#   1. $VOICE_TYPER_PYBS_DIR/python/python.exe (set by CI workflow)
-#   2. $PYBS env var (explicit path to python.exe)
-#   3. `python` from PATH (dev fallback, must already be a pybs install)
+#   1. $VOICE_TYPER_PYBS_DIR/python/python.exe  (parent of the extracted
+#      python-build-standalone tree; CI sets this to C:\tools\pybs)
+#   2. $PYBS as a python.exe file OR a directory that contains python.exe
+#      (CI also exports PYBS=C:\tools\pybs\python)
+#   3. `python` from PATH — DEV ONLY. Release/CI must not take this path:
+#      an unpinned interpreter freezes an unverified worker exe (FV-58).
+# If VOICE_TYPER_PYBS_DIR is set but has no python.exe, hard-fail.
 PYBS_DIR="${VOICE_TYPER_PYBS_DIR:-}"
-if [[ -n "$PYBS_DIR" && -f "$PYBS_DIR/python/python.exe" ]]; then
-    PY="$PYBS_DIR/python/python.exe"
-elif [[ -n "${PYBS:-}" && -f "$PYBS" ]]; then
-    PY="$PYBS"
+PY=""
+if [[ -n "$PYBS_DIR" ]]; then
+    if [[ -f "$PYBS_DIR/python/python.exe" ]]; then
+        PY="$PYBS_DIR/python/python.exe"
+    elif [[ -f "$PYBS_DIR/python.exe" ]]; then
+        PY="$PYBS_DIR/python.exe"
+    else
+        echo "ERROR: VOICE_TYPER_PYBS_DIR=$PYBS_DIR has no python/python.exe (FV-58)." >&2
+        echo "  Extract python-build-standalone to that path, or unset the env for a dev PATH build." >&2
+        exit 1
+    fi
+elif [[ -n "${PYBS:-}" ]]; then
+    if [[ -f "$PYBS" ]]; then
+        PY="$PYBS"
+    elif [[ -f "$PYBS/python.exe" ]]; then
+        PY="$PYBS/python.exe"
+    else
+        echo "ERROR: PYBS=$PYBS is neither python.exe nor a directory containing it (FV-58)." >&2
+        exit 1
+    fi
 else
     PY="$(command -v python || true)"
     if [[ -z "$PY" ]]; then
-        echo "ERROR: no python interpreter found (set VOICE_TYPER_PYBS_DIR)." >&2
+        echo "ERROR: no python interpreter found (set VOICE_TYPER_PYBS_DIR to the pybs parent, e.g. C:\\tools\\pybs)." >&2
         exit 1
     fi
-    echo "[build_worker_windows] WARNING: using 'python' from PATH ($PY)." >&2
-    echo "  For release builds, use a python-build-standalone install (ADR-0020 §4.2)." >&2
+    echo "[build_worker_windows] WARNING: using 'python' from PATH ($PY) — DEV ONLY." >&2
+    echo "  Release builds MUST use python-build-standalone (ADR-0020 §4.2 / FV-58)." >&2
 fi
 echo "[build_worker_windows] PY=$PY"
 

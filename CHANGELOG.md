@@ -317,7 +317,6 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 - `voice_typer/server/native_hotkeys/` Added _on_error_callback, _on_permanent_failure_callback
 - `voice_typer/server/hotkeys/` Rewrote _NativeBackendAdapter as 4-state machine
 - `voice_typer/server/hotkey_dispatcher.py` Wires tray reference to adapter
-- `voice_typer/client/electron-builder.yml` Added rpm target + afterInstall/afterRemove hooks
 - `scripts/build/voice-typer.spec` Bundles Linux scripts + permissions module
 - `.github/workflows/build.yml` Added build-native matrix + build-macos + build-linux jobs
 

@@ -21,9 +21,9 @@ API key format, network requirements, and per-OS quirks.
 | OpenAI | ✅ Whisper (audio/transcriptions) | ✅ GPT-4o-family chat | `api.openai.com` | Default cloud option. Both ASR + LLM use the same API key. |
 | Groq | ✅ Whisper-large / Distil-whisper (audio/transcriptions) | ✅ Llama-family chat | `api.groq.com` | Lowest-latency cloud ASR (typically <300 ms for a short clip). |
 | Deepgram | ✅ Nova-2 streaming + pre-recorded | ❌ (use OpenAI / Anthropic for LLM polish) | `api.deepgram.com` | Best streaming/cloud-ASR accuracy for telephony-grade audio. |
-| Anthropic (Claude) | ❌ (no ASR endpoint) | ✅ Claude chat | `api.anthropic.com` | LLM polish only. Pair with OpenAI / Groq / Deepgram ASR. |
+| Anthropic (Claude) | ❌ (no ASR endpoint) | ✅ Claude chat | `api.anthropic.com` | LLM polish only. Pair with a cloud speech recognition provider. |
 | Google Gemini / Vertex | ❌ (use cloud ASR provider above) | ✅ Gemini chat | `generativelanguage.googleapis.com` | LLM polish only. |
-| Self-hosted (vLLM, llama.cpp server, Whisper HTTP server, etc.) | ✅ (if the server speaks the OpenAI / Groq / Deepgram wire format) | ✅ (same) | `localhost`, `127.0.0.1`, `::1` (loopback) or any host added via `add_trusted_endpoint` | HTTPS is NOT enforced on loopback; any non-loopback self-hosted host MUST be added via `add_trusted_endpoint` AND served over HTTPS. |
+| Self-hosted (vLLM, llama.cpp server, Whisper HTTP server, etc.) | ✅ (if the server speaks a supported cloud ASR wire format) | ✅ (same) | `localhost`, `127.0.0.1`, `::1` (loopback) or any host added via `add_trusted_endpoint` | HTTPS is NOT enforced on loopback; any non-loopback self-hosted host MUST be added via `add_trusted_endpoint` AND served over HTTPS. |
 
 > Voice Typer does not implement provider-specific SDKs, each cloud
 > path is a thin HTTP client. As long as the self-hosted endpoint
@@ -111,7 +111,7 @@ minute (per-connection ADR-0019 rate limiter) to prevent abuse.
 
 1. Stand up your self-hosted endpoint (e.g. `vllm serve --model
    whisper-large-v3`, or `llama.cpp server --model qwen2.5-72b`).
-   Make sure it speaks the OpenAI / Groq / Deepgram wire format.
+   Make sure it speaks a supported cloud ASR provider wire format.
 2. Serve it over HTTPS. For a LAN-only deployment, use a self-signed
    cert (e.g. `caddy` / `nginx` with a self-signed CA). Loopback
    (`http://localhost:port`) is exempt from HTTPS but anything on a
