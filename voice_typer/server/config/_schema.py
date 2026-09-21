@@ -51,7 +51,7 @@ class _ConfigSchema:
     """Dataclass base holding ALL ``Config`` field declarations."""
 
     schema_version: int = _CURRENT_SCHEMA_VERSION
-    # SCHEMA-1 (MED-I): ``last_load_warnings`` was previously a
+    # ``last_load_warnings`` was previously a
 
     # marks that plaintext API keys in config.json have been
     secrets_migrated: bool = False
@@ -96,9 +96,9 @@ class _ConfigSchema:
     warn_password_paste: bool = True
     # Master toggle for the OS-level prewarm scheduled task.
     fast_startup: bool = True
-    # explicit consent (C-DATA-1 category-3 model-download consent
-    # when this is False). In the SEC-002 IPC allowlist so the Settings
-    offline_pack_consent: bool = False
+    # Always-on pack auto-update (user product decision): no Settings
+    # toggle, not in SEC-002 IPC allowlist, load path forces True.
+    offline_pack_consent: bool = True
 
     # ASR backend selection
     asr_backend: Literal["whisper", "qwen", "parakeet"] = "whisper"
@@ -159,7 +159,7 @@ class _ConfigSchema:
     llm_model: str = DEFAULT_LLM_MODEL
     llm_preset: str = "professional"  # professional/casual/email/code
 
-    # PRIVACY-001: explicit user consent that text may leave the
+    # Explicit user consent that text may leave the
     llm_polish_consent: bool = False
 
     # explicit consent that model weights are downloaded
@@ -271,7 +271,7 @@ class _ConfigSchema:
     # Silent mic disconnection
     silence_warning_seconds: float = 20.0
     stop_on_silence_seconds: float = 60.0
-    #  SIMPLIFY-001: single explicit field replaces the previous 3-field split
+    # Single explicit field replaces the previous 3-field split
     max_recording_time_seconds: int = 900  # 15 minutes
 
     # NOTE: dead_air_timeout (float) was REMOVED in

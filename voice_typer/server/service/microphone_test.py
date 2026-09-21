@@ -118,7 +118,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
                             if text.strip():
                                 result["transcription"] = text
                                 result["transcription_confidence"] = None
-                                # HU-21: the test-transcription text is the
+                                # The test-transcription text is the
                                 log.debug(
                                     "[SERVICE] Test transcription: %d chars",
                                     len(text),
@@ -132,7 +132,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
                             result["transcription_reason"] = "transcription_failed"
                     else:
                         log.debug("[SERVICE] Active engine not loaded, skipping transcription")
-                        # Phase 2d degradation matrix (§8.10): the mic
+                        # Runtime-pack degradation matrix (§8.10): the mic
                         result.setdefault("transcription_unavailable", True)
                         result["transcription_reason"] = "no_engine_loaded"
             except Exception as transcribe_err:

@@ -14,7 +14,7 @@ from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
-# STARTUP-2: delay the app's autostart_launcher waits before spawning
+# Delay the app's autostart_launcher waits before spawning
 _APP_AUTOSTART_DELAY_SECONDS = 3
 
 

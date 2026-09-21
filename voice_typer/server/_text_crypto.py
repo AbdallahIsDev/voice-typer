@@ -1,4 +1,4 @@
-"""At-rest text crypto for history (ADR XZ-R11-04)."""
+"""At-rest text crypto for history."""
 
 from __future__ import annotations
 

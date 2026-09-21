@@ -190,7 +190,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     Only ``--version`` and ``--debug`` are recognized. The host does NOT
     pass ``--port``: the OS assigns an ephemeral port (mirrors the
     slim-core sidecar's ``--ws`` mode). Unknown args are ignored (the
-    host may add ``--pack-version`` etc. in Phase 2b; this parser stays
+    host may add ``--pack-version`` etc. in a later release; this parser stays
     forward-compatible).
     """
     import importlib.metadata

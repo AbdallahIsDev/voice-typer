@@ -1,6 +1,6 @@
 """Pynput-based hotkey backend (cross-platform fallback).
 
-Split out from the original ``hotkeys.py`` god-file in Phase 4.5.
+Split out from the original ``hotkeys.py`` module.
 """
 
 import contextlib

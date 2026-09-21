@@ -16,13 +16,39 @@ from __future__ import annotations
 
 # Registry history: removed/restored command notes live in
 
-# Pure-read commands: dispatcher bypasses ``_dispatch_lock`` so
+# Pure-read commands: dispatcher bypasses ``_dispatch_lock`` so a long-running
+# mutating handler (model download, vocabulary save) cannot block status / list
+# polls from another connection. Membership requires that the handler and every
+# call it makes is free of shared-state mutation and persistence; the membership
+# audit (every ``get_*`` command must be classified here or as a documented
+# mutator) lives in ``tests/test_readonly_commands_audit.py``.
 _READONLY_COMMANDS: frozenset[str] = frozenset(
     {
         "get_status",
         "get_config",
         "get_model_catalog",
         "heartbeat",
+        # Audited pure reads: each delegates to a service getter only.
+        "get_defaults",
+        "get_history",
+        "get_history_count",
+        "get_today_stats",
+        "get_favorites",
+        "get_transcription_text",
+        "get_microphones",
+        "get_volume_backend_status",
+        "get_model_status",
+        "get_prewarm_status",
+        "get_vocabulary",
+        "get_correction_usage",
+        "get_templates",
+        "get_download_queue",
+        "microphone_test_get_level",
+        "onboarding_is_first_run",
+        "onboarding_get_microphones",
+        "onboarding_get_model_options",
+        "onboarding_get_hotkey_presets",
+        "onboarding_check_permissions",
     }
 )
 

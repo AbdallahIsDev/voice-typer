@@ -41,10 +41,10 @@ def download_offline_pack_with_resume(
     assert_offline_pack_url_allowed(url)
     # Ensure the pack directory exists before opening the partial —
     dest.parent.mkdir(parents=True, exist_ok=True)
-    # Phase 1, resume-state probe (existing partial size + a hasher
+    # Step 1, resume-state probe (existing partial size + a hasher
     offset, h = _probe_partial_for_resume(dest, chunk_bytes)
     downloaded_bytes = offset
-    # Phase 2, rate-limited request/stream loop (§8.7 + §8.1 status
+    # Step 2, rate-limited request/stream loop (§8.7 + §8.1 status
     backoff_iter = iter(OFFLINE_PACK_RATE_LIMIT_BACKOFF_S)
     attempt = 0
     while True:
@@ -151,7 +151,7 @@ def download_offline_pack_with_resume(
                 {"version": version, "reason": "io_error", "attempts": attempt},
             )
             raise
-        # Phase 3, finalize: verify the complete file's SHA-256.
+        # Step 3, finalize: verify the complete file's SHA-256.
         return _finalize_download(
             h,
             dest,
@@ -314,6 +314,7 @@ def _http_get_streaming(url: str, *, offset: int = 0) -> dict:
     opener = urllib.request.build_opener(_SSRFAwareRedirectHandler())
     try:
         resp = opener.open(req, timeout=60)
+        _verify_pack_peer(url, resp)
     except urllib.error.HTTPError as exc:
         # A 416 (Range Not Satisfiable) is the server telling us the
         try:
@@ -357,6 +358,36 @@ def _http_get_streaming(url: str, *, offset: int = 0) -> dict:
                 resp.close()
 
     return {"status": status, "content_length": content_length, "iter_chunks": iter_chunks}
+
+
+def _verify_pack_peer(url: str, resp: object) -> None:
+    """Verify the pack peer IP matches the validated URL IPs."""
+    from voice_typer.server.security.url_allowlist import resolve_allowed_url_ips, verify_peer_ip_allowed
+    from voice_typer.server.service.offline_pack.gates import assert_offline_pack_url_allowed
+
+    try:
+        expected = resolve_allowed_url_ips(url, field_name="pack_url", client_name="pack_downloader")
+    except Exception:
+        assert_offline_pack_url_allowed(url)
+        log.debug("[PACK] peer-IP pin lookup failed", exc_info=True)
+        return
+    try:
+        raw = getattr(resp, "fp", None)
+        sock = getattr(raw, "raw", None)
+        sock = getattr(sock, "_sock", sock)
+        peer = sock.getpeername()[0] if hasattr(sock, "getpeername") else None
+    except Exception:
+        log.debug("[PACK] peer-IP read failed", exc_info=True)
+        return
+    if peer is None:
+        return
+    from urllib.parse import urlparse as _urlparse
+
+    try:
+        verify_peer_ip_allowed(peer, expected, host=(_urlparse(url).hostname or ""))
+    except ValueError as exc:
+        log.exception("[PACK] peer IP %r outside validated set, refusing", peer)
+        raise RuntimeError("pack peer IP outside validated set") from exc
 
 
 def _parse_content_range_total(headers: object) -> int | None:

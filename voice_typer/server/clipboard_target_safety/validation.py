@@ -154,8 +154,7 @@ def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
             try:
                 if _pkg._focused_window_is_credential_dialog(hwnd):
                     _pkg._log().warning(
-                        "[CLIPBOARD] Credential dialog window detected (UIA "
-                        "failed), dictation blocked for security (CLIP-2)"
+                        "[CLIPBOARD] Credential dialog window detected (UIA failed), dictation blocked for security"
                     )
             except Exception as exc:
                 # Wire the one-shot paste-safety warning so the
@@ -198,7 +197,7 @@ def _is_password_field_macos() -> bool:
 
     When password state is UNKNOWN (pyobjc missing, AX tree
     unavailable, API raises) the target is treated as unsafe (fail
-    closed, FV-21): auto-paste is suppressed and text stays on the
+    closed): auto-paste is suppressed and text stays on the
     clipboard for manual Ctrl+V.
     """
     try:
@@ -281,7 +280,7 @@ def _is_password_field_macos() -> bool:
 
         return False
     except Exception as exc:
-        # Password state UNKNOWN — fail closed (FV-21).
+        # Password state UNKNOWN — fail closed.
         _pkg._log().warning("paste-safety check failed; failing closed: %s", exc)
         return True
 
@@ -303,7 +302,7 @@ def _is_password_field_linux() -> bool:
 
     Lazy import: if ``pyatspi`` is not installed, password state is
     UNKNOWN — fail closed (return True) so auto-paste is suppressed
-    and text stays on the clipboard (FV-21).
+    and text stays on the clipboard.
 
     AT-SPI2 failures (no desktop bus, broken registry) also fail
     closed: an unknown target must never auto-paste.
@@ -366,7 +365,7 @@ def _is_password_field_linux() -> bool:
 
         return False
     except Exception as exc:
-        # Password state is UNKNOWN — fail closed (FV-21).
+        # Password state is UNKNOWN — fail closed.
         _pkg._log().warning(
             "paste-safety check failed; failing closed: %s",
             exc,

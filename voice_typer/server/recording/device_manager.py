@@ -34,7 +34,7 @@ class DeviceManager:
         # AUDIO-HOT: periodic device availability check, every N chunks,
         self._device_check_interval: int = 500  # check every ~500 chunks (~32s at 16Hz)
         self._device_check_counter: int = 0
-        # CPU-03: dedicated device-health-checker thread state. The checker
+        # Dedicated device-health-checker thread state. The checker
         self._device_health_checker_thread: threading.Thread | None = None
         self._device_health_stop_event: threading.Event = threading.Event()
         self._device_check_interval_s: float = 30.0  # seconds between probes
@@ -56,8 +56,6 @@ class DeviceManager:
         self._service_cache_invalidator: Any | None = None
         # configurable sleep between BT-device disconnect retries.
         self._bt_retry_sleep_seconds: float = 0.75
-        # one-shot flag so the name-mismatch warning fires at
-        self._device_name_mismatch_warned: bool = False
         # Last successful ``sd.query_devices(kind="input")`` result from
         self._last_default_input_info: dict | None = None
         # OS default-input index captured at stream-open (or lazily on
@@ -512,82 +510,17 @@ class DeviceManager:
         mic = self.recorder.config.microphone
         if mic is None:
             return None
-        # Stable-id form (and any non-legacy string): try an exact match
-        if isinstance(mic, str) and not mic.isdigit():
-            try:
-                from voice_typer.server.server_platform.microphone_list import find_microphone_by_id
-
-                stable_match = find_microphone_by_id(mic)
-            except Exception:
-                stable_match = None
-            if stable_match is not None:
-                try:
-                    return int(stable_match["index"])
-                except (KeyError, TypeError, ValueError):
-                    pass
-        # Legacy / simple case: bare numeric index or non-compound string.
-        if not isinstance(mic, str) or "|" not in mic:
-            try:
-                return int(mic)
-            except (ValueError, TypeError):
-                return mic
-
-        # compound form "<index>|<name>|<host_api>".
-        parts = mic.split("|", 2)
-        if len(parts) < 2:
-            try:
-                return int(mic.split("|", 1)[0])
-            except (ValueError, TypeError):
-                return mic
-        saved_index_str, saved_name = parts[0], parts[1]
         try:
-            saved_index = int(saved_index_str)
-        except (ValueError, TypeError):
-            saved_index = None
-
-        # Prefer name-based resolution: this is the stable identifier
-        match = None
-        if saved_name.strip():
-            try:
-                from voice_typer.server.server_platform.microphone_list import find_microphone_by_name
-
-                match = find_microphone_by_name(saved_name)
-            except Exception:
-                match = None
-        if match is not None:
-            try:
-                return int(match.get("index", saved_index) if saved_index is not None else match["index"])
-            except (ValueError, TypeError, KeyError):
-                pass
-
-        # Name lookup failed, fall back to the saved index.
-        if saved_index is None:
-            return saved_name
-
-        # one-time name-mismatch warning.
-        if not self._device_name_mismatch_warned:
-            try:
-                current_info = sd.query_devices(saved_index)
-                current_name = str(current_info.get("name", "")).strip().lower()
-                if current_name and current_name != saved_name.strip().lower():
-                    log.warning(
-                        "[RECORDING] saved microphone index %d now points to "
-                        "'%s' (was '%s'), device may have been renumbered by hot-swap; "
-                        "re-select the microphone in Settings to update the saved reference",
-                        saved_index,
-                        current_info.get("name", ""),
-                        saved_name,
-                    )
-                    self._device_name_mismatch_warned = True
-            except Exception:
-                # The mismatch warning is purely diagnostic, if we can't
-                log.debug(
-                    "[RECORDING] could not query saved device index %r "
-                    "(name mismatch warning skipped), device likely gone",
-                    saved_index,
-                    exc_info=True,
-                )
-        return saved_index
+            from voice_typer.server.server_platform.microphone_list import resolve_mic_id_to_device_index
+        except Exception:
+            log.debug("[RECORDING] canonical mic resolver unavailable; using system default", exc_info=True)
+            return None
+        try:
+            resolved = resolve_mic_id_to_device_index(mic)
+        except Exception:
+            log.debug("[RECORDING] mic id %r resolution failed; using system default", mic, exc_info=True)
+            return None
+        return resolved
 
     def _build_device_info_for_retry_policy(
         self,
@@ -802,7 +735,24 @@ class DeviceManager:
             if dev_info is None:
                 # Both cache and live query failed. Raise to trigger
                 raise RuntimeError(f"Could not query device info for device {device} (cache miss + live query failed)")
-            native_rate = int(dev_info.get("default_samplerate", 0))
+            raw_native_rate = int(dev_info.get("default_samplerate", 0))
+            # Drivers can report 0 (or another implausible value) for an
+            # endpoint that is not open yet; feeding it to the stream makes
+            # PortAudio reject the open with paInvalidSampleRate even though
+            # the target rate + resample path would work. Treat anything
+            # outside the plausible audio range as unknown (same outcome as
+            # the query-failure branch below).
+            if 8000 <= raw_native_rate <= 384000:
+                native_rate = raw_native_rate
+            else:
+                native_rate = target_sr
+                log.warning(
+                    "[RECORDING] Device %r reported an unusable default_samplerate=%r; "
+                    "falling back to the target rate %d Hz",
+                    dev_info.get("name", ""),
+                    raw_native_rate,
+                    target_sr,
+                )
             host_api_idx = dev_info.get("hostapi", 0)
             host_api_name = self._host_api_name(host_api_idx)
             dev_info_extra = {

@@ -100,6 +100,22 @@ def _safe_filename(filename: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", filename)
 
 
+def _resolve_within(root: Path, relative: str) -> Path:
+    """Resolve a repo-relative path inside ``root``, rejecting escapes.
+
+    Snapshot paths come from the remote tree API; a crafted entry must not
+    place a file outside the cache directory.
+    """
+    candidate = Path(relative)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise SegmentedDownloadError(f"refusing unsafe snapshot path: {relative!r}")
+    root = root.resolve()
+    resolved = (root / candidate).resolve()
+    if resolved != root and root not in resolved.parents:
+        raise SegmentedDownloadError(f"refusing snapshot path outside cache dir: {relative!r}")
+    return resolved
+
+
 def state_path_for(scratch_dir: Path, filename: str) -> Path:
     return scratch_dir / f"{_safe_filename(filename)}.state.json"
 
@@ -250,7 +266,8 @@ def resolve_download(
     try:
         with opener.open(probe_req, timeout=timeout_s) as resp:
             if _status_of(resp) != 206:
-                return current, None, base_headers.get("ETag")
+                # The ETag lives on the RESPONSE, not the request headers.
+                return current, None, resp.getheader("ETag")
             content_range = resp.getheader("Content-Range", "")
             total = _parse_total_from_content_range(content_range)
             return current, total, resp.getheader("ETag")
@@ -343,7 +360,7 @@ def _fetch_segment(
         try:
             with opener.open(_make_request(url, req_headers), timeout=timeout_s) as resp:
                 status = _status_of(resp)
-                if status == 429 or 500 <= status <= 599:
+                if _is_transient_http(status):
                     delay = _parse_retry_after(resp.getheader("Retry-After"))
                     if delay <= 0 and attempt < len(RETRY_BACKOFF_S):
                         delay = RETRY_BACKOFF_S[attempt]
@@ -735,9 +752,10 @@ def install_blob_into_hf_cache(
     else:
         shutil.move(str(assembled_path), str(blob_path))
 
-    snap_dir = cache / "snapshots" / commit
+    snap_dir = (cache / "snapshots" / commit).resolve()
     snap_dir.mkdir(parents=True, exist_ok=True)
-    snap_file = snap_dir / filename
+    snap_file = _resolve_within(snap_dir, filename)
+    snap_file.parent.mkdir(parents=True, exist_ok=True)
     try:
         if snap_file.is_symlink() or snap_file.exists():
             snap_file.unlink()

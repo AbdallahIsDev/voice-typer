@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 
 
 class TrayIcon:
-    """Cross-platform system tray icon with Phase 2 minimal menu."""
+    """Cross-platform system tray icon with a minimal menu."""
 
     def __init__(
         self,

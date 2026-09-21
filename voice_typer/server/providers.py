@@ -95,7 +95,7 @@ class AppProtocol(Protocol):
     _shutting_down: bool
     """``True`` once ``quit()`` begins; the IPC ``_send`` path checks
     this to skip non-critical push events to a half-closed socket
-    (QUIT-CLEAN-001).
+    during shutdown.
     """
 
     _esc_cancel_paused: bool
@@ -195,7 +195,7 @@ class AppProtocol(Protocol):
     def push_bubble_config(self, config: Any) -> None:
         """Push a config-changed event to the waveform bubble renderer.
 
-        (): replaces the private ``getattr(self.app,
+        Public replacement for the private ``getattr(self.app,
                 "_waveform_bubble", None)`` access in
                 :mod:`voice_typer.server.handlers.config_handlers` with a
                 public method on the app. The implementation on

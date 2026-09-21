@@ -106,7 +106,7 @@ def poll_download_progress(
     pause_started_at: float | None = None
 
     while thread.is_alive():
-        # SERVICE-1: check for cancellation via the
+        # Check for cancellation via the
         if is_cancelled_fn(download_id):
             cancelled = True
             log.info("[SERVICE] Download of %s cancelled by user", model_name)

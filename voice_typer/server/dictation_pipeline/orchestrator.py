@@ -99,6 +99,10 @@ class _OrchestratorMixin:
         # publish cycle_id as the correlation id for this thread's
         from voice_typer.server.log import set_correlation_id
 
+        # Hoisted so ``finally`` can never read an unbound name: an empty
+        # cycle_id skips the assignment entirely, and an UnboundLocalError
+        # there would mask the original failure it is cleaning up after.
+        _corr_token = None
         if cycle_id:
             _corr_token = set_correlation_id(cycle_id)
         # capture the pre-computed audio stats from the
@@ -270,7 +274,6 @@ class _OrchestratorMixin:
         RACE-016: wrap daemon thread finally block with try/except to
         """
         try:
-            # Phase 2: fixed typo, was `_recording_controller`
             recording = getattr(self._app, "recording", None)
             if recording is not None:
                 recording._reset_watchdog()

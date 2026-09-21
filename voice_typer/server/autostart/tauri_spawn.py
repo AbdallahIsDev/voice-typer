@@ -392,7 +392,7 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
 
 
 def launch_tauri_frontend_standalone(binary: str, *, port: int, token: str) -> int | None:
-    """Spawn the Tauri host in STANDALONE adopted mode (MO-110).
+    """Spawn the Tauri host in STANDALONE adopted mode.
 
     Called from the backend's standalone-mode startup
     (``ipc/entrypoint.py``): the user ran ``voice-typer`` from a

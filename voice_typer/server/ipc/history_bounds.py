@@ -1,7 +1,7 @@
 # extracted from the original
 """History-DB bounds and config sanitization helpers.
 
-Phase 4.5 / , extracted from the original ``ipc_server.py``
+Extracted from the original ``ipc_server.py``
 god-module.  Contains:
 
 - :func:`_bound_history_limit` / :func:`_bound_history_offset` —

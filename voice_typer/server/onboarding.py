@@ -69,7 +69,7 @@ class OnboardingController:
 
         # Collected settings
         self.selected_microphone: str | None = None
-        # NATIVE-001: default hotkey is Caps Lock on all platforms
+        # Default hotkey is Caps Lock on all platforms
         self.selected_hotkey: str = DEFAULT_HOTKEY
         # Canonical default: see ``model_registry.DEFAULT_MODEL_SIZE``.
         self.selected_model: str = DEFAULT_MODEL_SIZE
@@ -480,7 +480,7 @@ class OnboardingController:
                 # The re-grant command embeds the host app's bundle ID,
                 bundle_id = resolve_host_bundle_id()
                 if bundle_id:
-                    # TCC-002: the command string comes from the single
+                    # The command string comes from the single
                     from voice_typer.server.server_platform.macos_bundle_id import (
                         tccutil_reset_command_str,
                     )

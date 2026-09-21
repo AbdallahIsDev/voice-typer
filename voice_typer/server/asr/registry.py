@@ -232,7 +232,7 @@ class RegistryCore:
                             "[ASR_REGISTRY] failed to unload %s after load failure",
                             name,
                         )
-                    # F-09: do NOT unregister. Keep it in _backends so
+                    # Do NOT unregister. Keep it in _backends so
 
         # If the primary IS whisper and it failed, no separate fallback.
         if name == "whisper":

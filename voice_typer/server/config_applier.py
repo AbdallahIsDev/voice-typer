@@ -233,7 +233,7 @@ class _AutostartSyncHandler:
     def apply(self, ctx: SideEffectContext) -> None:
         app = ctx.app
         try:
-            # Phase 2: invoke startup_tasks directly. The
+            # Step 2: invoke startup_tasks directly. The
             from voice_typer.server import startup_tasks
 
             ctx.status["autostart_status"] = startup_tasks.sync_autostart(app)
@@ -632,7 +632,7 @@ class ConfigApplier:
                         setattr(app.config, k, old_value)
                 except Exception:
                     log.warning(
-                        "[SERVICE] G4-L-24: failed to restore config key %s during setattr rollback",
+                        "[SERVICE] failed to restore config key %s during setattr rollback",
                         k,
                         exc_info=True,
                     )
@@ -662,7 +662,7 @@ class ConfigApplier:
                 credential_store.store_secret(provider, v)
         except Exception as exc:
             log.warning(
-                "[SERVICE] RW-01: credential_store post-save route "
+                "[SERVICE] credential_store post-save route "
                 "failed: %s, secret may not be in keychain (will "
                 "fall back to plaintext in config.json on next save)",
                 exc,
@@ -679,7 +679,7 @@ class ConfigApplier:
         pre_values = dict(set_keys)
         state_unchanged = pre_values == post_values
         if state_unchanged:
-            log.debug("[SERVICE] G4-L-20: apply_config detected no state change, skipping save_strict()")
+            log.debug("[SERVICE] apply_config detected no state change, skipping save_strict()")
             return
         try:
             app.config.save_strict()

@@ -272,7 +272,6 @@ class TranscriptionEngine:
                     num_workers=1,
                 )
                 _load_elapsed = time.perf_counter() - _t0
-                _warm_label = "warm (page-cache)" if _load_elapsed < 5.0 else "cold (disk)"
                 if acquire_lock:
                     with self._lock:
                         if self._model is not None:
@@ -290,11 +289,13 @@ class TranscriptionEngine:
                     self._loaded_model_size = model_size
                     self.model_size = self._configured_model_size
                 # C-LOG-2: ``format_duration`` returns the suffix WITH
+                # the leading space. The measured duration is the whole
+                # warm/cold signal, a wall-time threshold would mislabel
+                # slow machines and fast NVMe alike.
                 log.info(
-                    "[MODEL] Model %s via %s (%s)%s",
+                    "[MODEL] Model %s via %s%s",
                     verb.lower(),
                     self.loaded_via,
-                    _warm_label,
                     format_duration(_load_elapsed),
                 )
 
@@ -363,7 +364,7 @@ class TranscriptionEngine:
         model_size: str,
         progress_callback=None,
     ) -> tuple[str | None, bool]:
-        """Phase 1: probe the HuggingFace cache (local-only)."""
+        """Step 1: probe the HuggingFace cache (local-only)."""
         return _probe_cache_impl(
             self,
             snapshot_download_fn,

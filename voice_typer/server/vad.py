@@ -149,9 +149,15 @@ def _load_model():
 
     try:
         log.debug("[VAD] Loading local Silero VAD ONNX model from %s", _VAD_MODEL_PATH)
-        # Silero VAD is a small LSTM (~2 MB). For 512-sample
+        # Silero VAD is a small LSTM (~2 MB) run per 512-sample window.
+        # Pin single-threaded pools: the forward pass is sub-millisecond, so
+        # a core-wide pool costs more in spin-wait than it can save.
+        session_options = _ort.SessionOptions()
+        session_options.intra_op_num_threads = 1
+        session_options.inter_op_num_threads = 1
         session = _ort.InferenceSession(
             str(_VAD_MODEL_PATH),
+            sess_options=session_options,
             providers=["CPUExecutionProvider"],
         )
         # Discover I/O names (Silero v4 ONNX uses non-default names).

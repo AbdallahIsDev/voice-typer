@@ -274,7 +274,7 @@ def _ensure_windows_single_instance(silent: bool = False):
     mutex = kernel32.CreateMutexW(lp_mutex_attributes, True, mutex_name)
     last_error = kernel32.GetLastError()
 
-    # MED-SSS / XCUT-7: clear HANDLE_FLAG_INHERIT on the mutex handle
+    # Clear HANDLE_FLAG_INHERIT on the mutex handle
     HANDLE_FLAG_INHERIT = 0x00000001  # noqa: N806
     if mutex:
         try:
@@ -293,7 +293,7 @@ def _ensure_windows_single_instance(silent: bool = False):
             )
 
     if last_error == error_already_exists:
-        # P1-1.4: belt-and-suspenders check.  Windows guarantees that
+        # Belt-and-suspenders check.  Windows guarantees that
         stale_pid = _read_stale_backend_pid()
         if stale_pid is not None:
             _startup_line(
@@ -349,7 +349,7 @@ def _ensure_windows_single_instance(silent: bool = False):
         if not silent and sys.stderr is not None:
             print("Voice Typer: mutex access denied.", file=sys.stderr)
         sys.exit(1)
-    # P1-1.4: mutex acquired, write our PID so the next launch can
+    # Mutex acquired, write our PID so the next launch can
     _write_backend_pid_file()
     return mutex
 

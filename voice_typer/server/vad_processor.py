@@ -70,7 +70,7 @@ class VadState(enum.Enum):
 # default VAD thresholds (overridden by auto-calibration)
 DEFAULT_VAD_SPEECH_THRESHOLD_DB = -40.0  # dBFS, above this → speech candidate
 DEFAULT_VAD_SILENCE_THRESHOLD_DB = -50.0  # dBFS, below this → silence candidate
-# R18-F14: hard floors on the user-configurable thresholds. The
+# Threshold floors on the user-configurable values.
 MIN_VAD_SPEECH_THRESHOLD_DB = -55.0  # dBFS, speech floor
 MIN_VAD_SILENCE_THRESHOLD_DB = -65.0  # dBFS, silence floor (must be below speech floor)
 DEFAULT_VAD_CALIBRATION_DURATION = 1.5  # seconds of ambient noise to sample
@@ -102,7 +102,7 @@ def _make_vad_property(attr: str, doc: str | None = None) -> property:
     :class:`VadProcessor` (state, speech/silence frame counters, plain
     thresholds, calibration samples, cache flags). Properties with real
     logic, the clamping floors on ``speech_threshold_db`` /
-    ``silence_threshold_db`` (R18-F14), stay hand-written below.
+    ``silence_threshold_db`` (threshold floors), stay hand-written below.
 
     Mirrors the factory in
     :mod:`voice_typer.server.recording.vad_helpers` but delegates to
@@ -674,7 +674,7 @@ class VadProcessor:
 
     @speech_threshold_db.setter
     def speech_threshold_db(self, value: float) -> None:
-        # R18-F14: clamp to the speech threshold floor so a noisy
+        # Clamp to the speech threshold floor so a noisy
         self._speech_threshold_db = max(float(value), MIN_VAD_SPEECH_THRESHOLD_DB)
 
     @property
@@ -683,5 +683,5 @@ class VadProcessor:
 
     @silence_threshold_db.setter
     def silence_threshold_db(self, value: float) -> None:
-        # R18-F14: clamp to the silence threshold floor.
+        # Clamp to the silence threshold floor.
         self._silence_threshold_db = max(float(value), MIN_VAD_SILENCE_THRESHOLD_DB)

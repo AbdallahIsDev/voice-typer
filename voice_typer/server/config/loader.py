@@ -223,7 +223,7 @@ def _load_config(cls) -> "Config":
         loaded_version = data.get("schema_version", 0)
         # track whether any migration ran.
         migrations_ran = False
-        # SCHEMA-2 (MED-J): if the on-disk schema_version is
+        # If the on-disk schema_version is
         if isinstance(loaded_version, int) and loaded_version > _CURRENT_SCHEMA_VERSION:
             log.warning(
                 "[CONFIG] config schema_version=%d is newer than supported=%d, "
@@ -246,6 +246,8 @@ def _load_config(cls) -> "Config":
         cls._validate_qwen_model_path(data)
         cls._validate_corrections_path(data)
         cls._validate_privacy_consents(data)
+        # Pack auto-update always-on: heal legacy False, ignore on-disk off.
+        data["offline_pack_consent"] = True
 
         # Remap legacy enum VALUES to their live successors BEFORE
         for _field, _remap in _LEGACY_ENUM_REMAPS.items():
@@ -271,7 +273,7 @@ def _load_config(cls) -> "Config":
                 migrated_count = credential_store.migrate_secrets_to_keyring()
                 if migrated_count > 0:
                     log.info(
-                        "[CONFIG] RW-01: migrated %d plaintext API keys to OS keychain",
+                        "[CONFIG] migrated %d plaintext API keys to OS keychain",
                         migrated_count,
                     )
                 # re-read the on-disk ``secrets_migrated`` flag
@@ -286,7 +288,7 @@ def _load_config(cls) -> "Config":
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as re_err:
                     # Best-effort: if re-reading fails (concurrent
                     log.debug(
-                        "[CONFIG] RW-01: could not re-read on-disk "
+                        "[CONFIG] could not re-read on-disk "
                         "secrets_migrated flag after migrate (%s), "
                         "defaulting in-memory flag to True",
                         type(re_err).__name__,
@@ -306,7 +308,7 @@ def _load_config(cls) -> "Config":
                     else:
                         # Reference points to keyring but keyring
                         log.warning(
-                            "[CONFIG] RW-01: %s field has keyring:// reference "
+                            "[CONFIG] %s field has keyring:// reference "
                             "but keyring returned no value, clearing (secret lost)",
                             field_name,
                         )
@@ -314,7 +316,7 @@ def _load_config(cls) -> "Config":
         except Exception as e:
             # Don't let credential_store issues break config
             log.warning(
-                "[CONFIG] RW-01: credential_store integration failed: %s, continuing with config.json values as-is",
+                "[CONFIG] credential_store integration failed: %s, continuing with config.json values as-is",
                 type(e).__name__,
             )
 

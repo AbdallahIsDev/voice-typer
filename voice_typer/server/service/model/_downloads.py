@@ -82,7 +82,7 @@ class DownloadsMixin:
         sets the cancellation event so the download_model
         polling loop stops waiting and returns a "cancelled" result.
 
-         SERVICE-1: signals the active download's per-download
+         signals the active download's per-download
         Event (looked up in ``self._download_cancel_events`` under the
         lock). Without the per-download lookup, two concurrent
         ``download_model`` calls would each overwrite a shared attribute
@@ -115,7 +115,7 @@ class DownloadsMixin:
                 return {"cancelled": False}
             # Named the ACTIVE model, fall through to the active-cancel
         cancelled_any = False
-        #  SERVICE-1: per-download dict path, signal the
+        # Per-download dict path, signal the
         with self._download_cancel_lock:
             active_id = self._active_download_id
             active_event = self._download_cancel_events.get(active_id) if active_id is not None else None
@@ -571,7 +571,7 @@ class DownloadsMixin:
         machine (via :func:`poll_download_progress` in Phase A and
         :func:`make_segmented_progress_tracker` in Phase B, with the
         shared pause/abort events kept alive across the handoff),
-        and the per-download cancellation plumbing ( / SERVICE-1).
+        and the per-download cancellation plumbing.
 
         Takes explicit args (``model_name``, ``model_meta``) so it can
         be unit-tested in isolation. Returns a :data:`DownloadOutcome`
@@ -672,7 +672,7 @@ class DownloadsMixin:
                 # Start the download in a thread so we can poll
                 import threading
 
-                #  SERVICE-1: register a per-download
+                # Register a per-download
                 download_id = self._register_download(model_name)
                 download_err: list = []
 
@@ -719,7 +719,7 @@ class DownloadsMixin:
                         is_cancelled_fn=self._is_download_cancelled,
                     )
                 finally:
-                    #  SERVICE-1: remove our per-download Event
+                    # Remove our per-download Event
                     self._unregister_download(download_id)
                 # if cancelled, return early.
                 if poll_outcome == "cancelled":
@@ -911,7 +911,7 @@ class DownloadsMixin:
         # clear the pause flag so subsequent
         clear_download_pause_state()
         _notify(self._app.tray, model_name, APP_NAME, f"Model '{model_name}' downloaded successfully")
-        # PERF-10 / SVC-9: on-disk model state changed, force the
+        # On-disk model state changed, force the next status recompute.
         self._invalidate_model_status_cache()
         return {"success": True, "model": model_name}
 

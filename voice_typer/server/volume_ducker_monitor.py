@@ -60,7 +60,7 @@ class SmartDuckMonitorMixin:
 
             # Query the backend OUTSIDE the lock, is_speaker_active()
             try:
-                #  (fix): explicit null check instead of type: ignore
+                # Explicit null check instead of a ``type: ignore``.
                 speaker_active = False if self._backend is None else self._backend.is_speaker_active()
             except Exception as exc:
                 log.debug("[VOLUME] monitor: is_speaker_active failed: %s", exc)

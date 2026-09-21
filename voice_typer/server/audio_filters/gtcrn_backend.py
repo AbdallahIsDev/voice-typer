@@ -69,9 +69,15 @@ class GtcrnBackend:
             raise RuntimeError(f"bundled GTCRN model not found at {MODEL_PATH}")
 
         try:
-            # CPU-only by design (mirrors vad.py): the model is tiny
+            # CPU-only by design (mirrors vad.py): the model is tiny and runs
+            # per 512-sample hop, so single-threaded pools avoid spin-wait
+            # costing more than the sub-millisecond forward pass saves.
+            session_options = _ort.SessionOptions()
+            session_options.intra_op_num_threads = 1
+            session_options.inter_op_num_threads = 1
             session = _ort.InferenceSession(
                 str(MODEL_PATH),
+                sess_options=session_options,
                 providers=["CPUExecutionProvider"],
             )
         except Exception as exc:

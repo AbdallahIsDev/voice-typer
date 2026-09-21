@@ -35,7 +35,58 @@ _HISTORY_CURSOR_FIELDS: dict = {
 class HistoryHandlersMixin(HandlerBase):
     """Mixin: history-related IPC handlers (get_history / delete_history / ...)."""
 
-    # The ``service`` / ``app`` / ``_send`` annotations are inherited
+    def _run_history_list_body(
+        self,
+        d: dict,
+        resp: ResponseEnvelope,
+        *,
+        command: str,
+        service_call,
+        extra_schema: dict | None = None,
+        service_args: tuple = (),
+    ) -> dict:
+        """Shared pipeline for get_history / get_favorites / search_history.
+
+        One home for validate → bound limit/offset → cursor → deep-offset
+        reject → service call → frame-cap → envelope. ``service_call`` is
+        ``self.service.<list method>``; extra required fields (e.g. query)
+        come from ``extra_schema`` and are passed as ``service_args`` first.
+        """
+        schema = {
+            "limit": {"type": (int, str), "required": False, "default": 50},
+            "offset": {"type": (int, str), "required": False, "default": 0},
+            **_HISTORY_CURSOR_FIELDS,
+        }
+        if extra_schema:
+            schema.update(extra_schema)
+        validated, error = _validate_dict_payload(d, schema)
+        if error:
+            return error
+        assert validated is not None
+        # SEC-010: bound limit/offset to prevent DoS via huge values.
+        limit = _bound_history_limit(validated.get("limit", 50))
+        offset = _bound_history_offset(validated.get("offset", 0))
+        cursor = self._extract_history_cursor(validated, resp)
+        if isinstance(cursor, dict):
+            return cursor
+        before_timestamp, before_id = cursor
+        deep = self._reject_deep_offset(resp, offset, before_timestamp, before_id)
+        if deep is not None:
+            return deep
+        if before_timestamp is not None and before_id is not None:
+            rows = service_call(
+                *service_args,
+                limit,
+                offset,
+                before_timestamp=before_timestamp,
+                before_id=before_id,
+            )
+        else:
+            rows = service_call(*service_args, limit, offset)
+        rows = self._enforce_history_frame_cap(rows, command=command)
+        if isinstance(rows, dict):
+            return rows
+        return {"data": rows}
 
     def _extract_history_cursor(self, validated: dict, resp: dict) -> tuple[str | None, int | None] | dict:
         """Extract the keyset-pagination cursor from a validated payload."""
@@ -79,38 +130,12 @@ class HistoryHandlersMixin(HandlerBase):
         """Handle the ``get_history`` IPC command."""
 
         def body(d: dict) -> dict:
-            # validate ``limit`` / ``offset`` types via the
-            validated, error = _validate_dict_payload(
+            return self._run_history_list_body(
                 d,
-                {
-                    "limit": {"type": (int, str), "required": False, "default": 50},
-                    "offset": {"type": (int, str), "required": False, "default": 0},
-                    **_HISTORY_CURSOR_FIELDS,
-                },
+                resp,
+                command="get_history",
+                service_call=self.service.get_history,
             )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            # SEC-010: bound limit/offset to prevent DoS via huge values.
-            limit = _bound_history_limit(validated.get("limit", 50))
-            offset = _bound_history_offset(validated.get("offset", 0))
-            # Extract the keyset cursor (if both pieces are present).
-            cursor = self._extract_history_cursor(validated, resp)
-            if isinstance(cursor, dict):
-                return cursor
-            before_timestamp, before_id = cursor
-            deep = self._reject_deep_offset(resp, offset, before_timestamp, before_id)
-            if deep is not None:
-                return deep
-            if before_timestamp is not None and before_id is not None:
-                rows = self.service.get_history(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
-            else:
-                rows = self.service.get_history(limit, offset)
-            # Defense-in-depth size check. ``get_recent`` already
-            rows = self._enforce_history_frame_cap(rows, command="get_history")
-            if isinstance(rows, dict):
-                return rows
-            return {"data": rows}
 
         return self._wrap(
             cmd_name="get_history",
@@ -207,7 +232,7 @@ class HistoryHandlersMixin(HandlerBase):
 
         def body(d: dict) -> dict:
             self.service.delete_history(d["id"])
-            # F11-FIX (b-review Finding 11): broadcast history_changed so
+            # Broadcast history_changed so open clients refresh their lists.
             _publish_history_changed("deleted")
             return {"type": "ack"}
 
@@ -236,7 +261,7 @@ class HistoryHandlersMixin(HandlerBase):
                     field="record.text",
                 )
             new_id = self.service.restore_history(record)
-            # F11-FIX (b-review Finding 11): a restored record must also
+            # A restored record must also broadcast history_changed so
             _publish_history_changed("restored")
             return {"type": "ack", "data": {"id": new_id}}
 
@@ -255,7 +280,7 @@ class HistoryHandlersMixin(HandlerBase):
         try:
             self.service.clear_history()
             resp["type"] = "ack"
-            # F11-FIX (b-review Finding 11): broadcast a `history_changed`
+            # Broadcast a `history_changed` event so open clients refresh.
             _publish_history_changed("cleared")
         except Exception as exc:
             # generic WS-path envelope.
@@ -267,7 +292,7 @@ class HistoryHandlersMixin(HandlerBase):
 
         def body(d: dict) -> dict:
             new_val = self.service.toggle_favorite(d["id"])
-            # F11-FIX (b-review Finding 11): a favorite toggle changes which
+            # A favorite toggle changes which rows are starred, broadcast so
             _publish_history_changed("favorite_toggled")
             return {"type": "ack", "data": {"favorite": new_val}}
 
@@ -285,38 +310,12 @@ class HistoryHandlersMixin(HandlerBase):
         """Handle the ``get_favorites`` IPC command."""
 
         def body(d: dict) -> dict:
-            # validate ``limit`` / ``offset`` types via the
-            validated, error = _validate_dict_payload(
+            return self._run_history_list_body(
                 d,
-                {
-                    "limit": {"type": (int, str), "required": False, "default": 50},
-                    "offset": {"type": (int, str), "required": False, "default": 0},
-                    **_HISTORY_CURSOR_FIELDS,
-                },
+                resp,
+                command="get_favorites",
+                service_call=self.service.get_favorites,
             )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            # SEC-010: bound limit/offset.
-            limit = _bound_history_limit(validated.get("limit", 50))
-            offset = _bound_history_offset(validated.get("offset", 0))
-            # Extract the keyset cursor (if both pieces are present).
-            cursor = self._extract_history_cursor(validated, resp)
-            if isinstance(cursor, dict):
-                return cursor
-            before_timestamp, before_id = cursor
-            deep = self._reject_deep_offset(resp, offset, before_timestamp, before_id)
-            if deep is not None:
-                return deep
-            if before_timestamp is not None and before_id is not None:
-                rows = self.service.get_favorites(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
-            else:
-                rows = self.service.get_favorites(limit, offset)
-            # Same defense-in-depth frame-cap check as
-            rows = self._enforce_history_frame_cap(rows, command="get_favorites")
-            if isinstance(rows, dict):
-                return rows
-            return {"data": rows}
 
         return self._wrap(
             cmd_name="get_favorites",
@@ -330,46 +329,22 @@ class HistoryHandlersMixin(HandlerBase):
         """Handle the ``search_history`` IPC command."""
 
         def body(d: dict) -> dict:
-            # validate ``query`` / ``limit`` / ``offset`` types
             validated, error = _validate_dict_payload(
                 d,
-                {
-                    "query": {"type": str, "required": False, "default": ""},
-                    "limit": {"type": (int, str), "required": False, "default": 50},
-                    "offset": {"type": (int, str), "required": False, "default": 0},
-                    **_HISTORY_CURSOR_FIELDS,
-                },
+                {"query": {"type": str, "required": False, "default": ""}},
             )
             if error:
                 return error
-            assert validated is not None  # narrowed by the error guard above
+            assert validated is not None
             query = validated.get("query", "")
-            # SEC-010: bound limit/offset.
-            limit = _bound_history_limit(validated.get("limit", 50))
-            offset = _bound_history_offset(validated.get("offset", 0))
-            # Extract the keyset cursor (if both pieces are present).
-            cursor = self._extract_history_cursor(validated, resp)
-            if isinstance(cursor, dict):
-                return cursor
-            before_timestamp, before_id = cursor
-            deep = self._reject_deep_offset(resp, offset, before_timestamp, before_id)
-            if deep is not None:
-                return deep
-            if before_timestamp is not None and before_id is not None:
-                rows = self.service.search_history(
-                    query,
-                    limit,
-                    offset,
-                    before_timestamp=before_timestamp,
-                    before_id=before_id,
-                )
-            else:
-                rows = self.service.search_history(query, limit, offset)
-            # Same defense-in-depth frame-cap check as
-            rows = self._enforce_history_frame_cap(rows, command="search_history")
-            if isinstance(rows, dict):
-                return rows
-            return {"data": rows}
+            return self._run_history_list_body(
+                d,
+                resp,
+                command="search_history",
+                service_call=self.service.search_history,
+                extra_schema={"query": {"type": str, "required": False, "default": ""}},
+                service_args=(query,),
+            )
 
         return self._wrap(
             cmd_name="search_history",
@@ -409,12 +384,46 @@ class HistoryHandlersMixin(HandlerBase):
             result = self.service.get_transcription_text(d["id"])
             return {"type": "transcription_text", "data": result}
 
+        def guarded_body(d: dict) -> dict:
+            """Reject payloads the transport would silently drop.
+
+            Dictation length is unbounded upstream, so an extreme row can
+            exceed the WS frame cap; that layer DROPS the frame, which
+            leaves the renderer waiting forever. Report it instead, the
+            same contract the list handlers use.
+            """
+            payload = body(d)
+            try:
+                serialized = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+            except (TypeError, ValueError):
+                return payload
+            if len(serialized) <= _HISTORY_MAX_FRAME_BYTES:
+                return payload
+            from voice_typer.server.ipc.validation import ErrorCodes as _ErrorCodes
+
+            log.warning(
+                "[IPC] get_transcription_text response exceeds frame cap "
+                "(%d > %d bytes); returning a clear error instead of a dropped frame",
+                len(serialized),
+                _HISTORY_MAX_FRAME_BYTES,
+            )
+            return {
+                "type": "error",
+                "data": {
+                    "code": _ErrorCodes.PAYLOAD_TOO_LARGE,
+                    "message": (
+                        "Transcription text is too large to transfer over IPC "
+                        f"({len(serialized)} bytes exceeds {_HISTORY_MAX_FRAME_BYTES} byte cap)"
+                    ),
+                },
+            }
+
         return self._wrap(
             cmd_name="get_transcription_text",
             resp_type="transcription_text",
             data=data,
             resp=resp,
-            body=body,
+            body=guarded_body,
             schema={"id": {"type": (int, str), "required": True}},
             pre_coerce=False,
         )

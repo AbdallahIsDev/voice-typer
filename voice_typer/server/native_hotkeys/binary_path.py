@@ -1,20 +1,19 @@
 """Native binary discovery.
 
-Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-().  (session-1): adds SHA-256 manifest verification.
-adds Windows arch-suffixed binary names
+Split out from the original ``native_hotkeys.py`` module.
+Adds SHA-256 manifest verification plus Windows arch-suffixed binary names
 (Windows on ARM/aarch64 support).
 
 This module owns:
 
 - :data:`_BINARY_NAMES`: per-``(platform, machine)`` binary filename
-  map (: per-arch native binaries). Implemented as
-  class:`_ArchAwareBinaryNameMap` so pre- callers that index by
+  map (per-arch native binaries). Implemented as
+  :class:`_ArchAwareBinaryNameMap` so pre-existing callers that index by
   bare platform string (``_BINARY_NAMES.get("linux")``) keep working
   via the legacy shim.
-- data:`_LEGACY_BINARY_NAMES`: pre- non-arch-suffixed names,
+- :data:`_LEGACY_BINARY_NAMES`: pre-existing non-arch-suffixed names,
   used both as a fallback for existing Tauri bundles (during the
-  ``tauri.conf.json`` resource-list transition owned by IMPL-4) and
+  ``tauri.conf.json`` resource-list transition) and
   as the backing store for the string-key shim on
   :class:`_ArchAwareBinaryNameMap`.
 - :func:`get_native_binary_path`: find the native key-listener

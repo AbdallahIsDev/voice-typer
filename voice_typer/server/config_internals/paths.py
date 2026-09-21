@@ -280,7 +280,7 @@ def _migrate_from_legacy():
         )
         return
 
-    # FI-13-A: the migration must be ATOMIC.  A direct
+    # The migration must be ATOMIC.  A direct
     staging = target.parent / (target.name + f".migrate-tmp-{os.getpid()}")
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)

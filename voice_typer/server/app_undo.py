@@ -34,7 +34,7 @@ class UndoRepasteController:
         # ① READ FROM DB (primary, survives restart)
         text = ""
         try:
-            # BP-88 / ADR-0010 §6.2: the dictation pipeline's
+            # ADR-0010 §6.2: the dictation pipeline's
             app.history_db.flush()
             text = app.history_db.get_latest_text()
         except Exception as e:

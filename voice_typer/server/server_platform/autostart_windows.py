@@ -15,11 +15,11 @@ from voice_typer.server.server_platform.platform_flags import is_windows
 
 log = logging.getLogger(__name__)
 
-# STARTUP-7: Task Scheduler logon trigger fires earlier and more
+# Task Scheduler logon trigger fires earlier and more
 
 
 def _enable_autostart_windows() -> bool:
-    """STARTUP-7: register app autostart via Task Scheduler (preferred),"""
+    """Register app autostart via Task Scheduler (preferred),"""
     if _register_app_autostart_task():
         with contextlib.suppress(Exception):
             _unregister_app_autostart_runkey()
@@ -42,7 +42,7 @@ def _enable_autostart_windows() -> bool:
 
 
 def _disable_autostart_windows() -> bool:
-    """STARTUP-7: remove app autostart from ALL mechanisms."""
+    """Remove app autostart from ALL mechanisms."""
     removed_task = _unregister_app_autostart_task()
     removed_reg = _unregister_app_autostart_runkey()
     removed_startup = _unregister_app_autostart_startup()
@@ -50,7 +50,7 @@ def _disable_autostart_windows() -> bool:
 
 
 def _is_autostart_windows() -> bool:
-    """STARTUP-7: True if autostart is registered via ANY of the three mechanisms."""
+    """True if autostart is registered via ANY of the three mechanisms."""
     return (
         _is_app_autostart_task_registered()
         or _is_app_autostart_runkey_registered()
@@ -174,7 +174,7 @@ def _build_app_autostart_task_xml() -> str:
 
     actions = ET.SubElement(root, "Actions", {"Context": "Author"})
     exec_el = ET.SubElement(actions, "Exec")
-    # STARTUP-1 lesson: use pythonw.exe directly, no cmd.exe wrapper.
+    # Lesson: use pythonw.exe directly, no cmd.exe wrapper.
     ET.SubElement(exec_el, "Command").text = python_exe
     ET.SubElement(exec_el, "Arguments").text = arguments
 

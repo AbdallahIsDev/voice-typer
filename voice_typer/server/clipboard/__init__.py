@@ -24,9 +24,9 @@ from voice_typer.server.platform_utils import (  # noqa: F401
 # Package-level logger. Tests patch ``voice_typer.server.clipboard.log``.
 log = logging.getLogger(__name__)
 
-# PLAT-007 retry lives in manager._copy: except OSError as copy_err with winerror == 5.
+# Retry lives in manager._copy: except OSError as copy_err with winerror == 5.
 # PLAT-CONTENT: contentEditable target check lives in safety/targets (informational).
-# PLAT-001: pynput fallback + UIPI notes live in linux/windows backends.
+# Pynput fallback + UIPI notes live in linux/windows backends.
 
 # empty binding. No ``# type: ignore[assignment]`` marker is needed
 # ``# type: ignore[assignment]`` markers  removed stay dropped
@@ -39,6 +39,7 @@ _Controller: type | None = None
 # Win32 UI Automation focus / password-field / elevated-target
 from voice_typer.server.clipboard_target_safety import (  # noqa: E402,F401
     _CRED_DIALOG_CLASSES,
+    UiaUnavailableError,
     _find_focused_atspi_accessible,
     _focused_window_is_credential_dialog,
     _get_uia_focused_element,
@@ -129,6 +130,7 @@ __all__ = [
     "_UIA_SINGLETON",
     "_UIA_SINGLETON_INIT_ATTEMPTED",
     "_WE_ELEVATED",
+    "UiaUnavailableError",
     "_find_focused_atspi_accessible",
     "_focused_window_is_credential_dialog",
     "_get_uia_focused_element",

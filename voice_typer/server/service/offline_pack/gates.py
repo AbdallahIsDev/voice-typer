@@ -14,7 +14,6 @@ from .core import (
     OFFLINE_PACK_COMPRESSED_MB,
     OFFLINE_PACK_REQUIRED_MB,
     OFFLINE_PACK_UNPACKED_MB,
-    OfflinePackConsentRequiredError,
 )
 
 if TYPE_CHECKING:
@@ -55,29 +54,15 @@ def check_offline_pack_disk_space(pack_dir: Path, *, required_mb: int = OFFLINE_
 
 
 def require_offline_pack_consent(config: Config | None, *, version: str | None = None) -> None:
-    """Raise :class:`PackConsentRequiredError` if consent is missing.
+    """No-op: pack downloads are always-on (user product decision).
 
-    Mirrors the pattern in
-    :func:`voice_typer.server.asr_utils._require_huggingface_consent`
-    (lines 307-384) but checks a DIFFERENT config field:
-    :attr:`Config.offline_pack_consent` (not ``huggingface_consent``).
-
-    Safe default per GDPR Art. 6/13: ``config is None`` → NOT consented.
-    The pack download phones home to GitHub Releases (revealing user IP
-    to Microsoft), so it MUST be consent-gated (§8.4 / C-DATA-1).
-
-    The caller is responsible for catching the exception and surfacing
-    a consent dialog to the user.
+    Kept as a call-site seam so update/download paths stay uniform, but
+    it never raises. ``config.offline_pack_consent`` is forced True on
+    load and is not set_config-able (not in the SEC-002 allowlist).
+    C-DATA-1 category (4) permits the GitHub pack download regardless
+    of a consent toggle; the user chose always-on with no disable path.
     """
-    consent = False if config is None else bool(getattr(config, "offline_pack_consent", False))
-    if consent:
-        return
-    log.warning(
-        "[PACK] offline_pack_consent not given, refusing to download pack %s. "
-        "The renderer should show a consent dialog.",
-        version or "<unknown>",
-    )
-    raise OfflinePackConsentRequiredError(version=version)
+    return
 
 
 def assert_offline_pack_url_allowed(url: str) -> None:

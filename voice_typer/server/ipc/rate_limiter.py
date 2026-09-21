@@ -1,5 +1,4 @@
-# extracted from the original
-"""Per-connection rate limiter (RELIABILITY-006 + ).
+"""Per-connection rate limiter.
 
 A crash-looping or buggy predecessor client can flood the IPC socket with
 thousands of malformed messages per second, exhausting file descriptors
@@ -11,7 +10,7 @@ response) rather than dispatched.
 The limits are intentionally generous, a well-behaved predecessor client
 sends maybe 1-5 msg/s.
 
-RELIABILITY-006-: ``burst`` (200) is the hard per-second cap; a
+``burst`` (200) is the hard per-second cap; a
 client that sends >200 messages in any 1-second window is throttled.
 ``sustained`` (600) is measured over a 10-second window (60 msg/s
 average) so short bursts within 1s (up to 200) are NOT throttled by the

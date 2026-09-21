@@ -33,7 +33,7 @@ _CACHE_RATIO_PAGE_BYTES = 4096
 # 50µs threshold: SSD cold read ~100-500µs, RAM cache hit <10µs. Pages
 _CACHE_RATIO_HIT_THRESHOLD_US = 50.0
 
-# STARTUP-4: Whisper model sizes that are valid fallback targets.
+# Whisper model sizes that are valid fallback targets.
 _WHISPER_FALLBACK_MODEL_SIZE = "tiny"
 
 # Weight-file suffixes warmed by :func:`_warm_model_weights` and probed
@@ -141,7 +141,7 @@ def _cached_active_config():
         return None
 
 
-# Phase 2 / Plan §6.2 P-1: the warm list for the ONNX-only runtime
+# Plan §6.2: the warm list for the ONNX-only runtime
 _WORKER_WARM_PACKAGES: tuple[str, ...] = (
     "onnxruntime",
     "ctranslate2",
@@ -344,7 +344,7 @@ def _warm_model_weights(active_dirs: list[Path]) -> int:
 
 
 def _active_model_cache_dirs() -> list[Path]:
-    """STARTUP-4: Return HF cache dirs for the active model + declared fallback."""
+    """Return HF cache dirs for the active model + declared fallback."""
     dirs: list[Path] = []
     cfg = _cached_active_config()
     if cfg is None:

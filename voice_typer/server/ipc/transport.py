@@ -1,7 +1,7 @@
 # extracted from the original
 """Test-support socket helpers: port picker and line-IO wrapper.
 
-Phase 4.5 split, extracted from the original ``ipc_server.py``
+Extracted from the original ``ipc_server.py``
 god-module. The production TCP listener was removed (now ``--ws``
 only: event_bus → sidecar_ws → Tauri host); these helpers survive
 SOLELY for the test suite, which injects sockets into
@@ -52,7 +52,7 @@ def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[i
     for offset in range(max_tries):
         candidate = start + offset
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # P1-1.4 (Windows parity): on Windows ``SO_REUSEADDR`` has the
+        # (Windows parity): on Windows ``SO_REUSEADDR`` has the
         if os.name != "nt":
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:

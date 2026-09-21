@@ -50,14 +50,14 @@ from .buffer import (  # noqa: E402
     set_thread_registry,
 )
 
-# Phase 4.5 split, three new collaborator modules.
-from .capture import (  # noqa: E402,  / Phase 4.5 split
+# Collaborator modules.
+from .capture import (  # noqa: E402
     AudioCallbackDispatcher,
 )
-from .device_manager import (  # noqa: E402,  / Phase 4.5 split
+from .device_manager import (  # noqa: E402
     DeviceManager,
 )
-from .device_prewarm import (  # noqa: E402, Phase 4.5 completion
+from .device_prewarm import (  # noqa: E402
     DevicePrewarm,
 )
 from .exceptions import (  # noqa: E402
@@ -85,10 +85,10 @@ from .resampling import (  # noqa: E402
     _start_scipy_preloader,
     resample_audio,
 )
-from .session_state import (  # noqa: E402,  / Phase 4.5 split
+from .session_state import (  # noqa: E402
     SessionState,
 )
-from .stream_lifecycle import (  # noqa: E402,  / Phase 4.5 split
+from .stream_lifecycle import (  # noqa: E402
     StreamLifecycle,
 )
 
@@ -112,15 +112,15 @@ __all__ = [
     "_XRUN_ALERT_PERIOD",
     "_XRUN_ALERT_THRESHOLD",
     "_XRUN_WINDOW_MAXLEN",
-    # device_manager ( / Phase 4.5 split)
+    # device_manager
     "DeviceManager",
-    # device_prewarm (Phase 4.5 completion)
+    # device_prewarm
     "DevicePrewarm",
-    # capture ( / Phase 4.5 split)
+    # capture
     "AudioCallbackDispatcher",
-    # stream_lifecycle ( / Phase 4.5 split)
+    # stream_lifecycle
     "StreamLifecycle",
-    # session_state ( / Phase 4.5 split)
+    # session_state
     "SessionState",
     # exceptions
     "ResampleError",

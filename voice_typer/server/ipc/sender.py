@@ -1,4 +1,4 @@
-"""Output / push mixin for the IPC server (Phase 4.5 split)."""
+"""Output / push mixin for the IPC server."""
 
 import contextlib
 import json

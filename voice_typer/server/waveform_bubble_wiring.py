@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 class WaveformBubbleWiring:
     """Owns wiring of the waveform bubble coordinator → IPC push events.
 
-    Phase 6: extracted from ``VoiceTyperApp``. The app passes itself
+    Extracted from ``VoiceTyperApp``. The app passes itself
         (``app``) as a back-reference so ``WaveformBubbleWiring`` can:
 
         - Read ``app._waveform_bubble`` (the ``WaveformBubble`` coordinator

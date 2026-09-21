@@ -278,10 +278,17 @@ def submit_toggle_favorite(db: HistoryDB, transcription_id: int) -> bool:
 
 def checkpoint_wal(db: HistoryDB, conn: sqlite3.Connection, truncate: bool) -> bool:
     """Run ``wal_checkpoint(TRUNCATE|RESTART)`` on the writer connection."""
-    mode = "TRUNCATE" if truncate else "RESTART"
+    # PRAGMA modes cannot be parameter-bound, so both statements are fixed
+    # literals selected by the flag rather than built by interpolation.
+    if truncate:
+        mode = "TRUNCATE"
+        statement = "PRAGMA wal_checkpoint(TRUNCATE)"
+    else:
+        mode = "RESTART"
+        statement = "PRAGMA wal_checkpoint(RESTART)"
     try:
         # wal_checkpoint returns (busy, log, checkpointed)
-        result = conn.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+        result = conn.execute(statement).fetchone()
         if result is not None:
             log.debug(
                 "[HISTORY_DB] wal_checkpoint(%s): busy=%s, log=%s, checkpointed=%s",

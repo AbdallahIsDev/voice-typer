@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import numpy as np
+
 # Whisper models are trained on 16 kHz mono input. Every audio path
 WHISPER_SAMPLE_RATE: int = 16000
 
@@ -14,7 +18,7 @@ RNNOISE_SAMPLE_RATE: int = 48000
 # Common native microphone sample rates. Used by the microphone-list
 NATIVE_MIC_RATES: frozenset[int] = frozenset({8000, 16000, 44100, 48000})
 
-# PortAudio ``blocksize`` literal. VAD-001 / , Silero
+# PortAudio ``blocksize`` literal for the Silero VAD path.
 _AUDIO_BLOCKSIZE: int = 512
 
 
@@ -36,6 +40,34 @@ AUDIO_CLIPPING_THRESHOLD: float = 0.99
 # Volume-level agreement between the dictation path and the mic-test path.
 AUDIO_LOW_VOLUME_RMS: float = 0.005
 AUDIO_SILENCE_RMS: float = 0.0005
+
+# Amplitude below which a sample counts as silence in the recording /
+# transcription statistics (the long-standing ``|x| < 0.001`` test).
+AUDIO_SILENCE_AMPLITUDE: float = 0.001
+
+
+def peak_amplitude(audio: Any) -> float:
+    """Peak ``|sample|`` without materialising an ``np.abs`` copy."""
+    flat = np.asarray(audio).reshape(-1)
+    if flat.size == 0:
+        return 0.0
+    return max(float(flat.max()), -float(flat.min()))
+
+
+def silence_percent(audio: Any) -> float:
+    """Percentage of samples quieter than :data:`AUDIO_SILENCE_AMPLITUDE`.
+
+    Two 1-byte boolean passes (~2 bytes/sample peak) say the same thing as
+    ``np.abs(flat) < eps`` while avoiding its full-size float-copy temp
+    (~5 bytes/sample) on long recordings.
+    """
+    flat = np.asarray(audio).reshape(-1)
+    if flat.size == 0:
+        return 0.0
+    below = np.less(flat, AUDIO_SILENCE_AMPLITUDE)
+    np.logical_and(below, np.greater(flat, -AUDIO_SILENCE_AMPLITUDE), out=below)
+    return float(np.count_nonzero(below) / flat.size * 100)
+
 
 # ``_teardown_stream`` busy-poll budget + interval. The
 _TEARDOWN_CALLBACK_DRAIN_BUDGET_S: float = 0.300

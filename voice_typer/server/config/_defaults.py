@@ -8,7 +8,7 @@ DEFAULT_HOTKEY: str = "<caps_lock>"
 
 
 def _default_hotkey_for_platform() -> str:
-    """NATIVE-001: Return the platform-appropriate default hotkey."""
+    """Return the platform-appropriate default hotkey."""
     return DEFAULT_HOTKEY
 
 

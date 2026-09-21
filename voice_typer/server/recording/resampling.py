@@ -1,11 +1,11 @@
 """scipy.signal.resample_poly lazy-loading + background preloader.
 
-Phase 4.5 / , extracted from the original ``recording.py``
+Extracted from the original ``recording.py``
 god-module.  Owns the cached ``_resample_poly`` binding, the cached
 import-error state, the preloader thread, and the locks that guard
 them.
 
-(Phase 4.5 follow-up), also owns the ``resample_audio()``
+Also owns the ``resample_audio()``
 helper (promoted from ``Recorder._resample_audio_impl``) that runs the
 scipy → linear-interp → raise fallback chain. The historical
 ``Recorder._resample_audio_impl`` delegator was removed, callers
@@ -269,7 +269,7 @@ _scipy_preloader_lock = threading.Lock()
 def _start_scipy_preloader() -> None:
     """Start the scipy preloader thread (idempotent, deferred to first Recorder).
 
-    B-3/S-3: called from :meth:`Recorder.__init__` (not at module import)
+    called from :meth:`Recorder.__init__` (not at module import)
     so importing ``recording`` does not spawn a thread. Idempotent: if
     the preloader has already been started (and is still alive), this is
     a no-op. If a previous preloader thread exited (scipy import
@@ -338,7 +338,7 @@ def _get_resample_poly():
 def warm_up_resampler(recorder: Any) -> None:
     """Import and initialize the high-quality resampler before recording stops.
 
-    Promoted from ``Recorder.warm_up_resampler`` (Phase 4.5 completion) —
+    Promoted from ``Recorder.warm_up_resampler`` —
     the body is unchanged. Callers invoke ``recorder.warm_up_resampler()``
     (a documented 1-line delegator on ``Recorder``); instance-level
     ``MagicMock`` patches of ``recorder.warm_up_resampler`` keep working
@@ -374,7 +374,7 @@ def resample_audio(
     """Shared resampling logic used by :mod:`.format`'s
     ``resample_chunk`` and ``prepare_audio``.
 
-    Phase 4.5, promoted from ``Recorder._resample_audio_impl``
+    Promoted from ``Recorder._resample_audio_impl``
         (the body is unchanged). The historical ``Recorder`` delegator
         was removed; callers invoke this function directly.
 

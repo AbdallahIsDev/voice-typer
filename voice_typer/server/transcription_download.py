@@ -48,7 +48,7 @@ def probe_cache(
     model_size: str,
     progress_callback=None,
 ) -> tuple[str | None, bool]:
-    """Phase 1: probe the HuggingFace cache (local-only).
+    """Step 1: probe the HuggingFace cache (local-only).
 
     Returns ``(local_dir, integrity_failed)``:
     """

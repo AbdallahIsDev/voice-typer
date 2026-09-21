@@ -290,7 +290,7 @@ class TemplateManager:
         applies ``O_NOFOLLOW`` on POSIX to prevent symlink TOCTOU
         attacks.
 
-        M-62: previously this method caught *all* exceptions and
+        previously this method caught *all* exceptions and
         silently logged them, returning ``None`` to callers. That
         meant a disk failure left the in-memory ``_templates`` list
         (already mutated by ``add``/``update``/``delete``) out of
@@ -308,7 +308,7 @@ class TemplateManager:
             # PersistedJSON.save handles atomic write + .bak
             self._store.save({"templates": self._templates}, durability=False)
         except Exception:
-            # M-62: log then re-raise so callers can roll back.
+            # Log then re-raise so callers can roll back.
             log.exception("[TEMPLATES] Failed to save")
             raise
         log.debug("[TEMPLATES] Saved %d templates", len(self._templates))
@@ -324,7 +324,7 @@ class TemplateManager:
           - Total count cap: ``MAX_TEMPLATES``. Once the cap is reached
             the new template is dropped (rejected with a warning).
 
-        M-62: persists first-then-mutates with rollback. If ``_save``
+        persists first-then-mutates with rollback. If ``_save``
         raises, the appended entry is popped back off so the
         in-memory state stays consistent with the on-disk state.
 
@@ -378,7 +378,7 @@ class TemplateManager:
     def update(self, index: int, trigger: str, output: str, *, match_mode: str = "exact") -> dict | None:
         """Update a template by index. Returns the updated template or None.
 
-        M-62: snapshots the original field values and restores them
+        snapshots the original field values and restores them
         on save failure so the in-memory state stays consistent with
         the on-disk state.
 
@@ -411,7 +411,7 @@ class TemplateManager:
     def delete(self, index: int) -> bool:
         """Delete a template by index.
 
-        M-62: snapshots the deleted entry and re-inserts it at the
+        snapshots the deleted entry and re-inserts it at the
         same index on save failure so the in-memory state stays
         consistent with the on-disk state.
 
@@ -501,7 +501,7 @@ class TemplateManager:
           - Truncates the import if it would exceed ``MAX_TEMPLATES``.
           - Logs a single warning summarising the dropped count.
 
-        M-62: snapshots the list before appending and restores it on
+        snapshots the list before appending and restores it on
         save failure so the in-memory state stays consistent with the
         on-disk state.
 

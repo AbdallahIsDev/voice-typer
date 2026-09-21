@@ -1,6 +1,6 @@
 """Teardown helper for the history DB writer.
 
-Phase 4.5 (OI-36), extracted verbatim from
+Extracted verbatim from
 :meth:`ShutdownController._teardown_history_db`. The body is unchanged;
 only the class boundary moved.
 """

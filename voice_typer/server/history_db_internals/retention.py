@@ -7,15 +7,21 @@ import logging
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, get_args
 
 if TYPE_CHECKING:
     from voice_typer.server.history_db import HistoryDB
 
 log = logging.getLogger(__name__)
 
-# IMPL-A: writer-thread tuning constants.
+# Writer-thread tuning constants.
 _RETENTION_BATCH = 100
+
+# FTS5 special commands cannot be bound as parameters, so the command text is
+# interpolated into the statement. The runtime allowlist below is the single
+# source of truth (derived from the annotation) and gates every call.
+Fts5Command = Literal["rebuild", "optimize"]
+_FTS5_COMMANDS: Final[frozenset[str]] = frozenset(get_args(Fts5Command))
 
 
 def _rebuild_fts(
@@ -24,9 +30,11 @@ def _rebuild_fts(
     *,
     source: str = "apply_retention",
     deleted: int | None = None,
-    command: Literal["rebuild", "optimize"] = "rebuild",
+    command: Fts5Command = "rebuild",
 ) -> bool:
     """Issue an FTS5 ``'rebuild'`` / ``'optimize'`` command and surface the outcome."""
+    if command not in _FTS5_COMMANDS:
+        raise ValueError(f"unsupported FTS5 command: {command!r}")
     fts_cursor = conn.cursor()
     try:
         # Both FTS5 shadow indexes (unicode61 ``transcriptions_fts`` AND

@@ -18,7 +18,7 @@ from .config_service import ConfigMutationMixin
 from .privacy import PrivacyMixin
 
 if TYPE_CHECKING:
-    # T1-F9: imported only under ``TYPE_CHECKING`` so the annotation
+    # Imported only under ``TYPE_CHECKING`` so the annotation
     from voice_typer.server.providers import AppProtocol  # noqa: F401
     from voice_typer.server.templates import TemplateManager  # noqa: F401
 

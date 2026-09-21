@@ -18,7 +18,7 @@ class ConfigMutationMixin(ServiceMixinBase):
     """Config read / mutate / side-effects surface."""
 
     def _keyring_status(self) -> dict[str, object]:
-        """SVC-6: probe the OS keychain backend once and return a"""
+        """Probe the OS keychain backend once and return a status dict."""
         try:
             from voice_typer.server import credential_store
 
@@ -38,7 +38,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
         sanitized = sanitize_config_for_ipc(self._app.config)
-        # SVC-6: route through the shared helper (single try/except).
+        # Route through the shared helper (single try/except).
         sanitized["keyring_status"] = self._keyring_status()
         # Linux window-button system snapshot (read-only, computed, NOT
         try:
@@ -63,7 +63,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
         sanitized = sanitize_config_for_ipc(Config())
-        # SVC-6: route through the shared helper (single try/except).
+        # Route through the shared helper (single try/except).
         sanitized["keyring_status"] = self._keyring_status()
         return sanitized
 
@@ -152,7 +152,7 @@ class ConfigMutationMixin(ServiceMixinBase):
                 app.config = new_config
                 new_config.save_strict()
             except Exception as exc:
-                # HU-22: restore the pre-swap config so a save failure
+                # Restore the pre-swap config so a save failure
                 app.config = old_config
                 log.exception("[SERVICE] reset_config_to_defaults: save_strict failed: %s", exc)
                 return {

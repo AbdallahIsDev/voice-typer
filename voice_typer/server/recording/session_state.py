@@ -1,6 +1,6 @@
 """Session state management for :class:`Recorder` (extracted from ``recorder.py``).
 
-Phase 4.5, extracted from :mod:`.recorder` to shrink the
+Extracted from :mod:`.recorder` to shrink the
 3772-LOC ``recorder.py`` god class (see  in ``review.md``).
 Owns the per-session state reset, config-derived scalar caching,
 secure-cache clearing (the bulk ``_secure_clear_caches``, NOT
@@ -214,7 +214,7 @@ class SessionState:
         recorder._cached_silence_warning = _silence
         _stop_silence = float(_stop_on_silence) if isinstance(_stop_on_silence, int | float) else 60.0
         recorder._cached_stop_on_silence = _stop_silence
-        # SIMPLIFY-001: single explicit field replaces the old 3-field split
+        # Single explicit field replaces the old 3-field split
         recorder._cached_max_recording_time = int(recorder.config.max_recording_time_seconds)
 
         # dynamic buffer sizing is DEFERRED until after the
@@ -360,7 +360,7 @@ class SessionState:
             if preroll_chunks:
                 for chunk in reversed(preroll_chunks):
                     mono_chunk = ensure_mono(recorder, chunk)
-                    # R18-F12: best-effort filter, if the processor
+                    # Best-effort filter: if the processor raises, keep the raw chunk.
                     if recorder._audio_processor is not None:
                         try:
                             filtered = recorder._audio_processor.process_chunk(

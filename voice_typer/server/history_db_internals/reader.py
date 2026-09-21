@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 
 def _get_read_conn(db: HistoryDB) -> sqlite3.Connection:
-    """IMPL-A: each reader thread gets its own connection (stored in
+    """Each reader thread gets its own connection (stored in
     ``threading.local()``). ``PRAGMA query_only=1`` enforces
     write through this connection, SQLite would reject it. In WAL
     mode, readers never block the writer and the writer never

@@ -75,11 +75,11 @@ ADR-0019's rate limiter
 (:class:`voice_typer.server.ipc_server._RateLimiter`) is applied on
 every incoming WS frame, mirroring the TCP path. A client that
 exceeds 200 burst / 600 sustained (10s window, per
-RELIABILITY-006-) gets ``{"type":"error","code":
+connection) gets ``{"type":"error","code":
 "rate_limited","data":{"message":"rate limit exceeded; backing
 off"}}`` and the connection stays open.
 
-the limiter is shared across ALL WS connections to this server
+The limiter is shared across ALL WS connections to this server
 process (looked up via ``_get_rate_limiter(server)``), so a local
 attacker can no longer reset the 200-message burst budget by dropping
 the WS and reconnecting.
@@ -284,7 +284,7 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
                     {
                         "type": "error",
                         "data": {
-                            "code": "auth_failed",
+                            "code": ErrorCodes.AUTH_FAILED,
                             "message": "authentication failed",
                         },
                     }
@@ -465,9 +465,12 @@ def _drain_early_dispatch_buffer(server: IPCServer) -> None:
 
 
 def run(server: IPCServer) -> int:
-    """Bind a localhost WS server on an ephemeral port and run forever.
+    """Bind a localhost WS server on an ephemeral port and serve forever.
 
-    Returns the bound port (also emitted to stdout via
+    Returns a process exit code: ``0`` on a clean stop (including the
+    designed graceful shutdown), ``1`` on a fatal error, ``2`` when the
+    ``websockets`` dependency is unavailable, ``3`` when no socket was
+    bound. The bound port is emitted on stdout by ``_emit_server_started``.
     """
     _force_line_buffered_stdout()
 
@@ -542,5 +545,14 @@ def run(server: IPCServer) -> int:
 
 
 def _is_graceful_loop_stop(server: IPCServer, exc: Exception) -> bool:
-    """True when ``exc`` is the designed loop.stop() from"""
-    return bool(getattr(server, "_ws_graceful_stop_requested", False)) and ("Event loop stopped" in str(exc))
+    """True when ``exc`` is the RuntimeError ``asyncio.run`` raises after
+    our own graceful ``loop.stop()``.
+
+    Classified by type + missing cause chain instead of matching CPython's
+    error text, which can be reworded between Python versions.
+    """
+    if not getattr(server, "_ws_graceful_stop_requested", False):
+        return False
+    if not isinstance(exc, RuntimeError):
+        return False
+    return exc.__cause__ is None and exc.__context__ is None

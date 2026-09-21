@@ -1,8 +1,7 @@
 """Base class for hotkey backends.
 
 Provides the abstract :class:`HotkeyBackend` interface that every backend
-implements.  Split out from the original ``hotkeys.py`` god-file in
-Phase 4.5 (): see ``hotkeys/__init__.py`` for the package-level
+implements.  Split out from the original ``hotkeys.py`` module; see ``hotkeys/__init__.py`` for the package-level
 re-export surface that preserves the legacy ``voice_typer.server.hotkeys``
 import path.
 """

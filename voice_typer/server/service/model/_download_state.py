@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 class DownloadStateMixin:
     def __init__(self) -> None:
-        """PERF-10 / SVC-9: short-TTL cache (5s) for get_model_status."""
+        """Short-TTL cache (5s) for get_model_status."""
         self._download_cancel_events: dict[str, threading.Event] = {}
         self._download_cancel_lock = threading.Lock()
         self._active_download_id: str | None = None

@@ -1,6 +1,6 @@
 """Audio callback dispatch and worker loop for :class:`Recorder` (extracted from ``recorder.py``).
 
-Phase 4.5, extracted from :mod:`.recorder` to shrink the
+Extracted from :mod:`.recorder` to shrink the
 3772-LOC ``recorder.py`` god class (see  in ``review.md``).
 Owns the audio callback dispatch body, the audio worker thread main
 loop body, and the four worker-lifecycle method bodies
@@ -95,7 +95,7 @@ if TYPE_CHECKING:
 class AudioCallbackDispatcher:
     """Audio callback dispatch + worker loop body for :class:`Recorder`.
 
-    Phase 4.5, extracted from :mod:`.recorder`. See the module
+    Extracted from :mod:`.recorder`. See the module
         docstring for the collaborator-pattern rationale and the
         source-inspection contract that constrains the shape of
         :meth:`dispatch_callback_body`.
@@ -292,7 +292,7 @@ class AudioCallbackDispatcher:
         """Body of :meth:`Recorder._start_audio_worker` (inside the
                 ``_worker_lifecycle_lock`` block).
 
-        Phase 4.5, extracted from :mod:`.recorder`. The lock
+        Extracted from :mod:`.recorder`. The lock
                 acquisition lives on the kept hybrid
                 ``Recorder._start_audio_worker`` wrapper (pinned by
                 ``tests/test_recorder_worker_lifecycle.py::test_start_audio_worker_holds_lock``);
@@ -366,7 +366,7 @@ class AudioCallbackDispatcher:
         """Body of :meth:`Recorder._stop_audio_worker` (inside the
                 ``_worker_lifecycle_lock`` block).
 
-        Phase 4.5, extracted from :mod:`.recorder`. The lock
+        Extracted from :mod:`.recorder`. The lock
                 acquisition lives on the kept hybrid
                 ``Recorder._stop_audio_worker`` wrapper (pinned by
                 ``tests/test_recorder_worker_lifecycle.py::test_stop_audio_worker_holds_lock``

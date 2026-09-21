@@ -1,5 +1,4 @@
-"""Recording lifecycle, extracted from ``RecordingController``
-(Phase 4.5 split).
+"""Recording lifecycle, extracted from ``RecordingController``.
 
 Owns the toggle / start / stop / cancel state machine and the
 stop+transcribe worker entry point. The actual recording flag, busy
@@ -741,7 +740,7 @@ class RecordingLifecycle:
                 APP_NAME,
                 i18n.t("notify.recording_controller.stop_failed"),
             )
-            app._busyness.set_idle()  # busy = False (BP-90 coordinator)
+            app._busyness.set_idle()  # busy = False (coordinator)
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
             return
 
@@ -821,7 +820,7 @@ class RecordingLifecycle:
             log.info("[DICTATION] Audio too short, skipping transcription")
             controller._cancel_streaming_session()
             app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.too_short"))
-            app._busyness.set_idle()  # busy = False (BP-90 coordinator)
+            app._busyness.set_idle()  # busy = False (coordinator)
             app._schedule_timer(2.0, lambda: app.tray.set_state(AppState.IDLE))
             return
 
@@ -977,4 +976,4 @@ class RecordingLifecycle:
 
         # Tray state + busy flag MUST be cleared so the user can press
         app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.cancelled"))
-        app._busyness.set_idle()  # BP-90: coordinator-routed
+        app._busyness.set_idle()  # coordinator-routed

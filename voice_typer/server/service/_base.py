@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 class ServiceMixinBase:
     """``Any``) so pyrefly's null-safety check sees a declared attribute
     assignment (pyrefly: "Cannot set field [read-only]").
-      ``ModelMixin.get_model_status`` (PERF-10 / SVC-9).
-      "_onboarding", None)`` defensive reads in ``onboarding.py``
+    ``ModelMixin.get_model_status`` (see the model status cache),
+      ``_onboarding``, None)`` defensive reads in ``onboarding.py``
     """
 
     # Provided at runtime by VoiceTyperService.__init__ via

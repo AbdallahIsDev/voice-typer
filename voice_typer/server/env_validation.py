@@ -15,7 +15,7 @@ _TOKEN_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
 _PATH_VALUE_PATTERN = re.compile(r"^[^\0]+$")  # no null bytes
 
 
-#  (P4-A1): env-var names that are ALWAYS stripped from
+# Env-var names that are ALWAYS stripped from the child environment.
 _SENSITIVE_ENV_NAMES = frozenset(
     {
         "OPENAI_API_KEY",
@@ -133,7 +133,7 @@ def _validate_env_vars() -> None:
         else:
             _validate_hf_endpoint(hf_endpoint)
 
-    #  (P4-A1): strip well-known cloud-provider API keys / model
+    # Strip well-known cloud-provider API keys / model tokens from the
     for _sensitive_name in _SENSITIVE_ENV_NAMES:
         if os.environ.pop(_sensitive_name, None) is not None:
             log.warning(

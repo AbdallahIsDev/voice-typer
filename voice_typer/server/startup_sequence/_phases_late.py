@@ -42,7 +42,7 @@ class LatePhases:
     _t0: float
 
     def _phase_5_platform_warnings(self) -> StageResult:
-        """Phase 5, emit Wayland + macOS accessibility platform warnings."""
+        """Emit Wayland + macOS accessibility platform warnings."""
         app = self._app
         # PLAT-WAYLAND: Warn if running on Wayland and
         if is_linux() and is_wayland_session():
@@ -140,7 +140,7 @@ class LatePhases:
                         f"and add {APP_NAME} (or Terminal).",
                     )
             except Exception:
-                # M-67: promote debug→warning so the failure surfaces in
+                # Promote debug→warning so the failure surfaces in
                 log.warning("[STARTUP] macOS accessibility check failed", exc_info=True)
 
             # Start a periodic accessibility health monitor.
@@ -191,7 +191,7 @@ class LatePhases:
             log.debug("[STARTUP] Interrupted after autostart sync")
             return StageResult(success=False, data={"shutdown": True})
 
-        # 1b. (BP-129) The OS-level prewarm scheduled-task sync is gone:
+        # 1b. The OS-level prewarm scheduled-task sync is gone:
 
         # exit) and the RACE-020 shutdown event so executor tasks can
         from voice_typer.server._timeout_utils import (
@@ -202,7 +202,7 @@ class LatePhases:
         # RACE-020: pass the shutdown event to executor tasks so they
         _shutdown_event = app._shutting_down_event if hasattr(app, "_shutting_down_event") else None
 
-        # Phase 2d (§8.10, §8.16): launch-time offline-pack existence
+        # Runtime-pack split (§8.10, §8.16): launch-time offline-pack existence
         def _pack_check_task() -> None:
             # The concrete VoiceTyperApp exposes several AppProtocol
             from voice_typer.server.providers import AppProtocol as _AppProtocol
@@ -215,13 +215,11 @@ class LatePhases:
             daemon=True,
         )
         pack_thread.start()
-        log.debug(
-            "[STARTUP] Phase 2d pack existence check dispatched to fire-and-forget daemon thread (no wait, no timeout)"
-        )
+        log.debug("[STARTUP] Pack existence check dispatched to fire-and-forget daemon thread (no wait, no timeout)")
 
         # enumeration (below) runs in a bounded parallel pool under a 5s
         log.debug("[STARTUP] Registering hotkey")
-        # Phase 2: invoke HotkeyDispatcher directly. The
+        # Step 2: invoke HotkeyDispatcher directly. The
         app.hotkeys.register()
 
         # RACE-020: check for shutdown after hotkey registration

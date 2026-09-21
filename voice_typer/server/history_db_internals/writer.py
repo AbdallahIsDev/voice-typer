@@ -82,7 +82,7 @@ def _writer_loop(db: HistoryDB) -> None:
         # structured batchable INSERT payload, drain pending
         if isinstance(item, _BatchableInsert):
             db._drain_batchable_inserts(conn, item)
-            # WAL-CHECKPOINT-FIX: post-write cleanup (same as the
+            # Post-write cleanup (same as the end of _execute_write_item):
             with contextlib.suppress(sqlite3.Error):
                 conn.rollback()
             continue
@@ -105,7 +105,7 @@ def _run_checkpoint(db: HistoryDB, conn: sqlite3.Connection) -> None:
 
     wal_checkpoint_interval = _hd._WAL_CHECKPOINT_INTERVAL  # noqa: N806
 
-    # WAL-CHECKPOINT-FIX: clear any lingering transaction from
+    # Clear any lingering transaction from the previous checkpoint cycle
     try:
         conn.rollback()
         result = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
@@ -215,7 +215,7 @@ def _execute_write_item(
         if future is not None:
             future.set_result(result)
     except BaseException as e:  # noqa: BLE001, propagate to future
-        # DB-LOCK-FIX: rollback any uncommitted transaction left
+        # Rollback any uncommitted transaction left behind by the failure,
         with contextlib.suppress(sqlite3.Error):
             conn.rollback()
         if future is not None:
@@ -226,7 +226,7 @@ def _execute_write_item(
             # Fire-and-forget write failed, log so it's visible.
             log.exception("[HISTORY_DB] Fire-and-forget write failed: %s", e)
     else:
-        # WAL-CHECKPOINT-FIX: After a SUCCESSFUL write, ensure
+        # After a SUCCESSFUL write, roll back to end the implicit
         with contextlib.suppress(sqlite3.Error):
             conn.rollback()
 
@@ -334,10 +334,17 @@ def _drain_batchable_inserts(
                 last_row_id = cursor.lastrowid
                 _encrypt_batch_rows(cursor, batch, last_row_id)
                 conn.commit()
-                for it in batch:
-                    if it.future is not None:
-                        with contextlib.suppress(concurrent.futures.InvalidStateError):
-                            it.future.set_result(last_row_id if last_row_id is not None else -1)
+                # Each future must resolve with ITS OWN row id. The rows were
+                # inserted contiguously, so the batch's ids are
+                # ``last_row_id - n + 1 ..= last_row_id`` (same arithmetic the
+                # encrypt-batch helper uses).
+                batch_size = len(batch)
+                for offset, it in enumerate(batch):
+                    if it.future is None:
+                        continue
+                    row_id = last_row_id - batch_size + 1 + offset if last_row_id is not None else -1
+                    with contextlib.suppress(concurrent.futures.InvalidStateError):
+                        it.future.set_result(row_id)
                 log.debug(
                     "[HISTORY_DB] batched %d transcription INSERTs into one transaction",
                     len(batch),
@@ -536,8 +543,8 @@ def _submit_write(
 
 
 def flush(db: HistoryDB) -> None:
-    """IMPL-A: enqueues a no-op write with ``wait=True`` and blocks
-    on its future. Because the queue is FIFO, all writes submitted
+    """Enqueues a no-op write with ``wait=True`` and blocks on its
+    future. Because the queue is FIFO, all writes submitted
     """
     from voice_typer.server import history_db as _hd
 

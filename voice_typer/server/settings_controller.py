@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 
 class SettingsController:
-    """Phase 6: extracted from ``VoiceTyperApp``. The app passes itself"""
+    """Extracted from ``VoiceTyperApp``. The app passes itself"""
 
     def __init__(self, app: Any) -> None:
         self._app = app

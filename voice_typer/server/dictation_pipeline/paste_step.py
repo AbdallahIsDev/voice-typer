@@ -84,7 +84,7 @@ class _PasteStepMixin:
                         "[PIPELINE] could not publish paste_failed event",
                         exc_info=True,
                     )
-                # BP-90: routed through the BusynessCoordinator.
+                # Routed through the BusynessCoordinator.
                 self._app._busyness.set_idle()
                 self._app._schedule_timer(
                     3.0,

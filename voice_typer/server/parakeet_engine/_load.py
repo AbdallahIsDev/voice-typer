@@ -222,11 +222,11 @@ class LoadMixin:
                 )
 
                 _elapsed = time.perf_counter() - _load_start
-                _warm_label = "warm (page-cache)" if _elapsed < 5.0 else "cold (disk)"
                 _read_speed_mbs = _PARAKERT_WEIGHTS_MB / max(_elapsed, 0.1)
+                # C-LOG-2: measured duration + throughput are the whole
+                # warm/cold signal; a wall-time threshold would mislabel.
                 log.info(
-                    "[PARAKEET] ONNX model loaded (%s, %.0f MB/s)%s",
-                    _warm_label,
+                    "[PARAKEET] ONNX model loaded (%.0f MB/s)%s",
                     _read_speed_mbs,
                     format_duration(_elapsed),
                 )

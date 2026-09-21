@@ -261,7 +261,7 @@ class SystemHandlersMixin(HandlerBase):
                     },
                 }
 
-            # TCC-002: both forms come from the single construction point
+            # Both forms come from the single construction point
             command = tccutil_reset_command_str("Accessibility", bundle_id)
             try:
                 result = subprocess.run(
@@ -519,6 +519,8 @@ class SystemHandlersMixin(HandlerBase):
             if error:
                 # handler-specific ``"show_notification
                 return error
+            # ``_validate_dict_payload`` returns None values only with an error.
+            assert validated is not None
             title = validated["title"]
             message = validated["message"]
             duration_ms = int(cast(int | str, validated["duration_ms"]))

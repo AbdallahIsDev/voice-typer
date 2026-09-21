@@ -98,11 +98,12 @@ def _is_safe_paste_target_impl() -> bool:
                     _cb.log.info("[CLIPBOARD] Paste blocked. Linux password field is focused")
                     return False
         except Exception:
-            # Outer fail-open: if the dispatch itself raises,
+            # Password-state detection raised — fail closed.
             _cb.log.warning(
-                "[CLIPBOARD] non-Windows password-field check raised, failing open",
+                "[CLIPBOARD] non-Windows password-field check raised, failing closed",
                 exc_info=True,
             )
+            return False
         return True
     try:
         import ctypes
@@ -153,8 +154,14 @@ def _is_safe_paste_target_impl() -> bool:
             # comtypes unavailable, _is_password_field will fall
             pass
         except Exception:
-            # COM init failed, log and proceed. _is_password_field
-            _cb.log.debug("[CLIPBOARD] CoInitialize failed in _is_safe_paste_target", exc_info=True)
+            # COM init or the focused-element query failed. _is_password_field
+            # re-resolves the element itself and now fails CLOSED on an unknown
+            # state, so proceeding with focused=None here is safe.
+            _cb.log.debug(
+                "[CLIPBOARD] focused-element fetch failed in _is_safe_paste_target "
+                "(the password check re-resolves and fails closed)",
+                exc_info=True,
+            )
 
         try:
             # check if the focused element is a password field.

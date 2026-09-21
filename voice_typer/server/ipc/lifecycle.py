@@ -94,9 +94,9 @@ class LifecycleMixin:
             else:
                 # refuse to start the unauthenticated stdin
                 log.warning(
-                    "[IPC] stdin listener gated off. Set %s=1 (or pass "
-                    "--allow-stdin) to enable unauthenticated stdin/stdout "
-                    "IPC mode. Refusing to start the listener.",
+                    "[IPC] stdin listener gated off. Set %s=1 to enable "
+                    "unauthenticated stdin/stdout IPC mode. Refusing to start "
+                    "the listener.",
                     _STDIN_IPC_ENV_VAR,
                 )
                 self._stdin_thread = None
@@ -379,7 +379,7 @@ class LifecycleMixin:
         ``transcribe_offline_result`` back.
 
         The slim-core → worker forwarding hop (sidecar WS client +
-        the Rust host's worker spawn) is the remaining Phase 2a/2b
+        the Rust host's worker spawn) is the remaining runtime-pack split
         wiring: until it lands, this handler acks the request and the
         actual transcription cannot complete end-to-end. The ack
         keeps the renderer's ``call()`` from timing out while the
@@ -387,7 +387,7 @@ class LifecycleMixin:
 
         Pinned by tests/test_event_types_parity.py.
 
-        Phase 2d degradation matrix (§8.10): when the offline pack is
+        Runtime-pack degradation matrix (§8.10): when the offline pack is
         NOT installed, the request cannot ever complete, respond with
         ``queued: False`` + ``degraded: True`` + ``reason:
         "offline_pack_missing"`` so the renderer surfaces the
@@ -421,15 +421,12 @@ class LifecycleMixin:
 
         Delegates to ``update_check.handle_check_offline_pack_update_ipc`` which
         fetches the remote ``pack-manifest.json`` from GitHub Releases
-        (C-DATA-1 category-2 allowed: silent update check against the
-        GitHub API) and, if a newer pack is available, triggers a
-        background download, gated on ``config.offline_pack_consent``
-        (C-DATA-1 category-3 model-download consent; the download
-        refuses to start without the user's opt-in flag).
+        (C-DATA-1 category-2 allowed) and, if a newer pack is available,
+        triggers a background download. Pack updates are always-on
+        (user product decision; no consent gate, not disableable).
 
         Registered in ``_COMMAND_REGISTRY`` (``check_offline_pack_update``) +
-        the TS ``ALLOWED_COMMANDS`` Set + the Rust
-        ``allowed_commands()`` literal in lockstep.
+        the Rust ``allowed_commands()`` literal in lockstep.
         """
         try:
             from voice_typer.server.service.update_check import handle_check_offline_pack_update_ipc

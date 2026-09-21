@@ -43,7 +43,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Final
 
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_SAMPLE_RATE
+from voice_typer.server._audio_constants import (
+    WHISPER_SAMPLE_RATE as _WHISPER_SAMPLE_RATE,
+    peak_amplitude,
+    silence_percent,
+)
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.hallucination import (
     log_hallucination_rejection,
@@ -135,8 +139,8 @@ def transcribe_unlocked(
         rms, peak, silence_pct = audio_stats
     else:
         rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
-        peak = float(np.max(np.abs(audio)))
-        silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
+        peak = peak_amplitude(audio)
+        silence_pct = silence_percent(audio)
     # Duration-aware VAD policy: trim once here when the recording is
     audio, use_vad_filter, _trim_offset_s = decide_vad_filter(
         audio,

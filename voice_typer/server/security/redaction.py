@@ -166,10 +166,10 @@ _SECRET_KEYWORDS = (
 )
 _KEYWORD_ALT = "|".join(re.escape(k) for k in _SECRET_KEYWORDS)
 
-# SEC-9 fix (PIR-SEC-1): the ``--`` prefix and the ``(?:=|\s+)``
+# SEC-9 fix: the ``--`` prefix and the ``(?:=|\s+)``
 _FLAG_VALUE_PATTERN = re.compile(rf"(?i)(--(?:{_KEYWORD_ALT})(?:=|\s+))([^\s=]+)")
 
-# SEC-9 fix (PIR-SEC-1): the ``=`` must be INSIDE capture group 1 so
+# SEC-9 fix: the ``=`` must be INSIDE capture group 1 so
 _BARE_KEY_VALUE_PATTERN = re.compile(rf"(?i)\b((?:{_KEYWORD_ALT})=)([^\s=]+)")
 
 # Ordered list: pattern A (flag form) runs before pattern B (bare
@@ -587,12 +587,12 @@ def _redact_home_path_in_text(text: str) -> str:
     return text
 
 
-# HU-15: C0 control characters (plus DEL) that must be escaped before
+# C0 control characters (plus DEL) that must be escaped before
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _escape_control_chars(text: str) -> str:
-    """Replace C0 control characters with visible escapes (HU-15).
+    """Replace C0 control characters with visible escapes.
 
     ``\n`` → the literal two-char sequence ``\\n``, ``\r`` → ``\\r``,
     ``\t`` → ``\\t``, and any other C0 control char / DEL → a
@@ -619,7 +619,7 @@ def _redact_text(text: str, *, escape_control_chars: bool = True) -> str:
     """Apply PII + API-secret + URL-credential + home-path redaction to *text*.
 
     When ``escape_control_chars`` is True (default) C0 control chars are
-    escaped so a payload cannot forge extra log lines (HU-15). The
+    escaped so a payload cannot forge extra log lines. The
     ``PIIRedactionFilter`` traceback path passes False to preserve
     multi-line traceback readability, its structural newlines are not
     user-controlled, so there is no forgery risk there.
@@ -657,7 +657,7 @@ def _redact_text(text: str, *, escape_control_chars: bool = True) -> str:
     # fast path, no trigger means no pattern can match, so
     if not _FAST_TRIGGER.search(text):
         return text
-    # HU-15: escape C0 control chars BEFORE the PII patterns so a
+    # Escape C0 control chars BEFORE the PII patterns so a
     if escape_control_chars:
         text = _escape_control_chars(text)
     for pattern, replacement in PIIRedactionFilter._PATTERNS:

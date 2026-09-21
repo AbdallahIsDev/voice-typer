@@ -123,6 +123,9 @@ class Equalizer(AudioFilter):
         mid = d3 - (low_s + high)
 
         # removed the `* 0.5` factor -- at unity gain (low_db=mid_db=high_db=0),
+        # ``_ensure_buffers`` guarantees the lazily-allocated buffers exist.
+        assert self._output_buf is not None
+        assert self._tmp_buf is not None
         output_f64 = self._output_buf[:n]
         tmp = self._tmp_buf[:n]
         np.multiply(low_s, low_gain, out=output_f64)

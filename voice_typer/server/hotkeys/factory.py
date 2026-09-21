@@ -1,5 +1,5 @@
 """Factory function :func:`create_hotkey_backend`, picks the best
-Split out from the original ``hotkeys.py`` god-file in Phase 4.5
+Split out from the original ``hotkeys.py`` module
 """
 
 import sys

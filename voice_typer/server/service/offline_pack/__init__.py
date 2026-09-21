@@ -1,4 +1,4 @@
-"""Runtime pack downloader service. Phase 2b (plan-runtime-pack-split.md §4.5–4.9, §8)."""
+"""Runtime pack downloader service (plan-runtime-pack-split.md §4.5–4.9, §8)."""
 
 from __future__ import annotations
 

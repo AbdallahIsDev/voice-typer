@@ -1,6 +1,6 @@
 """``RecorderInitMixin``: owns ``Recorder``'s construction helpers.
 
-Phase 4.5 further-split: ``Recorder.__init__`` was 370 LOC
+``Recorder.__init__`` was 370 LOC
 declaring 60+ instance attributes. The device / disconnect-handler /
 collaborator-construction block (~88 LOC) is extracted here as
 :meth:`RecorderInitMixin._setup_device_state_and_collaborators`.
@@ -178,9 +178,9 @@ class RecorderInitMixin:
         # ``DisconnectHandler`` owns the ~175-LOC stream-restart
         self._disconnect_handler: _DisconnectHandler = _DisconnectHandler(self)
         self._audio_pipeline: _AudioPipeline = _AudioPipeline(self)
-        # Phase 4.5 completion: ``DevicePrewarm`` owns the device-cache
+        # ``DevicePrewarm`` owns the device-cache
         self._device_prewarm: _DevicePrewarm = _DevicePrewarm(self)
-        # Phase 4.5: three new collaborators constructed here
+        # Collaborators constructed here
         self._capture: _AudioCallbackDispatcher = _AudioCallbackDispatcher(self)
         self._stream_lifecycle: _StreamLifecycle = _StreamLifecycle(self)
         self._session_state: _SessionState = _SessionState(self)
@@ -349,7 +349,7 @@ class RecorderInitMixin:
     def _register_scipy_preloader(self) -> None:
         """Start (once) + register the scipy-preloader thread with the
         thread registry so ``shutdown_all()`` can join it on exit."""
-        # THREAD-REGISTRY: B-3/S-3, the scipy-preloader thread is now
+        # THREAD-REGISTRY: the scipy-preloader thread is now
         from voice_typer.server.recording import resampling as _recording_resampling
 
         _recording_resampling._start_scipy_preloader()

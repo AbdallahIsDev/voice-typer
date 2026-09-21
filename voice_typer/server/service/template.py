@@ -10,7 +10,7 @@ from voice_typer.server.service._app_internals import (
 from voice_typer.server.service._base import ServiceMixinBase
 
 if TYPE_CHECKING:
-    # T1-F9: imported only under ``TYPE_CHECKING`` so the annotation
+    # Imported only under ``TYPE_CHECKING`` so the annotation
     from voice_typer.server.templates import TemplateManager
 
 log = logging.getLogger(__name__)

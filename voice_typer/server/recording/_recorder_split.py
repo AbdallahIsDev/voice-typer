@@ -2,7 +2,7 @@
 
 This module is the first step of the  / god-class decomposition. The
 ``Recorder`` class in :mod:`.recorder` mixed 7+ disjoint concerns in a single
-~3000-line class. Phase 4.5 /  had already extracted
+~3000-line class. The earlier split had already extracted
 :mod:`.device_manager`, :mod:`.resampling`, :mod:`.exceptions`, and
 :mod:`.buffer`; this module continues the split by moving the two largest
 tail-of-file methods (``snapshot`` and ``discard``) out of ``recorder.py``
@@ -50,7 +50,12 @@ import time
 from typing import TYPE_CHECKING, Any
 
 # ``_AUDIO_BLOCKSIZE`` is used in ``start_recording`` to scale
-from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE, scaled_audio_blocksize
+from voice_typer.server._audio_constants import (
+    _AUDIO_BLOCKSIZE,
+    peak_amplitude,
+    scaled_audio_blocksize,
+    silence_percent,
+)
 from voice_typer.server._lazy_import import lazy_module
 
 # The recording buffer used to be ``collections.deque(maxlen=N)`` of
@@ -696,7 +701,7 @@ def discard_recording(recorder: Recorder) -> None:
     # stop the IPC event worker with drain=False, the recording was
     with recorder._worker_lifecycle_lock:
         recorder._capture.stop_event_worker_body(recorder, timeout=_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
-    # CPU-03: stop the device health checker thread (mirrors the event worker).
+    # Stop the device health checker thread (mirrors the event worker).
     recorder._stop_device_health_checker(timeout=0.0)
     with recorder._audio_pipeline._lock:
         # SEC-audit-008: defer buffer zeroing to background daemon
@@ -712,7 +717,7 @@ def discard_recording(recorder: Recorder) -> None:
 def start_recording(recorder: Recorder) -> None:
     """Body of :meth:`Recorder.start` (after the ``_start_lock`` permission-gate block).
 
-    Phase 4.5, extracted from :mod:`.recorder` to shrink the
+    Extracted from :mod:`.recorder` to shrink the
         3772-LOC ``recorder.py`` god class. The ``with self._start_lock:``
         block (containing the recording-event check + microphone-permission
         pre-flight) stays on ``Recorder.start`` so the source-inspection
@@ -900,7 +905,7 @@ def start_recording(recorder: Recorder) -> None:
                 recorder._stop_audio_worker(timeout=0.5, drain=False)
         raise
 
-    # CPU-03: start the device health checker thread (off the audio
+    # Start the device health checker thread (off the audio
     recorder._devices._start_device_health_checker()
 
     # Wire the idle-recording gate. ``Recorder.start`` is the
@@ -913,7 +918,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     """Stop recording and return the complete audio array.
 
         Body of :meth:`Recorder.stop`: extracted verbatim (with ``self.X``
-    rewritten to ``recorder.X``) by  / Phase 4.5 to shrink the
+    rewritten to ``recorder.X``) by the split to shrink the
         ~2748-LOC ``recorder.py`` god class. ``Recorder.stop`` becomes a
         1-line delegator so existing call sites, subclass overrides, and
         ``inspect.getsource`` checks that look for the method on the
@@ -1079,14 +1084,13 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         if audio.size:
             flat = audio.reshape(-1)
             rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-            # PERF: allocation-free peak, ``max(|x|) == max(max(x),
-            peak = max(float(flat.max()), -float(flat.min()))
+            # PERF: allocation-free peak + silence stats (shared helpers).
+            peak = peak_amplitude(flat)
+            silence_pct = silence_percent(flat)
         else:
             peak = 0.0
             rms = 0.0
-        # PERF: compute ``np.abs(flat)`` ONCE and reuse it for
-        abs_flat = np.abs(flat) if audio.size else None
-        silence_pct = float(np.sum(abs_flat < 0.001) / audio.size * 100) if abs_flat is not None else 0.0
+            silence_pct = 0.0
         recorder._last_rms = rms
         # store the full-recording stats so the
         recorder._last_audio_stats = (rms, peak, silence_pct)

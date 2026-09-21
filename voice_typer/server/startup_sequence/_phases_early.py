@@ -86,7 +86,7 @@ class EarlyPhases:
     _app: VoiceTyperApp
 
     def _phase_1_init_and_vad_preload(self) -> StageResult:
-        """Phase 1, anchor the startup duration + preload Silero VAD."""
+        """Anchor the startup duration + preload Silero VAD."""
         app = self._app
         log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model...")
 
@@ -134,7 +134,7 @@ class EarlyPhases:
         return StageResult(success=True)
 
     def _phase_2_crash_diagnostics(self) -> StageResult:
-        """Phase 2, detect leftover crash reports from a prior session."""
+        """Detect leftover crash reports from a prior session."""
         app = self._app
         # The VEH handler (crash_handler.py) writes crash_diagnostics.<PID>.txt
         try:
@@ -286,7 +286,7 @@ class EarlyPhases:
         return StageResult(success=True)
 
     def _phase_4_corrections_and_recovery(self) -> StageResult:
-        """Phase 4, load corrections + crash recovery + history retention."""
+        """Load corrections + crash recovery + history retention."""
         app = self._app
         # Load external text corrections (if available) before any transcription
         try:
@@ -333,7 +333,7 @@ class EarlyPhases:
                     except Exception:
                         log.debug("[STARTUP] Could not publish recovery event to frontend")
             except Exception:
-                # M-67: promote debug→warning so the failure surfaces in
+                # Promote debug→warning so the failure surfaces in
                 log.warning("[STARTUP] Crash recovery check failed", exc_info=True)
 
         # apply history retention policy at startup.
@@ -357,7 +357,7 @@ class EarlyPhases:
                     retention_count=app.config.history_retention_count,
                 )
             except Exception:
-                # M-67: promote debug→warning so the failure surfaces in
+                # Promote debug→warning so the failure surfaces in
                 log.warning("[STARTUP] History retention apply failed", exc_info=True)
             finally:
                 # finished thread (defensive, the thread exits on its

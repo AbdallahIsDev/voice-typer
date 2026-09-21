@@ -38,6 +38,8 @@ class LevelMonitorHandlersMixin(HandlerBase):
             )
             if error:
                 return error
+            # ``_validate_dict_payload`` returns None values only with an error.
+            assert validated is not None
             mic_id = validated.get("mic_id")
             result = self.service.level_monitor_start(mic_id=mic_id)
             return {"type": "level_monitor_status", "data": result}

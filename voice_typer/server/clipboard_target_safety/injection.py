@@ -53,16 +53,27 @@ def _get_uia_singleton():
             _pkg._UIA_SINGLETON_INIT_ATTEMPTED = True
 
 
+class UiaUnavailableError(RuntimeError):
+    """Raised when UI Automation cannot answer at all.
+
+    Distinguishes "the accessibility API could not tell us" from "no element
+    is focused" (which is a plain ``None`` return). Callers that use the
+    answer as a SECURITY decision must treat this as \"unknown\" and fail
+    closed; a swallowed failure here used to look exactly like "not a
+    password field".
+    """
+
+
 def _get_uia_focused_element():
-    """Return the focused UI element via the cached IUIAutomation singleton."""
+    """Return the focused UI element, or ``None`` when none is focused.
+
+    Raises :class:`UiaUnavailableError` when UIA itself is unavailable or the
+    query failed (see the class docstring for the security contract).
+    """
     uia = _pkg._get_uia_singleton()
     if uia is None:
-        return None
+        raise UiaUnavailableError("IUIAutomation singleton unavailable")
     try:
         return uia.GetFocusedElement()
     except Exception as exc:
-        _pkg._log().debug(
-            "[CLIPBOARD] GetFocusedElement failed: %s, failing open",
-            exc,
-        )
-        return None
+        raise UiaUnavailableError(f"GetFocusedElement failed: {exc}") from exc

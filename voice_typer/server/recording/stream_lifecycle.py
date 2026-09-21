@@ -1,6 +1,6 @@
 """PortAudio stream open/teardown for :class:`Recorder` (extracted from ``recorder.py``).
 
-Phase 4.5, extracted from :mod:`.recorder` to shrink the
+Extracted from :mod:`.recorder` to shrink the
 3772-LOC ``recorder.py`` god class (see  in ``review.md``).
 Owns the stream-open candidate-iteration loop, the all-devices
 fallback loop, the PortAudio callback closure construction, and the
@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 class StreamLifecycle:
     """PortAudio stream open/teardown for :class:`Recorder`.
 
-    Phase 4.5, extracted from :mod:`.recorder`. See the module
+    Extracted from :mod:`.recorder`. See the module
         docstring for the collaborator-pattern rationale.
     """
 
@@ -141,7 +141,7 @@ class StreamLifecycle:
                     dtype=np.float32,
                     device=candidate,
                     callback=callback,
-                    # VAD-001 (rate-scaled): request ~32 ms blocks so each
+                    # Rate-scaled: request ~32 ms blocks so each
                     blocksize=scaled_audio_blocksize(candidate_sr),
                     # Request the host API's "low" latency hint.
                     latency="low",
@@ -260,7 +260,7 @@ class StreamLifecycle:
                     dtype=np.float32,
                     device=candidate,
                     callback=callback,
-                    # VAD-001 (rate-scaled): ~32 ms blocks, same rationale
+                    # Rate-scaled: ~32 ms blocks, same rationale
                     blocksize=scaled_audio_blocksize(candidate_sr),
                     # Request the host API's "low" latency hint
                     latency="low",

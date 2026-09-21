@@ -85,7 +85,7 @@ def arm_shutdown_watchdog(
         if cancel_event.is_set():
             return
         log.warning(
-            "[SHUTDOWN] GT-43 watchdog: process still alive %.1fs after "
+            "[SHUTDOWN] watchdog: process still alive %.1fs after "
             "_do_cleanup completed, calling os._exit(0) to unblock the "
             "main thread (parked in tray.run())",
             timeout_s,

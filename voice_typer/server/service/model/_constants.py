@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-# PERF-10 / SVC-9: TTL (seconds) for the get_model_status cache.  The IPC
+# TTL (seconds) for the get_model_status cache.  The IPC
 _MODEL_STATUS_CACHE_TTL_S = 5.0
 
 # user-facing messages for each ``download_parakeet_weights``

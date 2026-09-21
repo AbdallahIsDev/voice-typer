@@ -184,6 +184,7 @@ class NoiseGate(AudioFilter):
         assert self._level_arr_buf is not None
         assert self._attenuation_buf is not None
         assert self._output_f64_buf is not None
+        assert self._output_f32_buf is not None
         # Pre-compute abs outside the state-machine loop (vectorized).
         abs_x = np.abs(samples)
         abs_buf = self._abs_buf[:n]
@@ -267,6 +268,14 @@ class NoiseGate(AudioFilter):
 
     def _scan_gate_state(self, level_arr: np.ndarray, n: int) -> tuple[np.ndarray, np.ndarray]:
         """Resolve the per-sample open/closed gate state (vectorized scan)."""
+        # ``_ensure_buffers`` guarantees the lazily-allocated buffers exist.
+        assert self._open_ev_buf is not None
+        assert self._close_ev_buf is not None
+        assert self._i_arr_buf is not None
+        assert self._last_open_buf is not None
+        assert self._last_close_buf is not None
+        assert self._state_open_buf is not None
+        assert self._has_open_buf is not None
         open_ev = self._open_ev_buf[:n]
         close_ev = self._close_ev_buf[:n]
         np.greater(level_arr, self._open_threshold, out=open_ev)

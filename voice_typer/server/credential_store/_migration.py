@@ -175,7 +175,7 @@ def migrate_secrets_to_keyring() -> int:
                 _secure_read_text,
             )
 
-            # BP-131: record the DEFERRAL, never success. Setting
+            # Record the DEFERRAL, never success. Setting
             if config_file.exists():
                 existing = json.loads(_secure_read_text(config_file))
                 if isinstance(existing, dict) and not existing.get("secrets_migrated", False):

@@ -1,4 +1,9 @@
-"""Cloud URL allowlist + SSRF defense (extracted from the former ``_secrets.py``)."""
+"""Cloud URL allowlist + SSRF defense.
+
+Check-time validation (allowlist + HTTPS + DNS) is necessary but not
+sufficient: callers must pin the validated IPs and verify the connected
+peer against them, with redirects refused. See OWASP SSRF prevention.
+"""
 
 from __future__ import annotations
 
@@ -171,6 +176,56 @@ def is_url_allowed(url: str) -> bool:
     if not host:
         return False
     return host in get_url_allowlist()
+
+
+def _resolve_public_ips(host: str) -> tuple[str, ...]:
+    """Resolve *host* once; return public IPs, raising on private results."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (socket.gaierror, OSError) as exc:
+        raise ValueError(f"host {host!r} did not resolve: {exc}") from exc
+    ips: list[str] = []
+    for _family, _type, _proto, _canonname, sockaddr in infos:
+        ip = sockaddr[0]
+        if _is_private_ip(ip):
+            raise ValueError(f"host {host!r} resolves to private/reserved IP {ip!r}, refusing")
+        if ip not in ips:
+            ips.append(ip)
+    if not ips:
+        raise ValueError(f"host {host!r} resolved to no addresses, refusing")
+    return tuple(ips)
+
+
+def resolve_allowed_url_ips(
+    url: str,
+    *,
+    field_name: str = "url",
+    client_name: str = "client",
+    require_https: bool = True,
+    allow_loopback_http: bool = False,
+    check_dns_rebinding: bool = True,
+) -> tuple[str, ...]:
+    """Validate *url* and return the pinned public IPs for its host."""
+    assert_url_allowed(
+        url,
+        field_name=field_name,
+        client_name=client_name,
+        require_https=require_https,
+        allow_loopback_http=allow_loopback_http,
+        check_dns_rebinding=check_dns_rebinding,
+    )
+    from urllib.parse import urlparse as _urlparse
+
+    host = (_urlparse(url).hostname or "").lower()
+    if _is_ip_literal(host) or host in _LOOPBACK_HOSTS:
+        return (host,)
+    return _resolve_public_ips(host)
+
+
+def verify_peer_ip_allowed(peer_ip: str, expected_ips: tuple[str, ...], *, host: str = "") -> None:
+    """Fail closed unless the connected peer IP matches the pinned set."""
+    if peer_ip not in expected_ips:
+        raise ValueError(f"peer IP {peer_ip!r} for host {host!r} is outside the validated set, refusing")
 
 
 def assert_url_allowed(

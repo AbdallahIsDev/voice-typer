@@ -1,5 +1,5 @@
 """controller, ``controller._app`` (the VoiceTyperApp), the recorder's
-Mic-watcher hooks, extracted from ``RecordingController`` (Phase 4.5 split).
+Mic-watcher hooks, extracted from ``RecordingController``.
 ``on_active_mic_lost`` / ``on_device_lost`` callbacks that fire when the
 ``RecordingController.__init__`` with NO arguments (it is stateless).
 Each method takes a back-reference to the owning ``RecordingController``

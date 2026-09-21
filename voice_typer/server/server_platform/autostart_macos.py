@@ -1,6 +1,6 @@
 """macOS autostart. LaunchAgent plist.
 
-Phase 4.5 / , extracted from the original
+Extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements the
 three macOS autostart primitives:
 

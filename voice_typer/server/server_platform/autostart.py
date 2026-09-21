@@ -308,20 +308,20 @@ def _system_python_can_import_launcher(system_python: str) -> bool:
 def _prefer_pythonw(python_bin: str) -> str:
     """Prefer a sibling ``pythonw.exe`` for a Windows interpreter path.
 
-    BP-127 shared core: the pythonw preference was copy-pasted across
-    the generic command builder and the Windows Task Scheduler
-    resolver (initial pick + post-probe re-apply). Returns the
-    ``pythonw.exe`` sibling when it exists, else the input unchanged.
-    Windows-only by construction (``pythonw.exe`` never exists on
-    POSIX), callers keep their own ``is_windows()`` gates so output
-    shapes stay byte-identical (C-CROSS-1/2).
+    Shared core: the pythonw preference was copy-pasted across
+       the generic command builder and the Windows Task Scheduler
+       resolver (initial pick + post-probe re-apply). Returns the
+       ``pythonw.exe`` sibling when it exists, else the input unchanged.
+       Windows-only by construction (``pythonw.exe`` never exists on
+       POSIX), callers keep their own ``is_windows()`` gates so output
+       shapes stay byte-identical (C-CROSS-1/2).
     """
     pythonw = Path(python_bin).parent / "pythonw.exe"
     return str(pythonw) if pythonw.exists() else python_bin
 
 
 def _probe_system_python(which_name: str) -> str | None:
-    """Shared venv→system-Python probe (BP-127).
+    """Shared venv→system-Python probe.
 
     Returns a swappable system interpreter, or ``None`` when no swap
     """

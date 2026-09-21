@@ -4,6 +4,7 @@ from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
+    ErrorCodes,
     ResponseEnvelope,
     _error_response,
 )
@@ -52,7 +53,7 @@ class OnboardingHandlersMixin(HandlerBase):
                 return _error_response(
                     resp,
                     "Onboarding already complete; pass {force: true} to re-run",
-                    code="onboarding_already_complete",
+                    code=ErrorCodes.ONBOARDING_ALREADY_COMPLETE,
                 )
             result = self.service.onboarding_start()
             # Mark the wizard as started so auto-heal doesn't

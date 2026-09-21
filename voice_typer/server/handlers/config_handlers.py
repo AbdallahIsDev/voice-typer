@@ -39,203 +39,207 @@ class ConfigHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_defaults")
         return resp
 
-    def _handle_set_config(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """Handle the ``set_config`` IPC command."""
-        try:
-            if not isinstance(data, dict):
-                log.warning("[IPC] set_config rejected: data is %s, not dict", type(data).__name__)
-                return _error_response(
+    def _validate_set_config_payload(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> tuple[dict | None, ResponseEnvelope | None, list[str], list[str]]:
+        """Validate the ``set_config`` payload against the allowlist."""
+        if not isinstance(data, dict):
+            log.warning("[IPC] set_config rejected: data is %s, not dict", type(data).__name__)
+            return (
+                None,
+                _error_response(
                     resp,
                     "set_config requires data: object",
-                    code="invalid_payload",
-                )
-            # SEC-002: validate against IPC_CONFIG_ALLOWLIST before touching
-            validated, errors = validate_config_update(data)
-            if errors:
-                log.warning("[IPC] set_config rejected: %s", "; ".join(errors))
-                # Full error list in data.errors; data.message stays errors[0]
-                resp["type"] = "error"
-                resp["data"] = {
-                    "code": "invalid_field",
-                    "message": errors[0],
-                    "errors": list(errors),
-                }
-                return resp
-            # Bubble edge change invalidates drag-persisted coords unless the
-            if "bubble_position" in validated:
-                validated.setdefault("bubble_x", None)
-                validated.setdefault("bubble_y", None)
-            accepted_keys = list(validated.keys())
-            rejected_keys = [k for k in data if k not in validated]
-            # RACE-011: hold _config_mutation_lock across change_model +
-            model_errors: list[dict] = []
-            applied: list[str] = []
-            # change_model returns immediately (background load); model_loading
-            model_loading: list[dict] = []
-            failed_keys: set[str] = set()
-            app_ref = self.app
-            config_lock = getattr(app_ref, "_config_mutation_lock", None)
-            global _CONFIG_LOCK_MISSING_WARNED
-            if config_lock is None and not _CONFIG_LOCK_MISSING_WARNED:
-                _CONFIG_LOCK_MISSING_WARNED = True
-                log.warning(
-                    "[IPC] set_config: app has no _config_mutation_lock, "
-                    "running lock-free; concurrent set_config / change_model "
-                    "may interleave (this warning fires once per process)"
-                )
-            with contextlib.ExitStack() as stack:
-                if config_lock is not None:
-                    stack.enter_context(config_lock)
-                if "model_size" in validated and validated["model_size"] != getattr(
-                    self.app.config, "model_size", None
-                ):
-                    # capture the OLD values BEFORE the call —
-                    old_model_size = getattr(self.app.config, "model_size", None)
-                    old_backend = getattr(self.app.config, "asr_backend", None)
-                    try:
-                        self.service.change_model(validated["model_size"])
-                        applied.append("model_size")
-                        # surface the "loading" status so the
-                        model_loading.append(
-                            {
-                                "field": "model_size",
-                                "status": "loading",
-                                "previous": {
-                                    "backend": old_backend,
-                                    "model_size": old_model_size,
-                                },
-                                "pending": {"model_size": validated["model_size"]},
-                            }
-                        )
-                    except Exception as e:
-                        # partial-success envelope. : include the
-                        log.error(
-                            "[IPC] change_model(model_size=%s) failed: %s",
-                            validated["model_size"],
-                            e,
-                            exc_info=True,
-                        )
-                        model_errors.append(
-                            {
-                                "code": LegacyErrorCodes.MODEL_SWITCH_FAILED,
-                                "field": "model_size",
-                                "value": validated["model_size"],
-                            }
-                        )
-                        # drop the failed key from the persist set
-                        failed_keys.add("model_size")
-                if "asr_backend" in validated and validated["asr_backend"] != getattr(
-                    self.app.config, "asr_backend", None
-                ):
-                    # capture the OLD backend BEFORE the call
-                    old_backend = getattr(self.app.config, "asr_backend", None)
-                    old_model_size = getattr(self.app.config, "model_size", None)
-                    try:
-                        self.service.set_active_backend(validated["asr_backend"])
-                        applied.append("asr_backend")
-                        # surface the "loading" status (see above).
-                        model_loading.append(
-                            {
-                                "field": "asr_backend",
-                                "status": "loading",
-                                "previous": {
-                                    "backend": old_backend,
-                                    "model_size": old_model_size,
-                                },
-                                "pending": {"backend": validated["asr_backend"]},
-                            }
-                        )
-                    except Exception as e:
-                        # same partial-success pattern as above.
-                        log.error(
-                            "[IPC] set_active_backend(asr_backend=%s) failed: %s",
-                            validated["asr_backend"],
-                            e,
-                            exc_info=True,
-                        )
-                        model_errors.append(
-                            {
-                                "code": LegacyErrorCodes.MODEL_SWITCH_FAILED,
-                                "field": "asr_backend",
-                                "value": validated["asr_backend"],
-                            }
-                        )
-                        # same rationale as the model_size branch.
-                        failed_keys.add("asr_backend")
-                # RACE-011 + AUDIO-PRESET-SAVE-FIX + :
-                to_persist = {k: v for k, v in validated.items() if k not in failed_keys}
-                self.service.apply_config(to_persist)
-                # ``trusted_extra_hosts`` must re-apply the allowlist
-                if "trusted_extra_hosts" in to_persist:
-                    try:
-                        from voice_typer.server._secrets import extend_url_allowlist
+                    code=LegacyErrorCodes.INVALID_PAYLOAD,
+                ),
+                [],
+                [],
+            )
+        # SEC-002: validate against IPC_CONFIG_ALLOWLIST before touching
+        validated, errors = validate_config_update(data)
+        if errors:
+            log.warning("[IPC] set_config rejected: %s", "; ".join(errors))
+            resp["type"] = "error"
+            resp["data"] = {
+                "code": LegacyErrorCodes.INVALID_FIELD,
+                "message": errors[0],
+                "errors": list(errors),
+            }
+            return None, resp, [], []
+        if "bubble_position" in validated:
+            validated.setdefault("bubble_x", None)
+            validated.setdefault("bubble_y", None)
+        accepted_keys = list(validated.keys())
+        rejected_keys = [k for k in data if k not in validated]
+        return validated, None, accepted_keys, rejected_keys
 
-                        extend_url_allowlist(
-                            cast(list[str], to_persist["trusted_extra_hosts"]),
-                            caller="set_config.trusted_extra_hosts",
-                        )
-                    except Exception:
-                        log.debug("[IPC] set_config trusted_extra_hosts allowlist re-apply failed", exc_info=True)
-                # build the ``applied`` echo list from
-                applied.extend(k for k in to_persist if k not in applied)
-            # also invalidate the tray models submenu's
+    def _apply_set_config_under_lock(self, validated: dict) -> tuple[list, list, list, set]:
+        """Apply model/backend swaps and persist under the mutation lock."""
+        model_errors: list[dict] = []
+        applied: list[str] = []
+        model_loading: list[dict] = []
+        failed_keys: set[str] = set()
+        app_ref = self.app
+        config_lock = getattr(app_ref, "_config_mutation_lock", None)
+        global _CONFIG_LOCK_MISSING_WARNED
+        if config_lock is None and not _CONFIG_LOCK_MISSING_WARNED:
+            _CONFIG_LOCK_MISSING_WARNED = True
+            log.warning(
+                "[IPC] set_config: app has no _config_mutation_lock, "
+                "running lock-free; concurrent set_config / change_model "
+                "may interleave (this warning fires once per process)"
+            )
+        # RACE-011: hold _config_mutation_lock across change_model + persist.
+        with contextlib.ExitStack() as stack:
+            if config_lock is not None:
+                stack.enter_context(config_lock)
+            self._swap_set_config_models(validated, applied, model_errors, model_loading, failed_keys)
+        return model_errors, applied, model_loading, failed_keys
+
+    def _swap_set_config_models(
+        self, validated: dict, applied: list, model_errors: list, model_loading: list, failed_keys: set
+    ) -> dict:
+        """Swap model/backend inside the held lock; return the persist set."""
+        if "model_size" in validated and validated["model_size"] != getattr(self.app.config, "model_size", None):
+            old_model_size = getattr(self.app.config, "model_size", None)
+            old_backend = getattr(self.app.config, "asr_backend", None)
             try:
-                from voice_typer.server.tray_models import (
-                    invalidate_model_availability_cache,
-                )
-
-                invalidate_model_availability_cache()
-            except Exception:
-                log.debug(
-                    "[IPC] invalidate_model_availability_cache failed",
-                    exc_info=True,
-                )
-
-            # Push a config_changed event so the renderer (App.tsx)
-            try:
-                event_bus.publish(
+                self.service.change_model(validated["model_size"])
+                applied.append("model_size")
+                model_loading.append(
                     {
-                        "type": "config_changed",
-                        "data": to_persist,
+                        "field": "model_size",
+                        "status": "loading",
+                        "previous": {
+                            "backend": old_backend,
+                            "model_size": old_model_size,
+                        },
+                        "pending": {"model_size": validated["model_size"]},
                     }
                 )
-            except Exception:
-                log.debug("[IPC] config_changed push failed", exc_info=True)
-
-            # ``bubble_position`` is included because the handler above
-            if any(
-                k in validated
-                for k in (
-                    "bubble_behavior",
-                    "bubble_click_to_toggle",
-                    "bubble_mic_button",
-                    "bubble_position",
-                    "text_size",
+            except Exception as e:
+                log.error(
+                    "[IPC] change_model(model_size=%s) failed: %s",
+                    validated["model_size"],
+                    e,
+                    exc_info=True,
                 )
-            ):
-                try:
-                    # (): delegate to the public
-                    self.app.push_bubble_config(self.app.config)
-                except Exception:
-                    log.debug("[IPC] bubble_config push failed", exc_info=True)
+                model_errors.append(
+                    {
+                        "code": LegacyErrorCodes.MODEL_SWITCH_FAILED,
+                        "field": "model_size",
+                        "value": validated["model_size"],
+                    }
+                )
+                failed_keys.add("model_size")
+        if "asr_backend" in validated and validated["asr_backend"] != getattr(self.app.config, "asr_backend", None):
+            old_backend = getattr(self.app.config, "asr_backend", None)
+            old_model_size = getattr(self.app.config, "model_size", None)
+            try:
+                self.service.set_active_backend(validated["asr_backend"])
+                applied.append("asr_backend")
+                model_loading.append(
+                    {
+                        "field": "asr_backend",
+                        "status": "loading",
+                        "previous": {
+                            "backend": old_backend,
+                            "model_size": old_model_size,
+                        },
+                        "pending": {"backend": validated["asr_backend"]},
+                    }
+                )
+            except Exception as e:
+                log.error(
+                    "[IPC] set_active_backend(asr_backend=%s) failed: %s",
+                    validated["asr_backend"],
+                    e,
+                    exc_info=True,
+                )
+                model_errors.append(
+                    {
+                        "code": LegacyErrorCodes.MODEL_SWITCH_FAILED,
+                        "field": "asr_backend",
+                        "value": validated["asr_backend"],
+                    }
+                )
+                failed_keys.add("asr_backend")
+        to_persist = {k: v for k, v in validated.items() if k not in failed_keys}
+        self.service.apply_config(to_persist)
+        if "trusted_extra_hosts" in to_persist:
+            try:
+                from voice_typer.server._secrets import extend_url_allowlist
 
-            resp["type"] = "ack"
-            # echo accepted + rejected keys so the
-            response_data: dict = {}
-            if rejected_keys:
-                response_data["accepted"] = accepted_keys
-                response_data["rejected"] = rejected_keys
-            if model_errors:
-                response_data["status"] = "partial"
-                response_data["model_errors"] = model_errors
-                response_data["applied"] = applied
-            if model_loading:
-                # ``asr_backend_ready`` event (published by the
-                response_data["model_loading"] = model_loading
-            if response_data:
-                resp["data"] = response_data
+                extend_url_allowlist(
+                    cast(list[str], to_persist["trusted_extra_hosts"]),
+                    caller="set_config.trusted_extra_hosts",
+                )
+            except Exception:
+                log.debug("[IPC] set_config trusted_extra_hosts allowlist re-apply failed", exc_info=True)
+        applied.extend(k for k in to_persist if k not in applied)
+        return to_persist
+
+    def _run_set_config_side_effects(self, validated: dict, to_persist: dict) -> None:
+        try:
+            from voice_typer.server.tray_models import invalidate_model_availability_cache
+
+            invalidate_model_availability_cache()
+        except Exception:
+            log.debug("[IPC] invalidate_model_availability_cache failed", exc_info=True)
+        try:
+            event_bus.publish({"type": "config_changed", "data": to_persist})
+        except Exception:
+            log.debug("[IPC] config_changed push failed", exc_info=True)
+        if any(
+            k in validated
+            for k in (
+                "bubble_behavior",
+                "bubble_click_to_toggle",
+                "bubble_mic_button",
+                "bubble_position",
+                "text_size",
+            )
+        ):
+            try:
+                self.app.push_bubble_config(self.app.config)
+            except Exception:
+                log.debug("[IPC] bubble_config push failed", exc_info=True)
+
+    def _build_set_config_response(
+        self,
+        resp: ResponseEnvelope,
+        accepted_keys: list,
+        rejected_keys: list,
+        model_errors: list,
+        applied: list,
+        model_loading: list,
+    ) -> None:
+        resp["type"] = "ack"
+        response_data: dict = {}
+        if rejected_keys:
+            response_data["accepted"] = accepted_keys
+            response_data["rejected"] = rejected_keys
+        if model_errors:
+            response_data["status"] = "partial"
+            response_data["model_errors"] = model_errors
+            response_data["applied"] = applied
+        if model_loading:
+            response_data["model_loading"] = model_loading
+        if response_data:
+            resp["data"] = response_data
+
+    def _handle_set_config(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
+        """Handle the ``set_config`` IPC command."""
+        # SEC-002: payload allowlist enforced in _validate_set_config_payload.
+        try:
+            validated, error_resp, accepted_keys, rejected_keys = self._validate_set_config_payload(data, resp)
+            if validated is None:
+                return error_resp
+            model_errors, applied, model_loading, failed_keys = self._apply_set_config_under_lock(validated)
+            to_persist = {k: v for k, v in validated.items() if k not in failed_keys}
+            self._run_set_config_side_effects(validated, to_persist)
+            self._build_set_config_response(resp, accepted_keys, rejected_keys, model_errors, applied, model_loading)
         except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "set_config")
         return resp
 
@@ -247,7 +251,7 @@ class ConfigHandlersMixin(HandlerBase):
                 return _error_response(
                     resp,
                     "add_trusted_endpoint requires data.host: string",
-                    code="invalid_payload",
+                    code=LegacyErrorCodes.INVALID_PAYLOAD,
                 )
             raw_host = data["host"].strip()
             # Reject scheme/path/whitespace on the RAW value first —
@@ -256,7 +260,7 @@ class ConfigHandlersMixin(HandlerBase):
                 return _error_response(
                     resp,
                     f"invalid host {raw_host!r}, expected a bare hostname like 'my-vllm.lan'",
-                    code="invalid_field",
+                    code=LegacyErrorCodes.INVALID_FIELD,
                 )
             # ``_normalize_host`` in ``security.url_allowlist`` and the
             if raw_host.startswith("["):
@@ -266,7 +270,7 @@ class ConfigHandlersMixin(HandlerBase):
                     return _error_response(
                         resp,
                         f"invalid host {raw_host!r}, is not a valid IPv6 literal",
-                        code="invalid_field",
+                        code=LegacyErrorCodes.INVALID_FIELD,
                     )
                 inner = raw_host[1:closing]
                 try:
@@ -275,7 +279,7 @@ class ConfigHandlersMixin(HandlerBase):
                     return _error_response(
                         resp,
                         f"invalid host {raw_host!r}, is not a valid IPv6 literal",
-                        code="invalid_field",
+                        code=LegacyErrorCodes.INVALID_FIELD,
                     )
                 host = inner
             elif raw_host.count(":") > 1:
@@ -286,7 +290,7 @@ class ConfigHandlersMixin(HandlerBase):
                     return _error_response(
                         resp,
                         f"invalid host {raw_host!r}, is not a valid IPv6 literal",
-                        code="invalid_field",
+                        code=LegacyErrorCodes.INVALID_FIELD,
                     )
                 host = raw_host
             else:
@@ -298,13 +302,13 @@ class ConfigHandlersMixin(HandlerBase):
                 return _error_response(
                     resp,
                     f"invalid host {raw_host!r}, expected a bare hostname like 'my-vllm.lan'",
-                    code="invalid_field",
+                    code=LegacyErrorCodes.INVALID_FIELD,
                 )
             if not all(c.isalnum() or c in "-._" or c == ":" for c in host):
                 return _error_response(
                     resp,
                     f"invalid host {raw_host!r}, contains invalid characters",
-                    code="invalid_field",
+                    code=LegacyErrorCodes.INVALID_FIELD,
                 )
 
             from voice_typer.server._secrets import extend_url_allowlist

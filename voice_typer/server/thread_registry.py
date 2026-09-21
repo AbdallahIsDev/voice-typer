@@ -269,7 +269,7 @@ class ThreadRegistry:
                         exc_info=True,
                     )
 
-        # Phase 3: log final state of each entry (exit / still alive).
+        # Step 3: log final state of each entry (exit / still alive).
         for entry in entries:
             if not entry.thread.is_alive():
                 log.debug(

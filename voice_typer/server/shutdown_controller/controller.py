@@ -17,7 +17,7 @@ from ._teardowns import TeardownsMixin
 
 class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsMixin):
     """Owns the shutdown / cleanup lifecycle of ``VoiceTyperApp``.
-    Phase 7: extracted from ``VoiceTyperApp``. The app passes itself
+    Extracted from ``VoiceTyperApp``. The app passes itself
      kept on ``VoiceTyperApp``).
      kept on ``VoiceTyperApp``).
     """
@@ -43,7 +43,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
 
     def __init__(self, app: VoiceTyperApp) -> None:
         self._app = app
-        # MED-PPP / XCUT-4: POSIX signal handlers must be
+        # POSIX signal handlers must be
         self._shutdown_signal_event: threading.Event = threading.Event()
         self._shutdown_signum: int | None = None
         self._signal_watcher_started = False

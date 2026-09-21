@@ -328,6 +328,44 @@ def is_test_active() -> bool:
         return _state._test_mode
 
 
+def _begin_test_locked(duration: float, filters: dict | None) -> dict:
+    """Arm test mode under ``_monitor_lock`` (caller holds the lock).
+
+    Shared by both ``start_test_recording`` paths: the monitor already on
+    the right device, and the restart path after ``start_monitoring``.
+    """
+    _state._test_mode = True
+    _state._test_start_time = time.perf_counter()
+    _state._test_duration = max(1.0, min(30.0, duration))
+    # (re)create bounded deques sized to this start's duration
+    _reset_test_chunks(locked=True)
+    _state._test_filters = dict(filters) if filters else {}
+    _state._test_peak_history.clear()
+    _state._test_rms_history.clear()
+    _state._test_clip_count = 0
+    _state._test_silence_blocks = 0
+    sr = _state._monitor_sample_rate
+
+    _state._test_auto_stop_timer = threading.Timer(
+        _state._test_duration,
+        _do_auto_stop_test,
+    )
+    _state._test_auto_stop_timer.daemon = True
+    _state._test_auto_stop_timer.start()
+
+    log.info(
+        "[LEVEL-MON] Test recording started: mic=%s | duration%s",
+        _state._monitor_mic_id or "default",
+        format_duration(_state._test_duration),
+    )
+    return {
+        "success": True,
+        "message": "Recording test...",
+        "duration": _state._test_duration,
+        "sample_rate": sr,
+    }
+
+
 def start_test_recording(
     mic_id: str | None = None,
     duration: float = 10.0,
@@ -350,37 +388,8 @@ def start_test_recording(
             # We must release the lock before calling start_monitoring
             pass  # handled below the lock
         else:
-            # Monitor is already active on the right device. Set test mode
-            _state._test_mode = True
-            _state._test_start_time = time.perf_counter()
-            _state._test_duration = max(1.0, min(30.0, duration))
-            # (re)create bounded deques sized to this start's
-            _reset_test_chunks(locked=True)
-            _state._test_filters = dict(filters) if filters else {}
-            _state._test_peak_history.clear()
-            _state._test_rms_history.clear()
-            _state._test_clip_count = 0
-            _state._test_silence_blocks = 0
-            sr = _state._monitor_sample_rate
-
-            _state._test_auto_stop_timer = threading.Timer(
-                _state._test_duration,
-                _do_auto_stop_test,
-            )
-            _state._test_auto_stop_timer.daemon = True
-            _state._test_auto_stop_timer.start()
-
-            log.info(
-                "[LEVEL-MON] Test recording started: mic=%s | duration%s",
-                _state._monitor_mic_id or "default",
-                format_duration(_state._test_duration),
-            )
-            return {
-                "success": True,
-                "message": "Recording test...",
-                "duration": _state._test_duration,
-                "sample_rate": sr,
-            }
+            # Monitor is already active on the right device.
+            return _begin_test_locked(duration, filters)
 
     # Monitor not running or on wrong device, start/restart it
     from .monitoring import start_monitoring
@@ -393,7 +402,7 @@ def start_test_recording(
             "duration": duration,
         }
 
-    # Monitor is now running on the correct device. Set test mode
+    # Monitor is now running on the correct device.
     with _state._monitor_lock:
         if _state._test_mode:
             return {
@@ -401,36 +410,7 @@ def start_test_recording(
                 "message": "Test already running",
                 "duration": duration,
             }
-        _state._test_mode = True
-        _state._test_start_time = time.perf_counter()
-        _state._test_duration = max(1.0, min(30.0, duration))
-        # (re)create bounded deques sized to this start's
-        _reset_test_chunks(locked=True)
-        _state._test_filters = dict(filters) if filters else {}
-        _state._test_peak_history.clear()
-        _state._test_rms_history.clear()
-        _state._test_clip_count = 0
-        _state._test_silence_blocks = 0
-        sr = _state._monitor_sample_rate
-
-        _state._test_auto_stop_timer = threading.Timer(
-            _state._test_duration,
-            _do_auto_stop_test,
-        )
-        _state._test_auto_stop_timer.daemon = True
-        _state._test_auto_stop_timer.start()
-
-        log.info(
-            "[LEVEL-MON] Test recording started: mic=%s | duration%s",
-            _state._monitor_mic_id or "default",
-            format_duration(_state._test_duration),
-        )
-        return {
-            "success": True,
-            "message": "Recording test...",
-            "duration": _state._test_duration,
-            "sample_rate": sr,
-        }
+        return _begin_test_locked(duration, filters)
 
 
 def stop_test_recording() -> dict:

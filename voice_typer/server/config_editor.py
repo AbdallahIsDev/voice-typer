@@ -1,6 +1,6 @@
 """Config editor launcher (extracted from VoiceTyperApp._open_config_file).
 
- SEC-audit-011 / B-4: opens ``config.json`` in the
+ SEC-audit-011: opens ``config.json`` in the
 user's default editor and holds ``_config_mutation_lock`` for the full
 editor session so a concurrent IPC ``set_config`` cannot atomically
 clobber the file mid-edit (TOCTOU race). After the editor exits the
@@ -209,12 +209,12 @@ class ConfigEditorLauncher:
         """Open ``config_path`` in the user's default editor."""
 
         try:
-            # Phase 1: save under the lock so the on-disk file is
+            # Step 1: save under the lock so the on-disk file is
             with self.app._config_mutation_lock:
                 if not self.app.config.save():
                     log.warning("[CONFIG] Failed to save config before opening editor")
 
-            # Phase 2: launch the editor WITHOUT holding the lock.
+            # Step 2: launch the editor WITHOUT holding the lock.
             launcher = _PLATFORM_LAUNCHERS.get(_current_platform())
             if launcher is None:
                 log.warning("[CONFIG] No editor launcher for platform")
@@ -228,7 +228,7 @@ class ConfigEditorLauncher:
                 # silently swallow non-timeout launch errors so a
                 pass
 
-            # Phase 3: reload under the lock so the in-memory Config
+            # Step 3: reload under the lock so the in-memory Config
             with self.app._config_mutation_lock:
                 try:
                     self.app.config = type(self.app.config).load()

@@ -9,7 +9,7 @@ module.
 
 Historical note: this logic was previously extracted from
 ``ipc_server.py`` into :mod:`voice_typer.server.ipc.history_bounds` during
- (Phase 4.5 split).  That module still re-exports
+ (package split). That module still re-exports
 ``_sanitize_config_for_ipc`` for backwards-compat with any external
 importer, but new code should import :func:`sanitize_config_for_ipc`
 (public name) from here.

@@ -45,7 +45,7 @@ class _ZeroDelayThread(threading.Thread):
 class TimerCoordinator:
     """Owns creation/tracking/cancellation of scheduled timers.
 
-    Phase 6: extracted from ``VoiceTyperApp``. The app passes
+    Extracted from ``VoiceTyperApp``. The app passes
         itself (``app``) as a back-reference so ``TimerCoordinator`` can be
         extended later to call back into the app if needed (currently the
         two methods are self-contained and don't use ``self._app``, but

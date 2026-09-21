@@ -11,6 +11,8 @@ from voice_typer.server._secrets import (  # noqa: F401  # facade re-export
     assert_url_allowed,
     redact_secret,
     redact_url,
+    resolve_allowed_url_ips,
+    verify_peer_ip_allowed,
 )
 from voice_typer.server.asr_errors import (  # noqa: F401  # facade re-export
     CloudAuthError,

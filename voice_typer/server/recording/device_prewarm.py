@@ -1,6 +1,6 @@
 """Device-cache prewarm + stream-open validation for :class:`Recorder`.
 
-Phase 4.5 completion, the device-prewarm bodies that previously lived
+The device-prewarm bodies that previously lived
 on :class:`Recorder` (``_prewarm_device_cache`` /
 ``_prewarm_input_stream`` / ``_cached_max_input_channels`` /
 ``_classify_portaudio_open_error``) are owned by
@@ -71,7 +71,7 @@ class DevicePrewarm:
     """Device-cache prewarm + PortAudio warm-up for :class:`Recorder`.
 
     Owns the device-prewarm bodies extracted from :class:`Recorder`
-    (Phase 4.5 completion). See the module docstring for the
+    See the module docstring for the
     collaborator-pattern rationale.
     """
 
@@ -125,7 +125,7 @@ class DevicePrewarm:
                 list_microphones()
             except Exception:
                 log.debug("[RECORDING] canonical mic-list pre-warm failed", exc_info=True)
-            # Phase 2: briefly open + start + stop + close an InputStream
+            # Step 2: briefly open + start + stop + close an InputStream
             if _started_hidden():
                 log.info(
                     "[RECORDING] Input stream prewarm skipped: app started hidden. PortAudio warms on first dictation",

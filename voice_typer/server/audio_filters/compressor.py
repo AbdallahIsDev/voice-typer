@@ -115,6 +115,9 @@ class Compressor(AudioFilter):
         # np.where(above_floor, gain, output_gain), np.where has no out=
         np.copyto(gain, self._output_gain, where=~above_floor)
 
+        # ``_ensure_buffers`` guarantees the lazily-allocated buffers exist.
+        assert self._output_f64_buf is not None
+        assert self._output_f32_buf is not None
         # output = (samples.astype(float64) * gain).astype(float32),
         output_f64 = self._output_f64_buf[:n]
         np.multiply(samples, gain, out=output_f64, casting="same_kind")

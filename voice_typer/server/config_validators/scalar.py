@@ -254,7 +254,7 @@ def _make_url_validator(
         host = (parsed.hostname or "").lower()
         if not host:
             return "must include a network location (host)"
-        # SECRET-1 (MED-M): reject URLs with embedded credentials.
+        # Reject URLs with embedded credentials.
         if parsed.username or parsed.password:
             return "URL must not contain embedded credentials. Use the api_key field"
         # close the defense-in-depth gap, reject cleartext

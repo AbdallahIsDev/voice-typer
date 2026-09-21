@@ -307,7 +307,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
     def _summarize_crash_file(crash_file: Path, *, already_archived: bool) -> None:
         """Surface one ``crash_diagnostics`` file's content + archive it."""
         try:
-            # HU-9: read through ``_secure_read_text`` (POSIX
+            # Read through ``_secure_read_text`` (POSIX
             from voice_typer.server.config import _secure_read_text
 
             try:
@@ -315,7 +315,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
             except (OSError, ValueError) as secure_exc:
                 # Secure read refused (symlink / reparse point / inode
                 log.warning(
-                    "[CRASH] Refusing to read diagnostics file %s (%s), treating as empty (HU-9 symlink guard)",
+                    "[CRASH] Refusing to read diagnostics file %s (%s), treating as empty (symlink guard)",
                     crash_file.name,
                     secure_exc,
                 )
@@ -386,14 +386,14 @@ def report_pending_crash(config_dir: Path) -> str | None:
     # Process python_crash marker files written by the Python-level
     def _summarize_python_crash(py_crash_file: Path, *, already_archived: bool) -> None:
         try:
-            # HU-9: secure read (O_NOFOLLOW / reparse-point check /
+            # Secure read (O_NOFOLLOW / reparse-point check /
             from voice_typer.server.config import _secure_read_text
 
             try:
                 content = _secure_read_text(py_crash_file).strip()
             except (OSError, ValueError) as secure_exc:
                 log.warning(
-                    "[CRASH] Refusing to read python_crash file %s (%s), treating as empty (HU-9 symlink guard)",
+                    "[CRASH] Refusing to read python_crash file %s (%s), treating as empty (symlink guard)",
                     py_crash_file.name,
                     secure_exc,
                 )

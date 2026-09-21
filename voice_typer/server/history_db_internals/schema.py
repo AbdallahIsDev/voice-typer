@@ -53,7 +53,7 @@ _MIGRATION_V3 = """
     COMMIT;
 """
 
-# At-rest encryption (ADR XZ-R11-04). PLAIN migration for prior-state
+# At-rest encryption. PLAIN migration for prior-state
 _MIGRATION_V4 = """
     ALTER TABLE transcriptions ADD COLUMN text_is_encrypted INTEGER DEFAULT 0;
     DROP TRIGGER IF EXISTS transcriptions_ai_fts;

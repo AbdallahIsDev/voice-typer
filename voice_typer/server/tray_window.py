@@ -183,7 +183,7 @@ def open_app_window() -> None:
     else:
         log.info("[TRAY] no live host transport, trying Win32 focus")
 
-    # 2. Native focus: insurance on Windows (see BP-160 note above),
+    # 2. Native focus: insurance on Windows (see the native-focus note above),
     focused = False
     if is_windows() or not delivered:
         try:

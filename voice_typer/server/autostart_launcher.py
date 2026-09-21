@@ -110,7 +110,7 @@ def _prewarm_would_help() -> bool:
 
 
 def _parse_delay(argv: list[str]) -> float:
-    """STARTUP-2: parse --delay <seconds> from argv.
+    """Parse --delay <seconds> from argv.
 
     Returns the delay in seconds (0 if absent or malformed). Used by the
     """
@@ -147,7 +147,7 @@ def launch() -> int:
         delay_seconds,
     )
 
-    # STARTUP-2: sleep before doing anything so the logon I/O storm
+    # Sleep before doing anything so the logon I/O storm
     effective_delay = min(delay_seconds, _LAUNCHER_DELAY_CAP_S) if delay_seconds > 0 else 0.0
     if effective_delay < delay_seconds:
         log.info(
@@ -183,7 +183,8 @@ def launch() -> int:
         except (OSError, ValueError):
             pass
     if not backend_running:
-        # MED-Y /  (partial): the backend may be
+        # PID check is best-effort; confirm via the IPC port before
+        # treating the backend as down.
         ipc_port = _read_ipc_port_from_pid_file() or IPC_PORT
         backend_running = _is_port_open(IPC_HOST, ipc_port)
 

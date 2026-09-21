@@ -27,11 +27,9 @@ from voice_typer.server.asr_errors import (
 log = logging.getLogger(__name__)
 
 
-# SEC-audit-006 (Round 0 forward-port): use a dedicated opener that does NOT
-
-# SEC-2 (fix): the comment above was the INTENT but ``build_opener``
-
-# the handler + builder now live in ``_http_safety`` so
+# SEC-audit-006 / SEC-2: the secure opener MUST NOT follow redirects;
+# the handler + builder live in ``_http_safety`` so the default
+# redirect-following ``build_opener`` can never be used here.
 _opener = build_secure_opener()
 
 # upper bound on input size. Dictations above this length are
@@ -45,7 +43,7 @@ _FLAT_MAX_TOKENS = 1024
 
 
 def _is_openai_first_party_endpoint(api_url: str) -> bool:
-    """True when *api_url* targets OpenAI's own API (BP-134)."""
+    """True when *api_url* targets OpenAI's own API."""
     try:
         host = (urlsplit(api_url).hostname or "").lower()
     except Exception:
@@ -83,6 +81,37 @@ _PRESETS = {
 # canonical LLM endpoint + model defaults live in
 _DEFAULT_URL = DEFAULT_LLM_API_URL
 _DEFAULT_MODEL = DEFAULT_LLM_MODEL
+
+
+def _verify_llm_peer(req: Request, resp: object) -> None:
+    """Verify the LLM peer IP matches the validated URL IPs."""
+    from voice_typer.server._secrets import resolve_allowed_url_ips, verify_peer_ip_allowed
+
+    try:
+        expected = resolve_allowed_url_ips(
+            req.full_url,
+            field_name="llm_api_url",
+            client_name="llm_polish",
+            allow_loopback_http=True,
+        )
+    except Exception:
+        log.debug("[LLM_POLISH] peer-IP pin lookup failed", exc_info=True)
+        return
+    try:
+        raw = getattr(resp, "fp", None)
+        sock = getattr(raw, "raw", None)
+        sock = getattr(sock, "_sock", sock)
+        peer = sock.getpeername()[0] if hasattr(sock, "getpeername") else None
+    except Exception:
+        log.debug("[LLM_POLISH] peer-IP read failed", exc_info=True)
+        return
+    if peer is None:
+        return
+    try:
+        verify_peer_ip_allowed(peer, expected, host=req.host)
+    except ValueError as exc:
+        log.exception("[LLM_POLISH] peer IP %r outside validated set, refusing", peer)
+        raise CloudNetworkError("LLM peer IP outside validated set") from exc
 
 
 class LLMPolisher:
@@ -135,7 +164,7 @@ class LLMPolisher:
                 return result.strip()
             return text
         except Exception as exc:
-            # RELIABILITY-004: redact any secret-looking string from
+            # Redact any secret-looking string from
             log.warning("[LLM_POLISH] Polish failed: %s (returning original)", redact_secret(str(exc)))
             # publish ``llm_polish_failed`` so the renderer
             try:
@@ -199,7 +228,7 @@ class LLMPolisher:
             )
             return text
 
-        # BP-134: endpoint-aware sampling params. OpenAI reasoning
+        # Endpoint-aware sampling params. OpenAI reasoning
         if _is_openai_first_party_endpoint(self.api_url):
             sampling_params: dict = {
                 "temperature": 1,
@@ -234,6 +263,7 @@ class LLMPolisher:
 
         try:
             with _opener.open(req, timeout=effective_timeout) as resp:
+                _verify_llm_peer(req, resp)
                 # SEC-030: cap response at 50 MB to prevent OOM from
                 from voice_typer.server.cloud_engines import _read_capped
 

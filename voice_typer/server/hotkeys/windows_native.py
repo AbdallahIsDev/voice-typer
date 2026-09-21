@@ -65,7 +65,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._is_modifier_only: bool = False
         # brief flag set while we're sending a
         self._caps_lock_suppressing: bool = False
-        # loop's 8ms cadence (~125 Hz, see PERF-01/CPU-01) that's ~625
+        # Loop's 8ms cadence (~125 Hz, see PERF-01) that's ~625
         self._last_ime_check_time: float = 0.0
         self._last_ime_composing: bool = False
         # PERF- throttled non-modifier key scan.
@@ -229,10 +229,11 @@ class WindowsNativeHotkey(HotkeyBackend):
                     self._using_polling = False
                     self._run_message_loop(callback, low_level_hook=False)
                 else:
-                    # on all Windows configurations.  PERF-012 / PERF-01 / CPU-01: the
+                    # Fallback on every Windows configuration
+                    # (PERF-012 / PERF-01):
                     log.info("[HOTKEY] Starting hotkey detection via GetAsyncKeyState polling")
                     self._using_polling = True
-                    # polling is also a valid delivery path, so
+                    # Polling is also a valid delivery path, so
                     self._success = True
                     if not self._registered and not self._is_modifier_only:
                         self._degraded_registration = True

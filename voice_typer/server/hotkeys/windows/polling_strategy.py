@@ -177,7 +177,7 @@ def any_non_modifier_key_pressed_throttled(self, modifier_vks: frozenset[int]) -
 def run_polling_loop(self, callback):
     """GetAsyncKeyState polling fallback for hotkey detection.
 
-    PERF-012 / PERF-003 / PERF-01 / CPU-01: On Windows, uses
+    PERF-012 / PERF-003 / PERF-01: on Windows this uses
     GetAsyncKeyState in a tight loop with an 8ms sleep. The Windows
     timer resolution is bumped to 8ms via ``timeBeginPeriod(8)``
     before the loop so ``Sleep(8)`` actually sleeps ~8ms instead of
@@ -193,7 +193,7 @@ def run_polling_loop(self, callback):
     up to ~8ms while still being CPU-efficient (the thread spends
     >99.9% of its time sleeping in the kernel).
 
-    dispatches to
+    It dispatches to
     ``_run_modifier_only_polling_loop`` for modifier-only hotkeys
     (e.g. ``<alt>``), those need a different detection logic that
     fires on the modifier press itself, not on a subsequent
@@ -201,13 +201,13 @@ def run_polling_loop(self, callback):
     toggle when the hotkey is ``<caps_lock>`` (see
     ``_suppress_caps_lock_toggle``).
     """
-    # modifier-only hotkeys (e.g. <alt>)
+    # Modifier-only hotkeys (e.g. <alt>)
     if self._is_modifier_only:
         self._run_modifier_only_polling_loop(callback)
         return
 
     vk = self._vk
-    # HOTKEY-DEFER-001 (Task 2.4): seed was_pressed from the current
+    # Seed was_pressed from the current
     try:
         _seed_state = self._user32.GetAsyncKeyState(vk)
         _seed_mods = self._modifiers_pressed()
@@ -236,10 +236,10 @@ def run_polling_loop(self, callback):
     if is_caps_lock_hotkey:
         self._ensure_caps_lock_off()
 
-    # the loop body sleeps ~8ms per iteration (PERF-01/CPU-01), so
+    # The loop body sleeps ~8ms per iteration (PERF-01), so
     _caps_check_iter = 0
 
-    # PERF-01 / CPU-01 (c-review): set the Windows timer resolution to 8ms
+    # PERF-01 (c-review): set the Windows timer resolution to 8ms
     _winmm = None
     try:
         _winmm = ctypes.windll.winmm  # type: ignore[attr-defined]
@@ -356,7 +356,7 @@ def run_modifier_only_polling_loop(self, callback):
     # PTT mode is detected by the presence of an on_release callback.
     is_ptt = self._on_release_callback is not None
 
-    # PERF-01 / CPU-01 (c-review): set accurate timer resolution for the
+    # PERF-01 (c-review): set accurate timer resolution for the
     _winmm = None
     try:
         _winmm = ctypes.windll.winmm  # type: ignore[attr-defined]
@@ -404,7 +404,7 @@ def run_modifier_only_polling_loop(self, callback):
                             self._modifiers,
                         )
 
-            # polling loop's 8ms cadence (~125 Hz, see PERF-01/CPU-01)
+            # Polling loop's 8ms cadence (~125 Hz, see PERF-01)
             if is_held and not other_key_pressed and self._any_non_modifier_key_pressed_throttled(all_modifier_vks):
                 other_key_pressed = True
                 log.debug(

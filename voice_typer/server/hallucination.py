@@ -117,7 +117,7 @@ def log_hallucination_rejection(
 
         safe_text = redact_pii(text)[:_HALLUCINATION_LOG_MAX_CHARS]
     except Exception:
-        # M-49 / HU-14: no longer a silent ``except Exception: pass`` --
+        # No longer a silent ``except Exception: pass`` --
         log.debug(
             "PII redaction failed in log_hallucination_rejection; logging redacted marker only",
             exc_info=True,

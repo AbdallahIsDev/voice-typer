@@ -446,7 +446,7 @@ class HotkeyDispatcher:
         """
         if backend is None:
             return None
-        # BROKEN-3: when the backend is a ``_NativeBackendAdapter`` that
+        # When the backend is a ``_NativeBackendAdapter`` that
         if getattr(backend, "_state", None) in ("FALLBACK", "FAILED"):
             return None
         native = getattr(backend, "_native", None)
@@ -572,7 +572,7 @@ class HotkeyDispatcher:
             shared_native.remove_extra_matcher(role)
 
     def _handle_shared_native_state_changed(self, state: str) -> None:
-        """BROKEN-3: re-sync the aux (ESC / repaste) backends when the
+        """Re-sync the aux (ESC / repaste) backends when the
          shared backend's ``_NativeBackendAdapter`` swaps native ↔ legacy.
 
          When the adapter's native subprocess permanently fails and it
@@ -759,7 +759,7 @@ class HotkeyDispatcher:
         immediately on key-down. This matches how regular hotkey
         capture works (assignment happens on key-up / release).
 
-        ESC-KEYUP-FIX: when the user presses ESC during hotkey
+        When the user presses ESC during hotkey
         capture, the key-down sets a pending flag and installs a
         release callback on the ESC backend. The actual ownership
         reset and ``hotkey_capture_cancel`` event are pushed on
@@ -786,7 +786,8 @@ class HotkeyDispatcher:
             self._esc_backend = None
             self._esc_spec = None
 
-        # ESC-KEYUP-FIX / M-94 +  (combined): Event (initially
+        # Clear any stale pending-capture-exit signal before arming the
+        # ESC release callback.
         self._esc_pending_capture_exit_event.clear()
 
         try:
@@ -804,7 +805,7 @@ class HotkeyDispatcher:
                 # centralized ownership check.
                 if keyboard_ownership().is_hotkey_capture_active():
                     log.info("[HOTKEY] ESC pressed during hotkey capture, waiting for key-up")
-                    # ESC-KEYUP-FIX: set the pending flag and install
+                    # Set the pending flag and install
                     self._esc_pending_capture_exit_event.set()
                     # Route the release callback through the shared
                     shared_native = self._shared_native()
@@ -852,7 +853,7 @@ class HotkeyDispatcher:
                 )
 
     def _on_esc_release(self) -> None:
-        """ESC-KEYUP-FIX: release callback fired on key-up.
+        """Release callback fired on key-up.
 
         Installed by ``_esc_callback`` when ``is_hotkey_capture_active()``
         is True. On key-up, this resets keyboard ownership and pushes
@@ -863,7 +864,7 @@ class HotkeyDispatcher:
         ``onCaptureEnd`` calls when both this backend push AND the
         frontend's own DOM key-up handler fire for the same ESC release.
 
-        M-94: the check-then-clear is still technically racy (a
+        The check-then-clear is still technically racy (a
         concurrent ``.set()`` from the ESC listener between the
         ``is_set()`` read and the ``clear()`` write would be lost),
         but ``threading.Event`` is the canonical primitive for this
@@ -877,7 +878,7 @@ class HotkeyDispatcher:
         would re-arm the flag and the next release would fire the
         cancel again, idempotent via ``keyboard_ownership().reset()``).
         """
-        #  + M-94 (combined): threading.Event.is_set() / .clear()
+        # Check-then-clear on the pending-capture-exit Event.
         if not self._esc_pending_capture_exit_event.is_set():
             return
         self._esc_pending_capture_exit_event.clear()

@@ -16,7 +16,6 @@ from urllib.parse import urlparse
 from voice_typer.server.branding import APP_NAME, APP_REPO
 from voice_typer.server.service import offline_pack
 from voice_typer.server.service.offline_pack import (
-    OfflinePackConsentRequiredError,
     OfflinePackManifest,
     assert_offline_pack_url_allowed,
     proxy_env,
@@ -266,7 +265,7 @@ def _trigger_background_download(
     """Trigger a background download of the pack via :mod:`pack`."""
     version = manifest["version"]
 
-    # MUST be consent-gated (§8.4 / C-DATA-1).
+    # Always-on product decision: gate is a no-op; kept for call-site uniformity.
     require_offline_pack_consent(config, version=version)
 
     # Dedupe: if a download for this version is already in flight (started
@@ -324,12 +323,6 @@ def _trigger_background_download(
                             root=root,
                             event_bus=event_bus,
                         )
-            except OfflinePackConsentRequiredError:
-                # defensive: a race where the user revokes consent between
-                log.warning(
-                    "[UPDATE] consent revoked between check + download for pack %s",
-                    manifest["version"],
-                )
             except Exception:  # background thread must not propagate
                 log.exception(
                     "[UPDATE] background pack download failed for %s",
@@ -359,41 +352,6 @@ def _trigger_background_download(
     return True
 
 
-def _pack_consent_given(config: Config | None) -> bool:
-    """Return True when pack download consent is granted (no raise)."""
-    try:
-        require_offline_pack_consent(config)
-    except OfflinePackConsentRequiredError:
-        return False
-    except Exception:  # defensive: a broken gate must not enable downloads
-        log.debug("[UPDATE] pack consent probe failed, treating as no consent", exc_info=True)
-        return False
-    return True
-
-
-def _publish_pack_consent_required(event_bus: ModuleType | None, version: str | None) -> None:
-    """Publish the ``consent_required`` event for the offline pack."""
-    if event_bus is None:
-        return
-    try:
-        event_bus.publish(
-            {
-                "type": "consent_required",
-                "data": {
-                    "provider": "github",
-                    "scope": "offline_pack",
-                    "model": version,
-                    "consent_field": "offline_pack_consent",
-                    "message": (
-                        "Runtime pack consent required before downloading the offline engine pack from GitHub Releases."
-                    ),
-                },
-            }
-        )
-    except Exception:  # best-effort event publish
-        log.debug("[UPDATE] consent_required event push failed", exc_info=True)
-
-
 def check_offline_pack_update(
     config: Config | None,
     event_bus: ModuleType | None,
@@ -407,32 +365,22 @@ def check_offline_pack_update(
 ) -> UpdateCheckResult:
     """Check whether a newer pack version is available; optionally trigger download.
 
+    Pack auto-update is always-on: consent never blocks the manifest
+    fetch or the background download (user product decision).
+
     Steps:
       1. Resolve the manifest URL (param > ``VT_PACK_MANIFEST_URL`` env >
          :data:`DEFAULT_OFFLINE_PACK_MANIFEST_URL`).
       2. Resolve the local pack version (param > scan the pack root).
-      3. When ``trigger_download=True`` but no local pack is installed
-         and pack consent is missing, return ``consent_required``
-         WITHOUT fetching the remote manifest: the fetch itself phones
-         home to GitHub Releases (revealing the user IP), so it is
-         covered by the same consent gate as the download (C-DATA-1).
-         Check-only callers (``trigger_download=False``) and installs
-         that already have a local pack keep the fetch-then-compare
-         flow so the "up to date" verdict stays accurate.
-      4. Fetch + validate the remote manifest via
+      3. Fetch + validate the remote manifest via
          :func:`fetch_remote_manifest` (SSRF-gated, max-bytes-capped,
          ``manifest_timeout``-bounded).
-      5. Compare versions via :func:`is_newer_version`.
-      6. If a newer version is available AND ``trigger_download=True``,
-         call :func:`_trigger_background_download` (consent-gated).
+      4. Compare versions via :func:`is_newer_version`.
+      5. If a newer version is available AND ``trigger_download=True``,
+         call :func:`_trigger_background_download`.
 
     Returns an :data:`UpdateCheckResult`. Never raises, all errors are
     caught and returned as ``{"success": False, "error": ..., "reason": ...}``.
-    The ONLY exception is :class:`OfflinePackConsentRequiredError` from the
-    consent gate, which is caught and returned as
-    ``{"success": False, "consent_required": True, ...}`` so the
-    renderer can surface a consent dialog (mirrors the
-    ``ModelMixin._require_huggingface_consent`` pattern).
     """
     import time
 
@@ -445,22 +393,6 @@ def check_offline_pack_update(
         except Exception:  # defensive: pack-root scan must not abort the check
             log.exception("[UPDATE] local pack scan failed")
             local_version = None
-
-    # No local pack + a download would trigger + no consent: fetching
-    if trigger_download and local_version is None and not _pack_consent_given(config):
-        log.warning("[UPDATE] offline_pack_consent not given, skipping remote manifest fetch (no phone-home)")
-        _publish_pack_consent_required(event_bus, version=None)
-        return {
-            "success": False,
-            "checked_at": int(time.time() * 1000),
-            "local_version": local_version,
-            "remote_version": None,
-            "update_available": False,
-            "download_triggered": False,
-            "consent_required": True,
-            "error": "Runtime pack consent required",
-            "reason": "consent_required",
-        }
 
     try:
         remote_manifest = fetch_remote_manifest(url, http_get=http_get, timeout=manifest_timeout)
@@ -519,17 +451,6 @@ def check_offline_pack_update(
             http_get=http_get,
         )
         result["download_triggered"] = download_started
-    except OfflinePackConsentRequiredError:
-        log.warning(
-            "[UPDATE] offline_pack_consent not given, refusing to download pack %s",
-            remote_version,
-        )
-        # Surface a consent_required event so the renderer can show the
-        _publish_pack_consent_required(event_bus, remote_version)
-        result["success"] = False
-        result["consent_required"] = True
-        result["error"] = "Runtime pack consent required"
-        result["reason"] = "consent_required"
     except Exception as exc:  # defensive: the download trigger must not abort the check
         log.exception("[UPDATE] failed to trigger background download")
         result["success"] = False

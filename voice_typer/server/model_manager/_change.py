@@ -127,7 +127,7 @@ class ChangeMixin:
         self.cancel_idle_unload_timer()
         # outer = _config_mutation_lock (app-level, governs config
         with self._model_change_lock:
-            # Phase 1: setattr + save + unload-old under config lock.
+            # Step 1: setattr + save + unload-old under config lock.
             with self._app._config_mutation_lock:
                 new_backend, old_backend, deferred = self._change_model_setattr_phase(model_size)
                 if deferred:
@@ -151,7 +151,7 @@ class ChangeMixin:
             )
 
     def _change_model_setattr_phase(self, model_size: str) -> tuple[str, str, bool]:
-        """Phase 1a: determine backend, setattr + save config.
+        """Step 1a: determine backend, setattr + save config.
 
         Returns ``(new_backend, old_backend, deferred)``. ``deferred`` is True when
         """
@@ -187,7 +187,7 @@ class ChangeMixin:
         return new_backend, old_backend, False
 
     def _change_model_unload_phase(self, new_backend: str, old_backend: str) -> None:
-        """Phase 1b: unload + unregister + clear legacy fields for the OLD backend."""
+        """Step 1b: unload + unregister + clear legacy fields for the OLD backend."""
         # Deliberate unload, the old backend is being swapped out for a
         self._mark_deliberately_unloaded(old_backend)
         # Unload old backend via registry
@@ -215,7 +215,7 @@ class ChangeMixin:
                 self._qwen_engine = None
 
     def _change_model_load_phase(self, new_backend: str, model_size: str) -> str | None:
-        """Phase 2: construct + load the new engine.
+        """Step 2: construct + load the new engine.
 
         Returns
         """

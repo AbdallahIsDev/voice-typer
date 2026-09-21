@@ -25,7 +25,7 @@ _APP_SERVICES_LIB_LOADED: bool = False
 
 def _a11y_regrant_message(bundle_id: str | None) -> str:
     """Build the macOS Accessibility re-grant notification body."""
-    # TCC-002: the command string comes from the single construction
+    # The command string comes from the single construction
     from voice_typer.server.server_platform.macos_bundle_id import tccutil_reset_command_str
 
     if bundle_id:
@@ -147,34 +147,19 @@ def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None =
 
 
 def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Event | None = None) -> dict:
-    """Phase 2d launch-time offline-pack existence check (§8.10, §8.16).
+    """Launch-time pack check: integrity + always-on remote update check.
 
     Runs on a fire-and-forget daemon thread at startup (see
     ``StartupSequence._startup_parallel_work``). Never blocks the window:
 
-    1. **Cheap existence check** (``update_check._local_offline_pack_version``
-      , ``iterdir`` + ``pack-manifest.json`` presence, NO SHA-256 hashing)
-       on the hot startup path.
-    2. **Pack present** → spawn :class:`offline_pack.BackgroundChecksum`
-       on its own daemon thread (§8.16: the full checksum runs in the
-       background and publishes ``offline_pack_verified`` /
-       ``offline_pack_corrupt``). Launch is never slowed.
-    3. **Pack missing** → publish the ``offline_pack_missing`` event
-       (§8.10, the renderer's ``useOfflinePackDownload`` hook flips to
-       the "missing" state) and run ``check_offline_pack_update`` with
-       ``trigger_download=True``: the silent re-download. The download
-       is consent-gated (``offline_pack_consent``); when consent is off
-       the check returns ``consent_required=True`` WITHOUT touching
-       the network (no remote-manifest phone-home, C-DATA-1), and the
-       remote fetch uses the short launch timeout
-       (``LAUNCH_MANIFEST_TIMEOUT_S``) so a stalled logon network
-       can't pin the thread.
+    1. Cheap local existence scan (no SHA-256).
+    2. Pack present → background checksum AND remote update check
+       (``check_offline_pack_update`` with ``trigger_download=True``).
+    3. Pack missing → ``offline_pack_missing`` event + remote update
+       check (silent re-download). Always-on: no consent gate.
 
-    Best-effort: never raises. All failures are caught and logged so a
-    broken pack-root scan can never abort startup.
-
-    Returns a small outcome dict (testable):
-    ``{"checked": True, "installed_version": <str|None>, ...}``.
+    Remote fetch uses ``LAUNCH_MANIFEST_TIMEOUT_S`` so a stalled logon
+    network cannot pin the thread. Best-effort: never raises.
     """
     try:
         from voice_typer.server import event_bus as _event_bus_module
@@ -183,60 +168,71 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
         config = getattr(app, "config", None)
         event_bus = _event_bus_module
 
-        # 1. Cheap existence check, no hashing (§8.10).
         local_version: str | None = None
         try:
             local_version = update_check._local_offline_pack_version()
-        except Exception:  # noqa: BLE001, a corrupt pack root must not abort startup
+        except Exception:  # noqa: BLE001
             log.debug("[PACK] launch-time local pack scan failed", exc_info=True)
 
         if shutdown_event is not None and shutdown_event.is_set():
             return {"checked": False, "reason": "shutdown"}
 
+        checksum: str | None = None
+        missing_event = False
         if local_version is not None:
-            # 2. Present → background checksum (§8.16). Never blocks launch.
             try:
                 background = offline_pack.BackgroundChecksum(local_version, event_bus=event_bus)
                 background.start()
-            except Exception:  # noqa: BLE001, checksum spawn is best-effort
+                checksum = "background"
+            except Exception:  # noqa: BLE001
                 log.exception("[PACK] background checksum spawn failed for %s", local_version)
             log.info(
                 "[PACK] offline pack %s present at launch, background checksum started",
                 local_version,
             )
-            return {"checked": True, "installed_version": local_version, "checksum": "background"}
+        else:
+            missing_event = True
+            try:
+                offline_pack._publish_event(
+                    event_bus,
+                    "offline_pack_missing",
+                    {
+                        "version": None,
+                        "path": str(offline_pack._default_offline_pack_root()),
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                log.debug("[PACK] offline_pack_missing publish failed", exc_info=True)
+            log.info("[PACK] offline pack missing at launch, always-on re-download check")
 
-        # 3. Missing → publish offline_pack_missing (§8.10) + consent-gated
-        try:
-            offline_pack._publish_event(
-                event_bus,
-                "offline_pack_missing",
-                {
-                    "version": None,
-                    "path": str(offline_pack._default_offline_pack_root()),
-                },
-            )
-        except Exception:  # noqa: BLE001, event publish is best-effort
-            log.debug("[PACK] offline_pack_missing publish failed", exc_info=True)
-        log.info("[PACK] offline pack missing at launch, consent-gated re-download check")
+        if shutdown_event is not None and shutdown_event.is_set():
+            return {
+                "checked": False,
+                "reason": "shutdown",
+                "installed_version": local_version,
+            }
 
+        # Always-on: remote check on every launch (present or missing).
+        update_result: dict | None = None
         try:
             result = update_check.check_offline_pack_update(
                 config,
                 event_bus,
                 trigger_download=True,
-                # Launch path: bound the remote fetch tightly. This runs
                 manifest_timeout=update_check.LAUNCH_MANIFEST_TIMEOUT_S,
             )
-            return {
-                "checked": True,
-                "installed_version": None,
-                "update_check": dict(result),
-            }
-        except Exception:  # noqa: BLE001, never raise from the launch task
-            log.exception("[PACK] consent-gated re-download check failed (best-effort)")
-            return {"checked": True, "installed_version": None, "update_check": None}
-    except Exception:  # noqa: BLE001, outermost guard: this task must never raise
+            update_result = dict(result)
+        except Exception:  # noqa: BLE001
+            log.exception("[PACK] launch-time pack update check failed (best-effort)")
+
+        return {
+            "checked": True,
+            "installed_version": local_version,
+            "checksum": checksum,
+            "missing_event": missing_event,
+            "update_check": update_result,
+        }
+    except Exception:  # noqa: BLE001
         log.exception("[PACK] launch-time pack check failed (best-effort)")
         return {"checked": False, "reason": "error"}
 

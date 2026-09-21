@@ -78,7 +78,7 @@ class WaylandHotkey(HotkeyBackend):
         # Reset the no-client flag on each (re)start so a fresh start()
         self._client_ever_connected.clear()
 
-        # M-88: refuse to use the /tmp fallback when XDG_RUNTIME_DIR is
+        # Refuse to use the /tmp fallback when XDG_RUNTIME_DIR is
         if self.SOCKET_PATH is None:
             log.warning(
                 "[HOTKEY-WAYLAND] XDG_RUNTIME_DIR unset; Wayland hotkey "
@@ -176,7 +176,7 @@ class WaylandHotkey(HotkeyBackend):
         # ``start()`` guards this before calling us, but be defensive
         socket_path = self.SOCKET_PATH
         if socket_path is None:
-            raise RuntimeError("XDG_RUNTIME_DIR unset; refusing to use /tmp fallback (M-88: /tmp symlink attack)")
+            raise RuntimeError("XDG_RUNTIME_DIR unset; refusing to use /tmp fallback (/tmp symlink attack)")
 
         # Clean up stale socket
         if os.path.exists(socket_path):
@@ -310,7 +310,7 @@ class WaylandHotkey(HotkeyBackend):
         if self._thread is not None:
             self._thread.join(timeout=1.0)
             self._thread = None
-        # M-88: SOCKET_PATH may be None if XDG_RUNTIME_DIR was unset at
+        # SOCKET_PATH may be None if XDG_RUNTIME_DIR was unset at
         socket_path = self.SOCKET_PATH
         if socket_path is not None and os.path.exists(socket_path):
             with contextlib.suppress(Exception):
@@ -323,7 +323,7 @@ class WaylandHotkey(HotkeyBackend):
 
     def diagnose(self) -> str:
         """Return diagnostic information about the Wayland hotkey backend."""
-        # M-88: SOCKET_PATH may be None if XDG_RUNTIME_DIR is unset.
+        # SOCKET_PATH may be None if XDG_RUNTIME_DIR is unset.
         socket_path = self.SOCKET_PATH
         if socket_path is None:
             socket_desc = "<disabled: XDG_RUNTIME_DIR unset>"

@@ -129,7 +129,7 @@ class OnboardingMixin(ServiceMixinBase):
         if ctrl is None:
             return {"error": "Onboarding not started"}
         app = self._app
-        # HU-23: snapshot the config fields that ``apply_settings``
+        # Snapshot the config fields that ``apply_settings``
         _cfg = getattr(app, "config", None)
         _cfg_snapshot = {
             "microphone": getattr(_cfg, "microphone", None) if _cfg is not None else None,
@@ -186,7 +186,7 @@ class OnboardingMixin(ServiceMixinBase):
 
             return {"ok": True}
         except Exception as exc:
-            # HU-23: roll back the in-place config mutation so a failed
+            # Roll back the in-place config mutation so a failed
             try:
                 _cfg = getattr(app, "config", None)
                 if _cfg is not None:

@@ -137,8 +137,8 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "show_notifications": (bool, _bool_validator),
     # prewarm scheduled-task master toggle. Surfaced in Settings →
     "fast_startup": (bool, _bool_validator),
-    # auto-update feature, offline-pack download consent toggle
-    "offline_pack_consent": (bool, _bool_validator),
+    # offline_pack_consent intentionally NOT allowlisted: pack updates
+    # are always-on; renderer must not disable them via set_config.
     # Re-run setup wizard (Settings → Troubleshooting). The renderer
     "onboarding_completed": (bool, _bool_validator),
     # ADR-0010 §2.11 / §8.3a: these keys MUST be in the IPC allowlist
@@ -169,7 +169,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "llm_api_url": (str, _VALIDATOR_LLM_API_URL),
     "llm_model": (str, _VALIDATOR_LLM_MODEL),
     "llm_preset": (str, _make_enum_validator(frozenset({"professional", "casual", "email", "code"}))),
-    # PRIVACY-001: consent flag is user-tunable (the consent dialog
+    # Consent flag is user-tunable (the consent dialog
     "llm_polish_consent": (bool, _bool_validator),
     # 006/009: privacy consent flags.  All user-tunable
     "huggingface_consent": (bool, _bool_validator),

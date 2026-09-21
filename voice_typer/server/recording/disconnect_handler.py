@@ -54,19 +54,30 @@ def retune_audio_processor(
                 exc_info=True,
             )
     else:
-        try:
-            proc.rebuild_from_config(config)  # type: ignore[attr-defined]
-            log.info(
-                "[RECORDING] AudioProcessor.rebuild_from_config called %s, "
-                "chain rebuilt (fallback, set_sample_rate unavailable)",
-                context,
-            )
-        except Exception:
+        # Same getattr guard as `set_sample_rate` above: resolving the method
+        # up front keeps the absence an explicit branch instead of an
+        # AttributeError swallowed by the retune fallback.
+        _rebuild = getattr(proc, "rebuild_from_config", None)
+        if callable(_rebuild):
+            try:
+                _rebuild(config)
+                log.info(
+                    "[RECORDING] AudioProcessor.rebuild_from_config called %s, "
+                    "chain rebuilt (fallback, set_sample_rate unavailable)",
+                    context,
+                )
+            except Exception:
+                log.warning(
+                    "[RECORDING] retune_audio_processor failed %s, "
+                    "rebuild_from_config failed; filter coefficients may be mistuned",
+                    context,
+                    exc_info=True,
+                )
+        else:
             log.warning(
-                "[RECORDING] retune_audio_processor failed %s, "
-                "rebuild_from_config failed; filter coefficients may be mistuned",
+                "[RECORDING] retune_audio_processor skipped %s, "
+                "AudioProcessor exposes neither set_sample_rate nor rebuild_from_config",
                 context,
-                exc_info=True,
             )
 
 
@@ -150,7 +161,7 @@ class DisconnectHandler:
     def stream_finished_callback_body(self, recorder: Any) -> None:
         """Body of :meth:`Recorder._stream_finished_callback`.
 
-        Promoted from ``Recorder._stream_finished_callback`` (Phase 4.5
+        Promoted from ``Recorder._stream_finished_callback`` (the split
         completion), the body is unchanged. ``recorder._stream_finished_callback``
         (the documented 1-line delegator, the sounddevice
         ``finished_callback`` target) routes here.

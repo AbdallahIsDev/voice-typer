@@ -1,5 +1,5 @@
 """Startup sequence orchestration for VoiceTyperApp.
-Phase 5: extracted from ``VoiceTyperApp._do_startup`` (~340 lines)
+Extracted from ``VoiceTyperApp._do_startup`` (~340 lines)
 re-exported and live at their owning modules. Per C-ARCH-2, tests patch seam names at their OWNING
 ``app._shutting_down`` so a ``quit()`` during startup short-circuits
 (c) Onboarding auto-heal must run before any ``config.save()`` to avoid

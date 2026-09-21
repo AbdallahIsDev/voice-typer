@@ -919,7 +919,7 @@ def _subscriber_count() -> int:
 
 
 def shutdown() -> None:
-    """M-22: shut down the deferred-publish ThreadPoolExecutor.
+    """Shut down the deferred-publish ThreadPoolExecutor.
 
         This is the SINGLE canonical lifecycle hook for the lazily-created
         ``ThreadPoolExecutor``.  Previously a duplicate ``shutdown_executor()``

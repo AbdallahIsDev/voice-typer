@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
-    """MemoryHandler with a fail-closed, self-healing PII filter (HU-8).
+    """MemoryHandler with a fail-closed, self-healing PII filter.
 
     The PII redaction filter is attached LAZILY: the
     ``voice_typer.server.security`` import is retried on the first
@@ -192,7 +192,7 @@ def install_memory_buffer(config_dir: Path) -> None:
             memory_handler.flushOnClose = False
             memory_handler.setLevel(logging.INFO)
             memory_handler.target = target_handler
-            # HU-8: the PII redaction filter is attached LAZILY (and
+            # The PII redaction filter is attached LAZILY (and
             voice_typer_root = logging.getLogger("voice_typer")
             # Avoid duplicate MemoryHandler attachments across repeated
             voice_typer_root.addHandler(memory_handler)

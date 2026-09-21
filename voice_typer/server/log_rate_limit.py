@@ -20,7 +20,7 @@ the log readable.
 
 Design
 ------
-- **Option B** from the B-5 task brief: a standalone function with a
+- **Option B** from the task brief: a standalone function with a
   module-level counter dict.  Chosen over a class wrapper (Option A)
   because there is no useful per-instance state to manage and the call
   sites can stay as a single function call.  Chosen over a context
@@ -63,7 +63,7 @@ _RATE_LIMIT_LOCK = threading.Lock()
  dicts below."""
 
 _MAX_COUNTERS = 1024
-"""GT-B1-12: hard cap on the number of distinct rate-limit counters.
+"""Hard cap on the number of distinct rate-limit counters.
 
 The keys are ``(logger.name, key_or_msg)`` pairs.  In practice, a
 handful of distinct rate-limited call sites means the dict stays
@@ -83,7 +83,7 @@ _RATE_LIMIT_COUNTS: OrderedDict[tuple[str, str], int] = OrderedDict()
 
 Implemented as :class:`collections.OrderedDict` so :meth:`move_to_end`
 gives O(1) LRU semantics without a separate access-ordered structure
-(GT-B1-12).  Never read or written without holding
+Never read or written without holding
 :data:`_RATE_LIMIT_LOCK`.
 """
 

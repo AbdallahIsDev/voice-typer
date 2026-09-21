@@ -357,6 +357,14 @@ class CoreAudioMicrophoneWatcher:
             # Capture the current thread's CFRunLoop so ``stop()`` can
             with self._lock:
                 self._run_loop = ca.runloop_get_current()
+            # stop() race window: if stop() ran while this thread was still
+            # registering listeners, it snapshotted run_loop=None and could
+            # not CFRunLoopStop us — re-check the (now set) stop event and
+            # fall through to the finally cleanup instead of blocking in
+            # CFRunLoopRun forever.
+            if self._stop_event.is_set():
+                log.debug("[MIC-WATCHER-CA] stop requested during startup, skipping run loop")
+                return
 
             log.debug("[MIC-WATCHER-CA] listener registered, entering CFRunLoop")
             # ``CFRunLoopRun`` blocks until ``CFRunLoopStop`` is called

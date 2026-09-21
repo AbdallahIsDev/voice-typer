@@ -230,7 +230,7 @@ class _TranscribeStepMixin:
 
     def _handle_empty_transcription(self) -> None:
         """Step 2: Handle case where no speech was detected."""
-        # BP-89: ESC-during-transcribe marks the cycle cancelled
+        # ESC-during-transcribe marks the cycle cancelled
         _recording = getattr(self._app, "recording", None)
         _cancelled_set = getattr(_recording, "_cancelled_cycle_ids", None)
         if _cancelled_set is not None:

@@ -1,6 +1,6 @@
 """SQLite database for storing transcription history.
 
-IMPL-A (single-writer architecture): all write operations are
+Single-writer architecture: all write operations are
 serialized through a single dedicated writer thread that owns the
 *only* write-capable connection. Read operations use thread-local
 read-only connections (WAL readers never block the writer).
@@ -298,7 +298,7 @@ _LIVE_INSTANCES: "weakref.WeakSet[HistoryDB]" = weakref.WeakSet()
 class HistoryDB:
     """Thread-safe SQLite database for transcription history.
 
-    IMPL-A single-writer architecture: a dedicated writer thread owns
+    Single-writer architecture: a dedicated writer thread owns
     the only write-capable connection and drains a bounded queue of
     write closures serially; reads use thread-local read-only
     connections (WAL, readers never block the writer).

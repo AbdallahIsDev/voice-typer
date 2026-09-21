@@ -257,7 +257,7 @@ def register_locale(locale: str, labels: dict[str, str]) -> None:
 
 
 def merge_labels(locale: str, labels: dict[str, str]) -> None:
-    """by the ``set_tray_locale`` IPC (HU-17) to push the renderer-side"""
+    """By the ``set_tray_locale`` IPC to push the renderer-side"""
     with _LOCK:
         merged = _REGISTRY.setdefault(locale, {})
         for key, value in labels.items():

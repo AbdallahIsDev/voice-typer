@@ -39,10 +39,10 @@ class AsrBackendRegistry(RegistryCore):
     def load_active(self, progress_callback: ProgressCallback | None = None) -> AsrBackend | None:
         """Load the active backend and return it."""
         _cb = progress_callback or (lambda msg: None)
-        # OI-15: the _is_disabled gate must come BEFORE backend resolution.
+        # The _is_disabled gate must come BEFORE backend resolution.
         if self._is_disabled(self.active_name):
             log.warning(
-                "[ASR_REGISTRY] active backend %s is disabled, refusing to load (OI-15)",
+                "[ASR_REGISTRY] active backend %s is disabled, refusing to load",
                 self.active_name,
             )
             return None

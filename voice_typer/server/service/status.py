@@ -53,8 +53,8 @@ class StatusMixin(ServiceMixinBase):
             local = update_check._local_offline_pack_version()
             state["installed_version"] = local
             state["available"] = local is not None
-            cfg = getattr(self._app, "config", None)
-            state["consent_granted"] = bool(getattr(cfg, "offline_pack_consent", False))
+            # Always-on: consent is not user-disableable.
+            state["consent_granted"] = True
         except Exception:  # fail-safe: degraded state, never raise
             log.debug("[SERVICE] offline pack status unavailable", exc_info=True)
         self._pack_status_cache = state

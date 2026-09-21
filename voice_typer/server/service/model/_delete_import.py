@@ -97,7 +97,7 @@ class DeleteImportMixin:
             )
             # Invalidate the tray models submenu cache so the next
             self._invalidate_tray_model_cache("delete_model")
-            # PERF-10 / SVC-9: on-disk model state changed, force the next
+            # On-disk model state changed, force the next status recompute.
             self._invalidate_model_status_cache()
             # Success: omit ``message`` so the renderer falls back to
             return {

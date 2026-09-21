@@ -165,7 +165,8 @@ class AudioPipeline:
         if self._xruns % self._xrun_threshold == 0 and recorder.on_xrun_threshold:
             with contextlib.suppress(Exception):
                 recorder.on_xrun_threshold(self._xruns)
-        # R18-F13: drop the partial chunk on xrun status. PortAudio
+        # Drop the partial chunk on xrun status: PortAudio marks the
+        # chunk untrustworthy after an overflow/underflow.
         return True
 
     def apply_filter_chain(self, indata: np.ndarray) -> np.ndarray:
@@ -486,8 +487,9 @@ class AudioPipeline:
 
         # ADR 0007 §3.5: the old per-chunk AGC (_agc_update, C1)
 
-        with self._lock:
-            recorder._last_rms = chunk_rms
+        # Plain float assignment: a single-word store needs no lock, and the
+        # discard path writes it lock-free too (consistent discipline).
+        recorder._last_rms = chunk_rms
 
         # AUDIO-CLIP: Track clipping + push IPC event (delegated to a
         self.detect_and_emit_clipping(recorder, chunk_peak)

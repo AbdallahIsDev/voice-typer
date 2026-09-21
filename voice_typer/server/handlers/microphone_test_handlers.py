@@ -52,6 +52,8 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             )
             if error:
                 return error
+            # ``_validate_dict_payload`` returns None values only with an error.
+            assert validated is not None
             mic_id = validated.get("mic_id")
             filters = validated.get("filters")
             # already clamped int/float values, but strings bypass it

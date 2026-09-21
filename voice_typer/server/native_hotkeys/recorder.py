@@ -1,7 +1,6 @@
 """Native hotkey recorder (capture mode).
 
-Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-().
+Split out from the original ``native_hotkeys.py`` module.
 
 This module owns:
 

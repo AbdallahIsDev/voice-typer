@@ -168,7 +168,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
                 # Read the cycle_id BEFORE deleting the sentinel so we
                 cycle_id = ""
                 with contextlib.suppress(Exception):
-                    # HU-10: read through ``_secure_read_text`` (POSIX
+                    # Read through ``_secure_read_text`` (POSIX
                     from voice_typer.server.config import _secure_read_text
 
                     cycle_id = _secure_read_text(_sentinel).strip()

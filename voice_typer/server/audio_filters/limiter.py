@@ -110,6 +110,9 @@ class Limiter(AudioFilter):
         # np.where(above_floor, gain, 1.0), np.where has no out= kwarg
         np.copyto(gain, 1.0, where=~above_floor)
 
+        # ``_ensure_buffers`` guarantees the lazily-allocated buffers exist.
+        assert self._output_f64_buf is not None
+        assert self._output_f32_buf is not None
         # output = (samples.astype(float64) * gain).astype(float32),
         output_f64 = self._output_f64_buf[:n]
         np.multiply(samples, gain, out=output_f64, casting="same_kind")

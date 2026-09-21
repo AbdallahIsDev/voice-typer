@@ -97,7 +97,7 @@ def _check_platform_reserved(normalized: str, platform: str) -> str | None:
 
 
 def _check_single_alphanumeric(parts: list[str]) -> str | None:
-    """Stage 4: reject a standalone single letter/digit (HOTKEY-VALIDATION-002)."""
+    """Stage 4: reject a standalone single letter/digit."""
     if len(parts) == 1:
         sole = parts[0]
         if len(sole) == 1 and sole.isalnum():

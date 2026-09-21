@@ -25,11 +25,14 @@ from voice_typer.server.security.url_allowlist import (  # noqa: F401
     _is_private_ip,
     _load_env_allowlist_extensions,
     _normalize_host,
+    _resolve_public_ips,
     _user_extensions,
     assert_url_allowed,
     extend_url_allowlist,
     get_url_allowlist,
     is_url_allowed,
+    resolve_allowed_url_ips,
+    verify_peer_ip_allowed,
 )
 
 __all__ = [
@@ -41,4 +44,6 @@ __all__ = [
     "get_url_allowlist",
     "is_url_allowed",
     "assert_url_allowed",
+    "resolve_allowed_url_ips",
+    "verify_peer_ip_allowed",
 ]

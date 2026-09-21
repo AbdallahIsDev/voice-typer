@@ -89,6 +89,11 @@ _NON_RESTORABLE_FORMATS: frozenset[int] = frozenset(
     }
 )
 
+# Clipboard format ids below this value are Win32 PREDEFINED (builtin)
+# formats: CF_TEXT=1 .. CF_DIBV5=17 plus the reserved 0x0080-0x00FF range.
+# RegisterClipboardFormat returns ids AT OR ABOVE it for custom formats.
+_REGISTERED_FORMAT_MIN = 0xC000
+
 # Maximum bytes captured for a single clipboard format. Formats larger
 _MAX_FORMAT_BYTES = 16 * 1024 * 1024
 
@@ -377,9 +382,15 @@ class ClipboardSnapshot:
                 if fmt in _NON_RESTORABLE_FORMATS:
                     continue
 
+                # Builtin formats are addressed by NUMBER. Re-registering a
+                # builtin's display name ("CF_UNICODETEXT") would create a NEW
+                # custom id, so the data would land under that id and the
+                # builtin lookup would find nothing: the user's text would be
+                # silently lost. Only genuinely registered formats (ids >=
+                # 0xC000) are re-registered by name, because Windows assigns
+                # their ids dynamically per session.
                 target_fmt = fmt
-                # Re-register registered formats by name so the ID matches
-                if name:
+                if fmt >= _REGISTERED_FORMAT_MIN and name:
                     registered = user32.RegisterClipboardFormatW(name)
                     if registered:
                         target_fmt = registered

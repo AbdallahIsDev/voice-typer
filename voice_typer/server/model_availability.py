@@ -1,4 +1,4 @@
-"""Single authoritative answer to "is model X fully on disk?" (BP-158)."""
+"""Single authoritative answer to "is model X fully on disk?"."""
 
 from __future__ import annotations
 

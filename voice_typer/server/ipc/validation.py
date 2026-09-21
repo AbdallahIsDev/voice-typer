@@ -6,9 +6,9 @@ schema.  Returns ``(validated_dict, None)`` on success, or
 ``(None, error_response_dict)`` on validation failure so the handler
 can ``return resp`` immediately.
 
-R13-F3 (IMPROVE-mode run, 2026-07-19): added :func:`_error_response`
+Added :func:`_error_response`
 to standardize the error envelope produced by handler-level
-``except Exception`` catch-alls.  Pre-R13-F3 each handler built its
+``except Exception`` catch-alls.  The helper exists because each
 own ``resp["data"] = {"message": str(e)}`` ad-hoc, omitting the
 ``code`` field that the TCP/WS dispatch paths (and the validation
 helper) include in every other error envelope.  Clients branching on
@@ -83,6 +83,9 @@ class ErrorCodes:
     AUTH_FAILED = "client.auth_failed"
     # Structured consent error, the renderer surfaces a consent
     CONSENT_REQUIRED = "client.consent_required"
+    # ``onboarding_start`` rejects a re-run of a finished wizard unless the
+    # caller passes ``{force: true}``; the renderer surfaces the message.
+    ONBOARDING_ALREADY_COMPLETE = "client.onboarding_already_complete"
     # Server-originated errors (5xx analog).
     INTERNAL_ERROR = "server.internal_error"
     HANDLER_ERROR = "server.handler_error"
@@ -170,6 +173,16 @@ ALL_ERROR_CODES: frozenset[str] = ERROR_CODES | LEGACY_ERROR_CODES
 MAX_EXPORT_PAYLOAD_BYTES: int = 1 * 1024 * 1024 - 64 * 1024
 
 
+def _measure_payload_bytes(payload: object) -> int:
+    """Wire size of *payload*: compact UTF-8 bytes, matching the sender.
+
+    ``json.dumps`` defaults would measure ASCII-escaped characters, so a
+    non-Latin payload looked ~2-3x larger than the frame the transport
+    actually writes (``ensure_ascii=False`` + compact separators).
+    """
+    return len(json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":")).encode("utf-8"))
+
+
 def _enforce_payload_size_cap(
     payload: object,
     max_bytes: int = MAX_EXPORT_PAYLOAD_BYTES,
@@ -189,7 +202,7 @@ def _enforce_payload_size_cap(
     layer silently drops.
     """
     try:
-        size = len(json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":")).encode("utf-8"))
+        size = _measure_payload_bytes(payload)
     except (TypeError, ValueError):
         return None
     if size <= max_bytes:
@@ -334,22 +347,22 @@ def _validate_dict_payload(
             - ``none_to_default`` (bool, optional, default ``True``):
     when ``True``, an explicit ``None`` value for
               the field is treated as ABSENT, the ``default`` rule
-    fires. Pre- a present ``None`` failed the
+    fires. Previously a present ``None`` failed the
               ``type`` check (assuming ``type`` didn't include
               ``type(None)``). Set ``False`` to restore the strict
               behavior.
             - ``max_value_len`` (int, optional): if the value is a string
               longer than N characters, return an ``client.invalid_field``
-    error. : replaces the ad-hoc per-value length loops in
+    error. Replaces the ad-hoc per-value length loops in
               ``save_vocabulary``.
             - ``clamp_range`` (tuple ``(lo, hi)``, optional): if the
               value is a number, coerce it to ``max(lo, min(value, hi))``
-    before storing it in ``validated``.  : replaces inline
+    before storing it in ``validated``. Replaces inline
               range-clamp coercions (e.g. duration fields).
             - ``max_payload_bytes`` (int, optional, DEPRECATED): if the
               WHOLE ``data`` dict serializes to more than N bytes, return
-    an ``client.invalid_payload`` error. : replaces the
-    inline 1 MB cap in ``save_vocabulary``.  : this
+    an ``client.invalid_payload`` error. Replaces the
+    inline 1 MB cap in ``save_vocabulary``. This
               rule is keyed off any field but applies to the WHOLE
               payload, the helper now scans ALL fields and uses the
               MINIMUM declared value (most restrictive), so the
@@ -400,7 +413,7 @@ def _validate_dict_payload(
         # Scan all field rules for a per-field ``max_payload_bytes``
         effective_max_bytes = _schema_effective_max_payload_bytes(schema)
     if effective_max_bytes is not None:
-        payload_size = len(json.dumps(data))
+        payload_size = _measure_payload_bytes(data)
         if payload_size > effective_max_bytes:
             # ErrorEnvelope contract: see validation.py
             return None, {
@@ -505,8 +518,8 @@ def _validate_dict_payload(
 def _error_response(resp: dict, message: str, *, code: str = ErrorCodes.HANDLER_ERROR) -> dict:
     """Stamp an error envelope on ``resp`` and return it.
 
-        R13-F3: standardizes the catch-all ``except Exception`` envelope
-        produced by handler mixins. Pre-R13-F3 each handler did::
+        The helper standardizes the catch-all ``except Exception`` envelope
+        produced by handler mixins. Previously each handler did::
 
             except Exception as e:
                 log.error("[IPC] <cmd> failed: %s", e, exc_info=True)

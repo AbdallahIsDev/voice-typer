@@ -1,6 +1,6 @@
 """Teardown helper for the event_bus deferred-publish executor.
 
-Phase 4.5 (OI-36), extracted verbatim from
+Extracted verbatim from
 :meth:`ShutdownController._teardown_event_bus`. The body is unchanged;
 only the class boundary moved.
 """
@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 def teardown_event_bus(controller) -> None:
     """shut down the event_bus deferred-publish executor.
 
-    M-22: this is the LAST module-level cleanup because earlier
+    this is the LAST module-level cleanup because earlier
     steps (bubble worker stop, recorder stop, hotkey stop) can each
     publish events via ``event_bus.publish``, and an RT-thread
     publish defers to this executor. Shutting it down here ensures

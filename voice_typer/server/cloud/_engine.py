@@ -49,6 +49,36 @@ from voice_typer.server.i18n import DEFAULT_LOCALE
 log = logging.getLogger(__name__)
 
 
+def _verify_cloud_peer(req: Request, resp: object) -> None:
+    """Verify the connected peer IP matches the validated URL IPs."""
+    try:
+        facade = _facade()
+        expected = facade.resolve_allowed_url_ips(
+            req.full_url,
+            field_name="cloud_api_url",
+            client_name="cloud",
+            allow_loopback_http=True,
+        )
+    except Exception:
+        log.debug("[CLOUD] peer-IP pin lookup failed", exc_info=True)
+        return
+    try:
+        raw = getattr(resp, "fp", None)
+        sock = getattr(raw, "raw", None)
+        sock = getattr(sock, "_sock", sock)
+        peer = sock.getpeername()[0] if hasattr(sock, "getpeername") else None
+    except Exception:
+        log.debug("[CLOUD] peer-IP read failed", exc_info=True)
+        return
+    if peer is None:
+        return
+    try:
+        facade.verify_peer_ip_allowed(peer, expected, host=req.host)
+    except ValueError as exc:
+        log.exception("[CLOUD] peer IP %r outside validated set, refusing", peer)
+        raise CloudNetworkError("cloud peer IP outside validated set") from exc
+
+
 def _facade():
     """Resolve the compatibility facade namespace at call time.
 
@@ -322,9 +352,9 @@ class CloudEngine:
                 raise CloudEngineError(f"{provider} transcription aborted by user")
             req = request_factory()
             try:
-                # The opener singleton resolves through the facade
                 opener = _facade()._opener
                 with opener.open(req, timeout=self._REQUEST_TIMEOUT_SECONDS) as resp:
+                    _verify_cloud_peer(req, resp)
                     # SEC-030: cap response body at 50 MB to prevent
                     raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
                     if not raw.strip():

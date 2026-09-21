@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 class StatusMixin:
     def get_model_status(self) -> dict[str, object]:
-        """PERF-10 / SVC-9: results are cached for ``_MODEL_STATUS_CACHE_TTL_S``"""
+        """Results are cached for ``_MODEL_STATUS_CACHE_TTL_S`` seconds."""
         now = time.monotonic()
         with self._model_status_cache_lock:
             if self._model_status_cache is not None and (now - self._model_status_cache_ts) < _MODEL_STATUS_CACHE_TTL_S:
@@ -24,19 +24,20 @@ class StatusMixin:
         return status
 
     def _compute_model_status(self) -> dict[str, object]:
-        """PERF-10 / SVC-9: extracted from :meth:`get_model_status` so the"""
+        """Extracted from :meth:`get_model_status` so the cache check and
+        the (slower) status computation stay independently readable."""
         import os
 
         from voice_typer.server.config import _config_dir
 
         config = self._app.config
-        status = {}
+        status: dict[str, object] = {}
 
         # Whisper models. Check ALL models from the registry, using
         from voice_typer.server.model_registry import MODEL_REGISTRY, get_model_metadata
 
         cache_dir = os.path.join(str(_config_dir()), "huggingface", "hub")
-        # SVC-9 / PERF-10: stat the cache_dir ROOT once (hoisted above the
+        # Stat the cache_dir ROOT once (hoisted above the per-model checks).
         cache_dir_exists = os.path.isdir(cache_dir)
         # PARTIAL-DOWNLOAD HONESTY: the completeness answer comes from the
         from voice_typer.server import model_availability
@@ -81,7 +82,7 @@ class StatusMixin:
         return status
 
     def _invalidate_model_status_cache(self) -> None:
-        """PERF-10 / SVC-9: drop the cached model-status dict."""
+        """Drop the cached model-status dict."""
         from voice_typer.server import model_availability
 
         model_availability.invalidate()

@@ -12,7 +12,7 @@ log = logging.getLogger("voice_typer.server.autostart_launcher")
 
 
 def _read_ipc_port_from_pid_file() -> int | None:
-    """MED-Y: read the backend's IPC port from the backend PID file.
+    """Read the backend's IPC port from the backend PID file.
 
     Returns the port as an int if found, otherwise ``None`` (the caller
     """

@@ -275,7 +275,7 @@ def show_permission_notification(tray, error_message: str) -> None:
 
     if _p.is_macos():
         title = i18n.t(_p._PERMISSION_NOTIFY_MACOS_TITLE_KEY, app=_p.APP_NAME)
-        # TCC-002: resolve the runtime bundle id (never hardcoded) and
+        # Resolve the runtime bundle id (never hardcoded) and
         from voice_typer.server.server_platform.macos_bundle_id import (
             resolve_host_bundle_id,
             tccutil_reset_command_str,
