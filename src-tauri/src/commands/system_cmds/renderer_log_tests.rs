@@ -142,7 +142,7 @@ fn test_empty_and_null_payloads() {
     assert_eq!(cap_and_serialize_renderer_payload(&Value::Null), "null");
 }
 
-// ── canonical line formatting (MO-106) ──────────────────────────
+// ── canonical line formatting ──────────────────────────
 
 /// An error payload with a message + structured location renders as the
 /// canonical, grep-able line: tag, message, `(src=file:line:col)`,

@@ -524,7 +524,7 @@ fn test_register_kill_on_parent_exit_returns_result_not_panic() {
     }
 }
 
-// ── ER-93: `pid_is_alive` liveness probe ───────────────────────────
+// ── `pid_is_alive` liveness probe ───────────────────────────
 
 /// The test process obviously exists, `pid_is_alive(own pid)` must
 /// report alive. Pins the rc == 0 path of the `kill(pid, 0)` probe.

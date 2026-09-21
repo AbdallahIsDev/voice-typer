@@ -123,7 +123,7 @@ fn test_ue3_f12_hz_above_1000_does_not_silently_disable_coalescing() {
     let too_soon = start + Duration::from_micros(100);
     assert!(
         !bubble_coalesce_should_emit(Some(start), too_soon, hz),
-        "UE-3-F12: hz=2000 must produce a 500 µs min interval, 100 µs gap should be suppressed (old form silently disabled coalescing here)"
+        "hz=2000 must produce a 500 µs min interval, 100 µs gap should be suppressed (old form silently disabled coalescing here)"
     );
 
     // Event 600 µs after the last emit, above the 500 µs min
@@ -131,6 +131,6 @@ fn test_ue3_f12_hz_above_1000_does_not_silently_disable_coalescing() {
     let just_enough = start + Duration::from_micros(600);
     assert!(
         bubble_coalesce_should_emit(Some(start), just_enough, hz),
-        "UE-3-F12: event 600 µs after last emit (hz=2000, min_interval=500 µs) should pass"
+        "event 600 µs after last emit (hz=2000, min_interval=500 µs) should pass"
     );
 }

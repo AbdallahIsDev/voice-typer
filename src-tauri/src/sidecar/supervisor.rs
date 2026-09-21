@@ -219,14 +219,14 @@ pub(crate) async fn respawn(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
-    // MO-110: adopted backend is our PARENT — do not double-spawn.
+    // Adopted backend is our PARENT — do not double-spawn.
     if *state.adopted_backend.lock().await {
         log::info!(
             "[SUPERVISOR] adopted-backend mode (VT_PYTHON_PORT attach): respawn disabled"
         );
         return Ok(());
     }
-    // MO-126: mid-sleep spawn would target a frozen process; resume path owns recovery.
+    // Mid-sleep spawn would target a frozen process; resume path owns recovery.
     if state.power_suspended.load(Ordering::SeqCst) {
         log::info!("[SUPERVISOR] host is suspended: skipping respawn");
         return Ok(());

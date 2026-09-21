@@ -1,10 +1,10 @@
 //! `ALLOWED_COMMANDS` defense-in-depth allowlist + shared error-code /
 //! pending-map constants.
 //!
-//! KEEP IN SYNC: TS `ALLOWED_COMMANDS` + Python `_COMMAND_REGISTRY`
-//! (CONTRIBUTING.md §6.4; parity tests
-//! `tests/test_security_doc_command_count.py` /
-//! `tests/test_rust_allowlist_parity.py`). Host-dispatched commands
+//! KEEP IN SYNC with the Python `_COMMAND_REGISTRY` (the other half of
+//! the two-layer parity; CONTRIBUTING.md §6.4). Parity tests:
+//! `tests/test_ipc_command_parity.py` /
+//! `tests/test_security_doc_command_count.py`. Host-dispatched commands
 //! (`tray_click`, `heartbeat`, `relaunch_ack`, `shutdown`) are
 //! intentionally ABSENT — they use `dispatch_inner` / fire-and-forget
 //! frames, never renderer `invoke('dispatch')`.
@@ -34,9 +34,9 @@ static ALLOWED_COMMANDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
 /// Process-global ALLOWED_COMMANDS set (init on first call).
 pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
     ALLOWED_COMMANDS.get_or_init(|| {
-        // Mirrors TS allowlist + Python `_COMMAND_REGISTRY`. Parity tests
-        // pin count + exact entries. Duplicates are caught by
-        // `test_allowed_commands_set_contains_no_duplicates`.
+        // Mirrors Python `_COMMAND_REGISTRY` minus the host-dispatched
+        // delta. Parity tests pin count + exact entries. Duplicates are
+        // caught by `test_allowed_commands_set_contains_no_duplicates`.
         let cmds: &[&str] = &[
             "get_status",
             "toggle_dictation",
@@ -106,7 +106,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "reset_linux_permissions",
             "import_model",
             // heartbeat + relaunch_ack intentionally ABSENT (Rust-internal
-            // dispatch_inner / fire-and-forget; TS is a superset).
+            // dispatch_inner / fire-and-forget; never renderer-invoked).
             "repaste_last",
             "force_cancel_transcription",
             // Lightweight history counters (Dashboard / history detail).

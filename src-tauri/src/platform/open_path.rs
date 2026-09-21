@@ -57,7 +57,7 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
 /// webview CSP is `default-src 'self'`, so a renderer-side
 /// `window.open` is either blocked or traps the page inside the app,
 /// leaving every help / feedback / changelog / share link dead. This
-/// helper is the replacement route (MO-118), and it keeps the same
+/// helper is the replacement route, and it keeps the same
 /// https-only contract: anything else is refused BEFORE any OS binary is
 /// spawned, so a compromised renderer cannot hand `file://` or a custom
 /// scheme to the shell.

@@ -770,7 +770,7 @@ fn test_bubble_level_coalesce_emits_current_payload_not_stale() {
     }
 }
 
-// ── WS frame-text truncation for warn logging (HU-31) ─────────────
+// ── WS frame-text truncation for warn logging ─────────────
 //
 // The reader task's flood-prone warn sites (invalid JSON + non-numeric
 // id) previously logged the FULL inbound frame text. Inbound frames can

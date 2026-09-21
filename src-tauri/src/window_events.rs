@@ -8,7 +8,7 @@
 //! - `CloseRequested` → `commands::sidecar_cmds::on_main_window_close`
 //!   (close-to-tray semantics: see `commands/sidecar_cmds/
 //!   window_close.rs`).
-//! - `ThemeChanged` → `theme_icon::apply_to_window` (TR-4 theme-reactive
+//! - `ThemeChanged` → `theme_icon::apply_to_window` (theme-reactive
 //!   taskbar icon, `main` window only).
 //! - `Moved` → `commands::bubble::schedule_persist` (durable bubble
 //!   drag-position persistence, `bubble` window only).
@@ -25,7 +25,7 @@ pub(crate) fn handle(window: &tauri::Window, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event {
         crate::commands::sidecar_cmds::on_main_window_close(window.app_handle(), window, api);
     }
-    // TR-4 dynamic: OS theme flipped while running, swap the
+    // Theme flip at runtime: OS theme changed, swap the
     // main-window icon so the taskbar button + Alt-Tab tile keep
     // contrasting (white glyph on dark, black on light). The
     // bubble window is excluded: it is skipTaskbar, so it never

@@ -271,7 +271,7 @@ fn test_set_host_locale_window_gate_uses_main_label_predicate() {
 
 #[test]
 fn test_set_host_locale_broadcast_gate_mirrors_production_condition() {
-    // MO-119: the bubble broadcast fires only for a push that (a) stored
+    // The bubble broadcast fires only for a push that (a) stored
     // successfully AND (b) matches the value now in state (i.e. a real
     // change; Settings re-pushes the same locale on mount, which must
     // NOT re-broadcast). The pure shim mirrors the production condition

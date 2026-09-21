@@ -8,9 +8,7 @@
 //!    holds the most recent persisted pair (both coordinates, or `None`
 //!    after the Settings edge-toggle clears them server-side).
 //! 2. **Consume**: `bubble_show` (`commands/bubble/commands.rs`)
-//!    restores the cached pair when it is still on-screen, mirroring
-//!    the predecessor's in-session restore in
-//!    `voice_typer/client/src/main/windows/bubble/positioning.ts`.
+//!    restores the cached pair when it is still on-screen.
 //! 3. **Persist**: the window-event hook in `main.rs` observes user
 //!    drags of the bubble window and writes the pair back through the
 //!    fire-and-forget dispatch path after a 500ms debounce. Programmatic

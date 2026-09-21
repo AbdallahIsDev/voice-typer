@@ -53,10 +53,10 @@ const EXPECTED_PROTOCOL_VERSION: u64 = 1;
 // Bound wait for auth_ok/ready so a dead sidecar cannot stall reconnect.
 const WS_AUTH_OK_TIMEOUT_SECS: u64 = 3;
 
-// Cap WS frame text logged at flood sites (HU-31: frames may carry PII).
+// Cap WS frame text logged at flood sites (frames may carry PII).
 const MAX_LOGGED_FRAME_TEXT_BYTES: usize = 256;
 
-/// Truncate WS frame text for logging (HU-31): char-boundary safe,
+/// Truncate WS frame text for logging: char-boundary safe,
 /// `...[truncated]` marker when cut. `pub(super)` for ws_tests.rs.
 pub(super) fn truncate_frame_text(text: &str) -> String {
     if text.len() <= MAX_LOGGED_FRAME_TEXT_BYTES {

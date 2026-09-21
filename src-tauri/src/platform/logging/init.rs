@@ -4,8 +4,10 @@
 
 use super::combined::{is_debug_env_truthy, is_truthy_env_var, CombinedLogger};
 use super::early::EarlyLogger;
+use super::redact::redact_pii;
 use super::rotating::RotatingFileWriter;
 use crate::util::{LOG_AGE_RETENTION_SECS, LOG_SIZE_FALLBACK_BYTES};
+use std::io::Write;
 use std::sync::atomic::AtomicBool;
 
 // POSIX-only; Windows uses ACLs (cfg(unix) gates every call site).
@@ -147,7 +149,19 @@ pub(crate) fn init_file_logger_or_stderr_fallback(config_dir: &std::path::Path) 
         );
         if let Err(e2) =
             env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-                .format_timestamp_millis()
+                // C-LOG-1 terminal form: `HH:MM:SS LEVEL msg` (seconds only,
+                // no ISO date, no millis, no module path). Mirrors
+                // EarlyLogger's pre-init sink so the degraded path stays
+                // parseable, and redacts PII (this may be the only sink).
+                .format(|buf, record| {
+                    writeln!(
+                        buf,
+                        "{} {:5} {}",
+                        crate::util::now_time_only(),
+                        record.level(),
+                        redact_pii(&record.args().to_string())
+                    )
+                })
                 .try_init()
         {
             eprintln!(

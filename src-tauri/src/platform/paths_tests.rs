@@ -413,7 +413,7 @@ fn test_config_dir_linux_missing_home_falls_back_to_cwd() {
     assert_eq!(
         p,
         std::path::PathBuf::from("./voice-typer"),
-        "missing HOME on Linux should fall back to CWD-relative voice-typer dir (NF-R9-8)"
+        "missing HOME on Linux should fall back to CWD-relative voice-typer dir"
     );
 }
 
@@ -426,7 +426,7 @@ fn test_config_dir_linux_missing_home_with_empty_xdg_falls_back_to_cwd() {
     assert_eq!(
         p,
         std::path::PathBuf::from("./voice-typer"),
-        "missing HOME + empty XDG_DATA_HOME on Linux should fall back to CWD (NF-R9-8)"
+        "missing HOME + empty XDG_DATA_HOME on Linux should fall back to CWD"
     );
 }
 
@@ -440,7 +440,7 @@ fn test_config_dir_macos_missing_home_falls_back_to_cwd() {
     assert_eq!(
         p,
         std::path::PathBuf::from("./Library/Application Support/voice-typer"),
-        "missing HOME on macOS should fall back to CWD-relative path (NF-R9-8)"
+        "missing HOME on macOS should fall back to CWD-relative path"
     );
 }
 
@@ -453,7 +453,7 @@ fn test_config_dir_windows_missing_appdata_falls_back_to_cwd() {
     assert_eq!(
         p,
         std::path::PathBuf::from("./voice-typer"),
-        "missing APPDATA on Windows should fall back to CWD-relative voice-typer dir (NF-R9-8)"
+        "missing APPDATA on Windows should fall back to CWD-relative voice-typer dir"
     );
 }
 
@@ -486,7 +486,7 @@ fn test_config_dir_legacy_voice_typer_wins_over_platform_default() {
     assert_eq!(
         p,
         tmp.join(".voice-typer"),
-        "CR-39: existing ~/.voice-typer should win over platform default"
+        "existing ~/.voice-typer should win over platform default"
     );
     fs::remove_dir_all(&tmp).ok();
 }
@@ -573,7 +573,7 @@ fn test_config_dir_empty_env_override_falls_through() {
     assert_eq!(
         p,
         std::path::PathBuf::from("/nonexistent_home_for_cr39_test/.local/share/voice-typer"),
-        "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
+        "empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
     );
     #[cfg(target_os = "macos")]
     assert_eq!(
@@ -581,7 +581,7 @@ fn test_config_dir_empty_env_override_falls_through() {
         std::path::PathBuf::from(
             "/nonexistent_home_for_cr39_test/Library/Application Support/voice-typer"
         ),
-        "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
+        "empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
     );
     #[cfg(target_os = "windows")]
     {
@@ -594,7 +594,7 @@ fn test_config_dir_empty_env_override_falls_through() {
         assert_eq!(
             p,
             std::path::PathBuf::from(".").join(APP_SLUG),
-            "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset (CWD fallback)"
+            "empty VOICE_TYPER_CONFIG_DIR should be treated as unset (CWD fallback)"
         );
     }
 }

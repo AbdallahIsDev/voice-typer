@@ -30,7 +30,7 @@ async fn test_gt8_heartbeat_handle_slot_round_trips_take_abort_replace() {
     let state = Arc::new(crate::state::SidecarState::new());
     assert!(
         state.heartbeat_handle.lock().await.is_none(),
-        "GT-8: fresh state must have heartbeat_handle = None"
+        "fresh state must have heartbeat_handle = None"
     );
 
     let h1 = tauri::async_runtime::spawn(async {
@@ -96,7 +96,7 @@ async fn test_gt8_shutdown_sidecar_for_exit_aborts_heartbeat_handle() {
         }
     })
     .await
-    .expect("GT-8: shutdown_sidecar_for_exit must abort + clear the heartbeat handle within 3s");
+    .expect("shutdown_sidecar_for_exit must abort + clear the heartbeat handle within 3s");
 
     // Stop the spawned shutdown task, its remaining 30s dev-mode
     // sleep is irrelevant to the assertion above.
@@ -132,7 +132,7 @@ async fn test_ue8_f10_abort_heartbeat_clears_handle_and_aborts_task() {
     // The handle must be cleared.
     assert!(
         state.heartbeat_handle.lock().await.is_none(),
-        "UE-8-F10: abort_heartbeat must clear the heartbeat handle"
+        "abort_heartbeat must clear the heartbeat handle"
     );
 
     // Calling abort_heartbeat again must be a no-op (idempotent) —
@@ -140,7 +140,7 @@ async fn test_ue8_f10_abort_heartbeat_clears_handle_and_aborts_task() {
     abort_heartbeat(&state).await;
     assert!(
         state.heartbeat_handle.lock().await.is_none(),
-        "UE-8-F10: abort_heartbeat must be idempotent on a None handle"
+        "abort_heartbeat must be idempotent on a None handle"
     );
 }
 
@@ -159,7 +159,7 @@ async fn test_ue8_f10_abort_heartbeat_on_fresh_state_is_noop() {
     abort_heartbeat(&state).await;
     assert!(
         state.heartbeat_handle.lock().await.is_none(),
-        "UE-8-F10: abort_heartbeat on fresh state must leave handle as None"
+        "abort_heartbeat on fresh state must leave handle as None"
     );
 }
 

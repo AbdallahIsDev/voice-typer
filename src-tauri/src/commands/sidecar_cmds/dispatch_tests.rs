@@ -1,7 +1,7 @@
 //! Sibling tests for `commands::sidecar_cmds::dispatch` (per C-TEST-5,
 //! sibling test file, no inline tests in production source).
 //!
-//! Pins the MO-115 derived dispatch-data cap:
+//! Pins the derived dispatch-data cap:
 //!
 //! - the derivation itself (`DISPATCH_DATA_MAX_BYTES ==
 //!   MAX_FRAME_BYTES - ENVELOPE_HEADROOM_BYTES`), so a future change
@@ -26,7 +26,7 @@ fn test_dispatch_data_cap_is_derived_from_frame_ceiling_minus_headroom() {
         DISPATCH_DATA_MAX_BYTES,
         MAX_FRAME_BYTES - ENVELOPE_HEADROOM_BYTES,
         "DISPATCH_DATA_MAX_BYTES must stay derived from MAX_FRAME_BYTES \
-         minus ENVELOPE_HEADROOM_BYTES (MO-115)"
+         minus ENVELOPE_HEADROOM_BYTES"
     );
     // 1 MiB - 256: the old hard 256 KiB gate sat far below this.
     assert_eq!(DISPATCH_DATA_MAX_BYTES, 1024 * 1024 - 256);
@@ -45,7 +45,7 @@ fn test_save_vocabulary_scale_payload_passes_host_gate() {
     let data_str = format!("[{}]", entries.join(","));
     assert!(
         data_str.len() > 256 * 1024,
-        "fixture must exceed the OLD 256 KiB gate to be a real MO-115 case \
+        "fixture must exceed the OLD 256 KiB gate to be a real case \
          (got {} bytes)",
         data_str.len()
     );

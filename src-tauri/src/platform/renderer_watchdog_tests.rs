@@ -1,4 +1,4 @@
-//! Unit tests for the renderer liveness watchdog policy (MO-113).
+//! Unit tests for the renderer liveness watchdog policy.
 //!
 //! The policy is pure (`watchdog_decision`), so the interesting cases,
 //! fresh heartbeats, throttled background windows, a stalled visible

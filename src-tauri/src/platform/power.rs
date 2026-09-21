@@ -1,7 +1,7 @@
-//! OS power-event handling for the Tauri host (MO-126).
+//! OS power-event handling for the Tauri host.
 //!
-//! predecessor bridged `powerMonitor` suspend/resume/on-battery
-//! (`client/src/main/power.ts`). Tauri/wry expose no equivalent
+//! The predecessor host bridged suspend/resume/on-battery through its
+//! own power monitor. Tauri/wry expose no equivalent
 //! (`RunEvent::Resumed` is the winit Android/desktop event-loop resume,
 //! NOT OS sleep/wake — verified against docs.rs tauri 2.11.5).
 //!
@@ -172,7 +172,7 @@ fn spawn_platform_watch(
 ) {
     log::info!(
         "[POWER] platform subscription not implemented on this OS; \
-         relying on supervisor respawn after wake (MO-126 stub)"
+         relying on supervisor respawn after wake (documented stub)"
     );
 }
 
@@ -243,7 +243,7 @@ pub(crate) fn handle_power_event(
         ),
         PowerEvent::OnBattery => {
             log::info!(
-                "[POWER] power-status change (on-battery/AC); log-only (MO-126 documented drop)"
+                "[POWER] power-status change (on-battery/AC); log-only (documented drop)"
             )
         }
     }

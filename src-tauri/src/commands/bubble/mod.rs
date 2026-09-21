@@ -22,7 +22,7 @@ mod persisted_position;
 mod rate_limit;
 mod window;
 
-// MO-125: the global bubble-dismiss shortcut reuses the exact hide
+// The global bubble-dismiss shortcut reuses the exact hide
 // body the bubble's '×' button uses, so the keyboard path can never
 // drift from the click path (E7).
 pub(crate) use window::{hide_bubble_window, show_bubble_window, wants_bubble_show};

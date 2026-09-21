@@ -281,7 +281,7 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
     // (caught via `catch_unwind` so the test process survives).
     let poison_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _guard = writer.inner.lock().unwrap();
-        panic!("intentional poison for PVT-G5-018 test");
+        panic!("intentional poison for the poisoned-handler test");
     }));
     assert!(
         poison_result.is_err(),
@@ -944,7 +944,7 @@ fn test_rotating_file_writer_log_file_mode_is_0o600_on_posix() {
     let mode = meta.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o600,
-        "PI-7: log file mode must be 0o600 (owner rw only); got 0o{:o}",
+        "log file mode must be 0o600 (owner rw only); got 0o{:o}",
         mode
     );
     std::fs::remove_dir_all(&tmp).ok();
@@ -977,7 +977,7 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
     // No numbered backup may exist.
     assert!(
         !tmp.join("test-log.log.1").exists(),
-        "PI-7: single-file policy forbids .log.1 backups"
+        "single-file policy forbids .log.1 backups"
     );
 
     // The current (only) `.log` file must be 0o600.
@@ -986,7 +986,7 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
     let mode = meta.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o600,
-        "PI-7: current log file mode must be 0o600 after truncate; got 0o{:o}",
+        "current log file mode must be 0o600 after truncate; got 0o{:o}",
         mode
     );
 
@@ -1022,7 +1022,7 @@ fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {
     let mode = meta.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o700,
-        "PI-7: logs dir mode must be 0o700; got 0o{:o}",
+        "logs dir mode must be 0o700; got 0o{:o}",
         mode
     );
     std::fs::remove_dir_all(&tmp).ok();
@@ -1064,7 +1064,7 @@ fn test_fr33_bubble_level_filter_drops_info_record() {
     let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap_or_default();
     assert!(
         !content.contains("bubble_level event rms=0.42"),
-        "FR-33: INFO bubble_level record must be dropped from file log; got: {}",
+        "INFO bubble_level record must be dropped from file log; got: {}",
         content
     );
     std::fs::remove_dir_all(&tmp).ok();
@@ -1099,7 +1099,7 @@ fn test_fr33_bubble_level_filter_preserves_warn_record() {
     let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap_or_default();
     assert!(
         content.contains("bubble_level event handler stalled"),
-        "FR-33: WARN bubble_level record must be PRESERVED in file log; got: {}",
+        "WARN bubble_level record must be PRESERVED in file log; got: {}",
         content
     );
     std::fs::remove_dir_all(&tmp).ok();
@@ -1135,7 +1135,7 @@ fn test_fr33_bubble_level_filter_preserves_error_record() {
     let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap_or_default();
     assert!(
         content.contains("bubble_level event handler crashed"),
-        "FR-33: ERROR bubble_level record must be PRESERVED in file log; got: {}",
+        "ERROR bubble_level record must be PRESERVED in file log; got: {}",
         content
     );
     std::fs::remove_dir_all(&tmp).ok();
@@ -2363,7 +2363,7 @@ fn test_rotating_queue_byte_gate_drops_non_error_keeps_error() {
     std::fs::remove_dir_all(&tmp).ok();
 }
 
-// ── file-sink level contract (MO-114) ────────────────────
+// ── file-sink level contract ────────────────────
 
 #[test]
 fn test_combined_logger_file_level_gate_suppresses_info_keeps_warn() {
@@ -2430,7 +2430,7 @@ fn test_combined_logger_file_level_gate_suppresses_info_keeps_warn() {
     std::fs::remove_dir_all(&tmp).ok();
 }
 
-// ── crash-loop breaker policy (MO-107) ─────────────────────
+// ── crash-loop breaker policy ─────────────────────
 
 #[test]
 fn test_breaker_should_exit_policy_counts_within_window() {

@@ -538,7 +538,7 @@ async fn test_gt9_catch_unwind_clears_respawn_in_progress_on_panic() {
     // `panicking_inner()` call below), preserving the test's
     // AssertUnwindSafe(panicking_inner()).catch_unwind().await shape.
     let panicking_inner = || async move {
-        panic!("simulated respawn_inner panic (GT-9 test)");
+        panic!("simulated respawn_inner panic (panic-recovery test)");
         #[allow(unreachable_code)]
         Ok::<(), String>(())
     };
@@ -553,14 +553,14 @@ async fn test_gt9_catch_unwind_clears_respawn_in_progress_on_panic() {
 
     assert!(
         !state.respawn_in_progress.load(Ordering::SeqCst),
-        "GT-9: respawn_in_progress must be cleared after a caught panic"
+        "respawn_in_progress must be cleared after a caught panic"
     );
     assert!(
         state
             .respawn_in_progress
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok(),
-        "GT-9: flag must be re-acquirable after the caught panic cleared it"
+        "flag must be re-acquirable after the caught panic cleared it"
     );
 }
 
@@ -578,7 +578,7 @@ fn test_gt_c4_6_shutting_down_paths_clear_flag() {
     }
     assert!(
         !state.respawn_in_progress.load(Ordering::SeqCst),
-        "GT-C4-6 path 1: flag must be cleared on top-of-loop early return"
+        "flag must be cleared on top-of-loop early return (path 1)"
     );
 
     // Path 2: pre-spawn re-check.
@@ -588,7 +588,7 @@ fn test_gt_c4_6_shutting_down_paths_clear_flag() {
     }
     assert!(
         !state.respawn_in_progress.load(Ordering::SeqCst),
-        "GT-C4-6 path 2: flag must be cleared on pre-spawn early return"
+        "flag must be cleared on pre-spawn early return (path 2)"
     );
 
     // Path 3: post-spawn re-check.
@@ -598,7 +598,7 @@ fn test_gt_c4_6_shutting_down_paths_clear_flag() {
     }
     assert!(
         !state.respawn_in_progress.load(Ordering::SeqCst),
-        "GT-C4-6 path 3: flag must be cleared on post-spawn early return"
+        "flag must be cleared on post-spawn early return (path 3)"
     );
 
     state.shutting_down.store(false, Ordering::SeqCst);
@@ -615,18 +615,18 @@ async fn test_gt_c4_8_child_install_race_clears_flag() {
     let install = !state.shutting_down.load(Ordering::SeqCst);
     assert!(
         !install,
-        "GT-C4-8: when shutting_down is set, install must be false"
+        "when shutting_down is set, install must be false"
     );
     if !install {
         state.respawn_in_progress.store(false, Ordering::SeqCst);
     }
     assert!(
         !state.respawn_in_progress.load(Ordering::SeqCst),
-        "GT-C4-8: flag must be cleared when shutting_down prevents install"
+        "flag must be cleared when shutting_down prevents install"
     );
     assert!(
         state.child.lock().unwrap().is_none(),
-        "GT-C4-8: state.child must remain None when shutting_down prevents install"
+        "state.child must remain None when shutting_down prevents install"
     );
 
     state.shutting_down.store(false, Ordering::SeqCst);
@@ -687,18 +687,18 @@ fn test_ue4_breaker_trips_on_third_relaunch_attempt() {
     assert_eq!(
         app_restart_calls,
         MAX_RESTART_ATTEMPTS - 1,
-        "UE-4: breaker should fire after {} app.restart() calls (one less than MAX), got {}",
+        "breaker should fire after {} app.restart() calls (one less than MAX), got {}",
         MAX_RESTART_ATTEMPTS - 1,
         app_restart_calls
     );
     assert!(
         supervisor_failed_emitted,
-        "UE-4: supervisor_failed must be emitted when the breaker trips"
+        "supervisor_failed must be emitted when the breaker trips"
     );
     assert_eq!(
         trip_attempt,
         Some(MAX_RESTART_ATTEMPTS),
-        "UE-4: breaker must trip on attempt {} (== MAX_RESTART_ATTEMPTS), got {:?}",
+        "breaker must trip on attempt {} (== MAX_RESTART_ATTEMPTS), got {:?}",
         MAX_RESTART_ATTEMPTS,
         trip_attempt
     );
@@ -726,7 +726,7 @@ fn test_ue4_breaker_counter_only_increments_on_exhaustion_not_success() {
     }
     assert_eq!(
         persisted_count, 0,
-        "UE-4: successful respawns must NOT bump the counter (old code bumped on every respawn)"
+        "successful respawns must NOT bump the counter (old code bumped on every respawn)"
     );
 }
 
@@ -770,11 +770,11 @@ fn test_ue3_f6_shutting_down_check_after_flag_acquisition() {
 
     assert!(
         !disk_io_performed,
-        "UE-3-F6: no disk I/O should be performed when shutting_down is set after flag acquisition"
+        "no disk I/O should be performed when shutting_down is set after flag acquisition"
     );
     assert!(
         !state.respawn_in_progress.load(Ordering::SeqCst),
-        "UE-3-F6: flag must be cleared on the post-acquisition shutting_down early return"
+        "flag must be cleared on the post-acquisition shutting_down early return"
     );
 
     state.shutting_down.store(false, Ordering::SeqCst);
@@ -807,11 +807,11 @@ fn test_ue3_f13_last_error_tracks_most_recent_iteration_error() {
     }
     assert_eq!(
         last_error, iterations[2],
-        "UE-3-F13: last_error must reflect the most recent iteration's error, not the first"
+        "last_error must reflect the most recent iteration's error, not the first"
     );
     assert!(
         !last_error.is_empty(),
-        "UE-3-F13: last_error must be non-empty after at least one failed iteration"
+        "last_error must be non-empty after at least one failed iteration"
     );
 
     // Verify the captured string would be JSON-serializable as a
@@ -824,7 +824,7 @@ fn test_ue3_f13_last_error_tracks_most_recent_iteration_error() {
     assert_eq!(
         payload.get("last_error").and_then(|v| v.as_str()),
         Some(iterations[2]),
-        "UE-3-F13: last_error must serialize into the supervisor_relaunching payload"
+        "last_error must serialize into the supervisor_relaunching payload"
     );
 }
 
@@ -852,12 +852,12 @@ fn test_ue3_f5_install_arm_handles_some_child() {
     assert_eq!(
         child_guard,
         Some(42),
-        "UE-3-F5: install arm must install the fresh child"
+        "install arm must install the fresh child"
     );
-    assert!(child.is_none(), "UE-3-F5: child must be consumed by take()");
+    assert!(child.is_none(), "child must be consumed by take()");
     assert!(
         old.is_none(),
-        "UE-3-F5: prior child (None here) is preserved in `old`"
+        "prior child (None here) is preserved in `old`"
     );
 }
 
@@ -1171,11 +1171,11 @@ fn test_clear_restart_counter_helper_is_wired_not_dead_code() {
     );
 }
 
-// ── MO-126: power suspend/resume sidecar actions ─────────────────
+// ── Adopted-backend mode: power suspend/resume sidecar actions ──
 
 #[tokio::test]
 async fn test_stop_sidecar_for_suspend_adopted_mode_is_noop() {
-    // MO-110: adopted-backend mode has no child handle; stop must
+    // Adopted-backend mode has no child handle; stop must
     // return immediately without touching shutting_down (which would
     // permanently disable the supervisor).
     let state = Arc::new(SidecarState::new());
@@ -1222,12 +1222,12 @@ async fn test_stop_sidecar_for_suspend_does_not_set_shutting_down() {
 #[test]
 fn test_respawn_source_gates_on_power_suspended() {
     // Source pin: supervisor::respawn must stand down while the host
-    // is suspended (MO-126). A mid-sleep crash must not spawn into a
+    // is suspended. A mid-sleep crash must not spawn into a
     // frozen process; resume's ensure requests one respawn instead.
     let src = include_str!("supervisor.rs");
     assert!(
         src.contains("power_suspended.load"),
-        "supervisor::respawn must check power_suspended (MO-126)"
+        "supervisor::respawn must check power_suspended"
     );
     assert!(
         src.contains("host is suspended: skipping respawn"),

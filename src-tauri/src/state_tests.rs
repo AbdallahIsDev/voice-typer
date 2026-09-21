@@ -280,7 +280,7 @@ async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
-// ── WorkerState (Phase 2a: runtime-pack split, §7) ─────────────────
+// ── WorkerState (runtime-pack split, §7) ─────────────────
 //
 // Tests for the WorkerState struct (parallel to SidecarState for the
 // ML worker exe). The struct mirrors SidecarState's field set +

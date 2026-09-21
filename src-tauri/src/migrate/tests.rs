@@ -11,7 +11,7 @@
 //! Unit tests for the predecessor → Tauri migration module.
 //!
 //! Moved verbatim from the original `migrate.rs` monolith as part of
-//! the Phase 4.5 split. No test logic changed, only the
+//! the package split. No test logic changed, only the
 //! `use super::*;` parent path now points at `migrate/mod.rs`
 //! instead of `migrate.rs` (the file).
 

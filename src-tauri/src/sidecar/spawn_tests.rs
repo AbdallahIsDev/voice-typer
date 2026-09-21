@@ -161,7 +161,7 @@ fn test_parse_server_started_port_zero() {
     assert_eq!(
         parse_server_started(line),
         None,
-        "UE-3-F7: port=0 must be rejected (a real sidecar never reports 0 in the handshake)"
+        "port=0 must be rejected (a real sidecar never reports 0 in the handshake)"
     );
 }
 
@@ -176,7 +176,7 @@ fn test_parse_server_started_port_above_u16_max_returns_none() {
     assert_eq!(
         parse_server_started(line),
         None,
-        "GT-D3-2: port=70000 must return None (not truncate to 4464)"
+        "port=70000 must return None (not truncate to 4464)"
     );
 }
 
@@ -315,7 +315,7 @@ fn test_passthrough_env_allowlist_excludes_unrelated_vars() {
         .collect();
     assert!(
         !names.iter().any(|n| n == sentinel),
-        "PI-2 regression: sentinel env var leaked into allowlist: {:?}",
+        "sentinel env var leaked into allowlist: {:?}",
         names
     );
 }
@@ -334,7 +334,7 @@ fn test_passthrough_env_allowlist_includes_path() {
     if std::env::var_os("PATH").is_some() {
         assert!(
             names.iter().any(|n| n == "PATH"),
-            "PI-2: PATH missing from allowlist: {:?}",
+            "PATH missing from allowlist: {:?}",
             names
         );
     }
@@ -365,13 +365,13 @@ fn test_passthrough_env_allowlist_includes_lc_categories_when_set() {
     // or because this test set it temporarily).
     assert!(
         names.iter().any(|n| n == real_lc),
-        "PI-2: LC_ALL missing from allowlist (it was set during the call): {:?}",
+        "LC_ALL missing from allowlist (it was set during the call): {:?}",
         names
     );
     // Sentinel must NOT leak (mirrors the unrelated-vars test).
     assert!(
         !names.iter().any(|n| n == lc_all),
-        "PI-2 regression: sentinel leaked: {:?}",
+        "sentinel leaked: {:?}",
         names
     );
 }
@@ -390,7 +390,7 @@ fn test_passthrough_env_allowlist_no_duplicates() {
         let key = k.to_string_lossy().to_string();
         assert!(
             seen.insert(key.clone()),
-            "PI-2: duplicate env var in allowlist: {}",
+            "duplicate env var in allowlist: {}",
             key
         );
     }
@@ -421,7 +421,7 @@ fn test_vt_start_hidden_env_forwards_host_flag_verbatim() {
     // flag into other tests.
     let original = std::env::var_os("VT_START_HIDDEN");
 
-    // Phase 1: the autostart case, host has VT_START_HIDDEN=1. The
+    // Case 1: the autostart case, host has VT_START_HIDDEN=1. The
     // helper must yield the EXACT env pair (name pinned as a literal so
     // a rename on either side of the cross-language contract fails
     // here instead of no-opping in production, mirroring the
@@ -434,7 +434,7 @@ fn test_vt_start_hidden_env_forwards_host_flag_verbatim() {
         "VT_START_HIDDEN=1 on the host must forward as the exact env pair"
     );
 
-    // Phase 2: a non-"1" host value must forward VERBATIM, not be
+    // Case 2: a non-"1" host value must forward VERBATIM, not be
     // normalized: the `== "1"` semantics live in the consumers on
     // BOTH sides of the boundary (the host's window bootstrap and the
     // sidecar's recorder prewarm), so forwarding as-is keeps host and
@@ -446,7 +446,7 @@ fn test_vt_start_hidden_env_forwards_host_flag_verbatim() {
         "a non-1 host value must forward verbatim (no normalization)"
     );
 
-    // Phase 3: the normal-launch case, host has no VT_START_HIDDEN,
+    // Case 3: the normal-launch case, host has no VT_START_HIDDEN,
     // so the helper must forward NOTHING (empty `.envs()` iterator →
     // the sidecar env stays free of the flag and visible launches
     // behave exactly as before).
@@ -599,7 +599,7 @@ fn test_is_shutting_down_observes_concurrent_flip() {
     assert!(is_shutting_down(Some(&flag)));
 }
 
-// ── Worker spawn (Phase 2b, runtime-pack split, §7) ───────────────
+// ── Worker spawn (runtime-pack split, §7) ───────────────
 //
 // These tests cover the worker spawn slice: `parse_worker_started`
 // (the pure stdout-handshake parser) + the `WorkerState` struct. The
@@ -729,7 +729,7 @@ fn test_worker_shared_env_config_dir_is_non_empty() {
     );
 }
 
-// ── try_claim_restart_slot (BP-33 Phase-2c serialization) ────────
+// ── try_claim_restart_slot (restart-slot serialization) ────────
 
 /// First claimant wins, concurrent second loses, clearing re-arms.
 /// Pins the anti-double-spawn invariant: two racing
@@ -756,7 +756,7 @@ fn test_try_claim_restart_slot_serializes_concurrent_verified_events() {
 
 /// `WorkerState::new()` must initialize `child` to `None`, the worker
 /// child handle is installed lazily by `initialize_worker` after the
-/// pack is downloaded + verified (Phase 2b). A non-`None` default would
+/// pack is downloaded + verified. A non-`None` default would
 /// cause `shutdown_worker_for_exit` (TBD) to attempt killing a
 /// non-existent process on the first app-exit path.
 #[test]
@@ -884,9 +884,9 @@ fn test_worker_spawn_stubs_exist() {
     let _spawn_fn = spawn_worker_and_get_port_with_shutdown;
     let _init_fn = initialize_worker;
     // Reaching this line means both stub symbols resolved, the
-    // Phase 2a scaffolding is in place.
+    // The worker scaffolding is in place.
 }
-/// MO-111 (predecessor spawn-env parity): every `env_clear()` spawn path
+/// Spawn-env parity with the predecessor: every `env_clear()` spawn path
 /// must re-add `KMP_DUPLICATE_LIB_OK=TRUE`.
 ///
 /// the predecessor's spawner always passed it for its console-less child; the
@@ -925,12 +925,12 @@ fn test_every_cleared_spawn_path_sets_kmp_duplicate_lib_ok() {
             kmp_sets >= clears,
             "{name}: {clears} .env_clear() paths but only {kmp_sets} \
              KMP_DUPLICATE_LIB_OK sets; every cleared spawn path must \
-             re-add the OpenMP workaround (MO-111)"
+             re-add the OpenMP workaround"
         );
     }
 }
 
-// ── MO-110: adopted_backend_env pure parse ───────────────────────────
+// ── adopted_backend_env pure parse ───────────────────────────
 //
 // `parse_adopted_backend_env` is the unit-testable core (no process
 // env mutation, no mutex). `adopted_backend_env()` is a thin env

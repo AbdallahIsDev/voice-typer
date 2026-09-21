@@ -1,6 +1,6 @@
 //! Sibling tests for `platform::power` (C-TEST-5).
 //!
-//! Pins the MO-126 power state machine with mocked OS events only —
+//! Pins the power state machine with mocked OS events only —
 //! no real suspend, no Tauri handle, no sidecar process. The
 //! supervisor-facing stop/ensure bodies are covered in
 //! `sidecar/supervisor_tests.rs`.
@@ -80,7 +80,7 @@ fn test_suspend_resume_cycle_restores_running() {
     assert_eq!(m.state(), PowerState::Running);
 }
 
-// ── Action dispatch: power_suspended flag mirroring (MO-126) ──────
+// ── Action dispatch: power_suspended flag mirroring ──────
 
 #[test]
 fn test_mirror_flag_stop_sidecar_sets_suspended() {

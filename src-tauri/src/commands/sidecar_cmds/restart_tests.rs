@@ -27,7 +27,7 @@ fn test_restart_allowed_while_running() {
     assert!(restart_blocked_envelope(false).is_none());
 }
 
-/// MO-110: a restart in adopted-backend mode is refused with the same
+/// A restart in adopted-backend mode is refused with the same
 /// `adopted` reason the predecessor's `restart-backend.ts` returns (the backend
 /// is our parent; respawning would double-spawn next to it).
 #[test]

@@ -16,11 +16,11 @@
 //! `commands/bubble/tests.rs`).
 //!
 //! These tests pin the dispatch allowlist (SEC-019 / ADR-0015 defense-in-
-//! depth). The Python parity test in
-//! `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
-//! cross-checks the Rust set against the TS `ALLOWED_COMMANDS` literal —
-//! these Rust tests are the unit-level sanity checks (must contain key
-//! commands, must NOT contain dangerous commands).
+//! depth). The Python parity tests (`tests/test_ipc_command_parity.py`,
+//! `tests/test_security_doc_command_count.py`) cross-check the Rust set
+//! against the Python `_COMMAND_REGISTRY` — these Rust tests are the
+//! unit-level sanity checks (must contain key commands, must NOT contain
+//! dangerous commands).
 
 use super::{allowed_commands, is_command_allowed, PENDING_FULL_CODE, PENDING_MAX};
 use serde_json::{json, Value};
@@ -80,11 +80,11 @@ fn test_allowed_commands_does_not_contain_heartbeat_or_relaunch_ack() {
     //`tray_click` ().
     assert!(
         !is_command_allowed("heartbeat"),
-        "heartbeat must NOT be in ALLOWED_COMMANDS (DT-50: dispatched via dispatch_inner from the WS-reader task)"
+        "heartbeat must NOT be in ALLOWED_COMMANDS (dispatched via dispatch_inner from the WS-reader task)"
     );
     assert!(
         !is_command_allowed("relaunch_ack"),
-        "relaunch_ack must NOT be in ALLOWED_COMMANDS (DT-50: dispatched via dispatch_inner from the relaunch_app event handler)"
+        "relaunch_ack must NOT be in ALLOWED_COMMANDS (dispatched via dispatch_inner from the relaunch_app event handler)"
     );
 }
 
@@ -149,66 +149,21 @@ fn test_allowed_commands_set_is_nonempty() {
 }
 
 #[test]
-fn test_allowed_commands_count_matches_ts_parity() {
-    //the Rust allowlist must contain EXACTLY the same number
-    // of commands as the TS allowlist in
-    // `voice_typer/client/src/main/allowed-commands.ts` (canonical
-    // declaration since R6-F10: was previously inline in
-    // `index.ts:79-191`). The Python test
-    // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
-    // asserts the entries match exactly, this Rust-side test pins
-    // the COUNT so a local `cargo test` catches a drift before the
-    // Python test even runs.
-    //
-    // 63 shared commands (TS has 65 = 63 shared + heartbeat +
-    // relaunch_ack). `heartbeat` and `relaunch_ack` are
-    // intentionally ABSENT from this Rust literal, see the
-    // doc comment on the cmds literal below. `check_accessibility`
-    // was re-added on 2026-08-10 (finding #919 part b) alongside
-    // `reset_macos_accessibility` and `reset_linux_permissions`;
-    // `tray_click` is also intentionally absent, see `dispatch_inner`.
-    // `transcribe_offline` was added on 2026-08-13 by the runtime-pack
-    // split (master plan §7.4: slim core → worker offline-transcription
-    // request), bumping the count from 65 to 66.
-    //
-    // (2026-08-14): `get_prewarm_status` / `open_prewarm_log` were
-    // RESTORED in lockstep from this Rust literal + the TS
-    // `ALLOWED_COMMANDS` Set + the Python `_COMMAND_REGISTRY` +
-    // `handlers/status_handlers.py` (the About-page Cache Status card
-    // is a user-facing product feature, plan §6.3 addendum). Count
-    // went from 63 to 65. `run_prewarm` was ALSO restored the same
-    // day (§6.3 addendum second half, re-implemented to re-run the
-    // worker's warm phase in-process via `prewarm.status.run_prewarm_now`,
-    // no deleted-subprocess spawn) → 66. `check_offline_pack_update`
-    // (auto-update feature) was added the same day → 67.
-    //
-    // (2026-08-16): `test_vocabulary_correction` was added to the
-    // Rust literal + snapshot (the Vocabulary page "Test corrections"
-    // panel: the count-only tests below were missed in that commit;
-    // they are corrected here) → 68. (2026-08-17): `get_correction_usage`
-    // (per-correction usage snapshots powering the Vocabulary page's
-    // "used Nx" + the Analytics corrections rate) was added to the
-    // literal + TS + Python registry in lockstep; the snapshot and
-    // count tests were missed in that commit and are corrected here
-    // → 69. (2026-08): `microphone_test_read_audio` (chunked file-reference
-    // transport for mic-test WAVs) added in lockstep → 70.
-    //
-    // The TS allowlist is the canonical declaration
-    // (`voice_typer/client/src/main/allowed-commands.ts`): 73 entries
-    // total = 71 shared + `heartbeat` + `relaunch_ack` (both sent by
-    // the host, never routed through this dispatch gate, see the
-    // cmds literal doc comment). The Python `_COMMAND_REGISTRY` has 75
-    // (73 renderer-reachable + `tray_click` + `shutdown`, both
-    // host-supervised and excluded from the TS allowlist).
-    // (2026-09): `get_download_queue` (pending-download FIFO queue
-    // snapshot hydrating the Models page queue chips) was added to
-    // the literal + TS + Python registry in lockstep; the snapshot
-    // and count tests were missed in that commit and are corrected
-    // here → 71.
+fn test_allowed_commands_count_matches_python_registry_parity() {
+    // The Rust literal is exactly the renderer-reachable subset of the
+    // Python `_COMMAND_REGISTRY`: 75 registry entries minus the four
+    // host-dispatched commands (`heartbeat`, `relaunch_ack`, `shutdown`,
+    // `tray_click`) = 71. The Python parity test
+    // `tests/test_ipc_command_parity.py::test_registry_minus_rust_equals_host_dispatched_delta`
+    // asserts the entries match exactly; this Rust-side test pins the
+    // COUNT so a local `cargo test` catches drift before the Python test
+    // even runs. The host-dispatched four never route through this gate
+    // (see `dispatch_inner`), so they are intentionally ABSENT here.
     assert_eq!(
         allowed_commands().len(),
         71,
-        "must match TS allowlist (73 entries) minus heartbeat/relaunch_ack (71 entries)"
+        "must match the Python registry (75 entries) minus the 4 host-dispatched \
+         commands (heartbeat, relaunch_ack, shutdown, tray_click)"
     );
 }
 
@@ -239,39 +194,37 @@ fn test_allowed_commands_set_contains_no_duplicates() {
 #[test]
 fn test_allowed_commands_exact_snapshot() {
     //Stricter parity test: pin the EXACT 71-entry set (sorted)
-    // so any drift between the Rust literal and the TS allowlist is
+    // so any drift between the Rust literal and the Python registry is
     // caught at `cargo test` time, BEFORE the cross-layer Python
-    // parity test in
-    // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
-    // runs. The count-only test above catches add/remove drift but
+    // parity test in `tests/test_ipc_command_parity.py` runs. The
+    // count-only test above catches add/remove drift but
     // MISSES a rename (e.g. `onboarding_reset` → `reset_onboarding`)
     // that keeps the count at 71. This snapshot test catches both
     // renames and any silent reordering that would mask a missing
     // entry.
     //
     // The expected list is the alphabetically-sorted union of:
-    //   - the TS `ALLOWED_COMMANDS` literal in
-    //     `voice_typer/client/src/main/allowed-commands.ts` (73 entries)
-    //   - minus the two Rust-only-excluded commands:
-    //     `heartbeat` (sent by the Rust WS-reader task) and
-    //     `relaunch_ack` (sent by the Rust `relaunch_app` event
-    //     handler). Both bypass the `dispatch` allowlist via
-    //     `dispatch_inner`: see the doc comment on the `cmds`
-    //     literal above for the security rationale.
+    //   - the Python `_COMMAND_REGISTRY` literal (75 entries)
+    //   - minus the four host-dispatched commands: `heartbeat`
+    //     (Rust WS-reader task), `relaunch_ack` (Rust `relaunch_app`
+    //     event handler), `shutdown` (supervised `shutdown_sidecar`
+    //     path), and `tray_click` (Rust tray handler). All four bypass
+    //     the `dispatch` allowlist via `dispatch_inner`: see the doc
+    //     comment on the `cmds` literal above for the security rationale.
     //
     // MAINTENANCE: when adding/removing a command from the Rust
-    // literal, ALSO update this snapshot and the TS allowlist in
-    // the same PR. The Python parity test will catch a missed TS
-    // update, but this test catches a missed Rust snapshot update
-    // faster (no Python venv required).
+    // literal, ALSO update this snapshot and the Python registry in
+    // the same PR. The Python parity test will catch a missed
+    // registry update, but this test catches a missed Rust snapshot
+    // update faster (no Python venv required).
     //
     // (2026-08-14): `get_prewarm_status` / `open_prewarm_log`
-    // were RESTORED in lockstep from this Rust literal + the TS
-    // `ALLOWED_COMMANDS` Set + the Python `_COMMAND_REGISTRY` +
-    // `handlers/status_handlers.py`: see the inline comment at the
-    // restoration site in the `cmds` literal below. Count went from
-    // 63 to 65. `run_prewarm` was restored the same day (second
-    // half of the §6.3 addendum) → 66, and `check_offline_pack_update`
+    // were RESTORED in lockstep from this Rust literal + the Python
+    // `_COMMAND_REGISTRY` + `handlers/status_handlers.py`: see the
+    // inline comment at the restoration site in the `cmds` literal
+    // below. Count went from 63 to 65. `run_prewarm` was restored the
+    // same day (second half of the §6.3 addendum) → 66, and
+    // `check_offline_pack_update`
     // (auto-update feature) was added → 67.
     // (2026-08-16): `test_vocabulary_correction` → 68.
     // (2026-08-17): `get_correction_usage` → 69. This snapshot is
@@ -358,7 +311,7 @@ fn test_allowed_commands_exact_snapshot() {
         expected.len(),
         "snapshot length mismatch: actual Rust set has {} entries, snapshot expected {}. \
          If you added/removed a command, update BOTH this snapshot AND the cmds literal AND \
-         the TS allowlist in voice_typer/client/src/main/allowed-commands.ts.",
+         the Python `_COMMAND_REGISTRY` (= 75 entries).",
         actual.len(),
         expected.len()
     );
@@ -366,8 +319,8 @@ fn test_allowed_commands_exact_snapshot() {
         actual, expected,
         "ALLOWED_COMMANDS snapshot drift: the Rust literal no longer matches the pinned \
          71-entry snapshot. Diff the actual vs expected Vec above. If the change is \
-         intentional, update this snapshot in lockstep with the cmds literal AND the TS \
-         allowlist (see MAINTENANCE note above)."
+         intentional, update this snapshot in lockstep with the cmds literal AND the \
+         Python `_COMMAND_REGISTRY` (see MAINTENANCE note above)."
     );
 }
 

@@ -18,19 +18,22 @@ fn parse_dismiss_shortcut() -> Result<Shortcut, String> {
         .map_err(|e| format!("malformed accelerator {BUBBLE_DISMISS_ACCELERATOR:?}: {e}"))
 }
 
-/// Cancel any in-flight recording, then hide the bubble. Same calls the
-/// bubble '×' path makes. Always toggles then hides (both are idempotent
-/// when nothing is in flight / already hidden).
+/// Dismiss the bubble accelerator. `toggle_dictation` is start/stop —
+/// firing it on an idle bubble STARTS a hidden recording. Only cancel when
+/// the host last saw a recording/transcribing tray icon; otherwise just hide.
 fn dismiss_bubble(app: &tauri::AppHandle) {
     let state: tauri::State<'_, std::sync::Arc<SidecarState>> = app.state();
-    // Cancel FIRST: hide alone would leave the mic open with no indicator.
-    if let Err(e) = crate::commands::sidecar_cmds::dispatch_fire_and_forget(
-        state.inner(),
-        "toggle_dictation",
-        None,
-    ) {
-        // NotConnected is the normal idle-app case.
-        log::debug!("[SHORTCUTS] dismiss toggle_dictation not sent: {}", e);
+    if state.host_knows_recording() {
+        if let Err(e) = crate::commands::sidecar_cmds::dispatch_fire_and_forget(
+            state.inner(),
+            "toggle_dictation",
+            None,
+        ) {
+            // NotConnected is the normal idle-app case.
+            log::debug!("[SHORTCUTS] dismiss toggle_dictation not sent: {}", e);
+        }
+    } else {
+        log::debug!("[SHORTCUTS] dismiss: idle/unknown tray state, hide only (no toggle)");
     }
     if let Err(e) = crate::commands::bubble::hide_bubble_window(app) {
         log::debug!("[SHORTCUTS] dismiss hide failed (bubble may be hidden): {}", e);

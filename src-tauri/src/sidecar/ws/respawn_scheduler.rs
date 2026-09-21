@@ -1,6 +1,6 @@
 //! Respawn supervisor scheduling + auth-failure cleanup (ADR-0020 §1/§10).
 //! C-WS-3: carry expected_generation; re-check at dequeue so stale requests cannot kill a newer connection.
-//! C-TOKIO-1: `reconnect_ws` is `!Send`, so respawn runs on a dedicated std thread + `block_on`.
+//! C-TOKIO-1: respawn runs on a dedicated std thread + `block_on` (a sanctioned non-runtime-worker bridge) so requests are serialized through one bounded queue.
 
 use crate::sidecar::supervisor::respawn;
 use crate::state::lock as mutex_lock;
@@ -21,7 +21,7 @@ static RESPAWN_SUPERVISOR_TX: OnceLock<
 
 /// Enqueue a respawn for the failure observed by `expected_generation`.
 /// C-WS-3: `None` is only for heartbeat/auth-failure (generation-agnostic).
-/// C-TOKIO-1: supervisor uses std::thread + block_on because respawn is `!Send`.
+/// C-TOKIO-1: supervisor uses std::thread + block_on; the single long-lived thread serializes respawns.
 /// Queue full → drop (in-flight respawn covers it). Supervisor missing/dead → one-shot thread.
 pub(super) fn trigger_respawn_off_thread(
     app: tauri::AppHandle,
@@ -64,7 +64,7 @@ pub(super) fn trigger_respawn_off_thread(
 }
 
 /// One-shot fallback when the long-lived supervisor is unavailable.
-/// C-TOKIO-1: std::thread + block_on (respawn is `!Send`). C-WS-3: same generation re-check.
+/// C-TOKIO-1: std::thread + block_on bridge. C-WS-3: same generation re-check.
 fn spawn_oneshot_respawn_thread(
     app: tauri::AppHandle,
     state: Arc<SidecarState>,

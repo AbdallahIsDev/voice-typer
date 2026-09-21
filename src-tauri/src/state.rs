@@ -81,6 +81,10 @@ pub(crate) struct SidecarState {
     /// OS suspend flag. Supervisor stands down while suspended so a
     /// mid-sleep sidecar crash does not spawn into a frozen process.
     pub(crate) power_suspended: AtomicBool,
+    /// Last tray_state icon name from Python ("idle"/"recording"/...).
+    /// Used by the bubble-dismiss accelerator so an idle dismiss never
+    /// Fire-and-forgets a recording START via toggle_dictation.
+    pub(crate) last_tray_icon: Mutex<String>,
 }
 
 impl SidecarState {
@@ -102,6 +106,9 @@ impl SidecarState {
             host_locale: Mutex::new(None),
             adopted_backend: AsyncMutex::new(false),
             power_suspended: AtomicBool::new(false),
+            // Idle until Python publishes tray_state; dismiss must not
+            // assume recording when the host has never seen a state.
+            last_tray_icon: Mutex::new("idle".to_string()),
         }
     }
 
@@ -120,6 +127,12 @@ impl SidecarState {
     pub(crate) fn mark_tray_available(&self) {
         use std::sync::atomic::Ordering;
         self.tray_available.store(true, Ordering::SeqCst);
+    }
+
+    /// True when the last published tray icon implies an active recording.
+    pub(crate) fn host_knows_recording(&self) -> bool {
+        let icon = lock(&self.last_tray_icon);
+        matches!(icon.as_str(), "recording" | "transcribing")
     }
 }
 
@@ -141,13 +154,13 @@ pub(crate) struct WorkerState {
     /// Child handle (same enum as sidecar).
     pub(crate) child: Mutex<Option<SidecarHandle>>,
     /// Writer half of the sidecar→worker WS.
-    #[allow(dead_code)] // wired when the worker WS bridge is managed (Phase 2c)
+    #[allow(dead_code)] // wired when the worker WS bridge is managed (pending)
     pub(crate) ws_tx: Mutex<Option<WsWriterTx>>,
     /// Pending worker RPC (separate from sidecar so neither blocks the other).
-    #[allow(dead_code)] // wired when the worker RPC dispatcher is managed (Phase 2c)
+    #[allow(dead_code)] // wired when the worker RPC dispatcher is managed (pending)
     pub(crate) pending: PendingMap,
     /// Next worker RPC id (independent of sidecar ids).
-    #[allow(dead_code)] // wired when the worker RPC dispatcher is managed (Phase 2c)
+    #[allow(dead_code)] // wired when the worker RPC dispatcher is managed (pending)
     pub(crate) next_id: AtomicU64,
     /// Worker shutdown signal (separate from sidecar's).
     pub(crate) shutting_down: AtomicBool,
@@ -156,13 +169,13 @@ pub(crate) struct WorkerState {
     /// Worker `CommandEvent` stream for terminate-polling.
     pub(crate) child_exit_rx: AsyncMutex<Option<mpsc::Receiver<CommandEvent>>>,
     /// Latest worker heartbeat handle (abort to avoid leak on reconnect).
-    #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
+    #[allow(dead_code)] // wired when the worker supervisor is managed (pending)
     pub(crate) heartbeat_handle: AsyncMutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     /// Worker WS generation counter (mirrors sidecar).
-    #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
+    #[allow(dead_code)] // wired when the worker supervisor is managed (pending)
     pub(crate) ws_generation: AtomicU64,
     /// Worker supervisor backoff-cancel signal.
-    #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
+    #[allow(dead_code)] // wired when the worker supervisor is managed (pending)
     pub(crate) shutdown_notify: Notify,
     /// Per-launch bearer token (`VOICE_TYPER_WORKER_TOKEN`). Generated
     /// once per host launch so the slim-core sidecar can re-auth to a

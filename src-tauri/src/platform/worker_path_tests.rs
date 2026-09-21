@@ -57,7 +57,7 @@ fn test_runtime_pack_dir_pinned() {
 }
 
 /// The default pack version must stay pinned to `v1`, the
-/// Phase 2a skeleton uses this as the dev-only sentinel before the
+/// The worker skeleton uses this as the dev-only sentinel before the
 /// pack downloader is wired up. Production code paths set the
 /// `VOICE_TYPER_PACK_VERSION` env var explicitly.
 #[test]

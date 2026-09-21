@@ -226,11 +226,8 @@ pub(crate) fn value_to_string_into(out: &mut String, v: &Value) {
 /// and then exports history to CSV would be vulnerable to formula
 /// injection when opening the file in a spreadsheet.
 ///
-/// Mirrors the predecessor-side `csvEscape` in
-/// `voice_typer/client/src/main/ipc/export-handlers.ts`: the two
-/// implementations produce byte-identical output for the same input
-/// (enforced by the TS parity test `export-handlers-csv-escape.test.ts`
-/// and by the CSV-escape cases in `export_tests.rs`).
+/// The escaping rules are pinned by the CSV-escape cases in
+/// `export_tests.rs`.
 ///
 /// Writes the escaped form of `s` directly into `out`, appending to
 /// any existing content (never overwriting) and allocating no per-cell

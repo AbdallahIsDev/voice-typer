@@ -46,7 +46,7 @@ use futures_util::future::FutureExt;
 
 // ─── Sidecar spawn + stdout handshake (ADR-0020 §1) ───────────────────
 
-/// Pure parser for adopted-backend env pair (MO-110).
+/// Pure parser for adopted-backend env pair.
 /// `None` on missing/invalid port or missing token; caller falls through
 /// to normal spawn.
 pub(crate) fn parse_adopted_backend_env(
@@ -117,7 +117,7 @@ pub(crate) async fn initialize_sidecar(
     app_handle: &tauri::AppHandle,
     state: Arc<crate::state::SidecarState>,
 ) {
-    // MO-110: parent backend owns the process; kill/stop/respawn are no-ops.
+    // Parent backend owns the process; kill/stop/respawn are no-ops.
     if let Some((port, token)) = adopted_backend_env() {
         *state.adopted_backend.lock().await = true;
         if let Err(e) = crate::sidecar::ws::reconnect_ws(app_handle, &state, port, &token).await {

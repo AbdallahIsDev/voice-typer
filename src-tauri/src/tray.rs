@@ -18,7 +18,7 @@ pub(crate) use menu::{build_menu, empty_menu, MenuItemData, TrayMenuPayload, Tra
 #[cfg(test)]
 use tauri::tray::{MouseButton, TrayIconEvent};
 
-// tray_click is Rust-only (not in renderer ALLOWED_COMMANDS) → dispatch_inner.
+// tray_click is Rust-only (absent from `allowed_commands()`) → dispatch_inner.
 use crate::commands::{dispatch_inner, DispatchArgs};
 use crate::state::SidecarState;
 use std::sync::Arc;
@@ -60,7 +60,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             if cfg!(target_os = "macos") {
                 return;
             }
-            // Left-click only → raise main window (MO-109 shared raise path).
+            // Left-click only → raise main window (shared raise path).
             if is_focus_main_window_event(&event) {
                 crate::host_events::show_main_window(tray.app_handle());
             }
@@ -111,6 +111,13 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         // spawn_blocking: set_icon/set_tooltip may IPC-block the OS tray.
         #[allow(clippy::let_underscore_future)] // fire-and-forget; body logs errors
         let _ = tauri::async_runtime::spawn_blocking(move || {
+            if let Some(icon_name) = &payload.icon {
+                // Cache for bubble-dismiss gating (toggle = start/stop).
+                {
+                    let state: tauri::State<'_, Arc<SidecarState>> = app_inner.state();
+                    *crate::state::lock(&state.last_tray_icon) = icon_name.clone();
+                }
+            }
             if let Some(tray) = app_inner.tray_by_id(TRAY_ID) {
                 if let Some(icon_name) = &payload.icon {
                     if let Some(img) = load_tray_icon(&app_inner, icon_name) {

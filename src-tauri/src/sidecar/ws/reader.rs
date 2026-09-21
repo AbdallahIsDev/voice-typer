@@ -54,7 +54,7 @@ pub(super) fn spawn_reader_task(
                             Err(_) => {
                                 invalid_json_count = invalid_json_count.saturating_add(1);
                                 if invalid_json_count == 1 || invalid_json_count % 100 == 0 {
-                                    // HU-31: frame may carry PII — bounded prefix only.
+                                    // Frame may carry PII — bounded prefix only.
                                     log::warn!(
                                         "[WS-READER] invalid JSON frame (count={}): {}",
                                         invalid_json_count,
@@ -90,7 +90,7 @@ pub(super) fn spawn_reader_task(
                         else if v.get("id").is_some() {
                             non_numeric_id_count = non_numeric_id_count.saturating_add(1);
                             if non_numeric_id_count == 1 || non_numeric_id_count % 100 == 0 {
-                                // HU-31: bounded log, never full frame.
+                                // Bounded log, never full frame.
                                 log::warn!(
                                     "[WS-READER] frame has non-numeric id field, ignoring (count={}): {}",
                                     non_numeric_id_count,
@@ -224,8 +224,8 @@ pub(super) fn spawn_reader_task(
                 let _ = app_for_cleanup
                     .emit("supervisor_relaunching", json!({"reason": "disconnected"}));
                 log::warn!("[WS-READER] unexpected close, triggering supervisor");
-                // C-WS-3: pass Some(my_generation); std thread + block_on
-                // bridge because reconnect_ws future is !Send.
+                // C-WS-3: pass Some(my_generation); the supervisor's
+                // std-thread bridge keeps respawns serialized.
                 trigger_respawn_off_thread(
                     app_for_cleanup.clone(),
                     state_for_cleanup.clone(),

@@ -7,7 +7,7 @@
 //! logs an ERROR when the webview stops executing timers.
 //!
 //! This is the Tauri equivalent of the predecessor's `child-process-gone`
-//! telemetry (review.md MO-113): no Tauri/wry platform surfaces a
+//! telemetry (the renderer liveness watchdog): no Tauri/wry platform surfaces a
 //! renderer/GPU crash event, but "the visible renderer stopped running"
 //! is exactly the blank-window condition support needs in the log.
 //!

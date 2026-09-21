@@ -44,7 +44,7 @@ pub async fn open_logs(
     }
 }
 
-/// Open an https URL in the user's default browser (MO-118).
+/// Open an https URL in the user's default browser.
 ///
 /// Replaces the predecessor's `shell.openExternal` route (see
 /// `platform::open_path::open_external_url` for the https-only rationale

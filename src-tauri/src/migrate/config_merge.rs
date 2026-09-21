@@ -12,7 +12,7 @@ pub(crate) enum MergeOutcome {
 
 pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     if !new.exists() {
-        // M-65: atomic copy so an interrupted migration never leaves
+        // Atomic copy so an interrupted migration never leaves
         // a partially-written config.json at the target.
         util::atomic_copy(old, new)?;
         return Ok(MergeOutcome::Copied);
@@ -60,7 +60,8 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     let mut written = 0usize;
     for (k, v) in old_obj {
         let take_old = match base.get(&k) {
-            // Key present in target: winner determined by file mtime.
+            // Key present in target: ONE whole-file mtime comparison decides
+            // every conflicting key (old wins only when strictly newer).
             Some(_) => old_newer == Some(true),
             // Key absent in target: always take old.
             None => true,

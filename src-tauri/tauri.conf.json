@@ -125,6 +125,8 @@
       },
       "nsis": {
         "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
         "installerHooks": "../scripts/windows/tauri-installer-hooks.nsh"
       },
       "signCommand": "..\\scripts\\tauri-sign.cmd %1"

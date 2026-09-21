@@ -1,5 +1,6 @@
 //! Rust brand constant. C-BRAND-1: do not hardcode the display name.
-//! Mirrors `voice_typer/server/branding.py` and renderer `branding.ts`.
+//! Mirrors `voice_typer/server/branding.py` and
+//! `voice_typer/client/src/renderer/src/branding.ts`.
 //! Filesystem paths use the slug (`voice-typer`), not this string.
 
 /// User-visible product name (tray/toasts/legacy userData probes).

@@ -1,10 +1,10 @@
-//! Share-stats image export command (MO-121): `save_stats_image`.
+//! Share-stats image export command: `save_stats_image`.
 //!
-//! predecessor served the Analytics/Dashboard share image through native
-//! main-process handlers (`main/ipc/stats-image-handlers.ts`):
+//! The predecessor host served the Analytics/Dashboard share image
+//! through native main-process handlers:
 //! instant-save to the OS Downloads folder, a localized native Save-As
 //! dialog, and `shell.showItemInFolder` reveal. Only the reveal half
-//! existed under Tauri (MO-120b's `reveal_path_command`); Save-As and
+//! existed under Tauri (the former `reveal_path_command`); Save-As and
 //! Downloads fell back to a bare anchor download, which the Tauri
 //! webview either blocks (CSP `default-src 'self'`) or saves to an
 //! opaque app-internal location with no localized dialog.
@@ -148,7 +148,7 @@ fn downloads_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
         .map_err(|e| format!("download_dir resolution failed: {e}"))
 }
 
-/// Save the share-stats PNG (MO-121).
+/// Save the share-stats PNG.
 ///
 /// Payload: `{ dataUrl: string, defaultName?: string, mode?: "downloads" | "saveAs" }`.
 ///

@@ -130,7 +130,7 @@ fn test_csv_escape_into_all_special() {
     assert_eq!(escape("a,b\"c\nd\re"), "\"a,b\"\"c\nd\re\"");
 }
 
-// ── csv_escape_into: SEC-015 formula-injection defense (H-12) ─
+// ── csv_escape_into: SEC-015 formula-injection defense ─
 
 #[test]
 fn test_csv_escape_into_formula_equals() {
@@ -429,13 +429,13 @@ fn test_pi13_atomic_write_helper_preserves_existing_file_on_overwrite() {
     assert_eq!(
         read_back.as_slice(),
         new_content.as_ref(),
-        "PI-13: atomic overwrite must replace contents fully"
+        "atomic overwrite must replace contents fully"
     );
     // The temp file must NOT leak.
     let tmp_path = tmp.join(".export.csv.tmp.migrate");
     assert!(
         !tmp_path.exists(),
-        "PI-13: temp file leaked after rename: {}",
+        "temp file leaked after rename: {}",
         tmp_path.display()
     );
     std::fs::remove_dir_all(&tmp).ok();
@@ -471,7 +471,7 @@ fn test_pi13_atomic_write_helper_failure_leaves_original_unchanged() {
     let result = crate::util::atomic_write_bytes(&bad_path, b"NEW");
     assert!(
         result.is_err(),
-        "PI-13: write to non-existent subdir must return Err, got Ok"
+        "write to non-existent subdir must return Err, got Ok"
     );
     // The original file at the unrelated path must be UNCHANGED.
     let read_back =
@@ -479,7 +479,7 @@ fn test_pi13_atomic_write_helper_failure_leaves_original_unchanged() {
     assert_eq!(
         read_back.as_slice(),
         b"ORIGINAL,SENTINEL\n".as_ref(),
-        "PI-13: failed atomic write must NOT modify the original file"
+        "failed atomic write must NOT modify the original file"
     );
     std::fs::remove_dir_all(&tmp).ok();
 }
