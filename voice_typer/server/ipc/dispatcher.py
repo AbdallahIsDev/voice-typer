@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import typing
 
 from voice_typer.server.asr_errors import ConsentRequiredError
@@ -16,6 +17,14 @@ from voice_typer.server.ipc.validation import (
     _validate_dict_payload,
 )
 from voice_typer.server.log import reset_correlation_id, set_correlation_id
+
+# Dispatch-lock contention bounds: a stuck holder must degrade to a loud,
+# retryable ``server.busy`` error, never an infinite hang (a hung holder
+# plus a full dispatch pool wedges every command including readonly ones,
+# which is exactly the silent 15s-timeout outage class). Slice logging
+# names the waiter + holder so the wedged handler is identifiable.
+_DISPATCH_LOCK_ACQUIRE_SLICE_S = 5.0
+_DISPATCH_LOCK_GIVE_UP_S = 30.0
 
 
 class DispatcherMixin:
@@ -74,11 +83,23 @@ class DispatcherMixin:
                     result = handler(data, resp)
             else:
                 #  + : state-mutating handlers serialize on the
-                with self._dispatch_lock:
-                    if getattr(self, "_cached_shutting_down", False) is True:
-                        result = self._shutting_down_error(msg)
-                    else:
-                        result = handler(data, resp)
+                # dispatch lock, with bounded acquisition (see above):
+                # a holder stuck past the give-up budget yields a
+                # ``server.busy`` envelope instead of hanging forever.
+                if not self._acquire_dispatch_lock(cmd_key):
+                    result = _error_response(
+                        resp,
+                        "server busy serializing a long-running command; retry shortly",
+                        code=ErrorCodes.SERVER_BUSY,
+                    )
+                else:
+                    try:
+                        if getattr(self, "_cached_shutting_down", False) is True:
+                            result = self._shutting_down_error(msg)
+                        else:
+                            result = handler(data, resp)
+                    finally:
+                        self._release_dispatch_lock()
         except ConsentRequiredError as exc:
             # envelope (NOT the generic ``server.internal_error`` toast)
             resp["type"] = "error"
@@ -116,6 +137,37 @@ class DispatcherMixin:
                 result["id"] = msg["id"]
 
         return result
+
+    def _acquire_dispatch_lock(self, cmd_key: str) -> bool:
+        """Acquire ``_dispatch_lock`` with a bounded wait (see constants).
+
+        Returns True holding the lock (holder recorded for diagnostics),
+        False past the give-up budget (caller emits ``server.busy``).
+        Same-thread re-entry succeeds immediately (RLock semantics).
+        """
+        start = time.monotonic()
+        while True:
+            if self._dispatch_lock.acquire(timeout=_DISPATCH_LOCK_ACQUIRE_SLICE_S):
+                self._dispatch_lock_holder = cmd_key
+                self._dispatch_lock_holder_ident = threading.get_ident()
+                return True
+            waited = time.monotonic() - start
+            log.error(
+                "[IPC] %s waiting %.0fs for _dispatch_lock (holder=%s); "
+                "dispatch pool may be exhausted behind a stuck handler",
+                cmd_key,
+                waited,
+                getattr(self, "_dispatch_lock_holder", None),
+            )
+            if waited >= _DISPATCH_LOCK_GIVE_UP_S:
+                return False
+
+    def _release_dispatch_lock(self) -> None:
+        """Release ``_dispatch_lock`` and clear the holder record."""
+        if getattr(self, "_dispatch_lock_holder_ident", None) == threading.get_ident():
+            self._dispatch_lock_holder = None
+            self._dispatch_lock_holder_ident = None
+        self._dispatch_lock.release()
 
     def _shutting_down_error(self, msg: dict) -> ResponseEnvelope:
         """Build a structured ``server.shutting_down`` error envelope."""

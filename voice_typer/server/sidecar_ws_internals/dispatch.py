@@ -32,6 +32,26 @@ def _make_dispatch(server: IPCServer):
         )
         server._ws_dispatch_pool = ws_dispatch_pool
 
+    # Reserved readonly pool: readonly/instant commands must keep flowing
+    # (status polls, heartbeat-adjacent reads) even when every main-pool
+    # worker is queued behind a stuck mutating handler holding
+    # ``_dispatch_lock`` — otherwise one wedged save starves status polls
+    # and the host sees the all-commands-timeout outage class.
+    from voice_typer.server.ipc.registry import (
+        _INSTANT_CONTROL_COMMANDS,
+        _READONLY_COMMANDS,
+    )
+
+    ws_readonly_pool = getattr(server, "_ws_readonly_pool", None)
+    if ws_readonly_pool is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        ws_readonly_pool = ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="sidecar-ws-readonly",
+        )
+        server._ws_readonly_pool = ws_readonly_pool
+
     # explicit ``threading.Event`` coordination between the WS
     ws_drained_event = getattr(server, "_ws_drained_event", None)
     ws_inflight_lock = getattr(server, "_ws_inflight_lock", None)
@@ -121,7 +141,12 @@ def _make_dispatch(server: IPCServer):
                     },
                 }
             # use the dedicated ``_ws_dispatch_pool`` (not the
-            result = await loop.run_in_executor(ws_dispatch_pool, server._dispatch, msg)
+            # readonly commands ride the reserved pool so a
+            if msg_type in _READONLY_COMMANDS or msg_type in _INSTANT_CONTROL_COMMANDS:
+                pool = ws_readonly_pool
+            else:
+                pool = ws_dispatch_pool
+            result = await loop.run_in_executor(pool, server._dispatch, msg)
         except Exception:
             log.exception("[SIDECAR-WS] _dispatch raised")
             #  (2026-07-18): the error envelope now matches the

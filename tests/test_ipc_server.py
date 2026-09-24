@@ -270,13 +270,14 @@ class TestDispatchLockAndTOCTOU:
     def test_shutdown_recheck_inside_lock_closes_toctou(self) -> None:
         """flag flip between the unlocked gate and the locked handler"""
         src = inspect.getsource(IPCServer._dispatch)
-        # The re-check must appear AFTER `with self._dispatch_lock:`.
-        lock_idx = src.find("with self._dispatch_lock:")
+        # The lock is acquired via the bounded helper; the re-check must
+        # appear AFTER acquisition (handler runs only while holding it,
+        # which closes the TOCTOU window; give-up yields server.busy).
+        lock_idx = src.find("self._acquire_dispatch_lock(")
         assert lock_idx >= 0, "GT-45: _dispatch must acquire _dispatch_lock."
         recheck_idx = src.find("_shutting_down", lock_idx)
         assert recheck_idx > lock_idx, (
-            "GT-45: _dispatch must re-check _shutting_down INSIDE the "
-            "with self._dispatch_lock: block (closes the TOCTOU window)."
+            "GT-45: _dispatch must re-check _shutting_down INSIDE the held dispatch lock (closes the TOCTOU window)."
         )
 
 
@@ -447,11 +448,10 @@ class TestConcreteTypes:
         sig = inspect.signature(IPCServer.__init__)
         service_ann = sig.parameters["service"].annotation
         ann_str = service_ann if isinstance(service_ann, str) else str(service_ann)
-        assert "VoiceTyperService" in ann_str, (
-            f"GT-D1-5: __init__'s service parameter must be annotated "
-            f"VoiceTyperService | None (was Any); got {ann_str!r}."
+        assert "LausuService" in ann_str, (
+            f"GT-D1-5: __init__'s service parameter must be annotated LausuService | None (was Any); got {ann_str!r}."
         )
-        assert "Any" not in ann_str or "VoiceTyperService" in ann_str, (
+        assert "Any" not in ann_str or "LausuService" in ann_str, (
             f"GT-D1-5: service parameter must NOT be Any; got {ann_str!r}."
         )
 
@@ -2042,10 +2042,14 @@ class TestRegistryExtraction:
         assert registry._COMMAND_REGISTRY["tray_click"] == "_handle_tray_click"
         assert registry._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"
         # (test_cloud_connection) + XZ-SEC-05 (add_trusted_endpoint)
-        assert len(registry._COMMAND_REGISTRY) == 75, (
-            f"registry._COMMAND_REGISTRY must contain 75 entries "
-            f"(73 forwarded in allowed-commands.ts + shutdown + "
-            f"tray_click python-only); got "
+        # ADR-0023 media trio: local-file jobs first, URLs in Phase 2.
+        assert registry._COMMAND_REGISTRY["media_transcribe_start"] == "_handle_media_transcribe_start"
+        assert registry._COMMAND_REGISTRY["media_transcribe_cancel"] == "_handle_media_transcribe_cancel"
+        assert registry._COMMAND_REGISTRY["media_transcribe_status"] == "_handle_media_transcribe_status"
+        assert len(registry._COMMAND_REGISTRY) == 78, (
+            f"registry._COMMAND_REGISTRY must contain 78 entries "
+            f"(74 forwarded in the Rust allowlist + shutdown + "
+            f"tray_click python-only + heartbeat + relaunch_ack host-dispatched); got "
             f"{len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."

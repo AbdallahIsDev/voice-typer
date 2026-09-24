@@ -38,6 +38,7 @@ export type Page =
 	| "history"
 	| "templates"
 	| "vocabulary"
+	| "media"
 	| "models"
 	| "microphone"
 	| "analytics"
@@ -89,6 +90,12 @@ export type ErrorCodes =
 	| "server.not_found"
 	| "server.not_initialized"
 	| "server.consent_required"
+	// ADR-0023 universal media-to-text (renderer branches on these for the
+	// Media page's job card: no model → open Models, busy → wait, the
+	// rest → generic failure with the server message).
+	| "server.no_model"
+	| "server.job_busy"
+	| "server.not_supported"
 	| "server.max_connections_reached"
 	| "server.duplicate_connection"
 	| "server.cloud_auth_failed"
@@ -98,6 +105,10 @@ export type ErrorCodes =
 	| "server.cloud_config_error"
 	| "server.cloud_engine_error"
 	| "server.protocol_version_mismatch"
+	// Dispatch-queue contention (mutating command waited too long for the
+	// server dispatch lock). Renderer treats it like a retryable failure
+	// with the server message.
+	| "server.busy"
 	// Recording-pipeline resample failures emitted by the Python
 	// recording layer (see `voice_typer/server/recording/exceptions.py`).
 	// The renderer surfaces a targeted "audio pipeline misconfiguration"

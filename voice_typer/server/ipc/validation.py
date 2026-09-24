@@ -101,6 +101,11 @@ class ErrorCodes:
     DUPLICATE_CONNECTION = "server.duplicate_connection"
     # ``not_initialized`` is the namespaced form of the
     NOT_INITIALIZED = "server.not_initialized"
+    # ADR-0023 media ingest: no speech model installed/selected.
+    NO_MODEL = "server.no_model"
+    # ADR-0023 media ingest: another media job is running / source rejected.
+    JOB_BUSY = "server.job_busy"
+    NOT_SUPPORTED = "server.not_supported"
     # structured consent-required envelope emitted by the
     SERVER_CONSENT_REQUIRED = "server.consent_required"
     # Typed cloud/LLM exception hierarchy, distinct codes for
@@ -115,6 +120,10 @@ class ErrorCodes:
     RECORDING_RESAMPLE_UNAVAILABLE = "server.recording_resample_unavailable"
     # IPC wire-protocol version negotiation. Emitted by the TCP auth
     PROTOCOL_VERSION_MISMATCH = "server.protocol_version_mismatch"
+    # Dispatch-queue contention: a state-mutating command waited too long
+    # for ``_dispatch_lock`` (holder stuck). The caller retries shortly;
+    # readonly commands keep flowing on their reserved pool.
+    SERVER_BUSY = "server.busy"
 
 
 class LegacyErrorCodes:

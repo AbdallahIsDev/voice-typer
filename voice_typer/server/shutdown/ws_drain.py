@@ -46,6 +46,26 @@ def drain_ws_dispatch_pool(controller, app) -> None:
 
             early_items.append(("ws_dispatch_pool.drain", _drain_ws_pool, 5.0))
 
+        readonly_pool = getattr(ipc_server, "_ws_readonly_pool", None) if ipc_server is not None else None
+        if readonly_pool is not None and hasattr(readonly_pool, "shutdown"):
+
+            def _drain_readonly_pool() -> None:
+                # Same drain discipline as the main dispatch pool: readonly
+                # workers are short-lived status reads, so a tight budget.
+                readonly_pool.shutdown(wait=False, cancel_futures=True)
+                log.debug("[SHUTDOWN] WS readonly pool shut down (cancel_futures=True)")
+                join_thread = threading.Thread(
+                    target=readonly_pool.shutdown,
+                    kwargs={"wait": True},
+                    daemon=True,
+                )
+                join_thread.start()
+                join_thread.join(timeout=2.0)
+                if join_thread.is_alive():
+                    log.warning("[SHUTDOWN] ws_readonly_pool did not drain within its 2.0s join, proceeding anyway")
+
+            early_items.append(("ws_readonly_pool.drain", _drain_readonly_pool, 2.5))
+
         encode_pool = getattr(ipc_server, "_ws_encode_pool", None)
         if encode_pool is not None and hasattr(encode_pool, "shutdown"):
 
