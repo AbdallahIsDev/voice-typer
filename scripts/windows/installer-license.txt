@@ -1,9 +1,9 @@
-Voice Typer - Terms of Service and Consent
+Lausu - Terms of Service and Consent
 
 By installing this software you agree to the following terms.
 
 1. LOCAL PROCESSING BY DEFAULT
-Voice Typer processes your voice, transcribed text, and metadata locally
+Lausu processes your voice, transcribed text, and metadata locally
 on your device by default. No audio or text is sent anywhere unless you
 explicitly enable a cloud feature.
 
@@ -49,4 +49,4 @@ damages arising from use of this software.
 
 7. PRIVACY POLICY
 The full privacy and security policy is available at
-https://github.com/voice-typer - see SECURITY.md.
+https://github.com/lausu - see SECURITY.md.

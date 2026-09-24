@@ -1,4 +1,4 @@
-; Voice Typer. NSIS installer-time hooks (slim-core / runtime-pack split).
+; Lausu. NSIS installer-time hooks (slim-core / runtime-pack split).
 ;
 ; Companion to ``scripts/windows/uninstaller.nsh`` (which defines the
 ; ``customUnInstall`` macro for post-uninstall cleanup). This file defines
@@ -21,7 +21,7 @@
 ;
 ;   2. The ``customInstall`` macro Tauri v2 invokes AFTER the main app
 ;      files are written but BEFORE the installer exits. It writes
-;      ``%LOCALAPPDATA%\voice-typer\installer-state.json`` with the
+;      ``%LOCALAPPDATA%\lausu\installer-state.json`` with the
 ;      consent value the user picked on the Components page. The slim-core
 ;      Python backend reads this file at first launch via
 ;      ``voice_typer/server/installer_state.py`` (owned by Sub-agent 3 —
@@ -47,12 +47,12 @@
 ; VALIDATE ON WINDOWS HOST:
 ;   1. Build the slim-core installer:
 ;         cd src-tauri && cargo tauri build --config tauri.windows-x86_64.conf.json
-;   2. Run the resulting ``voice-typer-<version>-x64-setup.exe``.
+;   2. Run the resulting ``lausu-<version>-x64-setup.exe``.
 ;   3. On the Components page, confirm the "Include offline engine pack"
 ;      checkbox appears and is ticked by default.
 ;   4. Untick it, finish the install.
 ;   5. Verify the state file was written with the consent value false:
-;         type "%LOCALAPPDATA%\voice-typer\installer-state.json"
+;         type "%LOCALAPPDATA%\lausu\installer-state.json"
 ;         (Expected: {"include_offline_engine_pack": false, ...})
 ;   6. Repeat with the checkbox ticked, confirm the value is true.
 
@@ -101,7 +101,7 @@ Section "Include offline engine pack" SecIncludePack
   ; Default-selected: Components page shows the optional pack row.
   ; Pack auto-downloads regardless (always-on product decision).
   StrCpy $IncludeOfflineEnginePack "1"
-  DetailPrint "[voice-typer-installer] Offline engine pack: silent auto-download on first launch (always-on)."
+  DetailPrint "[lausu-installer] Offline engine pack: silent auto-download on first launch (always-on)."
 SectionEnd
 
 ; Human-readable description shown under the Components page list.
@@ -115,7 +115,7 @@ LangString DESC_SecIncludePack ${LANG_ENGLISH} \
 ; schema compatibility (tests pin the path/shape). Pack download is
 ; always-on in the backend and does not depend on a user consent flag.
 ;
-; The state file lives at ``%LOCALAPPDATA%\voice-typer\installer-state.json``
+; The state file lives at ``%LOCALAPPDATA%\lausu\installer-state.json``
 ;, the SAME per-user data root the Python backend uses for the runtime
 ; pack (plan §4.7). ``%LOCALAPPDATA%`` expands to ``$LOCALAPPDATA`` in
 ; NSIS. ``CreateDirectory`` is idempotent (no error if the dir exists).
@@ -136,9 +136,9 @@ LangString DESC_SecIncludePack ${LANG_ENGLISH} \
     StrCpy $IncludeOfflineEnginePack "1"
   ${EndIf}
 
-  CreateDirectory "$LOCALAPPDATA\voice-typer"
+  CreateDirectory "$LOCALAPPDATA\lausu"
   ClearErrors
-  FileOpen $0 "$LOCALAPPDATA\voice-typer\installer-state.json" w
+  FileOpen $0 "$LOCALAPPDATA\lausu\installer-state.json" w
   IfErrors installer_state_done
   ${If} $IncludeOfflineEnginePack == "1"
     FileWrite $0 `{"include_offline_engine_pack": true, "installer_version": "${PRODUCT_VERSION}", "pack_bundled": false}`$\r$\n`
@@ -146,6 +146,6 @@ LangString DESC_SecIncludePack ${LANG_ENGLISH} \
     FileWrite $0 `{"include_offline_engine_pack": false, "installer_version": "${PRODUCT_VERSION}", "pack_bundled": false}`$\r$\n`
   ${EndIf}
   FileClose $0
-  DetailPrint "[voice-typer-installer] Wrote installer-state.json (include_offline_engine_pack=$IncludeOfflineEnginePack)."
+  DetailPrint "[lausu-installer] Wrote installer-state.json (include_offline_engine_pack=$IncludeOfflineEnginePack)."
   installer_state_done:
 !macroend

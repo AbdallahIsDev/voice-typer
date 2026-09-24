@@ -1,25 +1,25 @@
 @echo off
-REM Voice Typer - Windows uninstaller autostart cleanup hook (S2-CR-69).
+REM Lausu - Windows uninstaller autostart cleanup hook (S2-CR-69).
 REM
 REM Wrapper that invokes the Python cleanup script
 REM (scripts/windows/uninstall_permissions.py) which removes:
-REM   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.voicetyper.autostart_<hash>
+REM   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.Lausu.autostart_<hash>
 REM     (per-install hash of the install path - see
 REM     _run_key_name in autostart_windows.py). Pre-rename installs used
-REM     VoiceTyper_<hash>; both forms are swept. This is a REGISTRY
+REM     Lausu_<hash>; both forms are swept. This is a REGISTRY
 REM     value, NOT a file, so file-removal during NSIS uninstall does
 REM     NOT remove it.
-REM   - Task Scheduler tasks named "com.voicetyper.autostart<hash>"
+REM   - Task Scheduler tasks named "com.Lausu.autostart<hash>"
 REM     (the fallback autostart mechanism when the Run key fails).
-REM   - Task Scheduler task named "com.voicetyper.prewarm" (the prewarm
+REM   - Task Scheduler task named "com.Lausu.prewarm" (the prewarm
 REM     logon-trigger task registered by
 REM     voice_typer/server/task_scheduler.py with TASK_NAME =
-REM     "com.voicetyper.prewarm"). Distinct from the autostart
+REM     "com.Lausu.prewarm"). Distinct from the autostart
 REM     tasks above - without cleanup it survives uninstall and Task
 REM     Scheduler keeps trying to launch the (now-deleted) frozen prewarm
 REM     binary at every login.
-REM   - Legacy pre-rename names (VoiceTyperAutostart<hash>,
-REM     VoiceTyperPrewarm) from installs that predate the com.voicetyper.*
+REM   - Legacy pre-rename names (LausuAutostart<hash>,
+REM     LausuPrewarm) from installs that predate the com.Lausu.*
 REM     namespace rename.
 REM
 REM Wiring (Tauri-only, previous host removed 2026-09-17):
@@ -48,12 +48,12 @@ REM VALIDATE ON WINDOWS HOST:
 REM   1. Build the NSIS installer:
 REM        cd voice_typer\client && npm run build:win
 REM   2. Install the resulting *-setup.exe.
-REM   3. Launch Voice Typer -> enable autostart via Settings.
+REM   3. Launch Lausu -> enable autostart via Settings.
 REM   4. Verify the Run key is present:
-REM        reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run | findstr com.voicetyper
+REM        reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run | findstr com.Lausu
 REM   5. Uninstall via "Add or remove programs".
 REM   6. After uninstall completes, verify the Run key is GONE:
-REM        reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run | findstr com.voicetyper
+REM        reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run | findstr com.Lausu
 REM        (Expected: no matches)
 
 setlocal enabledelayedexpansion
@@ -74,54 +74,54 @@ where python >nul 2>nul
 if %errorlevel%==0 (
     python "%PY_SCRIPT%" %*
     if !errorlevel!==0 (
-        echo [voice-typer-uninstall] Python cleanup completed.
+        echo [lausu-uninstall] Python cleanup completed.
         exit /b 0
     )
-    echo [voice-typer-uninstall] Python script exited with code !errorlevel! - falling back to PowerShell sweep.
+    echo [lausu-uninstall] Python script exited with code !errorlevel! - falling back to PowerShell sweep.
 ) else (
-    echo [voice-typer-uninstall] python.exe not found on PATH - trying py launcher.
+    echo [lausu-uninstall] python.exe not found on PATH - trying py launcher.
 )
 
 where py >nul 2>nul
 if %errorlevel%==0 (
     py "%PY_SCRIPT%" %*
     if !errorlevel!==0 (
-        echo [voice-typer-uninstall] Python cleanup completed (via py launcher).
+        echo [lausu-uninstall] Python cleanup completed (via py launcher).
         exit /b 0
     )
-    echo [voice-typer-uninstall] py script exited with code !errorlevel! - falling back to PowerShell sweep.
+    echo [lausu-uninstall] py script exited with code !errorlevel! - falling back to PowerShell sweep.
 ) else (
-    echo [voice-typer-uninstall] py launcher not found - falling back to PowerShell sweep.
+    echo [lausu-uninstall] py launcher not found - falling back to PowerShell sweep.
 )
 
 REM ── Path 2: native PowerShell sweep (no Python) ─────────────────────
 REM reg.exe does NOT support wildcards in /v, so we use PowerShell's
 REM Remove-ItemProperty which DOES support -Name wildcards. Same
 REM pipeline as the Python fallback in uninstall_permissions.py.
-echo [voice-typer-uninstall] Running native PowerShell registry sweep...
+echo [lausu-uninstall] Running native PowerShell registry sweep...
 
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
     "$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';" ^
     "Get-ItemProperty -Path $runKey -ErrorAction SilentlyContinue |" ^
     "Get-Member -MemberType NoteProperty |" ^
-    "Where-Object { $_.Name -like 'VoiceTyper*' -or $_.Name -like 'com.voicetyper*' } |" ^
+    "Where-Object { $_.Name -like 'Lausu*' -or $_.Name -like 'com.Lausu*' } |" ^
     "ForEach-Object {" ^
     "  Remove-ItemProperty -Path $runKey -Name $_.Name -ErrorAction SilentlyContinue;" ^
     "  Write-Output ('Removed HKCU Run key: ' + $_.Name)" ^
     "}"
 
-echo [voice-typer-uninstall] Running native PowerShell Task Scheduler sweep...
+echo [lausu-uninstall] Running native PowerShell Task Scheduler sweep...
 
-REM Sweep widened from 'VoiceTyperAutostart*' to 'VoiceTyper*' so it ALSO
-REM catches the prewarm task `VoiceTyperPrewarm` (registered by
-REM voice_typer/server/task_scheduler.py with TASK_NAME = "VoiceTyperPrewarm"),
-REM not just the autostart fallback tasks `VoiceTyperAutostart_<hash>`.
-REM The union with 'com.voicetyper*' covers the current canonical
-REM reverse-DNS names (com.voicetyper.autostart_<hash>,
-REM com.voicetyper.prewarm) from installs that postdate the namespace
+REM Sweep widened from 'LausuAutostart*' to 'Lausu*' so it ALSO
+REM catches the prewarm task `LausuPrewarm` (registered by
+REM voice_typer/server/task_scheduler.py with TASK_NAME = "LausuPrewarm"),
+REM not just the autostart fallback tasks `LausuAutostart_<hash>`.
+REM The union with 'com.Lausu*' covers the current canonical
+REM reverse-DNS names (com.Lausu.autostart_<hash>,
+REM com.Lausu.prewarm) from installs that postdate the namespace
 REM rename.
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-    "Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' -ErrorAction SilentlyContinue |" ^
+    "Get-ScheduledTask -TaskName 'Lausu*','com.Lausu*' -ErrorAction SilentlyContinue |" ^
     "ForEach-Object {" ^
     "  schtasks.exe /Delete /TN $_.TaskName /F;" ^
     "  Write-Output ('Removed Task Scheduler task: ' + $_.TaskName)" ^
@@ -132,20 +132,20 @@ REM the wildcard sweep above missed it (e.g. PowerShell Get-ScheduledTask
 REM wildcard behavior differs across Windows versions). /F = force (no
 REM prompt). Non-fatal if the task is already gone. Both the current
 REM canonical name and the pre-rename legacy name are deleted.
-schtasks.exe /Delete /TN "com.voicetyper.prewarm" /F >nul 2>nul
-schtasks.exe /Delete /TN "VoiceTyperPrewarm" /F >nul 2>nul
-echo [voice-typer-uninstall] Explicit prewarm task delete attempted (best-effort).
+schtasks.exe /Delete /TN "com.Lausu.prewarm" /F >nul 2>nul
+schtasks.exe /Delete /TN "LausuPrewarm" /F >nul 2>nul
+echo [lausu-uninstall] Explicit prewarm task delete attempted (best-effort).
 
-REM Optional --purge: remove %APPDATA%\voice-typer if VOICE_TYPER_PURGE=1.
+REM Optional --purge: remove %APPDATA%\lausu if VOICE_TYPER_PURGE=1.
 if /i "%VOICE_TYPER_PURGE%"=="1" (
-    echo [voice-typer-uninstall] VOICE_TYPER_PURGE=1 - removing user data at %APPDATA%\voice-typer
-    if exist "%APPDATA%\voice-typer" (
-        rmdir /s /q "%APPDATA%\voice-typer"
-        echo [voice-typer-uninstall] Removed user data directory.
+    echo [lausu-uninstall] VOICE_TYPER_PURGE=1 - removing user data at %APPDATA%\lausu
+    if exist "%APPDATA%\lausu" (
+        rmdir /s /q "%APPDATA%\lausu"
+        echo [lausu-uninstall] Removed user data directory.
     ) else (
-        echo [voice-typer-uninstall] No user data directory to remove.
+        echo [lausu-uninstall] No user data directory to remove.
     )
 )
 
-echo [voice-typer-uninstall] Done (native sweep).
+echo [lausu-uninstall] Done (native sweep).
 exit /b 0

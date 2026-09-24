@@ -1,5 +1,5 @@
 #!/bin/bash
-# Voice Typer, macOS post-install helper.
+# Lausu, macOS post-install helper.
 #
 # Strips the macOS Gatekeeper quarantine xattr from the freshly
 # installed .app bundle and re-registers it with LaunchServices so the
@@ -11,10 +11,10 @@
 #   file downloaded from the Internet (or copied from a disk image that
 #   was downloaded). The first time the user double-clicks the .app,
 #   Gatekeeper intercepts the launch and shows either:
-#     a) "Voice Typer cannot be opened because Apple cannot check it for
+#     a) "Lausu cannot be opened because Apple cannot check it for
 #        malicious software." (the hard block, app refuses to launch),
 #   or
-#     b) "Voice Typer is an app downloaded from the Internet. Are you sure
+#     b) "Lausu is an app downloaded from the Internet. Are you sure
 #        you want to open it?" (the soft prompt, user must click Open).
 #
 #   For users who installed via the official .dmg / .pkg installer (a
@@ -33,7 +33,7 @@
 #   If the user reports the app still won't launch (e.g. on macOS 13+
 #   with stricter Gatekeeper rules, or after a quarantine flag was
 #   re-applied by a re-download), the manual workaround is:
-#     1. In Finder, locate Voice Typer.app in /Applications.
+#     1. In Finder, locate Lausu.app in /Applications.
 #     2. Right-click (or Control-click) the .app icon.
 #     3. Select "Open" from the context menu.
 #     4. macOS shows the "downloaded from the Internet" prompt, click
@@ -46,7 +46,7 @@
 #
 # Usage:
 #   bash scripts/macos/install.sh
-#   bash scripts/macos/install.sh --app-path "/Applications/Voice Typer.app"
+#   bash scripts/macos/install.sh --app-path "/Applications/Lausu.app"
 #   bash scripts/macos/install.sh -h|--help
 #
 # Tauri installerHooks integration:
@@ -59,7 +59,7 @@
 #       }
 #   Until then, document this script in the README / install
 #   instructions as a manual post-install step:
-#       bash /Applications/voice-typer.app/Contents/Resources/scripts/macos/install.sh
+#       bash /Applications/lausu.app/Contents/Resources/scripts/macos/install.sh
 #
 # VALIDATE ON MACOS HOST:
 #   1. Build the .dmg / .pkg:
@@ -68,17 +68,17 @@
 #   3. Run this script:
 #         bash scripts/macos/install.sh
 #   4. Verify the quarantine xattr is gone:
-#         xattr "/Applications/Voice Typer.app"
+#         xattr "/Applications/Lausu.app"
 #         # output should be empty (or NOT contain com.apple.quarantine)
 #   5. Verify LaunchServices registration:
-#         mdfind "kMDItemCFBundleIdentifier == 'abdallahisdev.VoiceTyper'"
-#         # should list /Applications/Voice Typer.app
-#   6. Double-click Voice Typer.app, should launch WITHOUT the
+#         mdfind "kMDItemCFBundleIdentifier == 'abdallahisdev.Lausu'"
+#         # should list /Applications/Lausu.app
+#   6. Double-click Lausu.app, should launch WITHOUT the
 #      Gatekeeper prompt.
 
 set -e
 
-APP_PATH="/Applications/Voice Typer.app"
+APP_PATH="/Applications/Lausu.app"
 for arg in "$@"; do
     case "$arg" in
         --app-path)
@@ -86,10 +86,10 @@ for arg in "$@"; do
             APP_PATH="$1"
             ;;
         -h|--help)
-            echo "Usage: $0 [--app-path \"/Applications/Voice Typer.app\"]"
+            echo "Usage: $0 [--app-path \"/Applications/Lausu.app\"]"
             echo ""
             echo "Strips the macOS Gatekeeper quarantine xattr from the"
-            echo "Voice Typer.app bundle and re-registers it with"
+            echo "Lausu.app bundle and re-registers it with"
             echo "LaunchServices so it launches without prompts and"
             echo "appears in Spotlight immediately."
             echo ""
@@ -100,7 +100,7 @@ for arg in "$@"; do
             ;;
         *)
             # Ignore unknown args (forward-compatible), log a warning.
-            echo "[voice-typer-install] WARNING: unknown argument: $arg" >&2
+            echo "[lausu-install] WARNING: unknown argument: $arg" >&2
             ;;
     esac
     shift || true
@@ -110,9 +110,9 @@ done
 # here because we want a helpful error message rather than a bare
 # "No such file or directory" from ``xattr``.
 if [ ! -d "$APP_PATH" ]; then
-    echo "[voice-typer-install] ERROR: app bundle not found at: $APP_PATH" >&2
-    echo "[voice-typer-install]        Pass --app-path /path/to/Voice Typer.app" >&2
-    echo "[voice-typer-install]        if you installed to a non-default location." >&2
+    echo "[lausu-install] ERROR: app bundle not found at: $APP_PATH" >&2
+    echo "[lausu-install]        Pass --app-path /path/to/Lausu.app" >&2
+    echo "[lausu-install]        if you installed to a non-default location." >&2
     exit 1
 fi
 
@@ -121,7 +121,7 @@ fi
 # ``xattr`` would just print the current value (a no-op).
 #
 # Why recursive (-r): macOS applies the quarantine xattr to the .app
-# bundle root, but the binary inside (Contents/MacOS/voice-typer) and
+# bundle root, but the binary inside (Contents/MacOS/lausu) and
 # the dylibs in Contents/Frameworks may also be tagged if they were
 # downloaded separately. ``-r`` walks the whole bundle so we don't
 # leave a residual tag on an inner binary that triggers Gatekeeper
@@ -132,7 +132,7 @@ fi
 # touched by a browser download), ``xattr -d`` exits non-zero with
 # "No such xattr: com.apple.quarantine". That's the happy path, we
 # don't want the script to fail in that case.
-echo "[voice-typer-install] Stripping com.apple.quarantine from: $APP_PATH"
+echo "[lausu-install] Stripping com.apple.quarantine from: $APP_PATH"
 xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 
 # Re-register the .app with LaunchServices so Spotlight / Finder
@@ -148,22 +148,22 @@ xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 if [ -x "$LSREGISTER" ]; then
-    echo "[voice-typer-install] Registering with LaunchServices: $APP_PATH"
+    echo "[lausu-install] Registering with LaunchServices: $APP_PATH"
     "$LSREGISTER" -f "$APP_PATH" 2>/dev/null || true
 else
-    echo "[voice-typer-install] WARNING: lsregister not found at: $LSREGISTER" >&2
-    echo "[voice-typer-install]          Spotlight / Launchpad may take longer to" >&2
-    echo "[voice-typer-install]          index the app. (Non-fatal, the app still" >&2
-    echo "[voice-typer-install]          launches by double-click.)" >&2
+    echo "[lausu-install] WARNING: lsregister not found at: $LSREGISTER" >&2
+    echo "[lausu-install]          Spotlight / Launchpad may take longer to" >&2
+    echo "[lausu-install]          index the app. (Non-fatal, the app still" >&2
+    echo "[lausu-install]          launches by double-click.)" >&2
 fi
 
-echo "[voice-typer-install] Done."
-echo "[voice-typer-install] You can now launch Voice Typer by double-clicking"
-echo "[voice-typer-install] $APP_PATH"
-echo "[voice-typer-install] "
-echo "[voice-typer-install] If macOS STILL shows the Gatekeeper prompt, the"
-echo "[voice-typer-install] manual workaround is:"
-echo "[voice-typer-install]   1. In Finder, right-click (or Control-click) Voice Typer.app"
-echo "[voice-typer-install]   2. Select \"Open\" from the context menu"
-echo "[voice-typer-install]   3. Click \"Open\" in the prompt, macOS remembers the"
-echo "[voice-typer-install]      trust decision for future launches."
+echo "[lausu-install] Done."
+echo "[lausu-install] You can now launch Lausu by double-clicking"
+echo "[lausu-install] $APP_PATH"
+echo "[lausu-install] "
+echo "[lausu-install] If macOS STILL shows the Gatekeeper prompt, the"
+echo "[lausu-install] manual workaround is:"
+echo "[lausu-install]   1. In Finder, right-click (or Control-click) Lausu.app"
+echo "[lausu-install]   2. Select \"Open\" from the context menu"
+echo "[lausu-install]   3. Click \"Open\" in the prompt, macOS remembers the"
+echo "[lausu-install]      trust decision for future launches."

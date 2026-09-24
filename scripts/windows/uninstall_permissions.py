@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Voice Typer. Windows uninstaller autostart cleanup ().
+"""Lausu. Windows uninstaller autostart cleanup ().
 
 Removes the per-user Windows autostart entries that
 ``voice_typer/server/server_platform/autostart_windows.py`` creates at
@@ -7,15 +7,15 @@ runtime when the user enables autostart via Settings:
 
   - **HKCU Run key** at
     ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``, value
-    name ``com.voicetyper.autostart_<8hex>`` (per-install hash from
+    name ``com.Lausu.autostart_<8hex>`` (per-install hash from
     SHA-256 of the install path: see ``_run_key_name`` in
     ``autostart_windows.py``; pre-2026 installs used the bare
-    ``VoiceTyper_<8hex>`` scheme, which this script still removes).
+    ``Lausu_<8hex>`` scheme, which this script still removes).
     This is a REGISTRY value, NOT a file, so
     the NSIS ``deleteAppDataOnUninstall`` flag does NOT remove it.
-  - **Task Scheduler** tasks named ``com.voicetyper.autostart_<8hex>`` /
-    ``com.voicetyper.prewarm`` (canonical reverse-DNS names) and the
-    legacy ``VoiceTyperAutostart<8hex>`` / ``VoiceTyperPrewarm`` names —
+  - **Task Scheduler** tasks named ``com.Lausu.autostart_<8hex>`` /
+    ``com.Lausu.prewarm`` (canonical reverse-DNS names) and the
+    legacy ``LausuAutostart<8hex>`` / ``LausuPrewarm`` names —
     registered via ``schtasks /Create /TN ... /XML`` (see
     ``_register_app_autostart_task`` in ``autostart_windows.py`` and
     ``task_scheduler.TASK_NAME``). Lives
@@ -23,18 +23,18 @@ runtime when the user enables autostart via Settings:
 
 Both mechanisms are removed here: including STALE entries from previous
 installs at different paths (different hashes) and both the current
-canonical ``com.voicetyper.*`` names and the pre-rename bare
-``VoiceTyper*`` names (so installs that predate the namespace rename are
+canonical ``com.Lausu.*`` names and the pre-rename bare
+``Lausu*`` names (so installs that predate the namespace rename are
 fully cleaned too). The current-install
 removal path (``_unregister_app_autostart_runkey`` /
 ``_unregister_app_autostart_task`` in ``autostart_windows.py``) only
 removes the current install's hash-suffixed entry; the uninstaller must
 be more aggressive so the registry / Task Scheduler are left CLEAN of
-any Voice Typer autostart entry.
+any Lausu autostart entry.
 
 (): optional ``--purge`` flag (or ``VOICE_TYPER_PURGE=1``
 env var) ALSO removes the per-user data directory at
-``%APPDATA%\\voice-typer`` (settings JSON, history DB, downloaded
+``%APPDATA%\\lausu`` (settings JSON, history DB, downloaded
 vocabularies, HuggingFace model cache, venv, logs). OFF by default so
 users who reinstall keep their models; pass it explicitly to reclaim
 disk:
@@ -75,22 +75,22 @@ Exit codes:
 VALIDATE ON WINDOWS HOST:
   1. Build the installer via the Tauri workflow / ``cargo tauri build``.
   2. Install the resulting *-setup.exe.
-  3. Launch Voice Typer -> enable autostart via Settings.
+  3. Launch Lausu -> enable autostart via Settings.
   4. Verify both autostart entries exist:
-       reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.voicetyper
-       schtasks /query /tn "com.voicetyper.autostart*" /v /fo LIST
+       reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.Lausu
+       schtasks /query /tn "com.Lausu.autostart*" /v /fo LIST
    5. Uninstall via "Add or remove programs" (the NSIS uninstaller
       includes ``uninstaller.nsh`` via Tauri
       ``bundle.windows.nsis.installerHooks`` /
       ``tauri-installer-hooks.nsh``; the legacy builder config is gone).
   6. Verify both autostart entries are gone:
-       reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.voicetyper
-         (Expected: no matches; pre-rename VoiceTyper* entries also gone)
-       schtasks /query /tn "com.voicetyper.autostart*"
+       reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.Lausu
+         (Expected: no matches; pre-rename Lausu* entries also gone)
+       schtasks /query /tn "com.Lausu.autostart*"
          (Expected: ERROR: The system cannot find the file specified)
   7. (Optional) Verify --purge removes the data dir:
        set VOICE_TYPER_PURGE=1 && python scripts/windows/uninstall_permissions.py
-       dir "%APPDATA%\\voice-typer"
+       dir "%APPDATA%\\lausu"
          (Expected: File Not Found)
 """
 
@@ -114,12 +114,12 @@ if "--purge" in sys.argv:
 
 def _log(msg: str) -> None:
     """Print to stderr (so NSIS/Tauri capture it in the uninstall log)."""
-    print(f"[voice-typer-uninstall] {msg}", file=sys.stderr)
+    print(f"[lausu-uninstall] {msg}", file=sys.stderr)
 
 
 def _purge_user_data() -> None:
     """(): remove the per-user data directory at
-    ``%APPDATA%\\voice-typer``.
+    ``%APPDATA%\\lausu``.
 
     Mirrors the Linux purge in ``scripts/linux/uninstall_permissions.py``
     (same subpaths list, kept inline here so the script runs even when
@@ -133,7 +133,7 @@ def _purge_user_data() -> None:
     if not appdata:
         _log("WARNING: --purge: APPDATA env var not set, skipping user-data purge")
         return
-    data_dir = Path(appdata) / "voice-typer"
+    data_dir = Path(appdata) / "lausu"
     if not data_dir.is_dir():
         _log(f"--purge: no user data directory to remove ({data_dir} not present)")
         return
@@ -159,7 +159,7 @@ def _purge_user_data() -> None:
         "history.db-wal",  # legacy SQLite WAL
         "history.db-shm",  # legacy SQLite SHM
         "recovery.json",  # crash-recovery snapshot (canonical name)
-        "voice-typer-recovery.json",  # legacy crash-recovery snapshot
+        "lausu-recovery.json",  # legacy crash-recovery snapshot
         "backend.lock",  # single-instance POSIX lockfile
         "backend.pid",  # backend PID file
         "autostart.log",  # macOS LaunchAgent autostart log (vestigial on Windows)
@@ -182,7 +182,7 @@ def _purge_user_data() -> None:
         except OSError as exc:
             _log(f"WARNING: --purge: failed to remove {target}: {exc}")
     # Try to remove the now-empty data dir itself (best-effort; will
-    # fail if non-Voice-Typer files are inside, that's fine).
+    # fail if non-lausu files are inside, that's fine).
     with contextlib.suppress(OSError):
         data_dir.rmdir()
 
@@ -205,8 +205,8 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
         # voice_typer package is mid-uninstall.
         from voice_typer.server.server_platform import autostart_windows
 
-        deleted_runkeys = autostart_windows._unregister_all_voicetyper_runkeys()
-        deleted_tasks = autostart_windows._unregister_all_voicetyper_tasks()
+        deleted_runkeys = autostart_windows._unregister_all_lausu_runkeys()
+        deleted_tasks = autostart_windows._unregister_all_lausu_tasks()
         return deleted_runkeys, deleted_tasks
     except Exception as exc:
         _log(f"WARNING: voice_typer package import failed ({exc}); falling back to direct reg.exe / PowerShell sweep")
@@ -220,7 +220,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
     ps_cmd = (
         f"Get-ItemProperty -Path '{run_key_path}' | "
         "Get-Member -MemberType NoteProperty | "
-        "Where-Object { $_.Name -like 'VoiceTyper*' -or $_.Name -like 'com.voicetyper*' } | "
+        "Where-Object { $_.Name -like 'Lausu*' -or $_.Name -like 'com.Lausu*' } | "
         "ForEach-Object { "
         f"  Remove-ItemProperty -Path '{run_key_path}' -Name $_.Name -ErrorAction SilentlyContinue; "
         "  Write-Output $_.Name "
@@ -245,7 +245,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
         if result.returncode == 0:
             for line in (result.stdout or "").splitlines():
                 line = line.strip()
-                if line.startswith(("VoiceTyper", "com.voicetyper")):
+                if line.startswith(("Lausu", "com.Lausu")):
                     deleted_runkeys.append(line)
         else:
             _log(f"WARNING: PowerShell Run-key sweep failed (rc={result.returncode}): {(result.stderr or '').strip()}")
@@ -255,10 +255,10 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
     # Task Scheduler sweep (same PowerShell pipeline as the
     # voice_typer package path, included here for the fallback case).
     # The wildcard union covers the current canonical names
-    # (com.voicetyper.autostart*, com.voicetyper.prewarm) AND the
-    # pre-rename bare names (VoiceTyperAutostart*, VoiceTyperPrewarm).
+    # (com.Lausu.autostart*, com.Lausu.prewarm) AND the
+    # pre-rename bare names (LausuAutostart*, LausuPrewarm).
     ps_task_cmd = (
-        "Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' "
+        "Get-ScheduledTask -TaskName 'Lausu*','com.Lausu*' "
         "-ErrorAction SilentlyContinue | "
         "ForEach-Object { schtasks.exe /Delete /TN $_.TaskName /F; "
         "Write-Output $_.TaskName }"
@@ -282,7 +282,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
         if result.returncode == 0:
             for line in (result.stdout or "").splitlines():
                 line = line.strip()
-                if line.startswith(("VoiceTyper", "com.voicetyper")):
+                if line.startswith(("Lausu", "com.Lausu")):
                     deleted_tasks.append(line)
         else:
             _log(f"WARNING: PowerShell task sweep failed (rc={result.returncode}): {(result.stderr or '').strip()}")
@@ -309,14 +309,14 @@ def main() -> int:
         for name in deleted_runkeys:
             _log(f"  - {name}")
     else:
-        _log("No HKCU Run-key Voice Typer entries to remove (already clean)")
+        _log("No HKCU Run-key Lausu entries to remove (already clean)")
 
     if deleted_tasks:
         _log(f"Removed {len(deleted_tasks)} Task Scheduler tasks:")
         for name in deleted_tasks:
             _log(f"  - {name}")
     else:
-        _log("No Voice Typer Task Scheduler tasks to remove (already clean)")
+        _log("No Lausu Task Scheduler tasks to remove (already clean)")
 
     _log("Done.")
     return 0

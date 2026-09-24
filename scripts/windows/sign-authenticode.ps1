@@ -65,7 +65,7 @@ try {
     foreach ($attempt in 1..$maxAttempts) {
         foreach ($ts in $timestampServers) {
             & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-                /fd SHA256 /tr $ts /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $BinaryPath
+                /fd SHA256 /tr $ts /td SHA256 /d "$sigDescription" /du "https://Lausu.app" $BinaryPath
             if ($LASTEXITCODE -eq 0) {
                 # Verify the signature landed before declaring success.
                 & $signtool verify /pa /v $BinaryPath
