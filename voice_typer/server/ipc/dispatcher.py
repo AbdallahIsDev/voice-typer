@@ -23,8 +23,11 @@ from voice_typer.server.log import reset_correlation_id, set_correlation_id
 # plus a full dispatch pool wedges every command including readonly ones,
 # which is exactly the silent 15s-timeout outage class). Slice logging
 # names the waiter + holder so the wedged handler is identifiable.
+# The give-up sits UNDER the host short timeout (15s;
+# ``dispatch_timeout_for`` non-download default) so the busy envelope
+# lands while the client still listens instead of into a voided entry.
 _DISPATCH_LOCK_ACQUIRE_SLICE_S = 5.0
-_DISPATCH_LOCK_GIVE_UP_S = 30.0
+_DISPATCH_LOCK_GIVE_UP_S = 12.0
 
 
 class DispatcherMixin:
