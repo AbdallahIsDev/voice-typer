@@ -132,6 +132,15 @@ describe("Bubble", () => {
 		expect(bars.length).toBe(7);
 	});
 
+	it("renders no stray text in recording mode (comment-corpse guard)", () => {
+		render(<Bubble />);
+		// A mangled JSX comment once leaked a literal "*/" text node
+		// between the REC label and the level dots. The recording row
+		// must contain exactly the REC label text and nothing else.
+		expect(document.body.textContent).not.toContain("*/");
+		expect(screen.getByText("REC")).toBeTruthy();
+	});
+
 	it("shows transcribing state with text and animated dots when onSetState fires", () => {
 		render(<Bubble />);
 
@@ -201,7 +210,7 @@ describe("Bubble", () => {
 		render(<Bubble />);
 		const output = document.querySelector('output[aria-live="polite"]');
 		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer recording indicator",
+			"Lausu recording indicator",
 		);
 	});
 
@@ -341,7 +350,7 @@ describe("Bubble", () => {
 		const output = document.querySelector('output[aria-live="polite"]');
 		// Default mode is "recording".
 		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer recording indicator",
+			"Lausu recording indicator",
 		);
 	});
 
@@ -352,7 +361,7 @@ describe("Bubble", () => {
 
 		const output = document.querySelector('output[aria-live="polite"]');
 		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer transcribing indicator",
+			"Lausu transcribing indicator",
 		);
 	});
 
@@ -362,9 +371,7 @@ describe("Bubble", () => {
 		setBubbleState("error");
 
 		const output = document.querySelector('output[aria-live="polite"]');
-		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer error indicator",
-		);
+		expect(output?.getAttribute("aria-label")).toBe("Lausu error indicator");
 	});
 
 	it("BG-95: aria-label switches to idle indicator in idle mode", () => {
@@ -373,9 +380,7 @@ describe("Bubble", () => {
 		setBubbleState("idle");
 
 		const output = document.querySelector('output[aria-live="polite"]');
-		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer idle indicator",
-		);
+		expect(output?.getAttribute("aria-label")).toBe("Lausu idle indicator");
 	});
 
 	//dismiss '×' button ─────────────────────────────────

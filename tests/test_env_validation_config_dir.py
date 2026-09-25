@@ -184,7 +184,7 @@ class TestConfigDirInHomePreserved:
     def test_in_home_path_preserved(self, monkeypatch):
         """A path that resolves to a descendant of ``Path.home()`` is
         preserved verbatim by the validator."""
-        safe_path = str(Path.home() / ".config" / "voice-typer")
+        safe_path = str(Path.home() / ".config" / "lausu")
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", safe_path)
         _validate_env_vars()
         assert os.environ.get("VOICE_TYPER_CONFIG_DIR") == safe_path
@@ -193,9 +193,12 @@ class TestConfigDirInHomePreserved:
         """A relative path that resolves under ``Path.home()`` (e.g.
         a subdirectory of the current working directory, when cwd is
         itself under home) is preserved."""
-        in_home_dir = Path.home() / ".voice-typer-test-cwd"
-        in_home_dir.mkdir(exist_ok=True)
-        monkeypatch.chdir(in_home_dir)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir(exist_ok=True)
+        work = fake_home / "work"
+        work.mkdir(exist_ok=True)
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+        monkeypatch.chdir(work)
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", "subdir/config")
         _validate_env_vars()
         assert os.environ.get("VOICE_TYPER_CONFIG_DIR") == "subdir/config"

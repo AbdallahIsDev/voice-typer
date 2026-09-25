@@ -33,18 +33,14 @@ export function BubbleVisualizer({
 				{tf("bubble.recordingLabel", "REC")}
 			</span>
 			{/* `ms-1` is the RTL-safe logical replacement for the old
-			    physical `ml-1`. In LTR it renders as margin-left; in RTL
-			    (ar locale) it flips to margin-right automatically. */}
-			{/*
-/**
-			 */}
-			*/
+		    physical `ml-1`. In LTR it renders as margin-left; in RTL
+		    (ar locale) it flips to margin-right automatically. */}
 			<div className="flex h-6 items-center gap-0.75 ms-1" aria-hidden>
 				{DOT_INDICES.map((i) => (
 					<span
 						key={i}
 						ref={refSetters[i]}
-						className="inline-block w-0.75 rounded-full bg-(--text-primary)"
+						className="inline-block w-0.75 rounded-full bg-foreground"
 						style={{ height: MIN_HEIGHT, opacity: 0.3 }}
 					/>
 				))}
