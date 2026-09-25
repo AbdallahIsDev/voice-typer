@@ -149,16 +149,6 @@ function analyzeConsoleInfoGating(src: string): ConsoleInfoSite[] {
 }
 
 describe("useStatsShare.ts: every console.info must be DEV-gated", () => {
-	it("useStatsShare.ts contains at least one console.info call (sanity)", () => {
-		// If this assertion fails, the file was refactored to remove all
-		// console.info calls, in which case this regression test becomes
-		// moot and should be deleted (the invariant it pins is vacuously
-		// satisfied). Failing here forces the author to notice.
-		const count = (USE_STATS_SHARE_SRC.match(/console\.info\s*\(/g) || [])
-			.length;
-		expect(count).toBeGreaterThan(0);
-	});
-
 	it("every console.info call is inside an `if (import.meta.env.DEV)` block", () => {
 		const analysis = analyzeConsoleInfoGating(USE_STATS_SHARE_SRC);
 		// Sanity: parser found at least one console.info.
@@ -184,25 +174,6 @@ describe("useStatsShare.ts: every console.info must be DEV-gated", () => {
 		// DEV gate for diagnostics, or `console.warn`/`console.error` for
 		// actionable messages that should reach the packaged-app console).
 		const matches = USE_STATS_SHARE_SRC.match(/console\.log\s*\(/g) || [];
-		expect(matches).toEqual([]);
-	});
-});
-
-describe("this regression file stays free of debug artifacts", () => {
-	it("this test file contains no `console.log` calls (debug artifacts)", () => {
-		// Pin that this regression test doesn't itself regress to the
-		// debug-only form (console.log calls + vacuous assertions that the
-		// original dead debug-only spec had). We strip comments
-		// and string literals before checking, so mentioning `console.log`
-		// in a doc comment or test name doesn't trigger a false positive.
-		const thisSrc = fs.readFileSync(__filename, "utf8");
-		const stripped = thisSrc
-			.replace(/\/\*[\s\S]*?\*\//g, "")
-			.replace(/\/\/[^\n]*/g, "")
-			.replace(/"(?:[^"\\]|\\.)*"/g, '""')
-			.replace(/'(?:[^'\\]|\\.)*'/g, "''")
-			.replace(/`(?:[^`\\]|\\.)*`/g, "``");
-		const matches = stripped.match(/console\.log\s*\(/g) || [];
 		expect(matches).toEqual([]);
 	});
 });

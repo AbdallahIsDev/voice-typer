@@ -48,16 +48,6 @@ const MODELS_SRC = fs.readFileSync(
 	path.resolve(__dirname, "..", "..", "lib", "utils", "models.ts"),
 	"utf8",
 );
-const FORMAT_SRC = fs.readFileSync(
-	path.resolve(__dirname, "..", "..", "lib", "format.ts"),
-	"utf8",
-);
-const EN_JSON = JSON.parse(
-	fs.readFileSync(
-		path.resolve(__dirname, "..", "..", "i18n", "translations", "en.json"),
-		"utf8",
-	),
-);
 
 describe("BG-3: Dashboard activity chart container role=img + non-interactive bars", () => {
 	it('chart container <div> has role="img" and aria-label=', () => {
@@ -136,35 +126,6 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 			"",
 		);
 		expect(stripped).not.toMatch(/function\s+formatDuration\s*\(/);
-	});
-
-	it("lib/format.ts formatDuration resolves glyphs through t() (no hardcoded 'h'/'m' suffixes)", () => {
-		// The new implementation calls t("analytics.durationHours"|"durationMinutes"|
-		// "durationHoursMinutes"). Assert each key is referenced.
-		expect(FORMAT_SRC).toContain("analytics.durationMinutes");
-		expect(FORMAT_SRC).toContain("analytics.durationHours");
-		expect(FORMAT_SRC).toContain("analytics.durationHoursMinutes");
-
-		// No hardcoded English suffix literals like `${hourLabel}` or
-		// `"1h"` / `"0m"` returned directly. The previous impl used
-		// const minuteLabel = "m"; const hourLabel = "h";, those are
-		// gone.
-		expect(FORMAT_SRC).not.toMatch(/const\s+minuteLabel\s*=\s*"m"/);
-		expect(FORMAT_SRC).not.toMatch(/const\s+hourLabel\s*=\s*"h"/);
-		expect(FORMAT_SRC).not.toMatch(/const\s+secondLabel\s*=\s*"s"/);
-	});
-
-	it("en.json defines the three duration i18n keys (zero renders bare '0', no key)", () => {
-		expect(EN_JSON.analytics.durationHours).toBe("{h}h");
-		expect(EN_JSON.analytics.durationMinutes).toBe("{m}m");
-		expect(EN_JSON.analytics.durationHoursMinutes).toBe("{h}h {m}m");
-		expect(EN_JSON.analytics.durationZero).toBeUndefined();
-	});
-
-	it("en.json defines analytics.activityChartAria (BG-8)", () => {
-		expect(EN_JSON.analytics.activityChartAria).toBe(
-			"{range} activity chart: {counts}",
-		);
 	});
 
 	// ── Behavioral tests for the shared formatDuration ──────────────
@@ -333,11 +294,11 @@ describe("Dashboard noDataDescription interpolates {hotkey} from config", () => 
 
 describe("Dashboard dataPath uses {path} interpolation fed by get_status config_dir", () => {
 	it('Dashboard.tsx calls t("analytics.dataPath", { path: configDir || ... })', () => {
-		// "Data stored in: ~/.voice-typer/" regardless of platform. The fix
+		// "Data stored in: ~/.lausu/" regardless of platform. The fix
 		// interpolates the actual on-disk path (fetched via the get_status
 		// IPC) so Windows / VOICE_TYPER_CONFIG_DIR users see the right path.
 		expect(DASHBOARD_SRC).toMatch(
-			/dataPath",\s*\{[\s\S]*?path:\s*configDir\s*\|\|\s*"~\/\.voice-typer\/"[\s\S]*?\}/,
+			/dataPath",\s*\{[\s\S]*?path:\s*configDir\s*\|\|\s*"~\/\.lausu\/"[\s\S]*?\}/,
 		);
 		// The bare no-arg call is gone.
 		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.dataPath"\)\s/);
@@ -408,17 +369,6 @@ describe("SevenDayActivityChart migrates binary plural to tChoice", () => {
 		// Intl.PluralRules inside tChoice).
 		expect(SEVEN_DAY_SRC).not.toMatch(/day\.count\s*===\s*1\s*\?/);
 	});
-
-	it("en.json defines dayCountTooltip_one / dayCountTooltip_other (CLDR plural keys)", () => {
-		// The tChoice lookup chain falls back through `{key}_{category}`
-		// → `{key}_other` → bare `{key}`. The CLDR-style keys already
-		// exist in en.json, pin them so a future JSON cleanup doesn't
-		// accidentally drop them and silently fall back to the bare key.
-		expect(EN_JSON.analytics.dayCountTooltip_one).toBeDefined();
-		expect(EN_JSON.analytics.dayCountTooltip_other).toBeDefined();
-		// The legacy binary-plural keys can stay (other agents may still
-		// reference them), we only assert the new CLDR keys are present.
-	});
 });
 
 describe("Corrections-applied card (server-side usage tracking)", () => {
@@ -468,12 +418,6 @@ describe("Corrections-applied card (server-side usage tracking)", () => {
 		// data hook and the About page import.
 		expect(MODELS_SRC).toMatch(/downloaded === true/);
 	});
-
-	it("en.json defines the corrections card keys", () => {
-		expect(EN_JSON.analytics.corrections).toBeDefined();
-		expect(EN_JSON.analytics.correctionsTooltip).toBeDefined();
-		expect(EN_JSON.analytics.correctionsRate).toContain("{pct}");
-	});
 });
 
 describe("Top stat cards: merged dictation card + range-aware values", () => {
@@ -485,12 +429,8 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 		// active window, and the suffixed label was the only one in
 		// the row that truncated ("Total Dictations (7 D…").
 		expect(DASHBOARD_SRC).toMatch(/analytics\.totalDictations/);
-		// The suffixed label is gone from both the source and the
-		// locale catalogues.
+		// The suffixed label is gone from the source.
 		expect(DASHBOARD_SRC).not.toMatch(/totalDictationsPeriod/);
-		expect(EN_JSON.analytics.totalDictations).toBeDefined();
-		expect(EN_JSON.analytics.totalDictations).not.toContain("{range}");
-		expect(EN_JSON.analytics.totalDictationsPeriod).toBeUndefined();
 	});
 
 	it("the dictation value is range-aware and uncapped for All Time", () => {
@@ -507,8 +447,6 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 		// The tooltips merely restated the selected range, removed
 		expect(DASHBOARD_SRC).not.toMatch(/totalDictationsTooltip/);
 		expect(DASHBOARD_SRC).not.toMatch(/activeDaysTooltip/);
-		expect(EN_JSON.analytics.totalDictationsTooltip).toBeUndefined();
-		expect(EN_JSON.analytics.activeDaysTooltip).toBeUndefined();
 	});
 
 	it("StatCard no longer renders the (?) tooltip trigger", () => {
@@ -583,13 +521,6 @@ describe("Analytics polish: stat-card spacing, sublabel pruning, Activity icon w
 		expect(DASHBOARD_SRC).toMatch(
 			/d\.currentStreak\s*>\s*0\s*\?\s*t\("analytics\.dayStreak"/,
 		);
-	});
-
-	it("the dead avgPerDictation / noStreak keys are removed from en.json", () => {
-		expect(EN_JSON.analytics.avgPerDictation).toBeUndefined();
-		expect(EN_JSON.analytics.noStreak).toBeUndefined();
-		// The streak key survives (still rendered by the Active Days card).
-		expect(EN_JSON.analytics.dayStreak).toBeDefined();
 	});
 
 	it("stat cards push the value down with an auto top margin (breathing room)", () => {

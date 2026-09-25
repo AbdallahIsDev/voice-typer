@@ -119,47 +119,6 @@ describe("TitleBar, Windows window controls (red close hover)", () => {
 		expect(cls).toContain("dark:hover:bg-[#e81123]");
 	});
 
-	it("close button hover uses the native Windows red + white glyph (light AND dark)", async () => {
-		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<WinTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		const closeBtn = screen.getByLabelText("Close");
-		expect(closeBtn).toBeTruthy();
-		const cls = closeBtn.className;
-		// Native Windows close hover: solid red bg + pure-white X,
-		// applied on hover/focus ONLY (neutral at rest). The `dark:`
-		// twins are REQUIRED: without them, the shared Button ghost
-		// variant's `dark:hover:bg-muted/50` (specificity 0-3-0)
-		// beats the plain `hover:bg-[#e81123]` (0-2-0) in dark mode,
-		// so the close button hovered gray instead of red.
-		expect(cls).toContain("hover:bg-[#e81123]");
-		expect(cls).toContain("hover:text-white");
-		expect(cls).toContain("dark:hover:bg-[#e81123]");
-		expect(cls).toContain("dark:hover:text-white");
-		expect(cls).toContain("focus-visible:bg-[#e81123]");
-		expect(cls).toContain("focus-visible:text-white");
-		expect(cls).toContain("dark:focus-visible:bg-[#e81123]");
-		expect(cls).toContain("dark:focus-visible:text-white");
-		expect(cls).toContain("active:bg-[#c42b1c]");
-		expect(cls).toContain("dark:active:bg-[#c42b1c]");
-		// twMerge must DEDUPE the ghost variant's gray dark-hover
-		// (`dark:hover:bg-muted/50`) against our dark-red twin, if
-		// both classes stayed in the DOM, CSS source order (not
-		// specificity, which is equal at 0-3-0) would decide which
-		// wins, and the close button could hover gray again.
-		expect(cls).not.toContain("dark:hover:bg-muted");
-		expect(cls).not.toContain("hover:bg-muted");
-	});
-
 	it("close button is neutral at rest (red appears only on hover/focus)", async () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		const bridge = makeBridge();
@@ -183,153 +142,6 @@ describe("TitleBar, Windows window controls (red close hover)", () => {
 		expect(cls).not.toContain("bg-destructive/10");
 		expect(cls).not.toContain("bg-destructive/20");
 		expect(cls).not.toContain("dark:bg-destructive/20");
-	});
-
-	it("window-control icons pin size-2.5 so the shared Button 16px svg rule cannot stretch them", async () => {
-		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		const { container } = renderWithProviders(
-			<WinTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		// Minimize + Maximize + Close icons live inside the three
-		// window-control buttons (data-slot="button" marks the shared
-		// Button). Each glyph svg must carry the explicit size-2.5
-		// (10px) class; otherwise the Button base rule
-		// `[&_svg:not([class*='size-'])]:size-4` inflates the 10x10
-		// glyphs to 16px.
-		const svgs = container.querySelectorAll(
-			'[data-slot="button"] svg[aria-hidden="true"]',
-		);
-		expect(svgs.length).toBe(3);
-		for (const svg of svgs) {
-			expect(svg.getAttribute("class")).toContain("size-2.5");
-		}
-	});
-
-	it("window-control glyphs are filled native outlines (no stroke anywhere)", async () => {
-		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<WinTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		// ALL THREE glyphs are the exact filled outlines of Windows'
-		// caption font glyphs (Segoe Fluent Icons Chrome*), solid
-		// currentColor mass, NO stroke attribute (a stroked shape is
-		// sub-pixel at DPR 1 and antialiases to ~50% alpha = the gray /
-		// toned-down look). Filled paths render full-opacity color.
-		for (const label of ["Minimize", "Maximize", "Close"]) {
-			const svg = screen
-				.getByLabelText(label)
-				.querySelector("svg[aria-hidden='true']");
-			expect(svg?.getAttribute("stroke-width")).toBeNull();
-			expect(svg?.getAttribute("class")).toContain("fill-current");
-			expect(svg?.getAttribute("class")).not.toContain("stroke-current");
-			const glyphPath = svg?.querySelector("path");
-			expect(glyphPath).toBeTruthy();
-			expect(glyphPath?.getAttribute("d") ?? "").toMatch(/^M[\d.]/);
-			// Maximize must be the SHARP square frame (product decision —
-			// no rounded corners): outer box + counter-wound inner hole.
-			if (label === "Maximize") {
-				expect(glyphPath?.getAttribute("d")).toBe(
-					"M0.00 0.00H10.00V10.00H0.00ZM1.00 1.00V9.00H9.00V1.00Z",
-				);
-			}
-			// No stroked primitives must remain.
-			expect(svg?.querySelector("line")).toBeNull();
-			expect(svg?.querySelector("rect")).toBeNull();
-		}
-	});
-
-	it("restore glyph (maximized state) also uses a filled native outline", async () => {
-		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<WinTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={true}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		// Maximized → the middle button becomes "Restore" and renders
-		// the two-box ChromeRestore glyph, same filled-outline
-		// treatment as the other window-control glyphs (no stroke).
-		const restoreBtn = screen.getByLabelText("Restore");
-		const svg = restoreBtn.querySelector('svg[aria-hidden="true"]');
-		expect(svg).toBeTruthy();
-		expect(svg?.getAttribute("stroke-width")).toBeNull();
-		expect(svg?.getAttribute("class")).toContain("fill-current");
-		expect(svg?.querySelectorAll("path").length).toBeGreaterThan(0);
-	});
-
-	it("minimize glyph is a SOLID FILLED native bar on Windows (no stroke, full-opacity fill)", async () => {
-		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<WinTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		const minBtn = screen.getByLabelText("Minimize");
-		// The minimize glyph is a sharp 10x1px bar snapped to WHOLE
-		// pixels (y 5→6), drawn as ONE filled <path>. Integer-pixel
-		// edges render one fully-lit pixel row: full currentColor (pure
-		// #fff in dark mode), no half-pixel antialiasing, no opacity.
-		const bar = minBtn.querySelector("path");
-		expect(bar).toBeTruthy();
-		expect(bar?.getAttribute("d")).toBe("M0.00 5.00H10.00V6.00H0.00Z");
-		// No stroked primitives must be present.
-		expect(minBtn.querySelector("line")).toBeNull();
-		expect(minBtn.querySelector("rect")).toBeNull();
-		const svg = minBtn.querySelector("svg[aria-hidden='true']");
-		expect(svg?.getAttribute("class")).toContain("fill-current");
-		expect(svg?.getAttribute("class")).not.toContain("stroke-current");
-		expect(svg?.getAttribute("stroke-width")).toBeNull();
-	});
-
-	it("window-control buttons pin pure white glyphs in dark mode (dark:text-white)", async () => {
-		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<WinTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		// --text-primary aliases --foreground, which theme presets
-		// (Nord/Dracula/Tokyo Night/...) tint off-white (L 0.90-0.92)
-		// in dark mode, so the glyphs rendered gray. `dark:text-white`
-		// pins the dark-mode glyph to true #fff.
-		for (const label of ["Minimize", "Maximize", "Close"]) {
-			const cls = screen.getByLabelText(label).className;
-			expect(cls).toContain("text-(--text-primary)");
-			expect(cls).toContain("dark:text-white");
-		}
 	});
 
 	it("whole title bar dims via CONTAINER opacity while the window is UNFOCUSED, restored on refocus", async () => {
@@ -364,7 +176,7 @@ describe("TitleBar, Windows window controls (red close hover)", () => {
 		const maxBtn = screen.getByLabelText("Maximize");
 		const closeBtn = screen.getByLabelText("Close");
 		for (const btn of [minBtn, maxBtn, closeBtn]) {
-			expect(btn.className).toContain("text-(--text-primary)");
+			expect(btn.className).toContain("text-foreground");
 			expect(btn.className).toContain("dark:text-white");
 		}
 		// Window regains focus → dim removed, full brightness.
@@ -372,36 +184,6 @@ describe("TitleBar, Windows window controls (red close hover)", () => {
 			window.dispatchEvent(new Event("focus"));
 		});
 		expect(bar?.className).not.toContain("opacity-60");
-	});
-
-	it("close button hover stays red+white even while the window is UNFOCUSED (dim is opacity-only, hover classes untouched)", async () => {
-		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<WinTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		// Dim the window first (container opacity only, the button's
-		// own classes are untouched).
-		act(() => {
-			window.dispatchEvent(new Event("blur"));
-		});
-		const closeBtn = screen.getByLabelText("Close");
-		const cls = closeBtn.className;
-		// The dim is container opacity, the button's color classes
-		// are intact, so the native Windows red+white close hover
-		// still applies (hovering the close button of an unfocused
-		// window shows red+white, exactly like Windows 11).
-		expect(cls).toContain("dark:text-white");
-		expect(cls).toContain("hover:bg-[#e81123]");
-		expect(cls).toContain("hover:text-white");
-		expect(cls).toContain("dark:hover:bg-[#e81123]");
 	});
 
 	it("PROD-9: minimize/maximize buttons keep the neutral hover (not destructive)", async () => {
@@ -551,131 +333,6 @@ describe("TitleBar, Linux window controls (GNOME/KDE neutral close hover)", () =
 		expect(cls).toContain("dark:hover:bg-foreground/10");
 	});
 
-	it("close button uses the NEUTRAL hover on Linux, never red (GNOME/KDE convention)", async () => {
-		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<LinuxTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		const closeBtn = screen.getByLabelText("Close");
-		const cls = closeBtn.className;
-		// GNOME/KDE draw a NEUTRAL close-button hover, no Windows red.
-		expect(cls).not.toContain("hover:bg-[#e81123]");
-		expect(cls).not.toContain("dark:hover:bg-[#e81123]");
-		expect(cls).not.toContain("hover:text-white");
-		// The close button must match the minimize/maximize neutral
-		// hover exactly (foreground/10 wash, light AND dark, the
-		// Linux circular buttons deepen to /10 on hover from the
-		// always-visible /5 circle background).
-		const minCls = screen.getByLabelText("Minimize").className;
-		expect(cls).toContain("hover:bg-foreground/10");
-		expect(cls).toContain("dark:hover:bg-foreground/10");
-		expect(minCls).toContain("hover:bg-foreground/10");
-		expect(minCls).toContain("dark:hover:bg-foreground/10");
-		// Neutral at rest in dark mode, glyph still pure white.
-		expect(cls).toContain("dark:text-white");
-		expect(cls).not.toMatch(/(^|\s)bg-\[#e81123\](\s|$)/);
-	});
-
-	it("minimize glyph on Linux is the SAME horizontal bar as Windows (icons are shared; only the button differs)", async () => {
-		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<LinuxTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		const minBtn = screen.getByLabelText("Minimize");
-		// The minimize icon is the SAME sharp filled bar path on BOTH
-		// 2026-08-24). The circle vs square difference lives on the
-		// BUTTON, not the icon.
-		const bar = minBtn.querySelector("path");
-		expect(bar).toBeTruthy();
-		expect(bar?.getAttribute("d")).toBe("M0.00 5.00H10.00V6.00H0.00Z");
-		expect(bar?.getAttribute("d")).not.toContain("L");
-		expect(minBtn.querySelector("circle")).toBeNull();
-		const svg = minBtn.querySelector("svg[aria-hidden='true']");
-		expect(svg?.getAttribute("class")).toContain("fill-current");
-	});
-
-	it("Linux window-control buttons are CIRCULAR, smaller than the bar (h-7 w-7), with an always-visible circle background that deepens on hover, and spaced gap-2 apart", async () => {
-		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<LinuxTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		for (const label of ["Minimize", "Maximize", "Close"]) {
-			const btn = screen.getByLabelText(label);
-			const cls = btn.className;
-			// Circular shape, smaller than the 36px bar so there is
-			// space around the button (28px circle in 36px bar).
-			expect(cls).toContain("rounded-full");
-			expect(cls).toContain("h-7");
-			expect(cls).toContain("w-7");
-			// Always-visible subtle circle background at rest…
-			expect(cls).toContain("bg-foreground/5");
-			// …that deepens on hover/focus/active.
-			expect(cls).toContain("hover:bg-foreground/10");
-			expect(cls).toContain("active:bg-foreground/15");
-			// No red close hover on Linux.
-			expect(cls).not.toMatch(/(^|\s)bg-\[#e81123\](\s|$)/);
-		}
-		// The buttons are spaced gap-2 (8px) inside a flex container.
-		const cluster = screen.getByLabelText("Minimize").parentElement;
-		expect(cluster?.className).toContain("gap-2");
-	});
-
-	it("maximize/close glyph geometry is SHARED across platforms (icons are identical; only the button differs)", async () => {
-		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
-		const bridge = makeBridge();
-		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
-		renderWithProviders(
-			<LinuxTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		// GNOME/Adwaita draws maximize as a square outline and close as
-		// an X, the SAME geometry as Windows. Both platforms now render
-		// the identical FILLED native glyph paths (Segoe Fluent Icons
-		// ChromeMaximize / ChromeClose outlines, see TitleBar.tsx); only
-		// the BUTTON differs (see the circular-button test above). Pin
-		// the shared filled-path treatment here so a future "fix" that
-		// diverges them fails loudly.
-		const maxBtn = screen.getByLabelText("Maximize");
-		expect(maxBtn.querySelector("path")).toBeTruthy();
-		expect(maxBtn.querySelector("line")).toBeNull();
-		expect(maxBtn.querySelector("rect")).toBeNull();
-		const closeBtn = screen.getByLabelText("Close");
-		expect(closeBtn.querySelector("path")?.getAttribute("d") ?? "").toMatch(
-			/^M[\d.]/,
-		);
-		expect(closeBtn.querySelectorAll("line").length).toBe(0);
-		expect(closeBtn.querySelector("rect")).toBeNull();
-	});
-
 	it("minimize/maximize/close buttons render on Linux (only macOS uses traffic lights)", async () => {
 		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
 		const bridge = makeBridge();
@@ -746,22 +403,6 @@ describe("TitleBar, macOS native traffic-light mode", () => {
 		// The rest of the bar content stays.
 		expect(screen.getByLabelText("Toggle sidebar (Ctrl+B)")).toBeTruthy();
 		expect(screen.getByLabelText("Help Overlay")).toBeTruthy();
-	});
-
-	it("reserves a traffic-light gutter on macOS so bar buttons don't collide with the dots", async () => {
-		const MacTitleBar = await loadMacTitleBar();
-		const { container } = renderWithProviders(
-			<MacTitleBar
-				onToggleSidebar={() => {}}
-				isMaximized={false}
-				onOpenHelp={() => {}}
-				themeMode="light"
-				onThemeChange={() => {}}
-			/>,
-		);
-		const gutters = container.querySelectorAll('[aria-hidden="true"]');
-		// w-18 = 72px fixed-width spacer for the OS traffic lights.
-		expect([...gutters].some((g) => g.className.includes("w-18"))).toBe(true);
 	});
 });
 

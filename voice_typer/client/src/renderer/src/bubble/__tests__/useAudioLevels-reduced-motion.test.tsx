@@ -1,8 +1,11 @@
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, renderHook } from "@testing-library/react";
+import { createElement, type ReactNode, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Bubble } from "@/Bubble";
-import { MAX_HEIGHT, MIN_HEIGHT } from "@/bubble/constants";
+import { DOT_COUNT, MAX_HEIGHT, MIN_HEIGHT } from "@/bubble/constants";
+import { useAudioLevels } from "@/bubble/useAudioLevels";
+import { BubbleBridgeProvider } from "@/bubble/useBubbleBridge";
 
 /** Parse the scaleY factor out of an inline `transform: scaleY(s)`. */
 function parseScaleY(transform: string): number {
@@ -370,5 +373,62 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 		}
 
 		rafSpy.mockRestore();
+	});
+});
+
+function directWrapper({ children }: { children: ReactNode }) {
+	return createElement(BubbleBridgeProvider, null, children);
+}
+
+function makeDirectDotRefs(): RefObject<(HTMLSpanElement | null)[]> {
+	const dots: (HTMLSpanElement | null)[] = [];
+	for (let i = 0; i < DOT_COUNT; i++) {
+		const el = document.createElement("span");
+		document.body.appendChild(el);
+		dots.push(el);
+	}
+	return { current: dots };
+}
+
+async function flushDirectMacrotasks(count = 5) {
+	for (let i = 0; i < count; i++) {
+		await act(async () => {
+			await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		});
+	}
+}
+
+describe("useAudioLevels reduced-motion direct path", () => {
+	it("does NOT schedule additional rAF frames after renderReducedMotion", async () => {
+		reducedMotionMql.matches = true;
+		const dotRefs = makeDirectDotRefs();
+		const rafSpy = vi.spyOn(window, "requestAnimationFrame");
+		renderHook(() => useAudioLevels(dotRefs, true), {
+			wrapper: directWrapper,
+		});
+		await flushDirectMacrotasks(3);
+		const callsAfterInitial = rafSpy.mock.calls.length;
+		expect(callsAfterInitial).toBeGreaterThanOrEqual(1);
+		rafSpy.mockClear();
+		await flushDirectMacrotasks(10);
+		expect(rafSpy.mock.calls.length).toBe(0);
+		rafSpy.mockRestore();
+	});
+
+	it("renders bars at the static mid-height direct", async () => {
+		reducedMotionMql.matches = true;
+		const dotRefs = makeDirectDotRefs();
+		renderHook(() => useAudioLevels(dotRefs, true), {
+			wrapper: directWrapper,
+		});
+		await flushDirectMacrotasks(3);
+		const midHeight = (MIN_HEIGHT + MAX_HEIGHT) / 2;
+		const midScale = midHeight / MAX_HEIGHT;
+		for (const el of dotRefs.current) {
+			if (!el) continue;
+			expect(el.style.height).toBe(`${MAX_HEIGHT}px`);
+			expect(parseScaleY(el.style.transform)).toBeCloseTo(midScale, 5);
+			expect(el.style.opacity).toBe("0.5");
+		}
 	});
 });

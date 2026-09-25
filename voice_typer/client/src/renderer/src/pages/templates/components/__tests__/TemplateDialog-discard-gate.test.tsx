@@ -129,7 +129,56 @@ function renderDialog(overrides: Record<string, unknown> = {}) {
 	return { onClose, onSave };
 }
 
-describe("TemplateDialog, unsaved-edits close gate", () => {
+describe("TemplateDialog dirty-form discard gate, Cancel trigger", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("clean form: Cancel closes immediately without a confirm", () => {
+		const { onClose } = renderDialog();
+		fireEvent.click(screen.getByText("Cancel"));
+		expect(onClose).toHaveBeenCalledTimes(1);
+		expect(screen.queryByText("Discard changes?")).toBeNull();
+	});
+
+	it("form with edits: Cancel opens the discard confirm instead of closing", async () => {
+		const { onClose } = renderDialog({
+			trigger: "sig",
+			expansion: "Best regards",
+		});
+		await screen.findByRole("dialog");
+		fireEvent.click(screen.getByText("Cancel"));
+		expect(onClose).not.toHaveBeenCalled();
+		const confirm = await screen.findByRole("alertdialog");
+		expect(confirm).toHaveTextContent("Discard changes?");
+	});
+
+	it("confirming the discard closes the dialog", async () => {
+		const { onClose } = renderDialog({
+			trigger: "sig",
+			expansion: "Best regards",
+		});
+		await screen.findByRole("dialog");
+		fireEvent.click(screen.getByText("Cancel"));
+		await screen.findByRole("alertdialog");
+		fireEvent.click(screen.getByText("Discard changes"));
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("staying keeps the dialog open", async () => {
+		const { onClose } = renderDialog({
+			trigger: "sig",
+			expansion: "Best regards",
+		});
+		await screen.findByRole("dialog");
+		fireEvent.click(screen.getByText("Cancel"));
+		await screen.findByRole("alertdialog");
+		fireEvent.click(screen.getByText("Keep editing"));
+		expect(onClose).not.toHaveBeenCalled();
+	});
+});
+
+describe("TemplateDialog dirty-form discard gate, Escape trigger", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -152,8 +201,6 @@ describe("TemplateDialog, unsaved-edits close gate", () => {
 		await screen.findByRole("dialog");
 		await user.keyboard("{Escape}");
 		expect(onClose).not.toHaveBeenCalled();
-		// The confirm presents as an alertdialog (Radix marks the
-		// underlying edit dialog aria-hidden while the alert layer is up).
 		const confirm = await screen.findByRole("alertdialog");
 		expect(confirm).toHaveTextContent("Discard changes?");
 	});

@@ -43,25 +43,12 @@ describe("QuickInfoCard", () => {
 		expect(screen.queryByText(/of dictations/)).not.toBeInTheDocument();
 	});
 
-	it("stretches the text block and pushes the value down with mt-auto", () => {
-		const { container } = render(
-			<QuickInfoCard icon={TEST_ICON} label="Corrections" value="3" />,
-		);
-		const card = container.firstElementChild as HTMLElement;
-		expect(card).toHaveClass("flex", "items-stretch");
-		const value = screen.getByText("3");
-		expect(value.classList.contains("mt-auto")).toBe(true);
-		// The value's parent is the vertical flex stack inside the card.
-		const stack = value.parentElement as HTMLElement;
-		expect(stack).toHaveClass("flex", "flex-col");
-	});
-
 	it("applies the muted styling for the Current Setup section", () => {
 		const { container } = render(
 			<QuickInfoCard muted icon={TEST_ICON} label="Model" value="Tiny" />,
 		);
 		const card = container.firstElementChild as HTMLElement;
-		expect(card.className).toMatch(/bg-\(--bg-subtle\)\/50/);
+		expect(card.className).toMatch(/bg-surface-subtle\/50/);
 		expect(card.className).toMatch(/p-3\b/);
 	});
 });

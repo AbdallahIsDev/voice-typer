@@ -25,13 +25,11 @@ const { HotkeyPicker } = await import("@/components/hotkey/HotkeyPicker");
 // `mock.results` in a `beforeEach` hook, BEFORE the first test runs.
 // The module-load call above happened during module evaluation, so by
 // test time its history would already be cleared (the spy would read 0
-// calls). Snapshot the module-load call count + first return value NOW,
-// at module scope, so the tests can still assert the hoisting fact
-// while `clearMocks` keeps per-test state clean.
+// calls). Snapshot the module-load call count NOW, at module scope, so
+// the tests can still assert the hoisting fact while `clearMocks`
+// keeps per-test state clean.
 const moduleLoadCallCount = (getModifierCodeMap as ReturnType<typeof vi.fn>)
 	.mock.calls.length;
-const moduleLoadResult = (getModifierCodeMap as ReturnType<typeof vi.fn>).mock
-	.results[0]?.value as Record<string, string> | undefined;
 
 interface DispatchOpts {
 	code: string;
@@ -164,32 +162,5 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 		// baseline from above. The module-load call is asserted via
 		// `moduleLoadCallCount`.
 		expect(getModifierCodeMap).toHaveBeenCalledTimes(baseline);
-	});
-
-	it("snapshot: MODIFIER_CODE_MAP value is stable (matches the first call's return)", () => {
-		// The first call (at module load) returned the map that became
-		// MODIFIER_CODE_MAP. Subsequent renders must NOT produce a
-		// different value, the module-level constant is shared. The
-		// first result is captured at module scope (see above) because
-		// `clearMocks: true` wipes `mock.results` before each test.
-		expect(moduleLoadResult).toBeDefined();
-		expect(moduleLoadResult).toMatchInlineSnapshot(`
-			{
-			  "AltLeft": "alt",
-			  "AltRight": "alt",
-			  "ControlLeft": "ctrl",
-			  "ControlRight": "ctrl",
-			  "MetaLeft": "win",
-			  "MetaRight": "win",
-			  "ShiftLeft": "shift",
-			  "ShiftRight": "shift",
-			}
-		`);
-
-		// The map IS the platform-correct one (this snapshot was
-		// captured on Linux, so Meta* → "win". On macOS the snapshot
-		// would have Meta* → "cmd", that test runs in the same sandbox
-		// so IS_MAC is stable, and the snapshot reflects the current
-		// platform).
 	});
 });

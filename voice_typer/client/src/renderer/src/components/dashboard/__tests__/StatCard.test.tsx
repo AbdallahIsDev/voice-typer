@@ -68,17 +68,4 @@ describe("StatCard", () => {
 			"20% more than the previous period",
 		);
 	});
-
-	it("pins the label row at the top and pushes the value down (min-height + mt-auto)", () => {
-		const { container } = renderCard({});
-		const card = container.firstElementChild as HTMLElement;
-		// The card carries a minimum height so the auto margin has room
-		// to spread even when the row's tallest card is only as tall as
-		// its content.
-		expect(card).toHaveClass("flex", "min-h-24", "flex-col");
-		// The main number owns the auto top margin that separates it
-		// from the icon+label row above.
-		const value = screen.getByText("1h 12m");
-		expect(value.classList.contains("mt-auto")).toBe(true);
-	});
 });

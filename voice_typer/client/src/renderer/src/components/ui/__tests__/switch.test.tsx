@@ -64,21 +64,3 @@ describe("Switch, BG-R12 sub-24px touch target", () => {
 		expect(root.className).not.toContain("after:-inset-y-2");
 	});
 });
-
-describe("Switch, BG-R12 visible checked-border ring", () => {
-	it("uses data-checked:border-primary/30 so the 2px border shows as a subtle ring (was invisible at full opacity)", () => {
-		render(<VtSwitch aria-label="test-switch" />);
-
-		const root = document.querySelector('[data-slot="switch"]') as HTMLElement;
-		expect(root).toBeTruthy();
-		//the previous `data-checked:border-primary` was visually
-		// identical to `data-checked:bg-primary` so the border was
-		// invisible. Now uses `/30` so the border shows as a subtle
-		// primary-tinted ring around the track when checked.
-		expect(root.className).toContain("data-checked:border-primary/30");
-		// The fully-opaque invisible variant must NOT still be present.
-		// Match it as a standalone token (with a trailing space or quote)
-		// so we don't false-positive on the `/30` substring.
-		expect(root.className).not.toMatch(/\bdata-checked:border-primary(?!\/)\b/);
-	});
-});

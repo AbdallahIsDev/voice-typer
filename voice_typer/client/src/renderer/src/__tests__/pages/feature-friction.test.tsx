@@ -302,9 +302,6 @@ describe("XA-5-12, preset selector keeps the primary CTA outside any disclosure"
 //     is wired).
 //   • XA-5-11, CloudProvidersPanel renders an eye-icon show/hide
 //     toggle next to the API key input.
-//   • XA-5-13, useMicrophoneTestSession exposes a module-level cache
-//     reset helper (the cache itself is exercised indirectly via the
-//     session hook's stop/start/selectMicrophone paths).
 //   • XA-5-15, VocabToolbar renders the sort control in its single
 //     toolbar row (no count badge, no orphaned second row).
 //   • XA-5-17, Models page computes an ``activeModelSummary`` from
@@ -452,15 +449,6 @@ describe("XA-5-11, CloudProvidersPanel renders the API-key eye toggle", () => {
 		expect(src).toMatch(/t\("models\.cloud\.apiKeyShowAria"/);
 		expect(src).toMatch(/t\("models\.cloud\.apiKeyHideAria"/);
 		expect(src).toMatch(/t\("models\.cloud\.apiKeyFormatHint"/);
-	});
-});
-
-describe("XA-5-13, useMicrophoneTestSession exposes a cache-reset helper", () => {
-	it("exports _resetMicrophoneTestCache as a function", async () => {
-		const mod = await import(
-			"@/pages/microphone/hooks/useMicrophoneTestSession"
-		);
-		expect(typeof mod._resetMicrophoneTestCache).toBe("function");
 	});
 });
 

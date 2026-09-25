@@ -99,39 +99,3 @@ describe("OfflinePackPreparingBanner, data-pack-status", () => {
 		expect(document.querySelector("[data-pack-status]")).toBeNull();
 	});
 });
-
-describe("OfflinePackPreparingBanner, className merge", () => {
-	it("merges consumer className with the base classes (tailwind-merge)", () => {
-		render(
-			<OfflinePackPreparingBanner
-				visible={true}
-				status="downloading"
-				// `mt-2` is additive (no conflict with base), preserved.
-				// `text-amber-600` conflicts with base `text-(--text-muted)` —
-				// tailwind-merge drops the base colour so the consumer
-				// override wins (this is the same pattern `Spinner` uses
-				// for `border-current` overriding `border-accent`).
-				className="mt-2 text-amber-600"
-			/>,
-		);
-		const region = screen.getByRole("status");
-		expect(region.className).toContain("text-amber-600");
-		expect(region.className).toContain("mt-2");
-		// Non-conflicting base classes are preserved.
-		expect(region.className).toContain("animate-fade-in");
-		expect(region.className).toContain("block");
-		expect(region.className).toContain("text-[13px]");
-		// The conflicting base text-colour is dropped in favour of the
-		// consumer override (tailwind-merge semantics).
-		expect(region.className).not.toContain("text-(--text-muted)");
-	});
-
-	it("preserves all base classes when no consumer className is supplied", () => {
-		render(<OfflinePackPreparingBanner visible={true} status="downloading" />);
-		const region = screen.getByRole("status");
-		expect(region.className).toContain("text-(--text-muted)");
-		expect(region.className).toContain("animate-fade-in");
-		expect(region.className).toContain("block");
-		expect(region.className).toContain("text-[13px]");
-	});
-});

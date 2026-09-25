@@ -1,195 +1,82 @@
-import { cleanup, render } from "@testing-library/react";
-import { createRef, type ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { Component } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 
-// `copiedTimer` is a `private` instance field on `ErrorBoundary`. TypeScript
-// enforces the privacy at compile time, but the field is a regular property
-// at runtime. This helper casts the instance to a shape that exposes the
-// field so the tests can assert on its value (timer id bookkeeping is the
-// unit under test, without reading the field we can only assert on the
-// `clearTimeout` / `setTimeout` spy calls, not on the slot itself).
-type ErrorBoundaryInternals = {
-	copiedTimer: ReturnType<typeof setTimeout> | null;
-};
-function internals(b: ErrorBoundary): ErrorBoundaryInternals {
-	return b as unknown as ErrorBoundaryInternals;
+let shouldThrow = false;
+
+interface ThrowerProps {
+	message: string;
 }
 
-// A trivial child component, we render the boundary in the NON-error
-// state. The boundary's `flashCopied` is callable regardless of whether
-// it's currently showing the fallback UI (it just sets `copied: true`
-// which only affects the fallback render, but the timer bookkeeping is
-// what we're testing).
-function Passthrough({ children }: { children: ReactNode }) {
-	return <>{children}</>;
+class Thrower extends Component<ThrowerProps> {
+	render() {
+		if (shouldThrow) {
+			throw new Error(this.props.message);
+		}
+		return <div data-testid="child-content">child-ok</div>;
+	}
 }
 
-describe("ErrorBoundary: flashCopied timer cleanup", () => {
-	// Mocks for `setTimeout` / `clearTimeout`. We replace the globals
-	// (which in jsdom are the same as `window.setTimeout` /
-	// `window.clearTimeout`) so the ErrorBoundary's `window.setTimeout`
-	// and `clearTimeout` calls both route through our spies. The
-	// `setTimeout` mock returns a monotonically-increasing fake id so
-	// each call produces a distinct, comparable id.
-	let originalSetTimeout: typeof globalThis.setTimeout;
-	let originalClearTimeout: typeof globalThis.clearTimeout;
-	let setTimeoutMock: ReturnType<typeof vi.fn>;
-	let clearTimeoutMock: ReturnType<typeof vi.fn>;
-	let nextId: number;
-
-	beforeEach(() => {
-		originalSetTimeout = globalThis.setTimeout;
-		originalClearTimeout = globalThis.clearTimeout;
-		nextId = 1;
-		setTimeoutMock = vi.fn((() => {
-			return nextId++;
-		}) as unknown as typeof globalThis.setTimeout);
-		clearTimeoutMock = vi.fn();
-		globalThis.setTimeout =
-			setTimeoutMock as unknown as typeof globalThis.setTimeout;
-		globalThis.clearTimeout =
-			clearTimeoutMock as unknown as typeof globalThis.clearTimeout;
-	});
-
+describe("ErrorBoundary fallback behavior", () => {
 	afterEach(() => {
-		globalThis.setTimeout = originalSetTimeout;
-		globalThis.clearTimeout = originalClearTimeout;
 		cleanup();
+		shouldThrow = false;
 	});
 
-	it("flashCopied stores the timer id in the copiedTimer instance field", () => {
-		const ref = createRef<ErrorBoundary>();
+	it("shows the fallback UI when a child throws during render", () => {
+		shouldThrow = true;
 		render(
-			<ErrorBoundary ref={ref}>
-				<Passthrough>child</Passthrough>
+			<ErrorBoundary>
+				<Thrower message="explosive-failure" />
 			</ErrorBoundary>,
 		);
-		expect(ref.current).not.toBeNull();
-
-		// Before flashCopied, no timer is tracked.
-		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBeNull();
-
-		(ref.current as ErrorBoundary).flashCopied();
-
-		// After flashCopied, the tracked slot holds the id returned
-		// by setTimeout.
-		expect(setTimeoutMock).toHaveBeenCalledTimes(1);
-		const expectedId = setTimeoutMock.mock.results[0]?.value;
-		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBe(
-			expectedId,
-		);
+		expect(screen.getByText("Something went wrong")).toBeTruthy();
+		expect(screen.getByText("explosive-failure")).toBeTruthy();
+		expect(screen.queryByTestId("child-content")).toBeNull();
 	});
 
-	it("calling flashCopied twice clears the first timer before setting the second", () => {
-		const ref = createRef<ErrorBoundary>();
+	it("Try Again recovers the children after the error is fixed", () => {
+		shouldThrow = true;
 		render(
-			<ErrorBoundary ref={ref}>
-				<Passthrough>child</Passthrough>
+			<ErrorBoundary>
+				<Thrower message="recover-me" />
 			</ErrorBoundary>,
 		);
-		expect(ref.current).not.toBeNull();
+		expect(screen.getByText("Something went wrong")).toBeTruthy();
 
-		// First call, arms timer #1.
-		(ref.current as ErrorBoundary).flashCopied();
-		expect(setTimeoutMock).toHaveBeenCalledTimes(1);
-		const firstId = setTimeoutMock.mock.results[0]?.value;
-		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBe(firstId);
-		// No clearTimeout yet (first call has nothing to clear).
-		expect(clearTimeoutMock).not.toHaveBeenCalled();
+		shouldThrow = false;
+		fireEvent.click(screen.getByText("Try Again"));
 
-		// Second call, must clear timer #1 before arming timer #2.
-		(ref.current as ErrorBoundary).flashCopied();
-		expect(clearTimeoutMock).toHaveBeenCalledTimes(1);
-		// The clearTimeout call must use the FIRST timer's id (the
-		// guarantee of the clear-before-set pattern.
-		expect(clearTimeoutMock.mock.calls[0]?.[0]).toBe(firstId);
-
-		// A new timer is armed (distinct id).
-		expect(setTimeoutMock).toHaveBeenCalledTimes(2);
-		const secondId = setTimeoutMock.mock.results[1]?.value;
-		expect(secondId).not.toBe(firstId);
-		// The tracked slot now holds the SECOND id.
-		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBe(secondId);
+		expect(screen.getByTestId("child-content")).toBeTruthy();
+		expect(screen.queryByText("Something went wrong")).toBeNull();
 	});
 
-	it("componentWillUnmount clears the tracked timer via clearTimeout", () => {
-		const ref = createRef<ErrorBoundary>();
-		render(
-			<ErrorBoundary ref={ref}>
-				<Passthrough>child</Passthrough>
-			</ErrorBoundary>,
-		);
-		expect(ref.current).not.toBeNull();
+	it("Reload App calls window.location.reload", () => {
+		shouldThrow = true;
+		const reloadSpy = vi.fn();
+		const original = window.location;
+		Object.defineProperty(window, "location", {
+			value: { ...window.location, reload: reloadSpy },
+			writable: true,
+			configurable: true,
+		});
 
-		// Arm the timer.
-		(ref.current as ErrorBoundary).flashCopied();
-		const trackedId = internals(ref.current as ErrorBoundary).copiedTimer;
-		expect(trackedId).not.toBeNull();
-
-		// No clearTimeout yet.
-		expect(clearTimeoutMock).not.toHaveBeenCalled();
-
-		// Unmount, componentWillUnmount must call clearTimeout
-		// with the tracked id.
-		cleanup();
-
-		expect(clearTimeoutMock).toHaveBeenCalledTimes(1);
-		expect(clearTimeoutMock.mock.calls[0]?.[0]).toBe(trackedId);
-
-		// NOTE: we can't assert on `ref.current.copiedTimer` after
-		// unmount because React nulls the ref during cleanup(). The
-		// clearTimeout assertion above is the load-bearing check —
-		// it verifies the tracked id was passed to clearTimeout.
-	});
-
-	it("componentWillUnmount is a no-op when no timer is tracked (no spurious clearTimeout)", () => {
-		const ref = createRef<ErrorBoundary>();
-		render(
-			<ErrorBoundary ref={ref}>
-				<Passthrough>child</Passthrough>
-			</ErrorBoundary>,
-		);
-		expect(ref.current).not.toBeNull();
-
-		// Don't call flashCopied, no timer is tracked.
-		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBeNull();
-
-		cleanup();
-
-		// componentWillUnmount must NOT call clearTimeout when
-		// there is nothing to clear (guards against a regression
-		// where the `if (this.copiedTimer)` guard is removed).
-		expect(clearTimeoutMock).not.toHaveBeenCalled();
-	});
-
-	it("the setTimeout callback clears the tracked slot after firing", () => {
-		// This test verifies the callback's `this.copiedTimer = null`
-		// line, without it, the slot would hold a stale id and the
-		// NEXT flashCopied call would call clearTimeout with an
-		// already-fired id (harmless but wasteful, and a sign the
-		// bookkeeping is broken).
-		const ref = createRef<ErrorBoundary>();
-		render(
-			<ErrorBoundary ref={ref}>
-				<Passthrough>child</Passthrough>
-			</ErrorBoundary>,
-		);
-		expect(ref.current).not.toBeNull();
-
-		(ref.current as ErrorBoundary).flashCopied();
-		expect(internals(ref.current as ErrorBoundary).copiedTimer).not.toBeNull();
-
-		// Extract the callback that flashCopied registered with
-		// setTimeout and invoke it (simulating the timer firing).
-		expect(setTimeoutMock).toHaveBeenCalledTimes(1);
-		const registeredCallback = setTimeoutMock.mock.calls[0]?.[0] as () => void;
-		expect(typeof registeredCallback).toBe("function");
-
-		registeredCallback();
-
-		// After the callback fires, the tracked slot is cleared.
-		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBeNull();
+		try {
+			render(
+				<ErrorBoundary>
+					<Thrower message="reload-test" />
+				</ErrorBoundary>,
+			);
+			fireEvent.click(screen.getByText("Reload App"));
+			expect(reloadSpy).toHaveBeenCalledTimes(1);
+		} finally {
+			Object.defineProperty(window, "location", {
+				value: original,
+				writable: true,
+				configurable: true,
+			});
+		}
 	});
 });

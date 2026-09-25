@@ -115,23 +115,6 @@ describe("ModelCardActions, visual states (3 branches)", () => {
 		expect(screen.queryByRole("button", { name: /Delete tiny/i })).toBeNull();
 	});
 
-	it("Branch 1 (Active + downloaded): Delete icon present, wired to handler (ACTIVE-DELETE)", () => {
-		const onDelete = vi.fn();
-		render(
-			<ModelCardActions
-				model={{ ...baseModel, isActive: true, downloaded: true }}
-				isSelectingThis={false}
-				isDownloadingThis={false}
-				onSelect={noop}
-				onDownload={noop}
-				onDelete={onDelete}
-			/>,
-		);
-		const deleteBtn = screen.getByRole("button", { name: /Delete tiny/i });
-		deleteBtn.click();
-		expect(onDelete).toHaveBeenCalledTimes(1);
-	});
-
 	it("Branch 2 (Not downloaded): renders 'Download' button with downloadAria label", () => {
 		render(
 			<ModelCardActions

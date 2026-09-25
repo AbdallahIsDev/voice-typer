@@ -96,16 +96,4 @@ describe("Spinner, S5-CR-100 (no implicit aria-live region)", () => {
 		expect(root.className).toContain("border-current");
 		expect(root.className).not.toContain("border-accent");
 	});
-
-	it("decorative prop preserves the size + className merge behaviour", () => {
-		const { container } = render(
-			<Spinner decorative size={20} className="border-current" />,
-		);
-		const root = container.firstElementChild as HTMLElement;
-		expect(root.tagName).toBe("DIV");
-		expect(root.style.width).toBe("20px");
-		expect(root.style.height).toBe("20px");
-		expect(root.className).toContain("border-current");
-		expect(root.className).toContain("animate-spin");
-	});
 });

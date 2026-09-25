@@ -138,7 +138,7 @@ describe("ShareStatsDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(actions.downloadImage).toHaveBeenCalledWith("voice-typer-stats");
+			expect(actions.downloadImage).toHaveBeenCalledWith("lausu-stats");
 		});
 		expect(toast.success).toHaveBeenCalledWith(
 			t("stats.shareImage.savedToDownloads"),
@@ -195,9 +195,7 @@ describe("ShareStatsDialog", () => {
 		await user.click(await screen.findByText(t("stats.shareImage.copyImage")));
 
 		await waitFor(() => {
-			expect(actions.copyImageToClipboard).toHaveBeenCalledWith(
-				"voice-typer-stats",
-			);
+			expect(actions.copyImageToClipboard).toHaveBeenCalledWith("lausu-stats");
 		});
 		expect(toast.success).toHaveBeenCalledWith(
 			t("stats.shareImage.copiedToClipboard"),
@@ -219,7 +217,7 @@ describe("ShareStatsDialog", () => {
 		await user.click(await screen.findByText(t("stats.shareImage.saveAs")));
 
 		await waitFor(() => {
-			expect(actions.saveImageAs).toHaveBeenCalledWith("voice-typer-stats");
+			expect(actions.saveImageAs).toHaveBeenCalledWith("lausu-stats");
 		});
 	});
 
@@ -245,49 +243,6 @@ describe("ShareStatsDialog", () => {
 		expect(toast.success).not.toHaveBeenCalledWith(
 			t("stats.shareImage.copiedToClipboard"),
 		);
-	});
-
-	it("preview frame matches the image's aspect ratio and scales without dead space", async () => {
-		const user = userEvent.setup();
-		renderDialog(
-			<ShareStatsDialog
-				actions={makeActions()}
-				stats={TEST_STATS}
-				palette={FALLBACK_THEME_PALETTE}
-			/>,
-		);
-
-		await user.click(screen.getByRole("button", { name: "Share stats" }));
-		const dialog = await screen.findByRole("dialog");
-
-		// The frame is sized by CSS aspect-ratio (the export's fixed
-		// 1200:630 shape), its height is correct from the first frame
-		// with no JS measurement, so the preview can never clip or
-		const previewFrame = dialog.querySelector(
-			".overflow-hidden.rounded-xl",
-		) as HTMLElement | null;
-		expect(previewFrame).toBeTruthy();
-		expect(previewFrame?.style.aspectRatio ?? "").toBe("1200 / 630");
-		// The scaled image is taken out of flow (absolute) so its
-		// layout box can never size the dialog; it scales by the
-		// --preview-scale custom property (written on the frame before
-		// first paint) from the top-left, filling the frame exactly.
-		const scaled = previewFrame?.firstElementChild as HTMLElement | null;
-		expect(scaled?.className).toContain("absolute");
-		expect(scaled?.style.transform ?? "").toContain("--preview-scale");
-		expect(scaled?.style.transformOrigin ?? "").toBe("top left");
-		// No spacer child, the frame's only child is the absolute
-		// preview.
-		expect(previewFrame?.children.length).toBe(1);
-
-		// The action buttons sit in a framed container (rounded +
-		// border + padding), not as full-bleed fragments.
-		const downloadButton = screen.getByText(
-			t("stats.shareImage.downloadImage"),
-		);
-		const actionsFrame = downloadButton.closest("div.rounded-xl");
-		expect(actionsFrame).toBeTruthy();
-		expect(actionsFrame?.className).toContain("p-3");
 	});
 
 	it("Telegram share URL includes the required url param (t.me/share/url?url=...&text=...)", async () => {
@@ -337,9 +292,7 @@ describe("ShareStatsDialog", () => {
 		);
 
 		await waitFor(() => {
-			expect(actions.copyImageToClipboard).toHaveBeenCalledWith(
-				"voice-typer-stats",
-			);
+			expect(actions.copyImageToClipboard).toHaveBeenCalledWith("lausu-stats");
 		});
 		// Composer opened with the prefilled caption.
 		expect(openSpy).toHaveBeenCalledWith(

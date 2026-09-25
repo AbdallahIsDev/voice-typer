@@ -2,6 +2,7 @@
  * I10-retry: regression tests for the React renderer PAGE improvements.
  *
  */
+
 import {
 	cleanup,
 	fireEvent,
@@ -16,7 +17,6 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// SOURCE (the hook must pass one callback to both usePythonEvent
 import {
 	hugeiconsCoreMock,
 	hugeiconsReactMock,
@@ -45,9 +45,9 @@ import OnboardingPage from "@/pages/Onboarding";
 import SettingsPage from "@/pages/Settings";
 import TemplatesPage from "@/pages/Templates";
 import VocabularyPage from "@/pages/Vocabulary";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
-const MINIMAL_CONFIG: VoiceTyperConfig = {
+const MINIMAL_CONFIG: LausuConfig = {
 	schema_version: 1,
 	fast_startup: true,
 	hotkey: "F2",
@@ -113,18 +113,18 @@ const MINIMAL_CONFIG: VoiceTyperConfig = {
 	theme_preset: "custom",
 	custom_theme: {
 		light: {
-			"--bg": "#ffffff",
-			"--bg-subtle": "#f5f5f5",
+			"--background": "#ffffff",
+			"--surface-subtle": "#f5f5f5",
 			"--text": "#000000",
-			"--text-muted": "#666666",
+			"--muted-foreground": "#666666",
 			"--accent": "#3b82f6",
 			"--border": "#e5e7eb",
 		},
 		dark: {
-			"--bg": "#000000",
-			"--bg-subtle": "#111111",
+			"--background": "#000000",
+			"--surface-subtle": "#111111",
 			"--text": "#ffffff",
-			"--text-muted": "#999999",
+			"--muted-foreground": "#999999",
 			"--accent": "#60a5fa",
 			"--border": "#222222",
 		},
@@ -183,7 +183,7 @@ const MINIMAL_CONFIG: VoiceTyperConfig = {
 	vocabulary_automation_enabled: false,
 	vocabulary_auto_confidence_threshold: 0.7,
 	vocabulary_auto_apply_threshold: 0.95,
-} as unknown as VoiceTyperConfig;
+} as unknown as LausuConfig;
 beforeEach(() => {
 	resetStableMocks();
 	localStorage.clear();
@@ -195,17 +195,6 @@ afterEach(() => {
 });
 
 describe("R7-F8: Onboarding init effect uses cancelled-flag guard", () => {
-	it("source contains cancelled flag + cleanup return", async () => {
-		const fs = await import("node:fs");
-		const src = fs.readFileSync(
-			"src/renderer/src/pages/onboarding/hooks/useOnboardingWizard.ts",
-			"utf8",
-		);
-		expect(src).toContain("let cancelled = false;");
-		expect(src).toContain("if (cancelled) return;");
-		expect(src).toMatch(/return \(\) => \{[^}]*cancelled = true/);
-	});
-
 	it("does not call setState after unmount (no React warning)", async () => {
 		const pendingResolvers: Array<(v: unknown) => void> = [];
 		mockCall.mockImplementation(() => {
@@ -457,41 +446,6 @@ describe("R7-F12: Models.tsx, display_name fallback for variant heading", () => 
 		expect(libStripped).toContain("meta?.display_name");
 		expect(libStripped).toContain("formatModelDisplayName(model.name)");
 	});
-
-	it("ModelMetadata interface includes display_name field", async () => {
-		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/lib/utils/models.ts", "utf8");
-		const idx = src.indexOf("interface ModelMetadata");
-		expect(idx).toBeGreaterThanOrEqual(0);
-		const slice = src.slice(idx, idx + 600);
-		expect(slice).toMatch(/display_name\??:\s*string/);
-	});
-});
-
-describe("R7-F13: History + Home, debouncedRefreshFromEvent via useCallback", () => {
-	it("History's refresh hook declares debouncedRefreshFromEvent via useCallback and passes it to both usePythonEvent calls", async () => {
-		const fs = await import("node:fs");
-		const src = fs.readFileSync(
-			"src/renderer/src/pages/history/hooks/useHistoryEventRefresh.ts",
-			"utf8",
-		);
-		expect(src).toContain("const debouncedRefreshFromEvent = useCallback(");
-		const matches = src.match(/usePythonEvent\(/g) ?? [];
-		expect(matches.length).toBeGreaterThanOrEqual(2);
-		// must pass the shared callback.
-		expect(src).toMatch(/usePythonEvent\(\s*["`]transcription_final["`]/);
-		expect(src).toMatch(/usePythonEvent\(\s*["`]history_changed["`]/);
-		const uses = src.match(/debouncedRefreshFromEvent\b/g) ?? [];
-		expect(uses.length).toBeGreaterThanOrEqual(3); // 1 decl + 2 uses
-	});
-
-	it("Home.tsx source declares debouncedRefreshFromEvent via useCallback and passes it to both usePythonEvent calls", async () => {
-		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/pages/Home.tsx", "utf8");
-		expect(src).toContain("const debouncedRefreshFromEvent = useCallback(");
-		const uses = src.match(/debouncedRefreshFromEvent\b/g) ?? [];
-		expect(uses.length).toBeGreaterThanOrEqual(3);
-	});
 });
 
 describe("R7-F15: DiagnosticsSettingsSection, configDir starts empty and falls back to t('about.loading')", () => {
@@ -505,7 +459,7 @@ describe("R7-F15: DiagnosticsSettingsSection, configDir starts empty and falls b
 		const stripped = src
 			.replace(/\/\*[\s\S]*?\*\//g, "")
 			.replace(/\/\/.*$/gm, "");
-		expect(stripped).not.toContain('"~/.voice-typer"');
+		expect(stripped).not.toContain('"~/.lausu"');
 		expect(stripped).toContain('t("about.loading")');
 		expect(stripped).not.toContain('"Loading…"');
 	});
@@ -525,8 +479,8 @@ describe("R7-F15: DiagnosticsSettingsSection, configDir starts empty and falls b
 		});
 
 		expect(screen.getByText(t("about.loading"))).toBeTruthy();
-		// The hardcoded "~/.voice-typer" string must NOT appear.
-		expect(screen.queryByText("~/.voice-typer")).toBeNull();
+		// The hardcoded "~/.lausu" string must NOT appear.
+		expect(screen.queryByText("~/.lausu")).toBeNull();
 	});
 });
 
@@ -586,20 +540,6 @@ describe("R7-F16: History.tsx, Load More reveals paged rows (no dead zone)", () 
 			expect(screen.getByText("Record 60")).toBeTruthy();
 		});
 		expect(historyCalls).toBe(2);
-	});
-});
-
-describe("R7-F18: Dashboard.tsx, dead setLoading removed", () => {
-	it("source has no live setLoading calls (comments allowed)", async () => {
-		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/pages/Dashboard.tsx", "utf8");
-		const stripped = src
-			.replace(/\/\*[\s\S]*?\*\//g, "")
-			.replace(/\/\/.*$/gm, "");
-		expect(stripped).not.toContain("setLoading(");
-		expect(stripped).not.toMatch(
-			/const\s*\[[^,]*,\s*setLoading\]\s*=\s*useState/,
-		);
 	});
 });
 

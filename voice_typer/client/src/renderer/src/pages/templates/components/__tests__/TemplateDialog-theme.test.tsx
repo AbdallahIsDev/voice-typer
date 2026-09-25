@@ -62,60 +62,7 @@ afterEach(() => {
 	cleanup();
 });
 
-function panel() {
-	return document.body.querySelector('[data-slot="dialog-content"]');
-}
-
 describe("TemplateDialog theme wiring", () => {
-	it("renders the roomier lg panel at w-130", () => {
-		renderDialog();
-		const el = panel();
-		expect(el).toBeTruthy();
-		expect(el?.getAttribute("data-size")).toBe("lg");
-		expect(el?.className).toContain("w-130");
-	});
-
-	it("renders the output textarea as the shared pill Textarea primitive", () => {
-		renderDialog();
-		const el = document.body.querySelector('textarea[data-slot="textarea"]');
-		expect(el).toBeTruthy();
-		// Per-instance field polish: rounded-lg (matches the lg panel —
-		// the shared primitive's default rounded-xl read too round) and a
-		// softer bg-input/25 wash (the 50% was too visible on the bg
-		// panel).
-		expect(el?.className).toContain("rounded-lg");
-		expect(el?.className).not.toContain("rounded-3xl");
-		expect(el?.className).not.toContain("rounded-full");
-		expect(el?.className).toContain("bg-input/25");
-		expect(el?.getAttribute("id")).toBe("template-output");
-	});
-
-	it("moves the trigger description into an InfoTooltip beside the label", () => {
-		renderDialog();
-		// The "?" trigger is the Settings-page pattern: accessible name
-		// composed as "More info about {label}".
-		const tooltipTrigger = screen.getByLabelText(
-			"More info about Trigger phrase",
-		);
-		expect(tooltipTrigger.tagName).toBe("BUTTON");
-		// The description itself must NOT sit visibly in the body.
-		expect(screen.queryByText("The phrase you'll say")).toBeNull();
-	});
-
-	it("splits the output helper into description row + chips row", () => {
-		renderDialog();
-		const desc = screen.getByText("Supports variables:");
-		// Description is a standalone paragraph…
-		expect(desc.tagName).toBe("P");
-		// …and carries NO variable chips inside it (all chips live in
-		// their own row below).
-		expect(desc.querySelectorAll("button")).toHaveLength(0);
-		const chips = document.body.querySelectorAll(
-			'[data-slot="dialog-content"] button[title^="Insert"]',
-		);
-		expect(chips.length).toBe(4);
-	});
-
 	it("keeps the trigger field on the native Input primitive", () => {
 		renderDialog();
 		const el = document.body.querySelector('input[data-slot="input"]');

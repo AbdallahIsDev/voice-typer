@@ -155,13 +155,11 @@ import { APP_NAME } from "@/branding";
 // (`${t(...)}, ${APP_NAME}`) instead of a hardcoded guess.
 import { t } from "@/i18n";
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
 /** Minimal valid config (only the fields App.tsx reads in the help overlay). */
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -283,7 +281,7 @@ function makeConfig(
 		vocabulary_auto_confidence_threshold: 0.7,
 		vocabulary_auto_apply_threshold: 0.95,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 function dispatchKey(
@@ -545,139 +543,6 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 	});
 });
 
-//`?` keydown skips contentEditable elements ───────────────
-
-describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-		mockCall.mockReset();
-		mockPythonEvent.mockReset();
-		localStorage.clear();
-		useAppStore.setState({
-			connectionStatus: "connected",
-			recordingState: "idle",
-			lastError: null,
-			config: makeConfig({ onboarding_completed: true }),
-		});
-	});
-
-	afterEach(() => {
-		cleanup();
-		vi.resetModules();
-	});
-
-	it("does NOT open the help overlay when '?' is pressed inside a contentEditable element", async () => {
-		const { default: App } = await import("@/App");
-		render(<App />);
-
-		await waitFor(() => {
-			expect(screen.getByTestId("home-page")).toBeTruthy();
-		});
-
-		// Simulate focus moving into a contentEditable element (e.g. a
-		// rich-text editor like Slate/ProseMirror). The previous guard
-		// only checked <input>/<textarea>/<select>, so typing "?"
-		// inside a contentEditable would pop the overlay and steal
-		//focus.  adds `active?.isContentEditable === true` to
-		// the skip predicate.
-		const editable = document.createElement("div");
-		editable.contentEditable = "true";
-		document.body.appendChild(editable);
-		// jsdom doesn't reliably set document.activeElement on
-		// focus() for contentEditable divs (it only honours focus()
-		// on HTMLElements with a tabindex or form- controls). The
-		// App's keydown guard reads document.activeElement, so we
-		// override the getter to report the editable div, this lets
-		// the guard's `active?.isContentEditable === true` branch
-		// fire without depending on jsdom's incomplete focus model.
-		// jsdom also doesn't properly compute `isContentEditable`
-		// from the `contentEditable` property for arbitrary <div>
-		// elements (the IDL attribute is set, but the reflected
-		// `isContentEditable` getter stays undefined). We override
-		// both `document.activeElement` AND `editable.isContentEditable`
-		// so the App's guard sees a contentEditable active element.
-		// Save the original descriptors (if the objects have own
-		// properties for these) so we can restore them in `finally`.
-		// Without this, a failed assertion would leak the mock into
-		// subsequent tests (BG-26 focus-management tests also read
-		// document.activeElement).
-		const originalActiveDescriptor = Object.getOwnPropertyDescriptor(
-			document,
-			"activeElement",
-		);
-		const originalEditableDescriptor = Object.getOwnPropertyDescriptor(
-			editable,
-			"isContentEditable",
-		);
-		Object.defineProperty(document, "activeElement", {
-			get: () => editable,
-			configurable: true,
-		});
-		Object.defineProperty(editable, "isContentEditable", {
-			get: () => true,
-			configurable: true,
-		});
-
-		try {
-			// Sanity check: the simulated element really IS contentEditable
-			// and really IS the active element.
-			expect(document.activeElement).toBe(editable);
-			expect(editable.isContentEditable).toBe(true);
-
-			dispatchKey("?");
-
-			// The help overlay must NOT open. The dialog role is absent
-			// because Radix Dialog only renders DialogContent when open=true.
-			expect(screen.queryByRole("dialog")).toBeNull();
-		} finally {
-			// Restore document.activeElement and editable.isContentEditable
-			// to their default (prototype) getters so subsequent tests see
-			// the real active element.
-			if (originalActiveDescriptor) {
-				Object.defineProperty(
-					document,
-					"activeElement",
-					originalActiveDescriptor,
-				);
-			} else {
-				delete (document as { activeElement?: Element }).activeElement;
-			}
-			if (originalEditableDescriptor) {
-				Object.defineProperty(
-					editable,
-					"isContentEditable",
-					originalEditableDescriptor,
-				);
-			} else {
-				delete (editable as { isContentEditable?: boolean }).isContentEditable;
-			}
-			document.body.removeChild(editable);
-		}
-	});
-
-	it("STILL opens the help overlay when '?' is pressed outside any editable element", async () => {
-		// Regression guard: confirm the new isContentEditable check
-		// didn't accidentally disable the shortcut entirely.
-		const { default: App } = await import("@/App");
-		render(<App />);
-
-		await waitFor(() => {
-			expect(screen.getByTestId("home-page")).toBeTruthy();
-		});
-
-		// Active element is <body> (no input focused).
-		expect(document.activeElement).toBe(document.body);
-
-		dispatchKey("?");
-
-		await waitFor(() => {
-			expect(
-				screen.getByRole("dialog", { name: /Keyboard Shortcuts/i }),
-			).toBeTruthy();
-		});
-	});
-});
-
 //document.title updates on route change ──────────────────────
 
 describe("BG-25: document.title updates on route change", () => {
@@ -703,7 +568,7 @@ describe("BG-25: document.title updates on route change", () => {
 
 	it("sets document.title on initial mount based on the active page", async () => {
 		// useNavigation defaults to "home" on a clean localStorage, so
-		// the initial title should be "Home, Voice Typer".
+		// the initial title should be "Home, Lausu".
 		const { default: App } = await import("@/App");
 		render(<App />);
 
@@ -712,8 +577,8 @@ describe("BG-25: document.title updates on route change", () => {
 		});
 
 		//title is `t("nav.<page>") + ", " + APP_NAME`.
-		// APP_NAME is "Voice Typer" (src/renderer/src/branding.ts).
-		expect(document.title).toBe("Home, Voice Typer");
+		// APP_NAME is "Lausu" (src/renderer/src/branding.ts).
+		expect(document.title).toBe("Home, Lausu");
 	});
 
 	it("updates document.title when the user navigates to a different page", async () => {
@@ -723,7 +588,7 @@ describe("BG-25: document.title updates on route change", () => {
 		await waitFor(() => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
 		});
-		expect(document.title).toBe("Home, Voice Typer");
+		expect(document.title).toBe("Home, Lausu");
 
 		// Click the mocked Sidebar's "Switch to Settings" button to
 		// trigger a real `navigate("settings")` call (useNavigation

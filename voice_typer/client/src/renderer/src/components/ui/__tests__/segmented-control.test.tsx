@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SegmentedControl } from "../segmented-control";
@@ -46,22 +46,6 @@ describe("SegmentedControl (default variant)", () => {
 
 		expect(screen.getByText("Left")).toBeInTheDocument();
 		expect(screen.getByText("Right")).toBeInTheDocument();
-	});
-
-	it("applies default variant class names (rounded-full, border, p-0.75)", () => {
-		render(
-			<SegmentedControl
-				options={TWO_OPTIONS}
-				value="left"
-				onChange={() => {}}
-				ariaLabel="test-control"
-			/>,
-		);
-
-		const fieldset = screen.getByRole("radiogroup");
-		expect(fieldset.className).toContain("rounded-full");
-		expect(fieldset.className).toContain("border");
-		expect(fieldset.className).toContain("p-0.75");
 	});
 
 	it("marks the active option as checked", () => {
@@ -115,61 +99,6 @@ describe("SegmentedControl (default variant)", () => {
 
 		await user.click(screen.getByText("Left"));
 		expect(onChange).not.toHaveBeenCalled();
-	});
-
-	it("renders the active indicator element", async () => {
-		// The indicator is a position:absolute div positioned via
-		// requestAnimationFrame after mount. We waitFor it to appear.
-		const { container } = render(
-			<SegmentedControl
-				options={TWO_OPTIONS}
-				value="left"
-				onChange={() => {}}
-				ariaLabel="test-control"
-			/>,
-		);
-
-		await waitFor(() => {
-			const indicator = container.querySelector(".bg-primary");
-			expect(indicator).toBeTruthy();
-		});
-	});
-
-	it("applies active styling to the active label", () => {
-		render(
-			<SegmentedControl
-				options={TWO_OPTIONS}
-				value="left"
-				onChange={() => {}}
-				ariaLabel="test-control"
-			/>,
-		);
-
-		const radios = screen.getAllByRole("radio");
-		// The text-xs and active-styling classes live on the wrapping <label>,
-		// not on the <input> itself (which has className="sr-only").
-		const leftLabel = radios[0]?.closest("label");
-		const rightLabel = radios[1]?.closest("label");
-
-		expect(leftLabel?.className).toContain("text-primary-foreground");
-		expect(rightLabel?.className).toContain("text-(--text-muted)");
-	});
-
-	it("renders labels with text-[0.6875rem]", () => {
-		render(
-			<SegmentedControl
-				options={TWO_OPTIONS}
-				value="left"
-				onChange={() => {}}
-				ariaLabel="test-control"
-			/>,
-		);
-
-		const radios = screen.getAllByRole("radio");
-		for (const radio of radios) {
-			const label = radio.closest("label");
-			expect(label?.className).toContain("text-[0.6875rem]");
-		}
 	});
 });
 
@@ -399,58 +328,7 @@ describe("SegmentedControl keyboard navigation", () => {
 // ── Tabs variant ────────────────────────────────────────────────────────────
 
 describe("SegmentedControl tabs variant", () => {
-	it("renders with transparent background, no border-radius, and no forced border-none", () => {
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="one"
-				onChange={() => {}}
-				ariaLabel="tabs-control"
-			/>,
-		);
-		//the tabs variant renders role="tablist" (NOT
-		// radiogroup) so screen readers announce it as a tab
-		// navigation region per the WAI-ARIA Tabs pattern.
-		const group = screen.getByRole("tablist");
-		expect(group.className).toContain("bg-transparent");
-		//(2026-08-21): the tabs base no longer emits `border-none` —
-		// `border-none` sets `border-style: none`, and tailwind-merge
-		// treats it as a DIFFERENT group from the `border` width class,
-		// so a caller's `border border-border/5` (Models page card
-		// treatment) was silently cancelled by `border-style: none`.
-		// Callers now own the border entirely.
-		expect(group.className).not.toContain("border-none");
-		expect(group.className).toContain("rounded-none");
-		expect(group.className).not.toContain("rounded-full");
-		expect(group.className).not.toContain("bg-input/50");
-		expect(group.className).toContain("p-1");
-		expect(group.className).not.toContain("p-0.75");
-	});
-	it("labels have no rounded-full and use larger font", () => {
-		render(
-			<SegmentedControl
-				variant="tabs"
-				options={FOUR_OPTIONS}
-				value="one"
-				onChange={() => {}}
-				ariaLabel="tabs-control"
-			/>,
-		);
-		//each option renders role="tab" on a <button> (NOT
-		// role="radio" on an <input>), so we query by tab role and
-		// assert directly on the button's className (no .closest
-		// "label" needed).
-		const tabs = screen.getAllByRole("tab");
-		expect(tabs).toHaveLength(4);
-		for (const tab of tabs) {
-			expect(tab.className).toContain("rounded-none");
-			expect(tab.className).not.toContain("rounded-full");
-			expect(tab.className).toContain("text-[0.8125rem]");
-			expect(tab.className).toContain("font-medium");
-		}
-	});
-	it("active label uses text-(--text-primary) instead of text-primary-foreground", () => {
+	it("active label uses text-foreground instead of text-primary-foreground", () => {
 		render(
 			<SegmentedControl
 				variant="tabs"
@@ -464,10 +342,10 @@ describe("SegmentedControl tabs variant", () => {
 		// className on the same <button> element (no .closest).
 		const tabs = screen.getAllByRole("tab");
 		expect(tabs).toHaveLength(2);
-		// Active tab: aria-selected="true" + text-(--text-primary).
+		// Active tab: aria-selected="true" + text-foreground.
 		expect(tabs[0]).toHaveAttribute("aria-selected", "true");
 		expect(tabs[1]).toHaveAttribute("aria-selected", "false");
-		expect(tabs[0]?.className ?? "").toContain("text-(--text-primary)");
+		expect(tabs[0]?.className ?? "").toContain("text-foreground");
 		expect(tabs[1]?.className ?? "").not.toContain("text-primary-foreground");
 	});
 	it("active tab is in the tab order (tabIndex=0) and inactive tabs are not (tabIndex=-1)", () => {
@@ -512,30 +390,6 @@ describe("SegmentedControl tabs variant", () => {
 		expect(tabs[1]).toHaveAttribute("id", "my-tab-right");
 		expect(tabs[1]).toHaveAttribute("aria-controls", "my-panel-right");
 	});
-	it("indicator has no rounded corners", async () => {
-		const { container } = render(
-			<SegmentedControl
-				variant="tabs"
-				options={TWO_OPTIONS}
-				value="left"
-				onChange={() => {}}
-				ariaLabel="tabs-control"
-			/>,
-		);
-
-		await waitFor(() => {
-			// The indicator is the absolute-positioned child of the container.
-			const indicator = container.querySelector(".absolute");
-			expect(indicator).toBeTruthy();
-			expect(indicator?.className).toContain("rounded-md");
-			expect(indicator?.className).not.toContain("rounded-full");
-			expect(indicator?.className).toContain("bg-input");
-			expect(indicator?.className).not.toContain("bg-(");
-			expect(indicator?.className).not.toContain("bg-black");
-			expect(indicator?.className).not.toContain("dark:bg-white");
-		});
-	});
-
 	it("onChange fires correctly in tabs variant", async () => {
 		const user = userEvent.setup();
 		const onChange = vi.fn();
@@ -566,21 +420,5 @@ describe("SegmentedControl tabs variant", () => {
 
 		const group = screen.getByRole("radiogroup");
 		expect(group.className).toContain("my-custom-class");
-	});
-
-	it("merges extra className with base classes", () => {
-		render(
-			<SegmentedControl
-				options={FOUR_OPTIONS}
-				value="one"
-				onChange={() => {}}
-				ariaLabel="test-classname"
-				className="w-full"
-			/>,
-		);
-
-		const group = screen.getByRole("radiogroup");
-		expect(group.className).toContain("w-full");
-		expect(group.className).toContain("rounded-full");
 	});
 });

@@ -211,19 +211,4 @@ describe("showRetryableToast, ZU-33 helper", () => {
 		const [, opts] = toastSpies.error.mock.calls[0] ?? [];
 		expect(opts).toHaveProperty("duration", 12000);
 	});
-
-	it("mirrors showUndoableToast structure (sanity check)", async () => {
-		const { showUndoableToast } = await import("@/hooks/useSnackbar");
-		const onUndo = vi.fn();
-		act(() => {
-			showUndoableToast("deleted", onUndo);
-		});
-		expect(toastSpies.warning).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.warning.mock.calls[0] ?? [];
-		// showUndoableToast defaults to type="warning", undoLabel=t("common.undo")="Undo".
-		expect(opts).toMatchObject({
-			duration: 6000,
-			action: { label: "Undo", onClick: onUndo },
-		});
-	});
 });

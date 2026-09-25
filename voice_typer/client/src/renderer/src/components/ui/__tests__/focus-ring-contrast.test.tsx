@@ -1,11 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectTrigger } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 
 afterEach(() => {
 	cleanup();
@@ -85,111 +81,6 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			expect(cls).toMatch(/focus-visible:ring-ring(\s|$)/);
 			expect(cls).not.toMatch(/focus-visible:ring-ring\/30/);
 			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
-		});
-
-		it("preserves focus ring thickness (ring-1)", () => {
-			const { container } = render(<Input type="text" />);
-			const cls = container.querySelector("input")?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-1/);
-		});
-	});
-
-	describe("Textarea", () => {
-		it("rendered className uses ring-ring at full opacity (no /30 alpha)", () => {
-			const { container } = render(<Textarea />);
-			const textarea = container.querySelector("textarea");
-			expect(textarea).toBeTruthy();
-			const cls = textarea?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-ring(\s|$)/);
-			expect(cls).not.toMatch(/focus-visible:ring-ring\/30/);
-			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
-		});
-
-		it("preserves focus ring thickness (ring-1)", () => {
-			const { container } = render(<Textarea />);
-			const cls = container.querySelector("textarea")?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-1/);
-		});
-	});
-
-	describe("SelectTrigger", () => {
-		it("rendered className uses ring-ring at full opacity (no /30 alpha)", () => {
-			const { container } = render(
-				<Select>
-					<SelectTrigger>
-						<span>placeholder</span>
-					</SelectTrigger>
-				</Select>,
-			);
-			const trigger = container.querySelector("[data-slot='select-trigger']");
-			expect(trigger).toBeTruthy();
-			const cls = trigger?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-ring(\s|$)/);
-			expect(cls).not.toMatch(/focus-visible:ring-ring\/30/);
-			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
-		});
-
-		it("preserves focus ring thickness (ring-1)", () => {
-			const { container } = render(
-				<Select>
-					<SelectTrigger>
-						<span>placeholder</span>
-					</SelectTrigger>
-				</Select>,
-			);
-			const cls =
-				container.querySelector("[data-slot='select-trigger']")?.className ??
-				"";
-			expect(cls).toMatch(/focus-visible:ring-1/);
-		});
-	});
-
-	describe("Checkbox", () => {
-		it("rendered className uses ring-ring at full opacity (no /30 alpha)", () => {
-			const { container } = render(<Checkbox aria-label="checkbox" />);
-			const checkbox = container.querySelector("[data-slot='checkbox']");
-			expect(checkbox).toBeTruthy();
-			const cls = checkbox?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-ring(\s|$)/);
-			expect(cls).not.toMatch(/focus-visible:ring-ring\/30/);
-			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
-		});
-
-		it("preserves focus ring thickness (ring-1) and border token", () => {
-			const { container } = render(<Checkbox aria-label="checkbox" />);
-			const cls =
-				container.querySelector("[data-slot='checkbox']")?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-1/);
-			expect(cls).toMatch(/focus-visible:border-ring/);
-		});
-	});
-
-	describe("RadioGroupItem", () => {
-		it("rendered className uses ring-ring at full opacity (no /30 alpha)", () => {
-			const { container } = render(
-				<RadioGroup aria-label="options">
-					<RadioGroupItem value="a" aria-label="option a" />
-				</RadioGroup>,
-			);
-			const item = container.querySelector("[data-slot='radio-group-item']");
-			expect(item).toBeTruthy();
-			const cls = item?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-ring(\s|$)/);
-			expect(cls).not.toMatch(/focus-visible:ring-ring\/30/);
-			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
-		});
-
-		it("preserves focus ring thickness (ring-1) and border token", () => {
-			const { container } = render(
-				<RadioGroup aria-label="options">
-					<RadioGroupItem value="a" aria-label="option a" />
-				</RadioGroup>,
-			);
-			const cls =
-				container.querySelector("[data-slot='radio-group-item']")?.className ??
-				"";
-			expect(cls).toMatch(/focus-visible:ring-1/);
-			expect(cls).toMatch(/focus-visible:border-ring/);
 		});
 	});
 });

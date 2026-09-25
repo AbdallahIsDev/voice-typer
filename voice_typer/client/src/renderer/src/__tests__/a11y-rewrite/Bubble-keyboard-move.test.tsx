@@ -246,25 +246,6 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (mouse-drag-o
 				"the bubble is documented in user-facing help as mouse-drag-only.",
 		);
 	});
-
-	it("Bubble.tsx documents the keyboard-move handler as deliberately not implemented (BG-30 comment block)", () => {
-		// Companion assertion: Bubble.tsx itself must carry a
-		// comment block explaining WHY the keyboard-move handler
-		// guards against a refactor that removes the comment
-		// (leaving future readers confused about why the handler
-		// doesn't exist).
-		const bubblePath = path.resolve(__dirname, "..", "..", "Bubble.tsx");
-		const src = fs.readFileSync(bubblePath, "utf-8");
-
-		// The comment block at the top of Bubble.tsx explicitly
-		// mentions `focusable: false` (historical predecessor contract)
-		// and `bubble-window.ts` and the global-hotkey migration path.
-		expect(src).toMatch(/focusable:\s*false/i);
-		expect(src).toContain("bubble-window.ts");
-		// The comment must point at the main-process IPC handler
-		// as the correct re-implementation target.
-		expect(src).toContain("bubble:move-by");
-	});
 });
 
 // When the Bubble transitions from

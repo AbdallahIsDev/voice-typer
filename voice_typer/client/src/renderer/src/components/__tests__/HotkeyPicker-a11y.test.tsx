@@ -342,3 +342,46 @@ describe("HotkeyPicker, Accessibility (ARIA runtime verification)", () => {
 		});
 	});
 });
+
+describe("HotkeyPicker fallback capture-button aria-label", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("falls back to the localized aria label when no aria-label prop is passed", () => {
+		render(<HotkeyPicker value="" mode="single" onChange={vi.fn()} />);
+		const button = screen.getByRole("button");
+		expect(button.getAttribute("aria-label")).toBe(
+			"Record new hotkey, Hotkey picker",
+		);
+	});
+
+	it("uses the caller-provided aria-label over the fallback", () => {
+		render(
+			<HotkeyPicker
+				value=""
+				mode="single"
+				onChange={vi.fn()}
+				aria-label="Dictation key"
+			/>,
+		);
+		const button = screen.getByRole("button");
+		expect(button.getAttribute("aria-label")).toBe(
+			"Record new hotkey, Dictation key",
+		);
+	});
+
+	it("wires the fallback label into the preset-dropdown trigger aria-label too", () => {
+		render(
+			<HotkeyPicker
+				value=""
+				mode="single"
+				onChange={vi.fn()}
+				presets={[{ value: "ctrl", label: "Ctrl" }]}
+			/>,
+		);
+		const buttons = screen.getAllByRole("button");
+		const labels = buttons.map((b) => b.getAttribute("aria-label"));
+		expect(labels).toContain("Preset hotkeys, Hotkey picker");
+	});
+});

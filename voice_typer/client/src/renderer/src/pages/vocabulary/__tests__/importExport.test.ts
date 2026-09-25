@@ -137,4 +137,33 @@ describe("parseImportedVocabulary", () => {
 		expect(result[0]?.original).toBe("recieve");
 		expect(result[1]?.original).toBe("teh");
 	});
+
+	it("keeps quoted newlines inside one row (LF + CRLF)", () => {
+		const csv = 'original,correction\n"hello\nworld",hi\n"multi\r\nline",out\n';
+		const result = parseImportedVocabulary(csv);
+		expect(result).toHaveLength(2);
+		expect(result[0]?.original).toBe("hello\nworld");
+		expect(result[0]?.correction).toBe("hi");
+		expect(result[1]?.original).toBe("multi\r\nline");
+		expect(result[1]?.correction).toBe("out");
+	});
+
+	it("matches the 3-col snapshot for a mixed-shape CSV", () => {
+		const csv =
+			'original,correction,category\nrecieve,receive,misspellings\n"hello, world","hi there"\n\nteh,the\n';
+		const result = parseImportedVocabulary(csv);
+		expect(result).toEqual([
+			{
+				original: "recieve",
+				correction: "receive",
+				category: "misspellings",
+			},
+			{
+				original: "hello, world",
+				correction: "hi there",
+				category: "phrase_corrections",
+			},
+			{ original: "teh", correction: "the", category: "misspellings" },
+		]);
+	});
 });

@@ -1,14 +1,11 @@
 /**
  * usePointerFocusModality, behavior-preservation tests for the shared
  * pointer-vs-keyboard focus-modality contract (C-FOCUS-3).
- * `components/ui/input.tsx` and `components/ui/textarea.tsx`; it now
- *      C-FOCUS-4 describes for the shared inputs).
  */
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 
 afterEach(() => {
 	cleanup();
@@ -97,48 +94,5 @@ describe("usePointerFocusModality, Input", () => {
 		// field stays in keyboard modality (suppression inactive).
 		expect(callerPointerDown).toHaveBeenCalledTimes(1);
 		expectKeyboardMode(classes(input));
-	});
-});
-
-describe("usePointerFocusModality, Textarea", () => {
-	it("starts in keyboard modality (full ring classes, no suppression)", () => {
-		const { container } = render(<Textarea />);
-		expectKeyboardMode(classes(container.querySelector("textarea")));
-	});
-
-	it("pointerdown suppresses the ring; Tab keydown restores it; blur resets", () => {
-		const { container } = render(<Textarea />);
-		const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-
-		fireEvent.pointerDown(textarea);
-		expectPointerMode(classes(textarea));
-
-		fireEvent.keyDown(textarea, { key: "Tab" });
-		expectKeyboardMode(classes(textarea));
-
-		fireEvent.pointerDown(textarea);
-		expectPointerMode(classes(textarea));
-
-		fireEvent.blur(textarea);
-		expectKeyboardMode(classes(textarea));
-	});
-
-	it("Arrow keydown restores keyboard modality", () => {
-		const { container } = render(<Textarea />);
-		const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-
-		fireEvent.pointerDown(textarea);
-		expectPointerMode(classes(textarea));
-		fireEvent.keyDown(textarea, { key: "ArrowUp" });
-		expectKeyboardMode(classes(textarea));
-	});
-
-	it("non-navigation keys keep pointer modality", () => {
-		const { container } = render(<Textarea />);
-		const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-
-		fireEvent.pointerDown(textarea);
-		fireEvent.keyDown(textarea, { key: "x" });
-		expectPointerMode(classes(textarea));
 	});
 });

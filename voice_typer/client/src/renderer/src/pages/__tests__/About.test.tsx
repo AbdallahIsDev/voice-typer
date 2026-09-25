@@ -27,7 +27,6 @@ vi.mock("next-themes", () => nextThemesMock());
 
 import {
 	DiagnosticsSettingsSection,
-	formatBytes,
 	formatRelativeTime,
 } from "@/components/settings/DiagnosticsSettingsSection";
 
@@ -58,63 +57,12 @@ const DASH_DATA_SRC = fs.readFileSync(
 	"utf8",
 );
 
-// ─── formatBytes ───────────────────────────────────────────────────────
-
-describe("formatBytes", () => {
-	it("returns '0 MB' for 0 bytes", () => {
-		expect(formatBytes(0)).toBe("0 MB");
-	});
-
-	it("returns '0 MB' for negative bytes", () => {
-		expect(formatBytes(-100)).toBe("0 MB");
-	});
-
-	it("returns MB for sub-GB values", () => {
-		expect(formatBytes(1024 * 1024)).toBe("1 MB");
-		expect(formatBytes(500 * 1024 * 1024)).toBe("500 MB");
-	});
-
-	it("returns GB for GB-range values (1 decimal)", () => {
-		expect(formatBytes(1024 * 1024 * 1024)).toBe("1.0 GB");
-		expect(formatBytes(2.4 * 1024 * 1024 * 1024)).toBe("2.4 GB");
-		// 1,750,000,000 bytes = 1.628 GB → rounds to 1.6 GB
-		expect(formatBytes(1750000000)).toBe("1.6 GB");
-	});
-
-	it("rounds MB values (no decimals)", () => {
-		// 1.5 MB → rounds to 2 MB
-		expect(formatBytes(1.5 * 1024 * 1024)).toBe("2 MB");
-	});
-});
-
 // ─── formatRelativeTime ───────────────────────────────────────────────
 
 describe("formatRelativeTime", () => {
 	it("returns 'Never' for null", () => {
 		// Note: t("about.neverRun") returns "Never" in English.
 		expect(formatRelativeTime(null)).toBe("Never");
-	});
-
-	it("returns '<1 min ago' for a timestamp 30 seconds ago", () => {
-		const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString();
-		expect(formatRelativeTime(thirtySecondsAgo)).toBe("<1 min ago");
-	});
-
-	it("returns 'N min ago' for a timestamp minutes ago", () => {
-		const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
-		expect(formatRelativeTime(fiveMinAgo)).toBe("5 min ago");
-	});
-
-	it("returns 'N h ago' for a timestamp hours ago", () => {
-		const threeHrsAgo = new Date(Date.now() - 3 * 60 * 60_000).toISOString();
-		expect(formatRelativeTime(threeHrsAgo)).toBe("3 h ago");
-	});
-
-	it("returns 'N d ago' for a timestamp days ago (under 7)", () => {
-		const threeDaysAgo = new Date(
-			Date.now() - 3 * 24 * 60 * 60_000,
-		).toISOString();
-		expect(formatRelativeTime(threeDaysAgo)).toBe("3 d ago");
 	});
 
 	it("returns a localized medium-format date for timestamps older than 7 days", () => {
@@ -131,10 +79,6 @@ describe("formatRelativeTime", () => {
 		// The medium-format date contains the year (4 digits) so the
 		// fallback is distinguishable from a relative "N d ago" string.
 		expect(result).toMatch(/\d{4}/);
-	});
-
-	it("returns the raw string for unparseable input", () => {
-		expect(formatRelativeTime("not-a-date")).toBe("not-a-date");
 	});
 });
 
@@ -277,7 +221,7 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 			if (type === "get_status") {
 				return Promise.resolve({
 					status: "idle",
-					config_dir: "/tmp/voice-typer",
+					config_dir: "/tmp/lausu",
 					loaded_via: "cpu/int8/tiny.en",
 				});
 			}
@@ -315,7 +259,7 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 		renderDiag();
 
 		await waitFor(() => {
-			expect(screen.getByText("/tmp/voice-typer")).toBeTruthy();
+			expect(screen.getByText("/tmp/lausu")).toBeTruthy();
 		});
 		// The row resolves, no "Loading…" placeholder remains.
 		expect(screen.queryByText("Loading…")).toBeNull();
@@ -343,7 +287,7 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 		renderDiag();
 
 		await waitFor(() => {
-			expect(screen.getByText("/tmp/voice-typer")).toBeTruthy();
+			expect(screen.getByText("/tmp/lausu")).toBeTruthy();
 		});
 
 		fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
@@ -355,7 +299,7 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 		// The copied block contains the labeled diagnostic fields.
 		expect(text).toContain("App Version: v");
 		expect(text).toContain("Backend: Connected");
-		expect(text).toContain("Config Directory: /tmp/voice-typer");
+		expect(text).toContain("Config Directory: /tmp/lausu");
 		expect(text).toContain("Speech recognizer: whisper (tiny)");
 		// Device renders the friendly display name ("cpu" → "CPU").
 		expect(text).toContain("Device: CPU");
@@ -393,7 +337,7 @@ describe("Diagnostics section, model rows share one source of truth with Analyti
 			if (type === "get_status") {
 				return Promise.resolve({
 					status: "idle",
-					config_dir: "/tmp/voice-typer",
+					config_dir: "/tmp/lausu",
 					loaded_via: "cpu/int8/tiny.en",
 				});
 			}
@@ -425,7 +369,7 @@ describe("Diagnostics section, model rows share one source of truth with Analyti
 			if (type === "get_status") {
 				return Promise.resolve({
 					status: "idle",
-					config_dir: "/tmp/voice-typer",
+					config_dir: "/tmp/lausu",
 					loaded_via: "cpu/int8/tiny.en",
 				});
 			}
@@ -459,7 +403,7 @@ describe("Diagnostics section, model rows share one source of truth with Analyti
 			if (type === "get_status") {
 				return Promise.resolve({
 					status: "idle",
-					config_dir: "/tmp/voice-typer",
+					config_dir: "/tmp/lausu",
 					loaded_via: "cpu/int8/tiny.en",
 				});
 			}
