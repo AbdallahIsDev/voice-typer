@@ -8,7 +8,11 @@ import typing
 
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.registry import _INSTANT_CONTROL_COMMANDS, _READONLY_COMMANDS
+from voice_typer.server.ipc.registry import (
+    _INSTANT_CONTROL_COMMANDS,
+    _READONLY_COMMANDS,
+    _SELF_SERIALIZED_COMMANDS,
+)
 from voice_typer.server.ipc.validation import (
     CommandHandler,
     ErrorCodes,
@@ -78,8 +82,16 @@ class DispatcherMixin:
         try:
             if handler is None:
                 result = self._handle_unknown_command(cmd, data, resp)
-            elif cmd_key in _READONLY_COMMANDS or cmd_key in _INSTANT_CONTROL_COMMANDS:
-                # read-only handlers bypass the dispatch lock —
+            elif (
+                cmd_key in _READONLY_COMMANDS
+                or cmd_key in _INSTANT_CONTROL_COMMANDS
+                or cmd_key in _SELF_SERIALIZED_COMMANDS
+            ):
+                # Lock-bypass sets: pure reads, instant download controls,
+                # and self-serialized long-running handlers (which carry
+                # their own concurrency guards, so holding the global lock
+                # for a multi-GB transfer would only wedge later commands
+                # behind the give-up budget).
                 if getattr(self, "_cached_shutting_down", False) is True:
                     result = self._shutting_down_error(msg)
                 else:

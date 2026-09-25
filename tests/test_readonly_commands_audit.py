@@ -14,6 +14,7 @@ from voice_typer.server.ipc.registry import (
     _COMMAND_REGISTRY,
     _INSTANT_CONTROL_COMMANDS,
     _READONLY_COMMANDS,
+    _SELF_SERIALIZED_COMMANDS,
 )
 
 # ``get_*`` commands that DO mutate shared state, so they must stay behind the
@@ -52,3 +53,18 @@ def test_readonly_does_not_overlap_instant_controls() -> None:
     """Lock-bypassing mutation controls stay separate from the readonly set."""
     overlap = sorted(_READONLY_COMMANDS & _INSTANT_CONTROL_COMMANDS)
     assert overlap == [], f"Pure reads and instant download controls must not share members: {overlap}."
+
+
+def test_self_serialized_commands_are_registered_and_disjoint() -> None:
+    """Self-serialized bypass members name real registered commands and
+    share no members with the readonly or instant sets (they are real
+    I/O-owning mutators with their own concurrency guards, neither pure
+    reads nor single-flag instant controls)."""
+    unknown = sorted(_SELF_SERIALIZED_COMMANDS - set(_COMMAND_REGISTRY))
+    assert unknown == [], f"_SELF_SERIALIZED_COMMANDS contains unregistered commands: {unknown}."
+    overlap_ro = sorted(_READONLY_COMMANDS & _SELF_SERIALIZED_COMMANDS)
+    assert overlap_ro == [], f"Pure reads and self-serialized commands must not share members: {overlap_ro}."
+    overlap_instant = sorted(_INSTANT_CONTROL_COMMANDS & _SELF_SERIALIZED_COMMANDS)
+    assert overlap_instant == [], (
+        f"Instant controls and self-serialized commands must not share members: {overlap_instant}."
+    )

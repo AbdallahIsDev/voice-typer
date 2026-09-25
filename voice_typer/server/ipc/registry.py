@@ -3,6 +3,11 @@
 - ``_COMMAND_REGISTRY``: ``{command: handler_method}`` for ``IPCServer._dispatch``.
 - ``_READONLY_COMMANDS``: pure-read handlers bypass ``_dispatch_lock`` (WS/stdin
   still consult this; not TCP-only).
+- ``_INSTANT_CONTROL_COMMANDS``: pause/resume/cancel bypass the lock (single
+  atomic flag writes, no I/O).
+- ``_SELF_SERIALIZED_COMMANDS``: long-running handlers that bypass the lock
+  because they carry their own serialization (service single-flight +
+  FIFO queue + per-download cancel events + transfer gate).
 - ``_PYTHON_ONLY_COMMANDS``: host-only commands absent from the Rust renderer
   allowlist (``shutdown``, ``tray_click``). ``heartbeat`` / ``relaunch_ack`` are
   also host-dispatched; see ``tests/test_ipc_command_parity.py``.
@@ -53,6 +58,8 @@ _READONLY_COMMANDS: frozenset[str] = frozenset(
 )
 
 # Instant download-control: also bypass dispatch lock. Mutation is a single
+# atomic flag write under the download locks: no network/disk I/O,
+# idempotent, never starts a long operation.
 _INSTANT_CONTROL_COMMANDS: frozenset[str] = frozenset(
     {
         "pause_model_download",
@@ -61,10 +68,30 @@ _INSTANT_CONTROL_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
+# Self-serialized long-running commands: bypass ``_dispatch_lock`` because
+# holding it for a multi-GB transfer wedges every later command behind the
+# give-up budget (a duplicate/retry ``download_model`` then fails with a
+# spurious ``server.busy`` while the real transfer is still running).
+# Safety case (NOT instant: this set owns real I/O):
+# - ``ModelMixin.download_model`` single-flights gateable transfers: a
+#   second concurrent request is enqueued (FIFO) or answered
+#   ``download_already_active``, never a second live transfer.
+# - Pause/cancel/resume already bypass and act on the same per-download
+#   events + transfer gate; they never needed this lock.
+# - Queue-drain threads already invoke ``service.download_model`` with no
+#   dispatch lock held, so the lock never actually serialized this path.
+# Membership requires the handler's own concurrency guards; do NOT add
+# commands that rely on the dispatch lock for correctness.
+_SELF_SERIALIZED_COMMANDS: frozenset[str] = frozenset(
+    {
+        "download_model",
+    }
+)
+
 # Host-only commands: registered here, never invoked by the renderer
 _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 
-# Maps IPC command name → handler method on IPCServer. Count pinned at 75
+# Maps IPC command name → handler method on IPCServer. Count pinned at 79
 _COMMAND_REGISTRY: dict[str, str] = {
     "get_status": "_handle_get_status",
     "toggle_dictation": "_handle_toggle_dictation",
@@ -89,6 +116,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # About-page Cache Status card (worker warm phase; not subprocess spawn).
     "get_prewarm_status": "_handle_get_prewarm_status",
     "open_prewarm_log": "_handle_open_prewarm_log",
+    "open_data_folder": "_handle_open_data_folder",
     "run_prewarm": "_handle_run_prewarm",
     "get_vocabulary": "_handle_get_vocabulary",
     "save_vocabulary": "_handle_save_vocabulary",
@@ -150,6 +178,11 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # Master plan §7.4 offline worker request; push pair is event_bus (not a command).
     "transcribe_offline": "_handle_transcribe_offline",
     "check_offline_pack_update": "_handle_check_offline_pack_update",
+    # ADR-0023 universal media-to-text (URL ladder + local files implemented;
+    # PO token / playlists / live capture remain Phase 2).
+    "media_transcribe_start": "_handle_media_transcribe_start",
+    "media_transcribe_cancel": "_handle_media_transcribe_cancel",
+    "media_transcribe_status": "_handle_media_transcribe_status",
 }
 
 

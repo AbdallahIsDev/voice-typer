@@ -11,7 +11,7 @@ lockstep. Host-dispatched commands (`shutdown`, `tray_click`, `heartbeat`,
 `relaunch_ack`) are intentionally absent from the Rust renderer allowlist.
 
 Pinned sets:
-- `_COMMAND_REGISTRY` — 75 keys (tests/test_ipc_server.py).
+- `_COMMAND_REGISTRY` — 79 keys (tests/test_ipc_server.py).
 - `_READONLY_COMMANDS` — `{get_status, get_config, get_model_catalog, heartbeat}`.
   WS/stdin dispatcher bypasses `_dispatch_lock` for these (pure reads).
 - `_PYTHON_ONLY_COMMANDS` — `{shutdown, tray_click}`. Renderer must never
@@ -20,6 +20,14 @@ Pinned sets:
   cancel_model_download}`. Bypass dispatch lock: mutation is a single atomic
   flag under the download locks. Safety: no network/disk I/O, idempotent,
   never starts a long operation.
+- `_SELF_SERIALIZED_COMMANDS` — `{download_model}`. Bypass dispatch lock:
+  holding it for a multi-GB transfer wedges every later command behind the
+  give-up budget (duplicate/retry `download_model` then fails with spurious
+  `server.busy` while the real transfer still runs). Safety: service
+  single-flight + FIFO queue + per-download cancel events + transfer gate;
+  queue-drain threads already call `service.download_model` lock-free, so
+  the dispatch lock never actually serialized this path. Membership
+  requires the handler's own concurrency guards.
 
 ### Registry history
 
