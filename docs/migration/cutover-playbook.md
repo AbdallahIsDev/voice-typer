@@ -8,7 +8,7 @@ previous-host packaging CI jobs are gone. Installer production lives in
 `.github/workflows/tauri-build.yml` + `tauri-*-build.yml`.
 
 This was the **per-platform cutover procedure** for flipping the
-default shipping Voice Typer app from predecessor to Tauri. Cutover was
+default shipping Lausu app from predecessor to Tauri. Cutover was
 **per-platform**: Windows first, then macOS, then Linux.
 
 **Scope of this document**:
@@ -202,7 +202,7 @@ For the platform being cut over, in the same release tag (`v<version>`):
 ### What does NOT change on rollback:
 
 - No data, config, or model loss. The Tauri build writes to the same
-  OS-specific data dir as the predecessor build (`<config_dir>/voice-typer/`).
+  OS-specific data dir as the predecessor build (`<config_dir>/lausu/`).
 - The user's history DB, vocabulary, templates, automation, models, and
   settings all carry over in both directions (predecessor→Tauri→predecessor).
 - The Python sidecar is the same binary in both paths (Nuitka-compiled
@@ -270,14 +270,14 @@ runtime=predecessor version=1.2.0 predecessor=28.x.x node=20.x.x
 When implemented, support tickets MUST include this line. If the user
 cannot find it (or until the marker is implemented), the build can be
 identified by:
-- **Windows**: Task Manager shows `voice-typer-tauri.exe` (Tauri) vs
-  `Voice Typer.exe` (the predecessor). Tauri also spawns `python-sidecar-*.exe`;
+- **Windows**: Task Manager shows `lausu-tauri.exe` (Tauri) vs
+  `Lausu.exe` (the predecessor). Tauri also spawns `python-sidecar-*.exe`;
   predecessor spawns `python.exe`.
-- **macOS**: Activity Monitor shows `voice-typer-tauri` (Tauri) vs
-  `Voice Typer` (the predecessor). The `.app` bundle name is the same, so use
+- **macOS**: Activity Monitor shows `lausu-tauri` (Tauri) vs
+  `Lausu` (the predecessor). The `.app` bundle name is the same, so use
   the process name.
-- **Linux**: `ps aux | grep voice-typer` shows `voice-typer-tauri`
-  (Tauri) vs `voice-typer` (the predecessor).
+- **Linux**: `ps aux | grep lausu` shows `lausu-tauri`
+  (Tauri) vs `lausu` (the predecessor).
 
 ### Support ticket triage
 

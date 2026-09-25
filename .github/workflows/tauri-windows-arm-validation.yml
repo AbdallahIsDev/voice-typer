@@ -129,7 +129,7 @@ jobs:
             if (-not $root) { continue }
             $hit = Get-ChildItem $root -Directory -ErrorAction SilentlyContinue |
               Where-Object Name -like "*Voice*" |
-              Where-Object { Test-Path (Join-Path $_.FullName "voice-typer-tauri.exe") } |
+              Where-Object { Test-Path (Join-Path $_.FullName "lausu-tauri.exe") } |
               Select-Object -First 1
             if ($hit) {
               $installRoot = $hit.FullName
@@ -137,7 +137,7 @@ jobs:
             }
           }
           if (-not $installRoot) {
-            Write-Error "Could not locate the install directory (voice-typer-tauri.exe) after silent install. Searched LOCALAPPDATA, LOCALAPPDATA\Programs, ProgramFiles, ProgramFiles(x86)."
+            Write-Error "Could not locate the install directory (lausu-tauri.exe) after silent install. Searched LOCALAPPDATA, LOCALAPPDATA\Programs, ProgramFiles, ProgramFiles(x86)."
             exit 1
           }
           Write-Host "Install root: $installRoot"
@@ -201,9 +201,9 @@ jobs:
           $evidence = "arm-validation/evidence/arch-evidence.txt"
           $installRoot = (Get-Content $evidence | Select-String "^INSTALL_ROOT=").Line.Substring("INSTALL_ROOT=".Length)
           # NOTE: do NOT name this variable `$host` — that is a reserved
-          $tauriHost = Get-ChildItem $installRoot -Recurse -Filter "voice-typer-tauri.exe" | Select-Object -First 1
+          $tauriHost = Get-ChildItem $installRoot -Recurse -Filter "lausu-tauri.exe" | Select-Object -First 1
           if (-not $tauriHost) {
-            Write-Error "voice-typer-tauri.exe not found under $installRoot."
+            Write-Error "lausu-tauri.exe not found under $installRoot."
             exit 1
           }
           Write-Host "Launching host: $($tauriHost.FullName)"
@@ -235,8 +235,8 @@ jobs:
             "── host stdout ──" | Out-File $evidence -Append -Encoding utf8
             $outDump | Out-File $evidence -Append -Encoding utf8
             Write-Host "HOST STDOUT:"; $outDump | ForEach-Object { Write-Host $_ }
-            "── app log tail (~\.voice-typer\logs) ──" | Out-File $evidence -Append -Encoding utf8
-            $appLogDump = Get-ChildItem "$env:USERPROFILE\.voice-typer\logs" -Filter *.log -ErrorAction SilentlyContinue |
+            "── app log tail (~\.lausu\logs) ──" | Out-File $evidence -Append -Encoding utf8
+            $appLogDump = Get-ChildItem "$env:USERPROFILE\.lausu\logs" -Filter *.log -ErrorAction SilentlyContinue |
               ForEach-Object {
                 "== $($_.Name) =="
                 Get-Content $_.FullName -Tail 30 -ErrorAction SilentlyContinue

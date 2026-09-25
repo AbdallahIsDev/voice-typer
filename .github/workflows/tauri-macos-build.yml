@@ -151,17 +151,17 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/build/build_worker_macos.sh aarch64
-          test -f "src-tauri/bin/voice-typer-worker-aarch64-apple-darwin" \
+          test -f "src-tauri/bin/lausu-worker-aarch64-apple-darwin" \
             || { echo "ERROR: worker binary not built"; exit 1; }
-          file src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
-          ls -lh src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
+          file src-tauri/bin/lausu-worker-aarch64-apple-darwin
+          ls -lh src-tauri/bin/lausu-worker-aarch64-apple-darwin
 
       # plan-runtime-pack-split.md §11.4 — Runtime pack size gate. The pack
       - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target, aarch64 leg)
         if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
         run: |
           set -euo pipefail
-          WORKER="src-tauri/bin/voice-typer-worker-aarch64-apple-darwin"
+          WORKER="src-tauri/bin/lausu-worker-aarch64-apple-darwin"
           if [ ! -f "$WORKER" ]; then
             echo "Worker binary not present (Phase 2a pending) — skipping pack size gate."
             exit 0
@@ -203,7 +203,7 @@ jobs:
             src-tauri/bin/python-sidecar-aarch64-apple-darwin
             src-tauri/resources/prewarm-aarch64-apple-darwin
             src-tauri/resources/native/macos-key-listener-arm64
-            src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
+            src-tauri/bin/lausu-worker-aarch64-apple-darwin
           if-no-files-found: error
           retention-days: 14
 
@@ -314,10 +314,10 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/build/build_worker_macos.sh x86_64
-          test -f "src-tauri/bin/voice-typer-worker-x86_64-apple-darwin" \
+          test -f "src-tauri/bin/lausu-worker-x86_64-apple-darwin" \
             || { echo "ERROR: worker binary not built"; exit 1; }
-          file src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
-          ls -lh src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
+          file src-tauri/bin/lausu-worker-x86_64-apple-darwin
+          ls -lh src-tauri/bin/lausu-worker-x86_64-apple-darwin
 
       # plan-runtime-pack-split.md §11.4 — Runtime pack size gate (x86_64 leg).
       # Mirrors the aarch64 leg.
@@ -325,7 +325,7 @@ jobs:
         if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
         run: |
           set -euo pipefail
-          WORKER="src-tauri/bin/voice-typer-worker-x86_64-apple-darwin"
+          WORKER="src-tauri/bin/lausu-worker-x86_64-apple-darwin"
           if [ ! -f "$WORKER" ]; then
             echo "Worker binary not present (Phase 2a pending) — skipping pack size gate."
             exit 0
@@ -363,7 +363,7 @@ jobs:
             src-tauri/bin/python-sidecar-x86_64-apple-darwin
             src-tauri/resources/prewarm-x86_64-apple-darwin
             src-tauri/resources/native/macos-key-listener-x86_64
-            src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
+            src-tauri/bin/lausu-worker-x86_64-apple-darwin
           if-no-files-found: error
           retention-days: 14
 
@@ -509,18 +509,18 @@ jobs:
             echo "OK: universal listener contains both x86_64 + arm64 slices."
           fi
           # plan-runtime-pack-split.md §4.4 / §11.5 — Place the worker exe
-          ARM_WORKER=/tmp/macos-aarch64/voice-typer-worker-aarch64-apple-darwin
-          X86_WORKER=/tmp/macos-x86_64/voice-typer-worker-x86_64-apple-darwin
+          ARM_WORKER=/tmp/macos-aarch64/lausu-worker-aarch64-apple-darwin
+          X86_WORKER=/tmp/macos-x86_64/lausu-worker-x86_64-apple-darwin
           if [ -f "$ARM_WORKER" ] && [ -f "$X86_WORKER" ]; then
             echo "[worker] lipo-creating universal worker from per-arch slices"
             lipo -create "$ARM_WORKER" "$X86_WORKER" \
-              -output src-tauri/bin/voice-typer-worker-universal
-            chmod +x src-tauri/bin/voice-typer-worker-universal
+              -output src-tauri/bin/lausu-worker-universal
+            chmod +x src-tauri/bin/lausu-worker-universal
             # files must be present for the .app bundle to spawn the worker
-            cp "$ARM_WORKER" src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
-            cp "$X86_WORKER" src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
-            file src-tauri/bin/voice-typer-worker-universal
-            lipo -info src-tauri/bin/voice-typer-worker-universal
+            cp "$ARM_WORKER" src-tauri/bin/lausu-worker-aarch64-apple-darwin
+            cp "$X86_WORKER" src-tauri/bin/lausu-worker-x86_64-apple-darwin
+            file src-tauri/bin/lausu-worker-universal
+            lipo -info src-tauri/bin/lausu-worker-universal
           else
             echo "[worker] Phase 2a pending — per-arch worker slices not present ($ARM_WORKER, $X86_WORKER). Skipping worker lipo-create."
           fi
@@ -535,8 +535,8 @@ jobs:
         shell: bash
         working-directory: src-tauri
         run: |
-          # voice-typer-tauri is a binary-only crate — `--bin` runs the
-          cargo test --bin voice-typer-tauri
+          # lausu-tauri is a binary-only crate — `--bin` runs the
+          cargo test --bin lausu-tauri
 
       # The universal job needs pytest for the config drift gate below —
       - name: Install Python deps (fail-fast config drift gate)
@@ -606,7 +606,7 @@ jobs:
             echo "::error::Sidecar --version exited with code $rc (expected 0). The frozen binary is broken."
             exit 1
           fi
-          if ! echo "$output" | grep -Eq 'voice-typer|VoiceTyper|voice_typer'; then
+          if ! echo "$output" | grep -Eq 'lausu|Lausu|voice_typer'; then
             echo "::error::Sidecar --version output did not contain the project name. Output: $output"
             exit 1
           fi
@@ -632,7 +632,7 @@ jobs:
       - name: Codesign nested Mach-O binaries (S1-CR-37)
         if: ${{ env.SIGN_ENABLED == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
         run: |
-          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
+          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Lausu.app"
           # S1-CR-37: cargo tauri build signs the main .app executable via
           BINARIES=(
             "$APP_PATH/Contents/Resources/python-sidecar-aarch64-apple-darwin"
@@ -659,8 +659,8 @@ jobs:
           # update C-CI-11 to enumerate 5 binaries. Conditional on the
           # cleanly today; once Phase 2a ships, the worker MUST be present
           for worker_bin in \
-            "$APP_PATH/Contents/Resources/voice-typer-worker-aarch64-apple-darwin" \
-            "$APP_PATH/Contents/Resources/voice-typer-worker-x86_64-apple-darwin"; do
+            "$APP_PATH/Contents/Resources/lausu-worker-aarch64-apple-darwin" \
+            "$APP_PATH/Contents/Resources/lausu-worker-x86_64-apple-darwin"; do
             if [ -f "$worker_bin" ]; then
               echo "[codesign] signing worker binary: $worker_bin"
               codesign --force --options runtime --timestamp --sign "$MAC_SIGNING_IDENTITY" \
@@ -678,18 +678,18 @@ jobs:
       - name: Verify codesign (before notarization)
         if: ${{ env.SIGN_ENABLED == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
         run: |
-          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
+          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Lausu.app"
           codesign --verify --verbose=4 "$APP_PATH"
           spctl --assess --verbose=4 "$APP_PATH"
 
       - name: Notarize + staple (if secrets present)
         if: ${{ env.SIGN_ENABLED == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
         run: |
-          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
-          DMG_PATH="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
+          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Lausu.app"
+          DMG_PATH="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Lausu_1.0.0_universal.dmg"
           # Notarize .app — this covers ALL nested binaries including the
-          ditto -c -k --keepParent "$APP_PATH" /tmp/VoiceTyper.zip
-          xcrun notarytool submit /tmp/VoiceTyper.zip \
+          ditto -c -k --keepParent "$APP_PATH" /tmp/Lausu.zip
+          xcrun notarytool submit /tmp/Lausu.zip \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" --wait
@@ -738,9 +738,9 @@ jobs:
           done
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is
           for worker in \
-            src-tauri/bin/voice-typer-worker-universal \
-            src-tauri/bin/voice-typer-worker-aarch64-apple-darwin \
-            src-tauri/bin/voice-typer-worker-x86_64-apple-darwin; do
+            src-tauri/bin/lausu-worker-universal \
+            src-tauri/bin/lausu-worker-aarch64-apple-darwin \
+            src-tauri/bin/lausu-worker-x86_64-apple-darwin; do
             [ -f "$worker" ] || continue
             hash=$(shasum -a 256 "$worker" | awk '{print $1}')
             name=$(basename "$worker")
@@ -752,7 +752,7 @@ jobs:
       - name: Upload checksums
         uses: actions/upload-artifact@v6
         with:
-          name: VoiceTyper-Tauri-MacOS-SHA256SUMS
+          name: Lausu-Tauri-MacOS-SHA256SUMS
           path: SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
@@ -789,6 +789,6 @@ jobs:
           subject-path: |
             src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
             src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
-            src-tauri/bin/voice-typer-worker-universal
-            src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
-            src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
+            src-tauri/bin/lausu-worker-universal
+            src-tauri/bin/lausu-worker-aarch64-apple-darwin
+            src-tauri/bin/lausu-worker-x86_64-apple-darwin

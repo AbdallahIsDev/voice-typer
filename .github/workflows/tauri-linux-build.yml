@@ -144,8 +144,8 @@ jobs:
             chmod +x "bin/python-sidecar-${t}"
           done
           # 1b. Runtime-pack ML worker binary (externalBin entry
-          echo '#!/bin/sh' > "bin/voice-typer-worker-${TRIPLE}"
-          chmod +x "bin/voice-typer-worker-${TRIPLE}"
+          echo '#!/bin/sh' > "bin/lausu-worker-${TRIPLE}"
+          chmod +x "bin/lausu-worker-${TRIPLE}"
           for t in \
             x86_64-pc-windows-msvc \
             aarch64-pc-windows-msvc \
@@ -153,8 +153,8 @@ jobs:
             aarch64-apple-darwin \
             x86_64-unknown-linux-gnu \
             aarch64-unknown-linux-gnu; do
-            echo '#!/bin/sh' > "bin/voice-typer-worker-${t}"
-            chmod +x "bin/voice-typer-worker-${t}"
+            echo '#!/bin/sh' > "bin/lausu-worker-${t}"
+            chmod +x "bin/lausu-worker-${t}"
           done
           # 2. Native key-listener binaries (one per OS).
           echo 'placeholder' > resources/native/windows-key-listener.exe
@@ -175,9 +175,9 @@ jobs:
           for f in \
             install_permissions.py \
             uninstall_permissions.py \
-            99-voice-typer.rules \
-            00-voice-typer-capslock.conf \
-            voice-typer.polkit; do
+            99-lausu.rules \
+            00-lausu-capslock.conf \
+            lausu.polkit; do
             [ -f "resources/linux-scripts/${f}" ] || echo 'placeholder' > "resources/linux-scripts/${f}"
           done
           # 5. Tauri icon files (not tracked in git — tauri.conf.json
@@ -224,8 +224,8 @@ jobs:
       - name: cargo test (Tauri Rust host unit tests)
         working-directory: src-tauri
         run: |
-          # voice-typer-tauri is a binary-only crate (no lib target), so
-          cargo test --target ${{ env.RUST_TARGET }} --bin voice-typer-tauri
+          # lausu-tauri is a binary-only crate (no lib target), so
+          cargo test --target ${{ env.RUST_TARGET }} --bin lausu-tauri
 
       - name: Validate tauri.conf.json (parse-only)
         working-directory: src-tauri
@@ -453,7 +453,7 @@ jobs:
         run: |
           set -euo pipefail
           TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
-          WORKER="src-tauri/bin/voice-typer-worker-${TRIPLE}"
+          WORKER="src-tauri/bin/lausu-worker-${TRIPLE}"
           if [ ! -x "$WORKER" ]; then
             echo "Worker binary not present (Phase 2a pending) — skipping pack size gate."
             exit 0
@@ -528,7 +528,7 @@ jobs:
             echo "::error::Sidecar --version exited with code $rc (expected 0). The frozen binary is broken."
             exit 1
           fi
-          if ! echo "$output" | grep -Eq 'voice-typer|VoiceTyper|voice_typer'; then
+          if ! echo "$output" | grep -Eq 'lausu|Lausu|voice_typer'; then
             echo "::error::Sidecar --version output did not contain the project name. Output: $output"
             exit 1
           fi
@@ -604,7 +604,7 @@ jobs:
       - name: Upload .AppImage artifact
         uses: actions/upload-artifact@v6
         with:
-          name: voice-typer-${{ env.BUILD_ARCH }}.AppImage
+          name: lausu-${{ env.BUILD_ARCH }}.AppImage
           path: |
             src-tauri/target/*/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/appimage/*.AppImage
@@ -614,7 +614,7 @@ jobs:
       - name: Upload .rpm artifact
         uses: actions/upload-artifact@v6
         with:
-          name: voice-typer-${{ env.BUILD_ARCH }}.rpm
+          name: lausu-${{ env.BUILD_ARCH }}.rpm
           path: |
             src-tauri/target/*/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/rpm/*.rpm
@@ -625,10 +625,10 @@ jobs:
       - name: Upload worker (runtime pack) artifact — Linux separate download
         uses: actions/upload-artifact@v6
         with:
-          name: voice-typer-worker-${{ env.BUILD_ARCH }}
+          name: lausu-worker-${{ env.BUILD_ARCH }}
           path: |
-            src-tauri/bin/voice-typer-worker-x86_64-unknown-linux-gnu
-            src-tauri/bin/voice-typer-worker-aarch64-unknown-linux-gnu
+            src-tauri/bin/lausu-worker-x86_64-unknown-linux-gnu
+            src-tauri/bin/lausu-worker-aarch64-unknown-linux-gnu
           if-no-files-found: warn
           retention-days: 30
 
@@ -657,7 +657,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: voice-typer-${{ env.BUILD_ARCH }}-build-logs
+          name: lausu-${{ env.BUILD_ARCH }}-build-logs
           path: |
             src-tauri/bin/.build-sidecar-*.log
             src-tauri/resources/.build-prewarm-*.log
@@ -683,8 +683,8 @@ jobs:
           done
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is
           for f in \
-              src-tauri/bin/voice-typer-worker-x86_64-unknown-linux-gnu \
-              src-tauri/bin/voice-typer-worker-aarch64-unknown-linux-gnu; do
+              src-tauri/bin/lausu-worker-x86_64-unknown-linux-gnu \
+              src-tauri/bin/lausu-worker-aarch64-unknown-linux-gnu; do
             [ -f "$f" ] || continue
             hash=$(sha256sum "$f" | awk '{print $1}')
             name=$(basename "$f")
@@ -701,7 +701,7 @@ jobs:
       - name: Upload checksums
         uses: actions/upload-artifact@v6
         with:
-          name: VoiceTyper-Tauri-Linux-SHA256SUMS-${{ env.BUILD_ARCH }}
+          name: Lausu-Tauri-Linux-SHA256SUMS-${{ env.BUILD_ARCH }}
           path: SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
@@ -743,5 +743,5 @@ jobs:
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/*/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/rpm/*.rpm
-            src-tauri/bin/voice-typer-worker-x86_64-unknown-linux-gnu
-            src-tauri/bin/voice-typer-worker-aarch64-unknown-linux-gnu
+            src-tauri/bin/lausu-worker-x86_64-unknown-linux-gnu
+            src-tauri/bin/lausu-worker-aarch64-unknown-linux-gnu

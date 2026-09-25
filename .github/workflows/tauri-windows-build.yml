@@ -81,8 +81,8 @@ jobs:
     # jobs.<id>.if). Default binary names grepped by mig18 signing tests:
     #   python-sidecar-x86_64-pc-windows-msvc.exe
     #   python-sidecar-aarch64-pc-windows-msvc.exe  (aarch64 template, commented)
-    # Artifact names (C-CI-13): tauri-windows-installer, VoiceTyper-Tauri-MSI,
-    # VoiceTyper-Tauri-Sidecar-Binaries, VoiceTyper-Tauri-SHA256SUMS.
+    # Artifact names (C-CI-13): tauri-windows-installer, Lausu-Tauri-MSI,
+    # Lausu-Tauri-Sidecar-Binaries, Lausu-Tauri-SHA256SUMS.
     # If enabling aarch64, also add tauri.windows-aarch64.conf.json + arch-suffix
     # those artifact names (TX-40 GATE STATUS / docs/code-notes/ci-workflows.md).
     strategy:
@@ -275,10 +275,19 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
+              # ADR-0023 packaging: media ingest lazily imports yt_dlp /
+              # yt_dlp_ejs / av (decoder.py, downloader.py, subtitles.py,
+              # mini_update.py); static follow-imports alone misses nothing
+              # but the package-data flag guarantees yt-dlp's non-code
+              # assets ride along. av wheels bundle FFmpeg DLLs.
+              --include-package=yt_dlp `
+              --include-package=yt_dlp_ejs `
+              --include-package=av `
+              --include-package-data=yt_dlp `
               --include-package-data=voice_typer.server `
               $($dataDirFlag) `
               --windows-console-mode=disable `
-              --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp" `
+              --onefile-tempdir-spec="{CACHE_DIR}/lausu/onefile-tmp" `
               --output-filename=python-sidecar-${{ matrix.target }}.exe `
               --output-dir=src-tauri\bin `
               voice_typer\server\ipc_server.py
@@ -328,16 +337,16 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/build/build_worker_windows.sh
-          test -f "src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe" \
+          test -f "src-tauri/bin/lausu-worker-${{ matrix.target }}.exe" \
             || { echo "ERROR: worker binary not built"; exit 1; }
-          ls -lh "src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe"
+          ls -lh "src-tauri/bin/lausu-worker-${{ matrix.target }}.exe"
 
       # plan-runtime-pack-split.md §11.4 — Runtime pack size gate. The pack
       - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target)
         if: ${{ hashFiles('scripts/build/build_worker_windows.sh') != '' }}
         shell: pwsh
         run: |
-          $worker = "src-tauri\bin\voice-typer-worker-${{ matrix.target }}.exe"
+          $worker = "src-tauri\bin\lausu-worker-${{ matrix.target }}.exe"
           if (-not (Test-Path $worker)) {
             Write-Host "Worker binary not present — skipping pack size gate."
             exit 0
@@ -398,17 +407,17 @@ jobs:
               Write-Error "Cannot sign missing binary: $exe"; exit 1
             }
             & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-                /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $exe
+                /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://Lausu.app" $exe
             if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $exe"; exit 1 }
             & $signtool verify /pa /v $exe
           }
           # C-CI-11 / plan §11.5: worker exe is a 5th Authenticode binary
           # (same S1-CR-99 SmartScreen rationale; conditional until Phase 2a).
-          $workerExe = "src-tauri\bin\voice-typer-worker-${{ matrix.target }}.exe"
+          $workerExe = "src-tauri\bin\lausu-worker-${{ matrix.target }}.exe"
           if (Test-Path $workerExe) {
             Write-Host "Signing worker exe (5th binary): $workerExe"
             & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-                /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $workerExe
+                /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://Lausu.app" $workerExe
             if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $workerExe"; exit 1 }
             & $signtool verify /pa /v $workerExe
           } else {
@@ -449,9 +458,9 @@ jobs:
         shell: pwsh
         working-directory: src-tauri
         run: |
-          # voice-typer-tauri is a binary-only crate — `--bin` runs the
+          # lausu-tauri is a binary-only crate — `--bin` runs the
           # unit tests without paying for integration-test crates.
-          cargo test --target ${{ env.RUST_TARGET }} --bin voice-typer-tauri
+          cargo test --target ${{ env.RUST_TARGET }} --bin lausu-tauri
 
       # WR-17: pin tauri-cli to ^2.0 (major lockstep with Tauri v2).
       - name: Install tauri-cli (v2)
@@ -486,7 +495,7 @@ jobs:
           }
           $standalone = $null
           foreach ($root in @("src-tauri\target\${{ matrix.target }}\release", "src-tauri\target\release")) {
-            $candidate = Join-Path $root "voice-typer-tauri.exe"
+            $candidate = Join-Path $root "lausu-tauri.exe"
             if (Test-Path -LiteralPath $candidate) {
               $standalone = $candidate
               break
@@ -572,7 +581,7 @@ jobs:
           if (-not $sigDescMatch) { Write-Error "branding.py APP_NAME not found in workspace"; exit 1 }
           $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
           & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://Lausu.app" `
               "${{ steps.artifacts.outputs.nsis_path }}"
           & $signtool verify /pa /v "${{ steps.artifacts.outputs.nsis_path }}"
           Remove-Item $pfxPath -Force
@@ -598,7 +607,7 @@ jobs:
           if (-not $sigDescMatch) { Write-Error "branding.py APP_NAME not found in workspace"; exit 1 }
           $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
           & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $msi
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://Lausu.app" $msi
           if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for MSI: $msi"; exit 1 }
           & $signtool verify /pa /v $msi
           Remove-Item $pfxPath -Force
@@ -606,11 +615,11 @@ jobs:
       # S1-CR-99: sign standalone exe too. SmartScreen reputation: OV builds
       # over time, EV immediate; migration path Azure Trusted Signing (HSM).
       # Sign every shipped PE with the same cert (C-CI-11).
-      - name: Sign standalone voice-typer-tauri.exe (optional — ADR-0020 §13.1)
+      - name: Sign standalone lausu-tauri.exe (optional — ADR-0020 §13.1)
         if: ${{ env.SIGN_ENABLED == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
         run: |
-          $standalone = "src-tauri\target\${{ matrix.target }}\release\voice-typer-tauri.exe"
+          $standalone = "src-tauri\target\${{ matrix.target }}\release\lausu-tauri.exe"
           if (-not (Test-Path $standalone)) {
             Write-Host "Standalone exe not found at $standalone — skipping standalone signing."
             exit 0
@@ -624,7 +633,7 @@ jobs:
           if (-not $sigDescMatch) { Write-Error "branding.py APP_NAME not found in workspace"; exit 1 }
           $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
           & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $standalone
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://Lausu.app" $standalone
           if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for standalone exe: $standalone"; exit 1 }
           & $signtool verify /pa /v $standalone
           Remove-Item $pfxPath -Force
@@ -663,7 +672,7 @@ jobs:
           if ($rc -ne 0) {
             Write-Error "Sidecar --version exited with code $rc (expected 0). The frozen binary is broken."; exit 1
           }
-          if (-not ($output -match 'voice-typer|VoiceTyper|voice_typer')) {
+          if (-not ($output -match 'lausu|Lausu|voice_typer')) {
             Write-Error "Sidecar --version output did not contain the project name. Output: $output"; exit 1
           }
           Write-Host "Smoke test PASSED: sidecar --version exited 0 with project name in output."
@@ -678,23 +687,23 @@ jobs:
       - name: Upload MSI installer artifact
         uses: actions/upload-artifact@v6
         with:
-          name: VoiceTyper-Tauri-MSI
+          name: Lausu-Tauri-MSI
           path: ${{ steps.artifacts.outputs.msi_path }}
           if-no-files-found: warn
 
       - name: Upload sidecar + native listener
         uses: actions/upload-artifact@v6
         with:
-          name: VoiceTyper-Tauri-Sidecar-Binaries
+          name: Lausu-Tauri-Sidecar-Binaries
           # TX-40: paths use matrix.target so the aarch64 leg (when enabled)
-          # step (`name: VoiceTyper-Tauri-Sidecar-Binaries`) — when the
+          # step (`name: Lausu-Tauri-Sidecar-Binaries`) — when the
           # and update tauri-build.yml accordingly (see TX-40 GATE STATUS
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
           # worker path glob matches nothing and upload-artifact@v6 silently
           path: |
             src-tauri/bin/python-sidecar-${{ matrix.target }}.exe
             src-tauri/resources/native/windows-key-listener.exe
-            src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe
+            src-tauri/bin/lausu-worker-${{ matrix.target }}.exe
           if-no-files-found: error
 
       - name: Generate SHA-256 checksums
@@ -708,8 +717,8 @@ jobs:
                 "${{ steps.artifacts.outputs.msi_path }}",
                 "src-tauri/bin/python-sidecar-${{ matrix.target }}.exe",
                 "src-tauri/resources/native/windows-key-listener.exe",
-                "src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe",
-                "src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe"
+                "src-tauri/bin/lausu-worker-${{ matrix.target }}.exe",
+                "src-tauri/target/${{ matrix.target }}/release/lausu-tauri.exe"
           )) {
             if (Test-Path $p) {
               $hash = (Get-FileHash -Path $p -Algorithm SHA256).Hash.ToLower()
@@ -723,7 +732,7 @@ jobs:
       - name: Upload checksums
         uses: actions/upload-artifact@v6
         with:
-          name: VoiceTyper-Tauri-SHA256SUMS
+          name: Lausu-Tauri-SHA256SUMS
           path: SHA256SUMS.txt
           if-no-files-found: error
 
@@ -760,5 +769,5 @@ jobs:
           subject-path: |
             ${{ steps.artifacts.outputs.nsis_path }}
             ${{ steps.artifacts.outputs.msi_path }}
-            src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe
-            src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe
+            src-tauri/target/${{ matrix.target }}/release/lausu-tauri.exe
+            src-tauri/bin/lausu-worker-${{ matrix.target }}.exe
