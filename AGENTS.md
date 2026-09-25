@@ -14,19 +14,62 @@ If this file does NOT exist in the repository root / project folder, tell the us
 
 If the user says yes, create it and offer to fill it with strict, binding rules the agent (and every future agent) must follow without deviation, unbreakable rules the user can enforce across sessions (e.g. hard "do nots", allowed/forbidden actions, required behaviors). Nothing in the file may be overridden or bypassed by the agent.
 
+## Compliance (read second, binding)
+
+Every section of this file is a binding order, not a suggestion and not
+documentation to skim. The agent MUST read this file in full at session
+start and MUST strictly comply with every rule and instruction in it for
+the whole session. Skimming, deferring, or silently ignoring a rule is a
+violation. The only documented exception is an entry explicitly marked as
+a suggestion (E5: a documented "Fix" direction); everything else binds.
+
+## Golden Rule (highest priority — read third)
+
+**Always search online for the solution. Do NOT depend on training data
+or assumptions.** An answer you haven't checked is a `suspected` fact,
+never a `verified` one; checking is not conditional on doubt, and
+confidence is never a reason to skip the search. Sometimes you might be
+wrong, and sometimes one search saves hours: a problem you are facing has
+very likely happened to someone else who already solved it — do not
+reinvent the wheel, do not overthink, do not trial-and-error back and
+forth. Start with a web search, use the latest official documentation and
+current community notes, see how people handle it, and do the same. If
+you don't know the solution, search instead of going back and forth. This
+rule binds before every other rule in this file. Full trigger list and
+the canonical example live in `## Web-search first (W0)` below; that
+section is the operational detail of this rule.
+
+## Rule template (standard format)
+
+Every rule and instruction in this file follows one standard template:
+
+```
+<ID>
+Rule: <the order, stated clearly>
+Rationale: <why it exists, so the agent understands it is not arbitrary>
+Applies to: <which agents / modes it binds>
+```
+
+`C-*` constraints use this full block verbatim. `E-*` / `W-*` / `P-*`
+rules use the compact form `**<ID>: <Rule>**` with the rationale inline;
+the compact form carries the same four fields and binds identically. New
+rules MUST be added in the full block form under the matching
+`## Category:` (or a new category), never as free prose. Only the user
+may add, modify, or delete rules here.
+
 Default response style: caveman full.
 Use terse, token-efficient replies by default: no filler, no pleasantries, fragments OK, technical terms exact.
 Keep code blocks, commands, commit messages, PR text, and exact error quotes normal and precise.
 Use fuller clarity for security warnings, irreversible actions, or multi-step instructions where compression could confuse.
 Exit this style only when the user says `normal mode` or `stop caveman`.
 
-# Project-level agent instructions for voice-typer
+# Project-level agent instructions for lausu
 
 ## Branding: DO NOT HARDCODE APP NAME
 
 **CRITICAL RULE:** Never replace `APP_NAME` usages with the hardcoded string
-"Voice Typer" (or "VoiceTyper") anywhere in the codebase. Even though
-`APP_NAME` currently resolves to "Voice Typer", the VARIABLE exists so the
+"Lausu" (or "Lausu") anywhere in the codebase. Even though
+`APP_NAME` currently resolves to "Lausu", the VARIABLE exists so the
 app name can be changed in ONE place and propagate everywhere automatically.
 
 If you are an AI agent and feel tempted to inline the value, **DON'T**.
@@ -293,6 +336,8 @@ finding; fixing one is implementation work). P1–P4 are critical failures when
 violated.
 
 ## Web-search first (W0: highest-priority rule)
+
+> Operational detail of the `## Golden Rule` at the top of this file.
 
 **W0: Web-search first, MANDATORY, every task, before anything else.** Use
 your built-in web-search tool to search the internet for the latest
@@ -696,7 +741,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-UI-3
-Rule: Do NOT give sidebar navigation parent groups (e.g. Settings) a separate highlighted/active BACKGROUND just because their submenu is expanded. The sidebar's state system MUST be a consistent hierarchy everywhere: items default to the muted text treatment, hover strengthens it slightly (`hover:bg-foreground/5` + `hover:text-(--text-primary)`), and the current page's LEAF uses the established subtle active background (`bg-(--bg)` + `text-(--text-primary)`). A parent whose submenu is active uses ONLY the stronger text/icon foreground (`text-(--text-primary)`), never a third background style (`Sidebar.tsx` `NavSubmenu`).
+Rule: Do NOT give sidebar navigation parent groups (e.g. Settings) a separate highlighted/active BACKGROUND just because their submenu is expanded. The sidebar's state system MUST be a consistent hierarchy everywhere: items default to the muted text treatment, hover strengthens it slightly (`hover:bg-foreground/5` + `hover:text-foreground`), and the current page's LEAF uses the established subtle active background (`bg-surface` + `text-foreground`). A parent whose submenu is active uses ONLY the stronger text/icon foreground (`text-foreground`), never a third background style (`Sidebar.tsx` `NavSubmenu`).
 Rationale: A parent-group active background visually competes with the active child and introduces a third, inconsistent background style. The Settings parent stays calm while its sub-page is active (2026-08-22).
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -725,13 +770,13 @@ Applies to: All agents, all modes, all sub-agents.
 ```
 C-UI-7
 Rule: Do NOT re-pin the scrollable help/cheat-sheet modal header. The HelpOverlay DialogContent (`components/help/HelpOverlay.tsx`) MUST stay `overflow-hidden` on a `max-h-[85vh]` panel with a SINGLE inner scroll wrapper (`-mx-6 -mb-6 min-h-0 overflow-y-auto px-6 pb-6`) that contains BOTH the dialog header (title + description) AND the body. The header scrolls naturally with the content and is NEVER a pinned grid row. Do NOT split the header back into a fixed `grid-rows-[auto_minmax(0,1fr)]` row above a scrolled body, and do NOT move the title/description back into `Modal`'s props for this surface (that re-pins the header and duplicates a11y titles).
-Rationale: A pinned header above a scrolled body created an awkward fixed-header/content relationship (2026-08-24 UX audit). The single-scroll-wrapper structure also preserves the Windows scrollbar fix: the inner wrapper's scrollbar is clipped to the rounded-4xl panel corners by `overflow-hidden` (an internal panel scrollbar escapes the border-radius). `DialogTitle`/`DialogDescription` still render inside `DialogContent`, so Radix keeps wiring `aria-labelledby`/`aria-describedby` and `onOpenAutoFocus` still targets the title.
+Rationale: A pinned header above a scrolled body created an awkward fixed-header/content relationship (2026-08-24 UX audit). The single-scroll-wrapper structure also preserves the Windows scrollbar fix: the inner wrapper's scrollbar is clipped to the rounded-lg panel corners by `overflow-hidden` (an internal panel scrollbar escapes the border-radius). `DialogTitle`/`DialogDescription` still render inside `DialogContent`, so Radix keeps wiring `aria-labelledby`/`aria-describedby` and `onOpenAutoFocus` still targets the title.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
 ```
 C-UI-8
-Rule: Do NOT create a second keycap/Kbd component and do NOT import keycaps from `components/ui/kbd` (that file was removed 2026-08-24). `components/common/Kbd.tsx` is the SINGLE source of truth for keycap presentation app-wide: it exports `Kbd` (single key or voice character; `data-slot="kbd"`, `bg-(--bg-subtle)` + `text-(--text-primary)` for dark-modal contrast, and `in-data-[slot=tooltip-content]:bg-foreground/10` + `in-data-[slot=tooltip-content]:text-foreground` for tooltip contrast) and `KbdGroup` (adjacent chips separated by `gap-1`, never a `+`). `HotkeyChips` (`components/hotkey/HotkeyChips.tsx`) MUST keep importing from `common/Kbd`. Use `<Kbd as="code">` for voice-inserted punctuation characters.
+Rule: Do NOT create a second keycap/Kbd component and do NOT import keycaps from `components/ui/kbd` (that file was removed 2026-08-24). `components/common/Kbd.tsx` is the SINGLE source of truth for keycap presentation app-wide: it exports `Kbd` (single key or voice character; `data-slot="kbd"`, `bg-surface-subtle` + `text-foreground` for dark-modal contrast, and `in-data-[slot=tooltip-content]:bg-foreground/10` + `in-data-[slot=tooltip-content]:text-foreground` for tooltip contrast) and `KbdGroup` (adjacent chips separated by `gap-1`, never a `+`). `HotkeyChips` (`components/hotkey/HotkeyChips.tsx`) MUST keep importing from `common/Kbd`. Use `<Kbd as="code">` for voice-inserted punctuation characters.
 Rationale: Two parallel `Kbd` components (the app's `common/Kbd` and the shadcn `ui/kbd`) drifted in font (mono vs sans) and contrast tokens; every HotkeyChips chip in the app rendered with the shadcn tokens while the cheat sheet used the app tokens. Unifying on `common/Kbd` keeps chip styling, contrast, and typography consistent everywhere (2026-08-24 UX audit).
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -806,7 +851,7 @@ Applies to: All agents, all modes.
 
 ```
 C-BRAND-1
-Rule: Do NOT hardcode the app-name display string anywhere, always use the dynamic branding constant: Python `APP_NAME` (`voice_typer/server/branding.py`), TS renderer `APP_NAME` (`src/renderer/src/branding.ts`), Rust `crate::branding::APP_NAME`. Locale files (`renderer/src/i18n/translations/*.json`) MUST use the `{appName}` placeholder token, never a literal brand string, not even in `en.json`. Prose comments describing the app must also avoid the literal brand. This does NOT apply to internal identifiers (types like `VoiceTyperConfig`, mutex/binary names like `VoiceTyperSingleInstance` / `VoiceTyper.exe`). Those are OS/API identifiers, not the user-facing brand, and must not be renamed.
+Rule: Do NOT hardcode the app-name display string anywhere, always use the dynamic branding constant: Python `APP_NAME` (`voice_typer/server/branding.py`), TS renderer `APP_NAME` (`src/renderer/src/branding.ts`), Rust `crate::branding::APP_NAME`. Locale files (`renderer/src/i18n/translations/*.json`) MUST use the `{appName}` placeholder token, never a literal brand string, not even in `en.json`. Prose comments describing the app must also avoid the literal brand. This does NOT apply to internal identifiers (types like `LausuConfig`, mutex/binary names like `LausuSingleInstance` / `Lausu.exe`). Those are OS/API identifiers, not the user-facing brand, and must not be renamed.
 Rationale: An agent hardcoded the brand inside locale files (dozens of literal strings across all 8 `i18n/translations/*.json`) plus crash-dialog titles, HTML `<title>` tags, and backend error messages. `scripts/check_branding.py` (BRAND-001) deliberately EXEMPTS renderer translations and comment lines, so those literals bypass CI enforcement. A future product rename becomes a hundreds-of-strings edit instead of a one-constant change. The `{appName}` placeholder pattern already exists in main-process locales; renderer locales must adopt the same pattern.
 Applies to: All agents, all modes. Enforced in CI by `scripts/check_branding.py` for non-locale, non-comment code.
 ```
@@ -855,7 +900,7 @@ Applies to: All agents, all modes, all sub-agents.
 ```
 C-CROSS-3
 Rule: Do NOT change `autostart_launcher.py`'s logger back to `logging.getLogger(__name__)`. It MUST stay `logging.getLogger("voice_typer.server.autostart_launcher")`.
-Rationale: the OS launches this file as a BARE SCRIPT (`pythonw.exe autostart_launcher.py`), so `__name__ == "__main__"`. A `__main__` logger hangs off the root logger where the app's rotating file handler (attached to the `voice_typer` logger) never fires. Every `[AUTOSTART]` line is silently dropped and autostart becomes invisible in `voice-typer.log`. This is why zero launcher lines ever appeared despite the launcher running. The dotted name routes records to the `voice_typer` handler. Same rule as `voice_typer/worker/__main__.py`.
+Rationale: the OS launches this file as a BARE SCRIPT (`pythonw.exe autostart_launcher.py`), so `__name__ == "__main__"`. A `__main__` logger hangs off the root logger where the app's rotating file handler (attached to the `voice_typer` logger) never fires. Every `[AUTOSTART]` line is silently dropped and autostart becomes invisible in `lausu.log`. This is why zero launcher lines ever appeared despite the launcher running. The dotted name routes records to the `voice_typer` handler. Same rule as `voice_typer/worker/__main__.py`.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
@@ -869,7 +914,7 @@ Applies to: All agents, all modes, all sub-agents.
 ```
 C-CROSS-5
 Rule: Do NOT remove the autostart observability lines from `autostart_launcher.py`: `[AUTOSTART] launcher starting (pid=...)`, the `[AUTOSTART] RESULT success|failure exit=N <duration>` outcome line (C-LOG-2 duration suffix), and the `[AUTOSTART] RESULT failure unhandled-exception` traceback in `main()`.
-Rationale: the user relies on these timestamped lines in `voice-typer.log` to know whether autostart fired at logon and succeeded or failed. The failure line carries the reason; the unhandled-exception branch captures tracebacks that would otherwise vanish (pythonw has no console). Removing them reverts to silent autostart.
+Rationale: the user relies on these timestamped lines in `lausu.log` to know whether autostart fired at logon and succeeded or failed. The failure line carries the reason; the unhandled-exception branch captures tracebacks that would otherwise vanish (pythonw has no console). Removing them reverts to silent autostart.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
@@ -956,7 +1001,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-CI-11
-Rule: Do NOT change the code-signing gates in `tauri-windows-build.yml`: `sign=true` + missing secrets MUST hard-fail the build; `sign=false` MUST skip signing even when secrets exist. Do NOT drop or merge any of the signing steps (sidecar + prewarm + native listener; NSIS; MSI; standalone `voice-typer-tauri.exe`; **the runtime-pack worker `voice-typer-worker-<triple>.exe`, added 2026-08-15 as the 5th binary per plan-runtime-pack-split §11.5**; and the full-offline installer when present). Do NOT remove the job-level `env:` mapping of `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD`, and do NOT replace it with a `secrets.*` reference inside a step `if:` condition.
+Rule: Do NOT change the code-signing gates in `tauri-windows-build.yml`: `sign=true` + missing secrets MUST hard-fail the build; `sign=false` MUST skip signing even when secrets exist. Do NOT drop or merge any of the signing steps (sidecar + prewarm + native listener; NSIS; MSI; standalone `lausu-tauri.exe`; **the runtime-pack worker `lausu-worker-<triple>.exe`, added 2026-08-15 as the 5th binary per plan-runtime-pack-split §11.5**; and the full-offline installer when present). Do NOT remove the job-level `env:` mapping of `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD`, and do NOT replace it with a `secrets.*` reference inside a step `if:` condition.
 Rationale: TX-23, a misconfigured release must not silently ship unsigned (that's why sign=true + missing secrets hard-fails). S1-CR-99, before the fix, the native listener, the MSI, and the standalone exe shipped UNSIGNED inside a signed installer; SmartScreen on Windows 11 flags unsigned binaries inside a signed installer ("Windows protected your PC" on first launch) and MSI/standalone users hit it on every install/launch. CRIT-7. The `secrets` context is NOT populated in step `if:` conditions, so a gate on `secrets.X != ''` NEVER matches and signing is silently skipped; secrets must be mapped to job-level env first (empty on PR/fork builds → steps skip).
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -970,7 +1015,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-CI-13
-Rule: Do NOT rename the artifact names produced by `tauri-windows-build.yml` (`tauri-windows-installer`, `VoiceTyper-Tauri-MSI`, `VoiceTyper-Tauri-Sidecar-Binaries`, `VoiceTyper-Tauri-SHA256SUMS`, `tauri-binaries-manifest-windows`), and do NOT change the default binary filenames (`python-sidecar-<triple>.exe`, `prewarm-<triple>.exe`, `windows-key-listener.exe`, `voice-typer-worker-<triple>.exe`. The runtime-pack worker added by the pack split). New artifact names (e.g. `voice-typer-slim-core-<version>-<triple>.exe`, `voice-typer-runtime-pack-<pack-version>-<triple>.zip`, `pack-manifest.json` per plan §11.9) may be ADDED, but only if `tauri-build.yml`'s download steps are updated in the same commit.
+Rule: Do NOT rename the artifact names produced by `tauri-windows-build.yml` (`tauri-windows-installer`, `Lausu-Tauri-MSI`, `Lausu-Tauri-Sidecar-Binaries`, `Lausu-Tauri-SHA256SUMS`, `tauri-binaries-manifest-windows`), and do NOT change the default binary filenames (`python-sidecar-<triple>.exe`, `prewarm-<triple>.exe`, `windows-key-listener.exe`, `lausu-worker-<triple>.exe`. The runtime-pack worker added by the pack split). New artifact names (e.g. `lausu-slim-core-<version>-<triple>.exe`, `lausu-runtime-pack-<pack-version>-<triple>.zip`, `pack-manifest.json` per plan §11.9) may be ADDED, but only if `tauri-build.yml`'s download steps are updated in the same commit.
 Rationale: `tauri-build.yml`'s aggregate job downloads `name: tauri-windows-installer` by exact literal, and `tests/tauri/mig18/test_windows_signing.py` greps the default binary names, renaming breaks aggregation and/or the signing tests. If the aarch64 leg is ever enabled, arch-suffix the artifact names AND update tauri-build.yml's download steps in the same commit.
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -1044,6 +1089,13 @@ C-TEST-6
 Rule (CLOUD-SANDBOX AGENT RULE): This rule exists FOR the cloud AI agent running inside the online platform's Linux Debian sandbox (the `/home/z/my-project` cloud workspace that hands back `changes.zip`). The agent whose runs repeatedly completed, reported success, and shipped red test suites that only surfaced when the user applied the zip locally on Windows. Do NOT package deliverables (`changes.zip`), close a session, or mark any task/run complete while the current code state lacks a recorded GREEN full-suite run, 0 failed, 0 errors, covering the ENTIRE Python pytest suite AND the client vitest suite, plus the wiring trio (`cargo check`, `npm run typecheck:ci`, `pytest --collect-only`). Mandatory full-suite runs happen at exactly three points: (1) session-start baseline, (2) after every Implementation-Wave merge (orchestrator-owned; the wave is not done until green), (3) FINAL DELIVERY GATE on the exact final code state after the last fix and BEFORE packaging, any edit after a green run creates a new code state and VOIDS the evidence (re-run required). The 10-minute tool ceiling is NEVER an excuse to skip it: run the suite detached/backgrounded with output redirected to a log file and poll (`nohup python -m pytest tests/ -n auto --dist=loadgroup -q --no-cov --tb=no > /tmp/full_pytest.log 2>&1 &`), or split into per-domain chunks whose union provably covers 100% of collected tests (Σ chunk collected-counts == total from `pytest --co -q`; sum mismatch = gate failed). Sub-agents NEVER run the full suite (focused tests only; their 10-min ceiling cannot hold it), aggregation is always the orchestrator's job. Manufacturing green is forbidden: no adding skips/xfail/pass-marks, no deleting/weakening tests, no excluding failing files from the chunk map, fix the root cause. Every full-suite run is recorded in `worklog.md`: commands, pass/fail counts, failing test IDs (or `0 failed`), OS qualifier. Respect the one-full-run-per-unchanged-state rule above, re-run only when the state actually changed.
 Rationale: Cloud sessions repeatedly completed tasks, reported success, and shipped changes that introduced MANY test failures visible only in a full-suite run the agent never executed; the user's previously-green local suite broke on every apply. Focused/per-file greens prove only the slice. They say nothing about the system. The final delivery gate converts "the agent believes it works" into verified evidence before anything reaches the user's machine.
 Applies to: All agents, all modes, all sub-agents. Runs are orchestrator-owned; sub-agents are bound by honest focused-test reporting and by the no-skip/no-xfail/no-delete prohibition.
+```
+
+```
+C-TEST-7
+Rule: Do NOT test the whole frontend. New renderer tests MUST target important parts only: user-visible behavior, critical flows (recording, downloads, consent, onboarding, mic fallback, save pipelines), cross-layer contracts (IPC shapes, i18n parity, branding, config parity, error codes), accessibility, pure-logic units, and regression guards for shipped bugs. Do NOT add snapshot assertions, source-text pins where a behavioral test already covers the behavior, duplicate coverage across files (cross-reference instead), tests for test-infrastructure trivia, class/pixel/layout pins, or multi-case matrices for thin wrappers. The only structural pins allowed are ones enforcing a documented user decision (`C-*` rule, NEVER-DOWNGRADE, explicit UX contract).
+Rationale: The 2026-09-25 audit (347 files / ~3166 cases) proved the churn complaint: structural pins and duplicates force a 2x edit on every UI change while adding no protection, so agents kept "fixing" tests instead of code. Behavior and contract tests survive refactors; implementation mirrors do not. Eleven dead/duplicate files and ~100 brittle cases were deleted in one pass with zero coverage loss (full vitest stayed green).
+Applies to: All agents, all modes, all sub-agents.
 ```
 ---
 
@@ -1155,11 +1207,35 @@ Applies to: All agents, all modes, all sub-agents.
 
 ---
 
+## Category: Design System Synchronization
+
+```
+C-DESIGN-1
+Rule: The design system has TWO representations that MUST stay in
+perfect sync, in BOTH directions, in every change: the live project
+(the renderer's CSS/TSX under `voice_typer/client/src/renderer/`) and
+the standalone showcase `design-system.html` at the repo root. Any
+modification to the design system in the live project (colour tokens,
+palette scales, radius, typography, components, states, motion) MUST be
+reflected in `design-system.html` within the SAME change, and any
+modification made to `design-system.html` MUST be immediately applied
+to the live project. Never ship, commit, or report one side without
+the other; updating only one side — or letting them drift — is a
+violation of this rule.
+Rationale: user decision 2026-09-23. `design-system.html` is the
+visual review surface for the design system; if it drifts from the
+shipped styles it silently becomes misleading (reviewers trust a
+showcase that no longer matches the app), and a showcase edited in
+isolation invents styles the app never renders. One atomic change
+keeps both authoritative.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ## Category: Models Page UI
 
 ```
 C-MODELS-1
-Rule: Do NOT remove or weaken the bordered card treatment on the Models page segmented control, and do NOT apply it to only one layer. BOTH layers MUST carry the same card/surface border token (`border border-border/10`): (a) the OUTER parent container that directly holds the Local/Cloud options. The `SegmentedControl` root (role="tablist") with `rounded-lg border border-border/10 bg-(--bg-subtle)` in `voice_typer/client/src/renderer/src/pages/Models.tsx`, and (b) the ACTIVE option's indicator (`tabPageIndicatorClassName` = `bg-(--bg) border border-border/10` in `_tabBarStyles.ts`). The tabs variant in `segmented-control.tsx` MUST NOT re-add `border-none` (its `border-style: none` silently cancels the container border, tailwind-merge treats `border` and `border-none` as different groups, so both classes survive). Do NOT introduce a new border color.
+Rule: Do NOT remove or weaken the bordered card treatment on the Models page segmented control, and do NOT apply it to only one layer. BOTH layers MUST carry the same card/surface border token (`border border-border/10`): (a) the OUTER parent container that directly holds the Local/Cloud options. The `SegmentedControl` root (role="tablist") with `rounded-lg border border-border/10 bg-surface-subtle` in `voice_typer/client/src/renderer/src/pages/Models.tsx`, and (b) the ACTIVE option's indicator (`tabPageIndicatorClassName` = `bg-surface border border-border/10` in `_tabBarStyles.ts`). The tabs variant in `segmented-control.tsx` MUST NOT re-add `border-none` (its `border-style: none` silently cancels the container border, tailwind-merge treats `border` and `border-none` as different groups, so both classes survive). Do NOT introduce a new border color.
 Rationale: The segmented control must read as one bordered card among the model cards. Both its outer container and its active option must share the card border. Established 2026-08-21; a border on only the active option left the container looking like a borderless strip.
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -1247,7 +1323,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-SIDEBAR-9
-Rule: Do NOT give active sidebar pages a custom or stronger border. The active page item (top-level leaf AND Settings submenu child) MUST use the standard card treatment: `border-border/10` (the same ~10%-opacity card border token every card in the app uses) + `bg-(--bg)` + `text-(--text-primary)`. The legacy `border-s-2`/`border-s-transparent` alignment borders are REMOVED, do not reintroduce them. The Settings PARENT is exempt: when its submenu is open it gets ONLY the calm foreground treatment (`text-(--text-primary)` + `font-medium` + `hover:bg-foreground/5`), never the card border/background.
+Rule: Do NOT give active sidebar pages a custom or stronger border. The active page item (top-level leaf AND Settings submenu child) MUST use the standard card treatment: `border-border/10` (the same ~10%-opacity card border token every card in the app uses) + `bg-surface` + `text-foreground`. The legacy `border-s-2`/`border-s-transparent` alignment borders are REMOVED, do not reintroduce them. The Settings PARENT is exempt: when its submenu is open it gets ONLY the calm foreground treatment (`text-foreground` + `font-medium` + `hover:bg-foreground/5`), never the card border/background.
 Rationale: The active item previously had no border at all while every card surface in the app carries `border-border/10`; the parent must not compete with its active child (supersedes the older UX-16 "no border, transparent border-s-2 only" contract, 2026-08-24).
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -1428,8 +1504,8 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-MIC-6
-Rule: Do NOT introduce unrelated styling on the Microphone page. Cards use the standard tokens (`border border-border/10`, `bg-(--bg-subtle)`, `text-(--text-primary)` / `text-(--text-muted)`); microphone selection uses RadioGroup rows (System Default row first), no bright-blue full-card borders, no verbose per-row action buttons, no technical channel/rate metadata in user-facing rows, section labels use one consistent treatment.
-Rationale: Pinned by the 2026-08-24 revamp so the page stays inside the existing Voice Typer design system; visual drift here was the original defect class.
+Rule: Do NOT introduce unrelated styling on the Microphone page. Cards use the standard tokens (`border border-border/10`, `bg-surface-subtle`, `text-foreground` / `text-muted-foreground`); microphone selection uses RadioGroup rows (System Default row first), no bright-blue full-card borders, no verbose per-row action buttons, no technical channel/rate metadata in user-facing rows, section labels use one consistent treatment.
+Rationale: Pinned by the 2026-08-24 revamp so the page stays inside the existing Lausu design system; visual drift here was the original defect class.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
@@ -1491,7 +1567,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-MIC-15
-Rule: Do NOT regress the Microphone Quality selector's COMPACT SINGLE-ROW header (refines C-MIC-14's two-line header and carves a per-instance exception out of C-MODELS-4): the collapsed state is ONE AccordionTrigger row, left group `[MICROPHONE QUALITY label + inline ? tooltip]`, right group `[active-filter chip (non-interactive span, keeps data-testid="mic-preset-current") + rotating chevron]`. The chevron is a single `ArrowDown01Icon` that rotates via `group-data-[state=open]/accordion-trigger:rotate-180` + `transition-transform duration-200` (collapsed = points down/can expand; expanded = points up/can collapse), never a swapped glyph, never two icons. The primitive's persistent PlusSignIcon is hidden ON THIS INSTANCE ONLY via `[&_[data-slot=accordion-trigger-icon]]:hidden` (ui/accordion.tsx itself stays untouched. Every other accordion keeps its `+`). The value chip is a plain span (SelectTrigger-style shell: rounded-md border-border/10 bg-background), never a nested button. The expanded options container carries exactly ONE deliberate extra inset (`px-2` on the RadioGroup; total 24px), no per-row padding layer. Do not reintroduce the two-line stacked header, a `+`/static icon, or edge-touching option content.
+Rule: Do NOT regress the Microphone Quality selector's COMPACT SINGLE-ROW header (refines C-MIC-14's two-line header and carves a per-instance exception out of C-MODELS-4): the collapsed state is ONE AccordionTrigger row, left group `[MICROPHONE QUALITY label + inline ? tooltip]`, right group `[active-filter chip (non-interactive span, keeps data-testid="mic-preset-current") + rotating chevron]`. The chevron is a single `ArrowDown01Icon` that rotates via `group-data-[state=open]/accordion-trigger:rotate-180` + `transition-transform duration-200` (collapsed = points down/can expand; expanded = points up/can collapse), never a swapped glyph, never two icons. The primitive's persistent PlusSignIcon is hidden ON THIS INSTANCE ONLY via `[&_[data-slot=accordion-trigger-icon]]:hidden` (ui/accordion.tsx itself stays untouched. Every other accordion keeps its `+`). The value chip is a plain span (SelectTrigger-style shell: rounded-lg border-border/10 bg-background), never a nested button. The expanded options container carries exactly ONE deliberate extra inset (`px-2` on the RadioGroup; total 24px), no per-row padding layer. Do not reintroduce the two-line stacked header, a `+`/static icon, or edge-touching option content.
 Rationale: 2026-08-25 compaction pass (user decision), one-line header halved the collapsed height; the rotating chevron + grouped value chip match the app's SelectTrigger/disclosure language; the per-instance icon hide keeps C-MODELS-4 intact for the Models page accordions.
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -1593,7 +1669,7 @@ Applies to: All agents, all modes.
 
 ```
 C-CONF-5
-Rule: Do NOT make runtime initialization overwrite valid persisted settings with defaults/stale values without an explicit migration/defaulting reason (corrupt-file quarantine, first-run defaults, versioned migration with .bak backup. All existing, all logged). Known accepted edge: an OLDER build loading a NEWER-schema config.json drops unknown keys at its next explicit save (warned once per process in config/loader.py `_filter_unknown_keys_impl`; newer-than-build keys are preserved until that save). Dev (`npm run tauri:dev`) and built runtimes intentionally share ONE profile dir (`~/.voice-typer` legacy-first); concurrent double-writes are prevented by the Tauri single-instance plugin + Python `Local\VoiceTyperSingleInstance` mutex, do not add per-runtime profile splits or second locks without a product decision.
+Rule: Do NOT make runtime initialization overwrite valid persisted settings with defaults/stale values without an explicit migration/defaulting reason (corrupt-file quarantine, first-run defaults, versioned migration with .bak backup. All existing, all logged). Known accepted edge: an OLDER build loading a NEWER-schema config.json drops unknown keys at its next explicit save (warned once per process in config/loader.py `_filter_unknown_keys_impl`; newer-than-build keys are preserved until that save). Dev (`npm run tauri:dev`) and built runtimes intentionally share ONE profile dir (`~/.lausu` legacy-first); concurrent double-writes are prevented by the Tauri single-instance plugin + Python `Local\LausuSingleInstance` mutex, do not add per-runtime profile splits or second locks without a product decision.
 Rationale: Distinguishes genuine bugs from the documented stale-build downgrade; protects the single-profile/single-instance architecture agents might "fix" wrongly.
 Applies to: All agents, all modes.
 ```
@@ -1656,28 +1732,28 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-UI-9
-Rule: Do NOT make any ``Clear All`` destructive button muted-on-hover or permanently tinted. Every ``Clear All`` control that wipes an entire collection (History, Vocabulary, Templates) MUST be muted at rest (``text-(--text-muted)`` + outline ``border-border/5`` via ``variant="outline" size="sm"``) and on hover become the SAME solid destructive treatment used by ``ConfirmDialog``'s ``variant="destructive"`` confirm action: ``hover:border-destructive hover:bg-destructive hover:text-destructive-foreground`` (near-white ``text-destructive-foreground`` icon + label, not ``hover:text-(--text-primary)`` which is dark in light mode and fails contrast, and not a 5% ``bg-destructive/5`` wash). The icon inherits ``currentColor``, no separate icon color override. Keep ``gap-2`` + ``size-4`` icon + ``Delete01Icon strokeWidth 2`` for spacing/icon alignment, and preserve ``focus-visible:ring-1 ring-ring`` from the Button base.
-Rationale: Vocabulary/Templates already used muted→solid-red on hover but with the wrong ``hover:text-(--text-primary)`` token (dark-on-red in light mode), while History was permanently ``border-destructive/40 text-destructive/80`` with a 5% hover wash. Standardizing to muted→solid-red + ``destructive-foreground`` makes the hover unambiguously read as the destructive wipe (the dialog's confirm button is the reference) and keeps Favorites (warning tint) visually distinct from the destructive action. Established 2026-08-30.
+Rule: Do NOT make any ``Clear All`` destructive button muted-on-hover or permanently tinted. Every ``Clear All`` control that wipes an entire collection (History, Vocabulary, Templates) MUST be muted at rest (``text-muted-foreground`` + outline ``border-border/5`` via ``variant="outline" size="sm"``) and on hover become the SAME solid destructive treatment used by ``ConfirmDialog``'s ``variant="destructive"`` confirm action: ``hover:border-destructive hover:bg-destructive hover:text-destructive-foreground`` (near-white ``text-destructive-foreground`` icon + label, not ``hover:text-foreground`` which is dark in light mode and fails contrast, and not a 5% ``bg-destructive/5`` wash). The icon inherits ``currentColor``, no separate icon color override. Keep ``gap-2`` + ``size-4`` icon + ``Delete01Icon strokeWidth 2`` for spacing/icon alignment, and preserve ``focus-visible:ring-1 ring-ring`` from the Button base.
+Rationale: Vocabulary/Templates already used muted→solid-red on hover but with the wrong ``hover:text-foreground`` token (dark-on-red in light mode), while History was permanently ``border-destructive/40 text-destructive/80`` with a 5% hover wash. Standardizing to muted→solid-red + ``destructive-foreground`` makes the hover unambiguously read as the destructive wipe (the dialog's confirm button is the reference) and keeps Favorites (warning tint) visually distinct from the destructive action. Established 2026-08-30.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
 ```
 C-FILTER-1
-Rule: Do NOT let History, Vocabulary, and Templates use different sort/filter button visuals. The three pages MUST share the SAME ``SortSelect`` primitive (``voice_typer/client/src/renderer/src/components/common/SortSelect.tsx``): ``SelectTrigger size="sm" hideChevron`` + ``className="text-(--text-muted) transition-[color,box-shadow,background-color] hover:text-(--text-primary)"`` with ``Sorting01Icon size-4 strokeWidth 2`` inheriting ``currentColor``, and ``SelectContent position="popper" align="start" className="rounded-xl border border-border/5 bg-(--bg-subtle)"``. Dimensions (``data-[size=sm]:h-8`` via ``select.tsx`` base ``rounded-4xl border-border/5 bg-background text-sm``), border, typography, icon, spacing (``flex w-full flex-wrap gap-2``), hover/focus (``focus-visible:border-ring focus-visible:ring-1``), and interaction (hideChevron because the sort glyph already communicates the control) must stay identical, do not reintroduce History's old ``ChevronDownIcon``, default ``bg-popover`` ring, ``item-aligned`` centering, or ``ml-auto`` (use ``ms-auto`` for RTL).
+Rule: Do NOT let History, Vocabulary, and Templates use different sort/filter button visuals. The three pages MUST share the SAME ``SortSelect`` primitive (``voice_typer/client/src/renderer/src/components/common/SortSelect.tsx``): ``SelectTrigger size="sm" hideChevron`` + ``className="text-muted-foreground transition-[color,box-shadow,background-color] hover:text-foreground"`` with ``Sorting01Icon size-4 strokeWidth 2`` inheriting ``currentColor``, and ``SelectContent position="popper" align="start" className="rounded-lg border border-border/5 bg-surface-subtle"``. Dimensions (``data-[size=sm]:h-8`` via ``select.tsx`` base ``rounded-lg border-border/5 bg-background text-sm``), border, typography, icon, spacing (``flex w-full flex-wrap gap-2``), hover/focus (``focus-visible:border-ring focus-visible:ring-1``), and interaction (hideChevron because the sort glyph already communicates the control) must stay identical, do not reintroduce History's old ``ChevronDownIcon``, default ``bg-surface`` ring, ``item-aligned`` centering, or ``ml-auto`` (use ``ms-auto`` for RTL).
 Rationale: History's sort dropdown previously rendered a second chevron next to the sort glyph, used the generic popover surface, and was ``item-aligned``/``center`` (opening visibly right of short labels), while Vocabulary/Templates shared the muted + popper/start + subtle-surface pattern. Unifying on ``SortSelect`` eliminates the History-specific drift and ensures a single source of truth for dimensions/border/typography/icon/spacing/hover/focus. Established 2026-08-30.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
 ```
 C-MODELS-5
-Rule: Do NOT render the Models page ``no-model`` state as a centered ``EmptyState`` block. When ``config.model_size === ""`` (backend ``NO_MODEL_SIZE`` sentinel) the page MUST show a compact, dismissible banner positioned in the normal page flow (``mb-3`` between the active-model summary and the tab switcher, not a centered ``flex flex-col py-16`` block that pushes cards below the fold and not a ``sticky`` overlay). The banner uses the shared design-system surface (``rounded-xl border border-border/10 bg-(--bg-subtle)``) with ``AiBrain03Icon text-(--text-muted)`` + ``text-(--text-primary)`` body + the precise ``C-UI-2``-compliant copy ``models.noModelBanner`` = ``"No speech model is selected. Select a model below."`` (not the vague ``models.noModelSelected`` = ``"No model selected"``), localized consistently in all 8 ``i18n/translations/*.json`` files, ``role="status" aria-live="polite"`` (``data-testid="models-no-model-banner"``), and a close ``X`` (``Cancel01Icon``) far-right with ``aria-label={t("common.close")}`` + ``hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-1`` that writes ``sessionStorage "models:noModelBannerDismissed"`` = ``"1"`` session-scoped. The dismissed flag MUST survive reloads and in-app navigation within the same app session and MUST NOT be cleared when ``config`` is still loading (guard ``if (lifecycle.config?.model_size)`` not ``!== ""`` when null, which previously cleared sessionStorage on mount and made the banner reappear); it is cleared only when a model is actually selected (``model_size`` truthy) or when the entire app/backend is closed (sessionStorage discarded by the browser). Do NOT change the existing ``model_size === ""`` selection logic.
-Rationale: The centered ``EmptyState`` consumed ~120px vertical space. The subtle-surface banner (``bg-(--bg-subtle)``/``border-border``/``text-(--text-primary)``) matches model cards/SegmentedControl and adapts to every theme (light/dark/Dracula/Monokai via CSS vars ``--bg-subtle``/``--border``/``--text-*``), whereas the earlier ``border-accent/20 bg-accent/5 text-accent`` tint was theme-specific and felt disconnected; the sticky overlay also created a floating disconnected layer. The ``if (config?.model_size)`` guard fixes the reload/navigation regression where ``undefined !== ""`` cleared the dismissed flag on every mount. Established 2026-08-30, updated 2026-08-30 after user report of reload regression and theme mismatch.
+Rule: Do NOT render the Models page ``no-model`` state as a centered ``EmptyState`` block. When ``config.model_size === ""`` (backend ``NO_MODEL_SIZE`` sentinel) the page MUST show a compact, dismissible banner positioned in the normal page flow (``mb-3`` between the active-model summary and the tab switcher, not a centered ``flex flex-col py-16`` block that pushes cards below the fold and not a ``sticky`` overlay). The banner uses the shared design-system surface (``rounded-lg border border-border/10 bg-surface-subtle``) with ``AiBrain03Icon text-muted-foreground`` + ``text-foreground`` body + the precise ``C-UI-2``-compliant copy ``models.noModelBanner`` = ``"No speech model is selected. Select a model below."`` (not the vague ``models.noModelSelected`` = ``"No model selected"``), localized consistently in all 8 ``i18n/translations/*.json`` files, ``role="status" aria-live="polite"`` (``data-testid="models-no-model-banner"``), and a close ``X`` (``Cancel01Icon``) far-right with ``aria-label={t("common.close")}`` + ``hover:bg-foreground/10 hover:text-foreground focus-visible:ring-1`` that writes ``sessionStorage "models:noModelBannerDismissed"`` = ``"1"`` session-scoped. The dismissed flag MUST survive reloads and in-app navigation within the same app session and MUST NOT be cleared when ``config`` is still loading (guard ``if (lifecycle.config?.model_size)`` not ``!== ""`` when null, which previously cleared sessionStorage on mount and made the banner reappear); it is cleared only when a model is actually selected (``model_size`` truthy) or when the entire app/backend is closed (sessionStorage discarded by the browser). Do NOT change the existing ``model_size === ""`` selection logic.
+Rationale: The centered ``EmptyState`` consumed ~120px vertical space. The subtle-surface banner (``bg-surface-subtle``/``border-border``/``text-foreground``) matches model cards/SegmentedControl and adapts to every theme (light/dark/Dracula/Monokai via CSS vars ``--surface-subtle``/``--border``/``--text-*``), whereas the earlier ``border-accent/20 bg-accent/5 text-accent`` tint was theme-specific and felt disconnected; the sticky overlay also created a floating disconnected layer. The ``if (config?.model_size)`` guard fixes the reload/navigation regression where ``undefined !== ""`` cleared the dismissed flag on every mount. Established 2026-08-30, updated 2026-08-30 after user report of reload regression and theme mismatch.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
 ```
 C-SKELETON-1
-Rule: Do NOT use a single generic skeleton template as a substitute for page-specific UI. Every loading skeleton MUST match the structure, dimensions, spacing, and hierarchy of the actual page or section it replaces: same container shell classes, same card shapes/radii/borders, row counts and proportions modeled on the loaded content, and control placeholders dimensioned after the real primitives (e.g. Switch `h-5 w-11`, SortSelect trigger `h-8 rounded-4xl`, checkbox `size-4`). Shared skeleton primitives live in `components/feedback/skeletons.tsx` (`SkeletonRegion`/`PageShell`/`HeadingSkeleton`/`PillSkeleton`/`CheckboxSkeleton`/`RadioSkeleton`/`SwitchSkeleton`/`IconButtonSkeleton`); each page composes its OWN skeleton in `pages/<page>/components/*Skeleton.tsx` (History, Vocabulary, Templates, Models, Microphone, Settings, Dashboard). When a page's loaded layout changes, its skeleton MUST be updated in the same change so the loading -> loaded transition stays shift-free. Route-chunk fallback (`RouteSkeleton`) is the ONLY sanctioned generic. Dashboardskeleton stays a `<section aria-busy>` (zero live regions at first paint, per data-pages-live-region-guards).
+Rule: Do NOT use a single generic skeleton template as a substitute for page-specific UI. Every loading skeleton MUST match the structure, dimensions, spacing, and hierarchy of the actual page or section it replaces: same container shell classes, same card shapes/radii/borders, row counts and proportions modeled on the loaded content, and control placeholders dimensioned after the real primitives (e.g. Switch `h-5 w-11`, SortSelect trigger `h-8 rounded-lg`, checkbox `size-4`). Shared skeleton primitives live in `components/feedback/skeletons.tsx` (`SkeletonRegion`/`PageShell`/`HeadingSkeleton`/`PillSkeleton`/`CheckboxSkeleton`/`RadioSkeleton`/`SwitchSkeleton`/`IconButtonSkeleton`); each page composes its OWN skeleton in `pages/<page>/components/*Skeleton.tsx` (History, Vocabulary, Templates, Models, Microphone, Settings, Dashboard). When a page's loaded layout changes, its skeleton MUST be updated in the same change so the loading -> loaded transition stays shift-free. Route-chunk fallback (`RouteSkeleton`) is the ONLY sanctioned generic. Dashboardskeleton stays a `<section aria-busy>` (zero live regions at first paint, per data-pages-live-region-guards).
 Rationale: The former single `ListPageSkeleton` (History/Vocabulary/Templates) and approximate Models/Microphone/Settings compositions rendered shapes that did not exist in the loaded pages (wrong radii, wrong control sizes, fake day-rows on a flat list, duplicated toolbars), making loading states feel disconnected and causing layout shift at swap. Page-aware skeletons composed from shared primitives keep each loading state faithful while avoiding duplicated one-off implementations (audit 2026-09-11).
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -1750,3 +1826,42 @@ Applies to: All agents, all modes, all sub-agents.
 ```
 
 Supporting tool: `scripts/comment_ratio_metrics.py` — per-directory comment ratios + densest files. Run before/after any comment-heavy change. Relocated long-form notes live under `docs/code-notes/`.
+
+---
+
+## Category: File Structure & Modularity
+
+```
+C-STRUCT-1
+Rule: Do NOT let a file serve more than one purpose. Every file MUST have high cohesion: its elements belong together and jointly serve ONE specific responsibility (one module, one class-family, one concern). Closely related logic stays together; unrelated logic MUST be split into separate files, no matter how many files the project grows to (1,000+ files of single-purpose modules is correct; a few hundred multi-concern files is not).
+Rationale: Low-cohesion files cannot be understood, modified, or tested independently; every edit risks unrelated behavior. File count is not a cost — mixed responsibility is.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-STRUCT-2
+Rule: Do NOT mix concerns in one file (Separation of Concerns). Each file MUST own exactly one concern: business logic, UI, persistence, IPC transport, platform glue, and tests for a domain never share a file. A file that changes for two different reasons (e.g. a UI tweak AND a protocol change) is already violating this rule and MUST be split.
+Rationale: Mixed concerns couple independent rates of change; a UI edit should never risk breaking persistence. One reason to change per file (SRP) is how this is verified: if a file has two reasons to change, it has two files inside it.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-STRUCT-3
+Rule: Do NOT let a file grow past its concern's natural budget — split it into two or three smaller files instead. Any production file approaching ~500 lines, or any file where a second responsibility is emerging, MUST be refactored via create-first split (new modules complete and verified before the original is trimmed, re-exports keep old names resolving — see E1) rather than extended. "The file is almost too big" is the trigger, not "the file is already unmanageable".
+Rationale: Oversized files are where cohesion goes to die: new code lands wherever there is room instead of where it belongs. Splitting early keeps each piece independently readable, testable, and ownable.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-STRUCT-4
+Rule: Do NOT add new code to a file that already violates C-STRUCT-1–3 without splitting first. When touching a multi-concern or oversized file for a real change, the FIRST step is the create-first split of the area being touched; the feature/fix lands on the clean structure, never on top of the debt.
+Rationale: Otherwise every "small" change makes the god-file bigger and the eventual split harder. The split is part of the task's cost, not optional polish.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-STRUCT-5
+Rule: Do NOT create a new file without a single-sentence purpose that distinguishes it from its neighbors. The purpose MUST be statable as "this file exists so that <one thing>"; if the sentence needs "and", the file needs splitting. New files go beside the concern they serve (same folder as siblings), never in a catch-all util/misc bucket.
+Rationale: Purpose-less files (util.py, helpers/, misc/) become the dumping ground that re-creates the god-file problem one import at a time.
+Applies to: All agents, all modes, all sub-agents.
+```

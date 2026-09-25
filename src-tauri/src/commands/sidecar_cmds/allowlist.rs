@@ -62,6 +62,8 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // About-page Cache Status card (user-facing feature).
             "get_prewarm_status",
             "open_prewarm_log",
+            // Models storage card + Diagnostics button (config dir in OS file manager).
+            "open_data_folder",
             "run_prewarm",
             "get_vocabulary",
             "save_vocabulary",
@@ -120,6 +122,11 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "transcribe_offline",
             // Auto-update: runtime-pack update check (GitHub API manifest).
             "check_offline_pack_update",
+            // ADR-0023 universal media-to-text (URL ladder + local files
+            // implemented; PO token / playlists / live capture Phase 2).
+            "media_transcribe_start",
+            "media_transcribe_cancel",
+            "media_transcribe_status",
         ];
         HashSet::from_iter(cmds.iter().copied())
     })
