@@ -603,7 +603,7 @@ class TestCheckOfflinePackUpdate:
         from voice_typer.server.branding import APP_REPO
 
         assert DEFAULT_OFFLINE_PACK_MANIFEST_URL == (
-            "https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json"
+            "https://github.com/AbdallahIsDev/lausu/releases/latest/download/pack-manifest.json"
         ), (
             "DEFAULT_OFFLINE_PACK_MANIFEST_URL changed, update docs/auto-update-feature.md "
             "(Sub-agent 15) and the publisher (publish_pack_release.py) to match."

@@ -42,8 +42,22 @@ def _mock_onnxruntime_module() -> MagicMock:
 
 
 @pytest.fixture(autouse=True)
-def _reset_parakeet_engine_class_state():
+def _reset_parakeet_engine_class_state(monkeypatch, tmp_path):
     """Reset ``ParakeetEngine`` class-level state between tests."""
+    # load() verifies every snapshot under snapshot_search_dirs; point the
+    # search at a tmp snapshot and treat it as verified, so tests never
+    # touch the real HF cache (which may be absent/incomplete here).
+    snap = tmp_path / "models--grikdotnet--parakeet-tdt-0.6b-fp16" / "snapshots" / "test123"
+    snap.mkdir(parents=True)
+    (snap / "model.onnx").write_bytes(b"fake-onnx")
+    monkeypatch.setattr(
+        "voice_typer.server.model_availability.snapshot_search_dirs",
+        lambda config_dir, repo_id: [snap.parent.parent],
+    )
+    monkeypatch.setattr(
+        "voice_typer.server.security.verify_model_integrity",
+        lambda snapshot, repo_id: True,
+    )
     saved = (
         ParakeetEngine._imports_loaded,
         ParakeetEngine._onnx_asr,

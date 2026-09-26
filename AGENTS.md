@@ -1097,6 +1097,13 @@ Rule: Do NOT test the whole frontend. New renderer tests MUST target important p
 Rationale: The 2026-09-25 audit (347 files / ~3166 cases) proved the churn complaint: structural pins and duplicates force a 2x edit on every UI change while adding no protection, so agents kept "fixing" tests instead of code. Behavior and contract tests survive refactors; implementation mirrors do not. Eleven dead/duplicate files and ~100 brittle cases were deleted in one pass with zero coverage loss (full vitest stayed green).
 Applies to: All agents, all modes, all sub-agents.
 ```
+
+```
+C-TEST-8
+Rule: Do NOT let any test read from, write to, or delete inside the REAL user model caches (`shared_hub_dir()` system HF cache, the app-local hub, or any live profile dir). EVERY test runs under the global `_isolate_shared_hf_cache` autouse fixture (`tests/conftest.py`, per-test tmp redirect of `model_availability.shared_hub_dir`; opt out ONLY via the `real_shared_hub` marker, and only for tests that assert the resolver's own behavior and never write). Production MUST resolve model locations through the `model_availability` helpers (`shared_hub_dir` / `app_hub_dir` / `snapshot_search_dirs`) so the single seam stays redirectable; never hardcode a cache path in a new producer/consumer. Never add a model-touching test without running the suite and proving the real cache is byte-identical afterwards.
+Rationale: Added 2026-09-26 by user order after the suite deleted a real downloaded model (large-v3-turbo): import/delete paths resolve the shared system cache and tests ran unredirected, so an import test's rmtree-then-failing-copy destroyed user weights and left placeholder junk. Per-test mocking was tried first and leaked (one unpatched test re-polluted the cache on the next run); only default-hermetic isolation closes the class.
+Applies to: All agents, all modes, all sub-agents.
+```
 ---
 
 ## Category: Code Style & Naming

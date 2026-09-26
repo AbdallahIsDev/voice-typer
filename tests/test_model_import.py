@@ -46,6 +46,12 @@ class TestImportModelHappyPath:
     def test_imports_recognized_models(self, service, tmp_path, monkeypatch):
         """Create a source dir with tiny + large-v3-turbo HF cache subdirs;"""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
+        # import_model writes to the shared hub (model_availability.shared_hub_dir);
+        # redirect it into tmp so tests never touch the real HF cache.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.shared_hub_dir",
+            lambda: app_hf,
+        )
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -80,6 +86,11 @@ class TestImportModelHappyPath:
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
+        )
+        # Keep the import inside tmp (see shared_hub_dir note above).
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.shared_hub_dir",
+            lambda: tmp_path / "app_hf" / "huggingface" / "hub",
         )
 
         src_dir = tmp_path / "source"
@@ -146,6 +157,12 @@ class TestImportModelEdgeCases:
     def test_selected_dir_is_itself_a_model_cache_dir(self, service, tmp_path, monkeypatch):
         """User selects a ``models--Systran--faster-whisper-tiny`` directory"""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
+        # import_model writes to the shared hub (model_availability.shared_hub_dir);
+        # redirect it into tmp so tests never touch the real HF cache.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.shared_hub_dir",
+            lambda: app_hf,
+        )
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -169,6 +186,12 @@ class TestImportModelEdgeCases:
     def test_overwrite_existing_model(self, service, tmp_path, monkeypatch):
         """Import a model that already exists in the app's HF cache;"""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
+        # import_model writes to the shared hub (model_availability.shared_hub_dir);
+        # redirect it into tmp so tests never touch the real HF cache.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.shared_hub_dir",
+            lambda: app_hf,
+        )
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -228,6 +251,12 @@ class TestImportModelEdgeCases:
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
         )
+        # Hermetic world (see above): tiny succeeds here, so without the
+        # redirect it lands in the real shared HF cache.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.shared_hub_dir",
+            lambda: tmp_path / "app_hf" / "huggingface" / "hub",
+        )
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
@@ -274,6 +303,11 @@ class TestImportModelEdgeCases:
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
         )
+        # Hermetic world (see above): tiny is imported here.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.shared_hub_dir",
+            lambda: tmp_path / "app_hf" / "huggingface" / "hub",
+        )
 
         src_dir = tmp_path / "source"
         src_dir.mkdir()
@@ -319,6 +353,12 @@ class TestImportModelIntegration:
     def test_import_creates_app_cache_dir_if_missing(self, service, tmp_path, monkeypatch):
         """The app's HF cache dir doesn't exist before the call;"""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
+        # import_model writes to the shared hub (model_availability.shared_hub_dir);
+        # redirect it into tmp so tests never touch the real HF cache.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.shared_hub_dir",
+            lambda: app_hf,
+        )
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -346,6 +386,12 @@ class TestImportModelIntegration:
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
+        )
+        # Hermetic world (see above): this test imports tiny + parakeet, so
+        # without the redirect it pollutes the real shared HF cache.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.shared_hub_dir",
+            lambda: tmp_path / "app_hf" / "huggingface" / "hub",
         )
 
         src_dir = tmp_path / "source"

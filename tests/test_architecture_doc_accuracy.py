@@ -219,19 +219,19 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
     assert "ONE generic `dispatch`" not in body, "stale 'ONE generic `dispatch`' phrase must be removed."
 
 
-def test_gp94_main_rs_line_count_is_385():
+def test_gp94_main_rs_line_count_is_246():
     """
-    Doc claims 385 lines; main.rs must actually be 385 lines.
+    Doc claims 246 lines; main.rs must actually be 246 lines.
     C-ARCH-1 / C-TOKIO-1 / C-TAURI-2 anchors kept). Still wiring-only.
     """
     doc = _read(ARCH_DOC)
-    assert "240 lines" in doc, "Doc must claim '240 lines' for main.rs."
+    assert "246 lines" in doc, "Doc must claim '246 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 240, (
-        f"src-tauri/src/main.rs must be 240 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 246, (
+        f"src-tauri/src/main.rs must be 246 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
-    assert "274 lines" not in doc, "Stale '274 lines' must be removed from doc."
+    assert "240 lines" not in doc, "Stale '240 lines' must be removed from doc."
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
     assert "488 lines" not in doc, "Stale '488 lines' must be removed from doc."
     assert "288 lines" not in doc, "Stale '288 lines' must be removed from doc."

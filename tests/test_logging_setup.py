@@ -200,10 +200,16 @@ def test_no_session_id_bracket_in_file(config_dir, clean_env, stub_side_effects)
     assert "T" not in first and "+" not in first, f"clean ts expected: {content!r}"
 
 
-def test_sets_hf_home_under_config_dir(config_dir, clean_env, stub_side_effects):
-    """_setup_logging redirects HF_HOME to <config_dir>/huggingface."""
+def test_does_not_set_hf_home(config_dir, clean_env, stub_side_effects):
+    """_setup_logging must NOT hijack HF_HOME.
+
+    Cache resolution is explicit now (model_availability.shared_hub_dir +
+    app_hub_dir); the old forced redirect to <config_dir>/huggingface was
+    removed, so the process environment keeps whatever the user/OS set.
+    """
+    assert os.environ.get("HF_HOME") is None
     logging_setup._setup_logging()
-    assert os.environ.get("HF_HOME") == str(config_dir / "huggingface")
+    assert os.environ.get("HF_HOME") is None
 
 
 def test_does_not_override_existing_hf_home(config_dir, clean_env, stub_side_effects, monkeypatch):

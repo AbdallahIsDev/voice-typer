@@ -52,7 +52,7 @@ Each pack release publishes a `pack-manifest.json` manifest at a
 stable URL: GitHub Releases serves the latest release's manifest from:
 
 ```
-https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json
+https://github.com/AbdallahIsDev/lausu/releases/latest/download/pack-manifest.json
 ```
 
 (Pinned in `voice_typer/server/service/update_check.py` as
@@ -62,7 +62,7 @@ env var: test escape hatch + power-user override.)
 The pack onefile itself is version-pinned:
 
 ```
-https://github.com/AbdallahIsDev/voice-typer/releases/download/v<version>/pack-<version>.zip
+https://github.com/AbdallahIsDev/lausu/releases/download/v<version>/pack-<version>.zip
 ```
 
 The manifest schema is defined by

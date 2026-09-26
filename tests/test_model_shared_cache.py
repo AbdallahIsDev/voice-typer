@@ -74,6 +74,9 @@ class TestIsAvailable:
 
 
 class TestSharedEnv:
+    # Real-resolution assertion only (reads HF_HUB_CACHE, writes nothing):
+    # opts out of the global shared-hub isolation via real_shared_hub.
+    @pytest.mark.real_shared_hub
     def test_hf_hub_cache_respected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         pytest.importorskip("huggingface_hub")
         from huggingface_hub import constants as hf_constants

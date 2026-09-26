@@ -144,8 +144,9 @@ class TestParallelPoolDrain:
             f"be running SEQUENTIALLY"
         )
 
-    def test_uses_run_parallel_with_timeout_with_three_items(self, _stub_shutdown_environment, monkeypatch):
-        """``ipc_server.stop``, one for the WS dispatch pool drain, one"""
+    def test_uses_run_parallel_with_timeout_with_four_items(self, _stub_shutdown_environment, monkeypatch):
+        """``ipc_server.stop``, one for the WS dispatch pool drain, one for
+        the WS readonly pool drain, one for the WS encode pool drain."""
         # Spy on _run_parallel_with_timeout.
         captured_batches: list[list] = []
 
@@ -181,12 +182,15 @@ class TestParallelPoolDrain:
             "_run_parallel_with_timeout must be called with a batch containing 'ipc_server.stop'"
         )
         descs = [item[0] for item in early_bookend]
-        assert len(early_bookend) == 3, (
-            f"early-bookend batch must have exactly 3 items; got {len(early_bookend)} ({descs})"
+        assert len(early_bookend) == 4, (
+            f"early-bookend batch must have exactly 4 items; got {len(early_bookend)} ({descs})"
         )
         assert "ipc_server.stop" in descs, f"early-bookend batch must contain 'ipc_server.stop'; got {descs}"
         assert "ws_dispatch_pool.drain" in descs, (
             f"early-bookend batch must contain 'ws_dispatch_pool.drain'; got {descs}"
+        )
+        assert "ws_readonly_pool.drain" in descs, (
+            f"early-bookend batch must contain 'ws_readonly_pool.drain'; got {descs}"
         )
         assert "ws_encode_pool.drain" in descs, f"early-bookend batch must contain 'ws_encode_pool.drain'; got {descs}"
         # Timeouts: ipc_server.stop has a 2.0s hard ceiling (PERF-
@@ -197,6 +201,10 @@ class TestParallelPoolDrain:
         )
         assert timeouts["ws_dispatch_pool.drain"] == 5.0, (
             f"ws_dispatch_pool.drain must have timeout=5.0; got {timeouts['ws_dispatch_pool.drain']}"
+        )
+        assert timeouts["ws_readonly_pool.drain"] == 2.5, (
+            f"ws_readonly_pool.drain must have timeout=2.5 (tight budget, short-lived status reads); "
+            f"got {timeouts['ws_readonly_pool.drain']}"
         )
         assert timeouts["ws_encode_pool.drain"] == 2.0, (
             f"ws_encode_pool.drain must have timeout=2.0 (bounded encode drain); got {timeouts['ws_encode_pool.drain']}"

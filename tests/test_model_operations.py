@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock
 
 
@@ -223,23 +222,34 @@ class TestGetModelStatusCache:
         assert service._model_status_cache is None, "delete_model must invalidate the get_model_status cache (SVC-9)"
 
     def test_cache_dir_exists_probed_once_per_compute(self, tmp_config_dir, monkeypatch):
-        """SVC-9 / PERF-10: ``cache_dir_exists = os.path.isdir(cache_dir)``"""
+        """SVC-9 / PERF-10: one availability probe per model per compute.
+
+        The old implementation stat one shared cache_dir root (hoisted
+        ``os.path.isdir``); availability now resolves per-repo through
+        ``model_availability.is_available`` (shared-first search + fingerprint
+        cache). The perf contract that survives is: a single compute issues
+        exactly one probe per model, no redundant re-probes inside the loop.
+        """
+        from voice_typer.server import model_availability
+        from voice_typer.server.model_registry import MODEL_REGISTRY
+
         service = self._make_service()
 
-        isdir_calls: list[str] = []
+        calls: list[str] = []
 
-        def _spy_isdir(p):
-            isdir_calls.append(str(p))
+        def _spy_is_available(repo_id, config_dir, **kwargs):
+            calls.append(repo_id)
             return False
 
-        monkeypatch.setattr("os.path.isdir", _spy_isdir)
+        monkeypatch.setattr(model_availability, "is_available", _spy_is_available)
         service._compute_model_status()
-        cache_dir_root_probes = [c for c in isdir_calls if c.endswith(f"huggingface{os.sep}hub")]
-        assert len(cache_dir_root_probes) == 1, (
-            f"cache_dir root should be stat exactly once per compute_model_status "
-            f"call (hoisted above the loop). Got {len(cache_dir_root_probes)} probes: "
-            f"{cache_dir_root_probes}"
+        expected = (
+            sum(1 for m in MODEL_REGISTRY.values() if m.backend in ("whisper", "distil-whisper")) + 2
+        )  # qwen + parakeet
+        assert len(calls) == expected, (
+            f"one availability probe per model per compute; got {len(calls)} probes for {expected} models: {calls}"
         )
+        assert len(set(calls)) == expected, f"no model probed twice: {calls}"
 
 
 class TestDownloadPollScopedToModelDir:
@@ -304,6 +314,13 @@ class TestDeleteStaleActiveModel:
         assert fallback_meta is not None
         fallback_dir = cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}"
         fallback_dir.mkdir(parents=True)
+        # Hermetic world: availability must see ONLY this tmp hub, never the
+        # real shared system cache (shared-first search would otherwise find
+        # the developer's own downloaded models and change the outcome).
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.snapshot_search_dirs",
+            lambda config_dir, repo_id: [cache_dir / f"models--{repo_id.replace('/', '--')}"],
+        )
         # (pinned in tests/model_download/).
         monkeypatch.setattr(
             "voice_typer.server.transcription_download.is_model_snapshot_complete",
@@ -336,6 +353,12 @@ class TestDeleteStaleActiveModel:
         fallback_meta = get_model_metadata("large-v3-turbo")
         assert fallback_meta is not None
         (cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}").mkdir(parents=True)
+        # Hermetic world (see above): the stale path requires tiny to be
+        # absent from EVERY search dir, not just the tmp hub.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.snapshot_search_dirs",
+            lambda config_dir, repo_id: [cache_dir / f"models--{repo_id.replace('/', '--')}"],
+        )
         monkeypatch.setattr(
             "voice_typer.server.transcription_download.is_model_snapshot_complete",
             lambda repo_id: (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir(),
@@ -355,12 +378,18 @@ class TestDeleteStaleActiveModel:
             "old (phantom) model after a save_strict failure"
         )
 
-    def test_active_missing_no_fallback_enters_no_model_state(self, tmp_config_dir):
+    def test_active_missing_no_fallback_enters_no_model_state(self, tmp_config_dir, monkeypatch):
         """No model is downloaded at all, there is no valid replacement."""
         from voice_typer.server.model_registry import NO_MODEL_SIZE
         from voice_typer.server.service import LausuService
 
-        self._make_cache_dir(tmp_config_dir)  # empty hub
+        cache_dir = self._make_cache_dir(tmp_config_dir)  # empty hub
+        # Same hermetic world as above: an empty tmp hub means "nothing
+        # downloaded" only if the real shared cache is excluded.
+        monkeypatch.setattr(
+            "voice_typer.server.model_availability.snapshot_search_dirs",
+            lambda config_dir, repo_id: [cache_dir / f"models--{repo_id.replace('/', '--')}"],
+        )
         app = self._make_app(model_size="tiny")
         service = LausuService(app)
 

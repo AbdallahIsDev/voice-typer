@@ -15,6 +15,11 @@ def _make_fake_server() -> MagicMock:
     server.app = MagicMock()
     server.app.quit = MagicMock()
     server._ws_dispatch_pool = None
+    # Reserved readonly pool (same None-means-fallback contract as the
+    # dispatch pool: _make_dispatch installs a real ThreadPoolExecutor).
+    # Without this, getattr on the MagicMock returns a MagicMock and
+    # loop.run_in_executor explodes (it needs a real executor).
+    server._ws_readonly_pool = None
     server._ws_drained_event = None
     server._ws_inflight_lock = None
     server._ws_inflight_count = None

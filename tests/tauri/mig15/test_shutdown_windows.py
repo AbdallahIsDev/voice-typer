@@ -506,6 +506,8 @@ class TestPythonShutdownHandler:
             Thread=FakeThread,
             Lock=threading.Lock,
             Event=threading.Event,
+            # dispatcher records the dispatch-lock holder ident.
+            get_ident=threading.get_ident,
         )
         with patch.object(dispatcher_mod, "threading", fake_threading):
             result = await dispatch({"type": "shutdown"}, websocket=MagicMock())

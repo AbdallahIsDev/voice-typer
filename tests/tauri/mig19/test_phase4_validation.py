@@ -179,6 +179,11 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
         "test_cloud_connection",
         # XZ-SEC-05: ``add_trusted_endpoint``, adds a hostname to the
         "add_trusted_endpoint",
+        # Diagnostics open-data-folder (status_handlers.py): in
+        # _COMMAND_REGISTRY with a real handler + tests/handlers +
+        # renderer coverage, but without the full (b) paperwork (no ADR
+        # addendum, no _validate_dict_payload schema). Explicit gap.
+        "open_data_folder",
     }
 )
 

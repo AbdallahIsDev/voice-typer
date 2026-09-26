@@ -243,7 +243,7 @@ renderer consumes it, in the TS ``PythonPushEvent`` union):
   Payload: ``{"data": {"title": ..., "message": ...}}`` (nested under
   ``data``; consumers read the nested shape).
 
-Total: 49 events, the live count is ``len(EVENT_TYPES)`` and this
+Total: 52 events, the live count is ``len(EVENT_TYPES)`` and this
 sentence is kept in lockstep with it by
 ``tests/test_event_bus.py::TestCanonicalCatalogue
 ::test_catalogue_total_count_updated``. Update this docstring whenever
@@ -334,6 +334,8 @@ EVENT_TYPES: frozenset[str] = frozenset(
         # IPCServer.push-only (included so assertion doesn't false-positive):
         "state_changed",
         "status_change",
+        # ADR-0023 failure push (media_ingest/jobs.py via _on_event, same path):
+        "media_transcribe_error",
         # Emitted but missing from the docstring catalogue:
         "asr_backend_disabled",
         "asr_last_resort_unloaded",
@@ -359,6 +361,10 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "paste_deferred",
         # Tray-unavailable fallback (tray.py `_drain_pending`):
         "tray_fallback_notification",
+        # ADR-0023 media jobs (published in handlers/media_handlers.py,
+        # already in Rust ALLOWED_EVENT_TYPES + renderer known-event-types):
+        "media_transcribe_complete",
+        "media_transcribe_progress",
     }
 )
 

@@ -32,7 +32,7 @@ def _make_device_manager(microphone=None):
 class TestBtClassificationUsesCache:
     """``_build_device_info_for_retry_policy`` prefers the device-list cache."""
 
-    def test_concrete_device_cache_hit_skips_live_query(self, _mock_sounddevice):
+    def test_concrete_device_cache_hit_skips_live_query(self, _mock_sounddevice, monkeypatch):
         dm = _make_device_manager(microphone="0")
         cached = {
             "index": 0,
@@ -41,6 +41,14 @@ class TestBtClassificationUsesCache:
             "max_input_channels": 1,
         }
         dm._device_list_cache = [cached]
+
+        # The stable-id resolver needs live enumeration, which is empty
+        # under the headless sounddevice mock. Seed the legacy bare-index
+        # path so this cache-hit test exercises the cache, not resolution.
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.microphone_list.resolve_mic_id_to_device_index",
+            lambda mic_id: int(str(mic_id)) if str(mic_id).isdigit() else None,
+        )
 
         result = dm._build_device_info_for_retry_policy()
 
@@ -195,7 +203,7 @@ class TestEffectiveIntervalClassification:
         assert dm._effective_device_check_interval_s() == pytest.approx(30.0)
         _mock_sounddevice.query_devices.assert_not_called()
 
-    def test_concrete_bt_device_classified_from_cache(self, _mock_sounddevice):
+    def test_concrete_bt_device_classified_from_cache(self, _mock_sounddevice, monkeypatch):
         dm = _make_device_manager(microphone="0")
         dm._device_check_interval_s = 30.0
         dm._device_check_interval_s_bt = 5.0
@@ -207,6 +215,12 @@ class TestEffectiveIntervalClassification:
                 "max_input_channels": 1,
             },
         ]
+        # Same headless-enumeration seed as the cache-hit test above: the
+        # interval classification funnels through _resolve_device.
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.microphone_list.resolve_mic_id_to_device_index",
+            lambda mic_id: int(str(mic_id)) if str(mic_id).isdigit() else None,
+        )
 
         assert dm._effective_device_check_interval_s() == pytest.approx(5.0)
         _mock_sounddevice.query_devices.assert_not_called()

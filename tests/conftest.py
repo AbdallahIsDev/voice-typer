@@ -77,6 +77,13 @@ def pytest_configure(config):
         "tests that assert the resolver's own behavior (caching, "
         "platform paths, env overrides).",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_shared_hub: opt out of the per-test shared-HF-hub "
+        "isolation (use the real shared_hub_dir resolution). Only for "
+        "tests that assert the resolver's own behavior and never "
+        "write (e.g. env-override resolution).",
+    )
 
     try:
         from hypothesis import HealthCheck, settings
@@ -513,6 +520,25 @@ def _isolate_user_config_dir(tmp_path, monkeypatch, request):
     _real_config_dir.cache_clear()
     yield
     _real_config_dir.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_hf_cache(tmp_path, monkeypatch, request):
+    """Redirect EVERY test's shared HF hub to a per-test tmp dir.
+
+    2026-09-26: the suite deleted a real downloaded model
+    (large-v3-turbo) because import/delete paths resolve the shared
+    system cache and tests ran unredirected. Production keeps
+    shared-first; tests must never see the real cache.
+    """
+    if request.node.get_closest_marker("real_shared_hub"):
+        yield
+        return
+    monkeypatch.setattr(
+        "voice_typer.server.model_availability.shared_hub_dir",
+        lambda: tmp_path / "test-shared-hub",
+    )
+    yield
 
 
 @pytest.fixture

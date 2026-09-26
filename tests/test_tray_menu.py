@@ -234,12 +234,16 @@ class TestHfDownloadCache:
 
         with patch.object(Path, "is_dir", counting_is_dir):
             result1 = _check_hf_model_downloaded(repo_id, config_dir)
+            after_first = call_count[0]
             result2 = _check_hf_model_downloaded(repo_id, config_dir)
             result3 = _check_hf_model_downloaded(repo_id, config_dir)
 
-        # Only the first call should have hit the filesystem.
-        assert call_count[0] == 1, (
-            f"is_dir() called {call_count[0]} times; expected 1 (shared store should serve subsequent calls)"
+        # One stat per watch dir on the first probe (shared-first search
+        # fingerprints both the shared and the app hub); subsequent calls
+        # must add zero stats (shared store serves them).
+        assert after_first == 2, f"first probe should stat 2 watch dirs; got {after_first}"
+        assert call_count[0] == 2, (
+            f"is_dir() called {call_count[0]} times total; expected 2 (shared store should serve subsequent calls)"
         )
         # All three results must agree.
         assert result1 == result2 == result3
