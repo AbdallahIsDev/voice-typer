@@ -348,7 +348,7 @@ describe("Home renders the single dynamic status line below the mic button", () 
 		// pack.preparingOfflineEngine.
 		const line = await screen.findByText("Preparing offline engine…");
 		const output = line.closest("output");
-		expect(output?.className).toContain("text-(--text-muted)");
+		expect(output?.className).toContain("text-muted-foreground");
 		expect(screen.queryByText("or click to dictate")).toBeNull();
 	});
 });
@@ -515,7 +515,7 @@ describe("Home keeps exactly ONE live region across pill / timer / dynamic line"
 describe("STATUS_COLORS maps every status key to a theme CSS variable", () => {
 	it("resolves each status key to the matching semantic token", async () => {
 		const mod = await import("@/pages/home/lib/constants");
-		expect(mod.STATUS_COLORS.idle).toBe("var(--text-muted)");
+		expect(mod.STATUS_COLORS.idle).toBe("var(--muted-foreground)");
 		expect(mod.STATUS_COLORS.recording).toBe("var(--success)");
 		expect(mod.STATUS_COLORS.transcribing).toBe("var(--info)");
 		expect(mod.STATUS_COLORS.loading).toBe("var(--warning)");
@@ -529,7 +529,7 @@ describe("STATUS_COLORS maps every status key to a theme CSS variable", () => {
 			expect(value.startsWith("var(--")).toBe(true);
 			expect(value.endsWith(")")).toBe(true);
 		}
-		expect(mod.DEFAULT_STATUS_COLOR).toBe("var(--text-muted)");
+		expect(mod.DEFAULT_STATUS_COLOR).toBe("var(--muted-foreground)");
 	});
 
 	it("renders the idle pill dot with the muted token through Home", async () => {
@@ -544,7 +544,7 @@ describe("STATUS_COLORS maps every status key to a theme CSS variable", () => {
 
 		const pillLabel = screen.getByText("READY");
 		const dot = pillLabel.previousElementSibling as HTMLElement | null;
-		expect(dot?.style.backgroundColor).toBe("var(--text-muted)");
+		expect(dot?.style.backgroundColor).toBe("var(--muted-foreground)");
 	});
 });
 

@@ -8,7 +8,7 @@ import {
 	formatVram as _formatVram,
 	formatWer as _formatWer,
 } from "@/lib/format";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
 
 // but `lib/` must never import from `pages/` (inverted layering; this
@@ -304,7 +304,7 @@ export function isModelActive(
  */
 export function applyActiveState(
 	models: ModelInfo[],
-	cfg: VoiceTyperConfig | null,
+	cfg: LausuConfig | null,
 ): ModelInfo[] {
 	if (!cfg) return models;
 	const activeBackend = cfg.asr_backend ?? "whisper";
@@ -319,7 +319,7 @@ export function applyActiveState(
  * Returns the family ID that contains the currently active model,
  * or null if no model is active or no family match is found.
  */
-export function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
+export function getActiveFamilyId(cfg: LausuConfig | null): string | null {
 	if (!cfg) return null;
 	const activeBackend = cfg.asr_backend ?? "whisper";
 	const activeModel = cfg.model_size ?? MODEL_DEFAULT;

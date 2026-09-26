@@ -2,7 +2,7 @@ import type { ComponentProps, ElementType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export const KBD_CHIP_CLASSES =
-	"rounded border border-border/15 bg-(--bg-subtle) px-2 py-1 font-mono text-xs text-(--text-primary)";
+	"rounded-lg border border-border/15 bg-surface-subtle px-2 py-1 font-mono text-xs text-foreground";
 
 interface KbdProps {
 	children: ReactNode;

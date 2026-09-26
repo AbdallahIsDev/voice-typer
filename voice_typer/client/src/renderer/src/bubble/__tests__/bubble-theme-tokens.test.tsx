@@ -42,11 +42,11 @@ describe("bubble theme-token parity (no raw zinc/white palette)", () => {
 
 	it("BUBBLE_BUTTON_CLASS uses semantic tokens", () => {
 		// Spot-check the three semantic tokens the migration introduced:
-		// `--text-muted` (resting foreground), `--surface-hover` (hover
-		// background), `--text-primary` (hover foreground).
-		expect(BUBBLE_BUTTON_CLASS).toContain("text-(--text-muted)");
+		// `--muted-foreground` (resting foreground), `--surface-hover` (hover
+		// background), `--foreground` (hover foreground).
+		expect(BUBBLE_BUTTON_CLASS).toContain("text-muted-foreground");
 		expect(BUBBLE_BUTTON_CLASS).toContain("hover:bg-(--surface-hover)");
-		expect(BUBBLE_BUTTON_CLASS).toContain("hover:text-(--text-primary)");
+		expect(BUBBLE_BUTTON_CLASS).toContain("hover:text-foreground");
 	});
 
 	it("Bubble pill container uses semantic tokens (no raw palette)", () => {
@@ -57,7 +57,7 @@ describe("bubble theme-token parity (no raw zinc/white palette)", () => {
 			// by its border/bg utility classes (which are now semantic).
 			// The border carries the muted /7 opacity modifier, so the
 			// slash must be escaped in the CSS selector.
-			const pill = document.querySelector(".bg-card.border-border\\/5");
+			const pill = document.querySelector(".bg-surface.border-border\\/5");
 			expect(pill).toBeTruthy();
 			// Negative assertions: no raw zinc/white palette on the pill.
 			expect(pill?.className).not.toMatch(/bg-white/);

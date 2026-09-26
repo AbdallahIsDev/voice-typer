@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 /**
  * The accordion container shared by Local Models + Cloud Models.
  * Matches the pre-overhaul Local Models treatment
- * (rounded-xl border bg-subtle) so both tabs read as the same
+ * (rounded-lg border bg-subtle) so both tabs read as the same
  * surface.
  */
 export function ModelGroupAccordion({
@@ -22,7 +22,7 @@ export function ModelGroupAccordion({
 	return (
 		<Accordion
 			className={cn(
-				"rounded-xl border border-border/5 bg-(--bg-subtle)",
+				"rounded-lg border border-border/5 bg-surface-subtle",
 				className,
 			)}
 			{...props}
@@ -50,7 +50,7 @@ export function ModelGroupTrigger({
 	return (
 		<AccordionTrigger
 			className={cn(
-				"gap-2 px-4 py-2 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-foreground/5 data-open:bg-transparent",
+				"gap-2 px-4 py-2 text-sm font-semibold text-foreground hover:no-underline hover:bg-foreground/5 data-open:bg-transparent",
 				className,
 			)}
 			{...props}
@@ -100,7 +100,7 @@ export function ModelVariantRow({
 			<div className="flex min-w-0 flex-1 flex-col gap-1">
 				<div className="flex items-center gap-2">
 					<h4
-						className="truncate text-sm font-semibold text-(--text-primary)"
+						className="truncate text-sm font-semibold text-foreground"
 						title={name}
 					>
 						{name}
@@ -137,8 +137,8 @@ export function MetadataPair({
 }) {
 	return (
 		<span className="inline-flex items-baseline gap-1">
-			<span className="text-(--text-muted)">{label}</span>
-			<span className="text-(--text-primary)">: {value}</span>
+			<span className="text-muted-foreground">{label}</span>
+			<span className="text-foreground">: {value}</span>
 		</span>
 	);
 }
@@ -153,7 +153,7 @@ export function MetadataTag({
 	return (
 		<span
 			className={cn(
-				"inline-flex items-center rounded-full border border-border/5 bg-foreground/5 px-2 py-0.5 text-[11px] font-medium leading-4 text-(--text-muted)",
+				"inline-flex items-center rounded-full border border-border/5 bg-foreground/5 px-2 py-0.5 text-[11px] font-medium leading-4 text-muted-foreground",
 				className,
 			)}
 		>

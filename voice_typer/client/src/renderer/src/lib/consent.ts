@@ -17,3 +17,7 @@ export const VOICE_BIOMETRIC_CONSENT_FIELD = "voice_biometric_consent";
 
 /** The `client.consent_required` error code (IPC validation code). */
 export const CONSENT_REQUIRED_CODE = "client.consent_required";
+
+/** ADR-0023: the Config consent-field whose `False` value gates sending
+ *  a pasted media URL to the yt-dlp extractor. */
+export const MEDIA_URL_CONSENT_FIELD = "media_url_consent";

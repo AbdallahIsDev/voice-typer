@@ -205,7 +205,7 @@ describe("CollectionToolbar, visual tokens (byte-identical extraction)", () => {
 			name: "test.clearAllAria",
 		});
 		expect(clearAll.className).toContain(
-			"text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive",
+			"text-muted-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive",
 		);
 	});
 

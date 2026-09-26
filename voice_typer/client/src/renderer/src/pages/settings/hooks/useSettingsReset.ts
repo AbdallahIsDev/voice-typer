@@ -10,12 +10,12 @@
 // `resetToDefaults` can be a stable useCallback without re-allocating
 // the list each render.
 
-import { useCallback, useState } from "react";
 import type { usePython } from "@/hooks/usePython";
 import type { ShowSnackOptions, SnackbarType } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { useCallback, useState } from "react";
 
 const CONFIG_PROTECTED_KEYS = [
 	"schema_version",
@@ -25,11 +25,11 @@ const CONFIG_PROTECTED_KEYS = [
 
 export interface UseSettingsResetOptions {
 	/** The currently-loaded config (reset is a no-op while `null`). */
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	/** The Python bridge call (from usePython). */
 	call: ReturnType<typeof usePython>["call"];
 	/** Config write callback (from useSettingsConfig). */
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
+	updateConfig: (updates: Partial<LausuConfig>) => Promise<void>;
 	/** Toast callback (from useSnackbar). */
 	showSnack: (
 		message: string,
@@ -71,7 +71,7 @@ export function useSettingsReset({
 						continue;
 					safeDefaults[key] = value;
 				}
-				await updateConfig(safeDefaults as Partial<VoiceTyperConfig>);
+				await updateConfig(safeDefaults as Partial<LausuConfig>);
 				showSnack(t("settings.resetToDefaultsToast"), "success");
 			} else {
 				showSnack(t("settings.fetchDefaultsFailed"), "error");

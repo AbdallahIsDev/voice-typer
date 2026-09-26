@@ -24,6 +24,29 @@ export interface ModelStatusEntry {
 
 export type ModelStatusMap = Record<string, ModelStatusEntry>;
 
+/**
+ * Storage summary attached by the backend's `_handle_get_model_status`
+ * under the `_storage` key (namespaced so it never collides with a
+ * model name). Lets the Models page show total hub bytes + the shared
+ * cache path without an extra IPC round-trip.
+ */
+export interface ModelStorageSummary {
+	/** Total bytes of regular files under the shared hub dir. */
+	used_bytes: number;
+	/** Absolute path of the shared HuggingFace hub dir. */
+	hub_path: string;
+	/** Absolute path of the app config (data) dir. */
+	config_dir: string;
+}
+
+/**
+ * Full `get_model_status` response: per-model map plus the optional
+ * `_storage` summary (absent on older backends; treat as unknown).
+ */
+export type ModelStatusResponse = ModelStatusMap & {
+	_storage?: ModelStorageSummary;
+};
+
 export interface DiskInfo {
 	/** Bytes free on the volume that holds the models directory. */
 	free_bytes: number;

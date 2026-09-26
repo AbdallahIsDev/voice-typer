@@ -12,6 +12,8 @@
 // behaves exactly like the other fresh loads (mount, search, retry).
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDebouncedCallback } from "@/hooks/useDebounce";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 
 export interface UseHistoryEventRefreshOptions {
@@ -44,7 +46,16 @@ export function useHistoryEventRefresh({
 	// page's listener actually runs because only the mounted page
 	// subscribes).
 	const staleRef = useRef(false);
-	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Shared 500ms debounce so rapid events coalesce into one fetch;
+	// unmount auto-cancels. Latest fetch wins via the ref mirror.
+	const refreshFromEventRef = useLatestRef(refreshFromEvent);
+	const { debounced, cancel } = useDebouncedCallback(async () => {
+		try {
+			await refreshFromEventRef.current();
+		} catch (e) {
+			console.warn("[renderer:History] background refresh failed:", e);
+		}
+	}, 500);
 
 	const handleManualRefresh = useCallback(async () => {
 		setRefreshing(true);
@@ -72,16 +83,9 @@ export function useHistoryEventRefresh({
 			staleRef.current = true;
 			return undefined;
 		}
-		if (refreshTimer.current) clearTimeout(refreshTimer.current);
-		refreshTimer.current = setTimeout(async () => {
-			try {
-				await refreshFromEvent();
-			} catch (e) {
-				console.warn("[renderer:History] background refresh failed:", e);
-			}
-		}, 500);
+		debounced();
 		return undefined;
-	}, [refreshFromEvent]);
+	}, [debounced]);
 
 	// refresh on focus when stale. When the window regains
 	// visibility AND a stale flag was set by a background event, fire
@@ -107,9 +111,9 @@ export function useHistoryEventRefresh({
 	// debounce's timer is cleaned up by useHistorySearchReload).
 	useEffect(() => {
 		return () => {
-			if (refreshTimer.current) clearTimeout(refreshTimer.current);
+			cancel();
 		};
-	}, []);
+	}, [cancel]);
 
 	return { handleManualRefresh, refreshing };
 }

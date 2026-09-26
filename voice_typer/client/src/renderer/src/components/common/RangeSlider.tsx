@@ -105,7 +105,7 @@ export function RangeSlider({
 	return (
 		<div className={cn("flex items-center gap-2", className)}>
 			<span
-				className="w-12 shrink-0 text-xs tabular-nums text-(--text-muted)"
+				className="w-12 shrink-0 text-xs tabular-nums text-muted-foreground"
 				aria-hidden="true"
 			>
 				{min}
@@ -134,12 +134,12 @@ export function RangeSlider({
 				trackClassName="h-2"
 				thumbClassName="w-6 bg-white shadow-md"
 			/>
-			<span className="w-14 shrink-0 text-end text-sm tabular-nums text-(--text-muted)">
+			<span className="w-14 shrink-0 text-end text-sm tabular-nums text-muted-foreground">
 				{renderedValue}
 				{suffix}
 			</span>
 			<span
-				className="w-12 shrink-0 text-xs tabular-nums text-(--text-muted)"
+				className="w-12 shrink-0 text-xs tabular-nums text-muted-foreground"
 				aria-hidden="true"
 			>
 				{max}

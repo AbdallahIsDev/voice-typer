@@ -1,7 +1,7 @@
-import { useCallback } from "react";
 import type { PythonCall } from "@/hooks/usePython";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { Page } from "@/types/ipc/enums";
+import { useCallback } from "react";
 
 /** Shape of the ``call`` function from usePython(). */
 
@@ -23,7 +23,7 @@ export function useOnboardingComplete({
 	return useCallback(async () => {
 		navigate("home");
 		try {
-			const cfg = await call<VoiceTyperConfig>("get_config");
+			const cfg = await call<LausuConfig>("get_config");
 			if (cfg?.theme_mode) {
 				await reloadThemeFromConfig();
 			}

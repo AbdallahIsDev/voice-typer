@@ -125,7 +125,7 @@ export const LinuxWindowButtonsSettingsSection = memo(
 				{current.mode === "system" &&
 					isVisible(modeLabel, systemLayoutText, title) && (
 						<SettingRow label={modeLabel} info={systemLayoutText}>
-							<span className="text-sm text-(--text-muted)">
+							<span className="text-sm text-muted-foreground">
 								{system?.layout
 									? t("settings.linuxWindowButtons.followingSystem")
 									: systemUnavailable}

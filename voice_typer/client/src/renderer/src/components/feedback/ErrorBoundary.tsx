@@ -369,11 +369,11 @@ export class ErrorBoundary extends Component<
 
 			return (
 				<div
-					className="flex min-h-screen items-center justify-center bg-(--bg-subtle) p-6"
+					className="flex min-h-screen items-center justify-center bg-surface-subtle p-6"
 					role="alert"
 					aria-live="assertive"
 				>
-					<div className="flex w-full max-w-lg flex-col items-center gap-4 rounded-xl border border-border/10 bg-card px-6 py-8 text-center">
+					<div className="flex w-full max-w-lg flex-col items-center gap-4 rounded-lg border border-border/10 bg-surface px-6 py-8 text-center">
 						<div className="flex rounded-full bg-destructive/10 p-3">
 							<HugeiconsIcon
 								icon={Alert02Icon}
@@ -382,10 +382,10 @@ export class ErrorBoundary extends Component<
 								aria-hidden="true"
 							/>
 						</div>
-						<h1 className="text-xl font-semibold text-(--text-primary)">
+						<h1 className="text-xl font-semibold text-foreground">
 							{t("errorBoundary.title")}
 						</h1>
-						<p className="text-sm text-(--text-muted)">
+						<p className="text-sm text-muted-foreground">
 							{t("errorBoundary.description")}
 						</p>
 						{/* user-friendly summary placed ABOVE the technical <pre>
@@ -393,7 +393,7 @@ export class ErrorBoundary extends Component<
                                                     before the raw error message. The raw stack trace below is
                                                     preserved for bug-report copy-paste but is no longer the
                                                     first thing the user reads. */}
-						<p className="text-sm text-(--text-muted)">
+						<p className="text-sm text-muted-foreground">
 							{t("errorBoundary.configCrashHint")}
 						</p>
 						<pre className="w-full overflow-auto rounded-lg border border-border/10 bg-muted p-4 font-mono text-start text-xs text-muted-foreground">

@@ -101,7 +101,7 @@ export function useAudioLevels(
 	const refreshBarColor = useCallback(() => {
 		const rootStyle = getComputedStyle(document.documentElement);
 		const c =
-			rootStyle.getPropertyValue("--text-primary").trim() ||
+			rootStyle.getPropertyValue("--foreground").trim() ||
 			rootStyle.getPropertyValue("--foreground").trim() ||
 			(document.documentElement.classList.contains("dark")
 				? "#fff"

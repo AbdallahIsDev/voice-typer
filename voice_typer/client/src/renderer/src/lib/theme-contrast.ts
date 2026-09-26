@@ -39,8 +39,8 @@ export const HEX_STRICT_RE = /^#[0-9a-fA-F]{6}$/;
  *                          NEITHER clears AA, i.e. the user picked a
  *                          mid-tone primary that can't carry either
  *                          text colour.)
- *   - ``--bg-subtle``    → foreground vs bg-subtle (text on cards)
- *   - ``--text-muted``   → text-muted vs background (secondary text)
+ *   - ``--surface-subtle``    → foreground vs bg-subtle (text on cards)
+ *   - ``--muted-foreground``   → text-muted vs background (secondary text)
  *   - ``--border``       → null (no text-on-border pair)
  * Falls back to the DEFAULT_CUSTOM_LIGHT/DARK value when the draft
  * is missing a key, so the warning still fires for the default theme.
@@ -73,12 +73,12 @@ export function getContrastPair(
 				bg: primaryHex,
 			};
 		}
-		case "--bg-subtle":
+		case "--surface-subtle":
 			return {
-				fg: pickContrastForeground(cssColorToHex(get("--bg-subtle"))),
-				bg: cssColorToHex(get("--bg-subtle")),
+				fg: pickContrastForeground(cssColorToHex(get("--surface-subtle"))),
+				bg: cssColorToHex(get("--surface-subtle")),
 			};
-		case "--text-muted":
+		case "--muted-foreground":
 			return {
 				fg: pickContrastForeground(cssColorToHex(get("--background"))),
 				bg: cssColorToHex(get("--background")),

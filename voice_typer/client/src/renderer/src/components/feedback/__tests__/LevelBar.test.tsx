@@ -179,7 +179,7 @@ describe("LevelBar, neutral borderless track", () => {
 		expect(getProgressbar().className).toContain("bg-input/30");
 		cleanup();
 		render(<LevelBar level={0} playing={true} />);
-		expect(getProgressbar().className).toContain("bg-(--text-muted)/10");
+		expect(getProgressbar().className).toContain("bg-muted-foreground/10");
 	});
 });
 

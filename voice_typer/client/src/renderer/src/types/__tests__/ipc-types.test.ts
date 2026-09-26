@@ -3,7 +3,6 @@
 // pinned deletion.
 // ``parakeet_cpu_fallback`` (3 new events emitted by the Python backend
 
-import { describe, expect, it } from "vitest";
 import type {
 	AutostartStatus,
 	DiskInfo,
@@ -14,6 +13,7 @@ import type {
 	PythonPushEvent,
 	TranscriptionFinalEvent,
 } from "@/types/ipc";
+import { describe, expect, it } from "vitest";
 
 describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 	it("PythonPushEvent union does NOT include the `model_loaded` variant", () => {
@@ -148,7 +148,7 @@ describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expecte
 	it("DiskInfo has free_bytes + models_dir (TASK-24-FIX-5)", () => {
 		const sample: DiskInfo = {
 			free_bytes: 1024 ** 3,
-			models_dir: "/home/user/.voice-typer/huggingface/hub",
+			models_dir: "/home/user/.lausu/huggingface/hub",
 		};
 		expect(sample.free_bytes).toBe(1024 ** 3);
 		expect(sample.models_dir).toContain("huggingface");

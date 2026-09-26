@@ -194,7 +194,7 @@ describe("useStatsShare hook", () => {
 		});
 		expect(bridge.saveStatsImage).toHaveBeenCalledWith(
 			PNG_DATA_URL,
-			"voice-typer-stats",
+			"lausu-stats",
 			"saveAs",
 		);
 	});

@@ -169,7 +169,7 @@ describe("NH-1: ConnectionStatusScreen", () => {
 		expect(status?.textContent).toBe("boom");
 	});
 
-	it("renders a calm app-theme card (bg-card, no destructive wash, h2 title)", () => {
+	it("renders a calm app-theme card (bg-surface, no destructive wash, h2 title)", () => {
 		render(
 			<ConnectionStatusScreen
 				status="disconnected"
@@ -179,13 +179,13 @@ describe("NH-1: ConnectionStatusScreen", () => {
 			/>,
 		);
 		// The local card is the direct child of the wrapper: app-theme
-		// surface (bg-card), never the shared EmptyState error wash
+		// surface (bg-surface), never the shared EmptyState error wash
 		// (bg-destructive/5 + border-destructive/40).
 		const card = document.querySelector(
 			'[data-testid="connection-status"] > div',
 		) as HTMLElement;
 		expect(card).toBeTruthy();
-		expect(card.className).toContain("bg-card");
+		expect(card.className).toContain("bg-surface");
 		expect(card.className).not.toContain("bg-destructive/5");
 		expect(card.className).not.toContain("border-destructive");
 		// Title hierarchy: the card title is an h2 (EmptyState used h3).

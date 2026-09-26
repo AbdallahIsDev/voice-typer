@@ -11,6 +11,7 @@
 // the cross-section groups, and the auto-switch can never disagree.
 
 import { useEffect, useMemo, useRef } from "react";
+import { fuzzyContains } from "@/hooks/useFuzzySearch";
 import { getPrewarmAndUpdatesLabels } from "@/components/settings/PrewarmAndUpdates";
 import type { SettingsSectionPage } from "@/components/settings/settingsSections";
 import { getSectionLabels } from "@/components/settings/settingsTabLabels";
@@ -18,8 +19,7 @@ import type { NavigateOptions } from "@/hooks/useNavigation";
 import type { Page } from "@/types/ipc";
 
 export function searchLabelMatches(label: string, query: string): boolean {
-	const q = query.toLowerCase().trim();
-	return label.toLowerCase().includes(q);
+	return fuzzyContains(label, query);
 }
 
 /** One section page's cross-section result group (matched labels only). */
@@ -102,7 +102,10 @@ export function useSettingsSearch({
 		for (const [sectionPage, labels] of Object.entries(sectionLabelsByPage)) {
 			for (const label of labels) {
 				if (!searchLabelMatches(label, q)) continue;
-				const score = label.length; // prefer the longest (most specific) match
+				// Exact-substring hits outrank typo-tolerant extras so a
+				// precise query keeps its previous destination.
+				const exact = label.toLowerCase().includes(q);
+				const score = label.length + (exact ? 10000 : 0);
 				if (score > bestScore) {
 					bestScore = score;
 					bestPage = sectionPage as SettingsSectionPage;

@@ -9,9 +9,9 @@
 // 2026-09-02 theme pass (native primitives, roomier panel):
 //   - The custom ``rounded-lg`` field chrome is GONE, every control
 //     now uses the app's native pill language: the shared ``Input``
-//     (rounded-xl, bg-input/50, pointer/keyboard focus modality), the
+//     (rounded-lg, bg-input/50, pointer/keyboard focus modality), the
 //     new shared ``Textarea`` (same pill + focus contract), and the
-//     native ``SelectTrigger`` (rounded-4xl, mirrors the outline
+//     native ``SelectTrigger`` (rounded-lg, mirrors the outline
 //     Button). A single overlay-wide field shell fought all three
 //     primitives and read as off-theme next to every other dialog.
 //   - Panel widened 420px → 520px (``size="lg"`` lifts the max-w cap
@@ -28,7 +28,7 @@
 //     flow inline with the sentence).
 //   - Fields (Input + Textarea) now carry per-instance polish on top of
 //     the shared primitives: ``rounded-lg`` (matches the lg panel; the
-//     default rounded-xl read too round) + ``bg-input/25`` (the 50%
+//     default rounded-lg read too round) + ``bg-input/25`` (the 50%
 //     wash was too visible on the bg panel). Match mode is the shared
 //     two-option ``SegmentedControl`` stacked vertically (label above,
 //     control below), same row layout as the trigger and output fields.
@@ -150,7 +150,7 @@ export function TemplateDialog({
 					<div className="flex items-center gap-2">
 						<label
 							htmlFor="template-trigger"
-							className="text-sm font-medium text-(--text-primary)"
+							className="text-sm font-medium text-foreground"
 						>
 							{t("templates.triggerPhrase")}
 						</label>
@@ -171,7 +171,7 @@ export function TemplateDialog({
 				<div className="flex flex-col gap-2">
 					<label
 						htmlFor="template-output"
-						className="text-sm font-medium text-(--text-primary)"
+						className="text-sm font-medium text-foreground"
 					>
 						{t("templates.outputText")}
 					</label>
@@ -186,7 +186,7 @@ export function TemplateDialog({
 					{/* Two rows: the description alone on the first row,
 					    ALL variable chips grouped on the second, the chips
 					    no longer flow inline with the sentence. */}
-					<p className="text-xs text-(--text-muted)">
+					<p className="text-xs text-muted-foreground">
 						{t("templates.outputHelp")}
 					</p>
 					<div className="flex flex-wrap items-center gap-2">
@@ -215,7 +215,7 @@ export function TemplateDialog({
 				</div>
 
 				<div className="flex flex-col gap-2">
-					<span className="text-sm font-medium text-(--text-primary)">
+					<span className="text-sm font-medium text-foreground">
 						{t("templates.matchMode")}
 					</span>
 					<SegmentedControl

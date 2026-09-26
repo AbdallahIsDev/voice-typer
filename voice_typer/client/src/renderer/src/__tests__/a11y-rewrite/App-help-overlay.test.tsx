@@ -134,9 +134,9 @@ vi.mock("@/pages/Settings", () => ({
 }));
 
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
-const completedConfig: Partial<VoiceTyperConfig> = {
+const completedConfig: Partial<LausuConfig> = {
 	onboarding_completed: true,
 };
 

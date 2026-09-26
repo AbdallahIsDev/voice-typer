@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-let _cachedConfig: VoiceTyperConfig | null = null;
+let _cachedConfig: LausuConfig | null = null;
 
 /**
  * /4: extract a human-readable warning string from a `set_config`
@@ -44,7 +44,7 @@ function _extractSaveWarning(response: unknown): string | null {
 }
 
 export interface UseSettingsConfigResult {
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	saving: boolean;
 	pending: boolean;
 	/**
@@ -62,9 +62,9 @@ export interface UseSettingsConfigResult {
 	 * is in flight.  Consumers (Settings.tsx) can use this to
 	 */
 	hasPendingOrSaving: boolean;
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
+	updateConfig: (updates: Partial<LausuConfig>) => Promise<void>;
 	updateConfigDebounced: (
-		key: keyof VoiceTyperConfig,
+		key: keyof LausuConfig,
 		value: unknown,
 		delayMs?: number,
 	) => void;
@@ -73,7 +73,7 @@ export interface UseSettingsConfigResult {
 	 * Merge an externally-pushed config update (e.g. the
 	 * `config_changed` Python event) into local state AND the diff
 	 */
-	mergeExternalConfig: (data: Partial<VoiceTyperConfig>) => void;
+	mergeExternalConfig: (data: Partial<LausuConfig>) => void;
 	/**
 	 * Flush any pending (debounced or microtask-queued) writes
 	 * immediately. Exposed so the Settings page can flush on
@@ -84,18 +84,18 @@ export interface UseSettingsConfigResult {
 export function useSettingsConfig(): UseSettingsConfigResult {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
-	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
+	const [config, setConfig] = useState<LausuConfig | null>(_cachedConfig);
 	const [saving, setSaving] = useState(false);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 
-	const lastSavedConfigRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
-	const pendingUpdatesRef = useRef<Partial<VoiceTyperConfig>>({});
+	const lastSavedConfigRef = useRef<LausuConfig | null>(_cachedConfig);
+	const pendingUpdatesRef = useRef<Partial<LausuConfig>>({});
 	const flushScheduledRef = useRef(false);
 	const flushPromiseResolversRef = useRef<Array<() => void>>([]);
 	const flushPendingUpdatesRef = useRef<() => Promise<void>>(async () => {});
-	const configRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
+	const configRef = useRef<LausuConfig | null>(_cachedConfig);
 	useEffect(() => {
 		configRef.current = config;
 	}, [config]);
@@ -115,7 +115,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	const loadConfig = useCallback(
 		async (isCancelled: () => boolean = () => cancelledRef.current) => {
 			try {
-				const result = await callRef.current<VoiceTyperConfig>("get_config");
+				const result = await callRef.current<LausuConfig>("get_config");
 				if (isCancelled()) return;
 				setLoadError(null);
 				_cachedConfig = result;
@@ -168,7 +168,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			}
 			lastSavedConfigRef.current = {
 				...lastSaved,
-				...(diff as Partial<VoiceTyperConfig>),
+				...(diff as Partial<LausuConfig>),
 			};
 		} catch (err) {
 			const message =
@@ -195,7 +195,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	}, [flushPendingUpdates]);
 
 	const updateConfig = useCallback(
-		async (updates: Partial<VoiceTyperConfig>) => {
+		async (updates: Partial<LausuConfig>) => {
 			const currentConfig = configRef.current;
 			if (!currentConfig) return;
 			setSaving(true);
@@ -224,9 +224,9 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	const debouncedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>(
 		{},
 	);
-	const pendingDebouncedValuesRef = useRef<Partial<VoiceTyperConfig>>({});
+	const pendingDebouncedValuesRef = useRef<Partial<LausuConfig>>({});
 	const updateConfigDebounced = useCallback(
-		(key: keyof VoiceTyperConfig, value: unknown, delayMs = 500) => {
+		(key: keyof LausuConfig, value: unknown, delayMs = 500) => {
 			const currentConfig = configRef.current;
 			if (currentConfig) {
 				const newConfig = { ...currentConfig, [key]: value };
@@ -241,7 +241,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			] = value;
 			setPending(true);
 			debouncedTimers.current[key as string] = setTimeout(() => {
-				void updateConfig({ [key]: value } as Partial<VoiceTyperConfig>);
+				void updateConfig({ [key]: value } as Partial<LausuConfig>);
 				delete debouncedTimers.current[key as string];
 				delete (pendingDebouncedValuesRef.current as Record<string, unknown>)[
 					key as string
@@ -279,10 +279,10 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	}, []);
 
 	// updater (updaters must be pure: StrictMode double-invokes
-	const mergeExternalConfig = useCallback((data: Partial<VoiceTyperConfig>) => {
+	const mergeExternalConfig = useCallback((data: Partial<LausuConfig>) => {
 		const prev = configRef.current;
 		if (prev) {
-			const merged = { ...prev, ...data } as VoiceTyperConfig;
+			const merged = { ...prev, ...data } as LausuConfig;
 			configRef.current = merged;
 			setConfig(merged);
 			_cachedConfig = merged;
@@ -291,7 +291,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			lastSavedConfigRef.current = {
 				...lastSavedConfigRef.current,
 				...data,
-			} as VoiceTyperConfig;
+			} as LausuConfig;
 		}
 	}, []);
 

@@ -25,7 +25,7 @@ export function LiveQualityFeedback({
 		// inter-child spacing, so no top margin here.
 		<div className="text-center">
 			{/* Timer, visual-only; rapid updates would spam SR if live */}
-			<span className="text-xs font-mono tabular-nums text-(--text-muted)">
+			<span className="text-xs font-mono tabular-nums text-muted-foreground">
 				{t("microphoneTest.qualityFeedback.recording")}{" "}
 				{formatTime(elapsedSeconds)} / {formatTime(totalSeconds)}
 			</span>

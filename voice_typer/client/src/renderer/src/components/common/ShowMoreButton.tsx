@@ -18,7 +18,7 @@ export function ShowMoreButton({ onClick, testid }: ShowMoreButtonProps) {
 			type="button"
 			data-testid={testid}
 			onClick={onClick}
-			className="mx-auto flex items-center gap-2 rounded-full border border-border/5 bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
+			className="mx-auto flex items-center gap-2 rounded-full border border-border/5 bg-surface-subtle px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
 		>
 			{t("common.showMore")}
 		</button>

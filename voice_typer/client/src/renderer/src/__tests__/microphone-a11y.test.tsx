@@ -124,7 +124,7 @@ import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { AvailableMicrophonesList } from "@/pages/microphone/components/AvailableMicrophonesList";
 import { PresetAccordionSelector } from "@/pages/microphone/components/PresetAccordionSelector";
-import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig, MicrophoneDevice } from "@/types/config";
 
 // ── Fixtures ──────────────────────────────────────────────────────────
 const micA: MicrophoneDevice = {
@@ -147,13 +147,13 @@ const micB: MicrophoneDevice = {
 	rate: 44100,
 };
 
-// Minimal VoiceTyperConfig, only the fields PresetAccordionSelector
+// Minimal LausuConfig, only the fields PresetAccordionSelector
 // itself reads (audio_preset + the noise_filter_* fields handed to the
 // stubbed AudioFilterChain). The full object is too noisy for this unit
 // test.
 const minimalConfig = {
 	audio_preset: "auto",
-} as unknown as VoiceTyperConfig;
+} as unknown as LausuConfig;
 
 // ── Test setup ────────────────────────────────────────────────────────
 beforeEach(() => {
@@ -174,7 +174,7 @@ describe("mic selection rows expose radio semantics with per-row accessible name
 				microphones={[micA, micB]}
 				activeMicId={null}
 				testRunning={false}
-				onSelectMicrophone={() => {}}
+				onSelectMicrophone={() => { }}
 			/>,
 		);
 
@@ -195,7 +195,7 @@ describe("mic selection rows expose radio semantics with per-row accessible name
 				microphones={[micA, micB]}
 				activeMicId="mic-a"
 				testRunning={false}
-				onSelectMicrophone={() => {}}
+				onSelectMicrophone={() => { }}
 			/>,
 		);
 
@@ -211,7 +211,7 @@ describe("mic selection rows expose radio semantics with per-row accessible name
 				microphones={[micA, micB]}
 				activeMicId="mic-a"
 				testRunning={true}
-				onSelectMicrophone={() => {}}
+				onSelectMicrophone={() => { }}
 			/>,
 		);
 
@@ -248,10 +248,10 @@ describe("TestReviewPanel quality block is announced to AT", () => {
 				rawAudioBase64={null}
 				playing={false}
 				playingOriginal={false}
-				onPlayEnhanced={() => {}}
-				onPlayOriginal={() => {}}
-				onStop={() => {}}
-				onRetest={() => {}}
+				onPlayEnhanced={() => { }}
+				onPlayOriginal={() => { }}
+				onStop={() => { }}
+				onRetest={() => { }}
 				hasFiltersEnabled={false}
 			/>,
 		);
@@ -315,10 +315,10 @@ describe("TestReviewPanel test-transcription display", () => {
 				rawAudioBase64={null}
 				playing={false}
 				playingOriginal={false}
-				onPlayEnhanced={() => {}}
-				onPlayOriginal={() => {}}
-				onStop={() => {}}
-				onRetest={() => {}}
+				onPlayEnhanced={() => { }}
+				onPlayOriginal={() => { }}
+				onStop={() => { }}
+				onRetest={() => { }}
 				hasFiltersEnabled={false}
 			/>,
 		);
@@ -340,10 +340,10 @@ describe("TestReviewPanel test-transcription display", () => {
 				rawAudioBase64={null}
 				playing={false}
 				playingOriginal={false}
-				onPlayEnhanced={() => {}}
-				onPlayOriginal={() => {}}
-				onStop={() => {}}
-				onRetest={() => {}}
+				onPlayEnhanced={() => { }}
+				onPlayOriginal={() => { }}
+				onStop={() => { }}
+				onRetest={() => { }}
 				hasFiltersEnabled={false}
 			/>,
 		);
@@ -365,10 +365,10 @@ describe("TestReviewPanel test-transcription display", () => {
 				rawAudioBase64={null}
 				playing={false}
 				playingOriginal={false}
-				onPlayEnhanced={() => {}}
-				onPlayOriginal={() => {}}
-				onStop={() => {}}
-				onRetest={() => {}}
+				onPlayEnhanced={() => { }}
+				onPlayOriginal={() => { }}
+				onStop={() => { }}
+				onRetest={() => { }}
 				hasFiltersEnabled={false}
 			/>,
 		);
@@ -387,7 +387,7 @@ describe("AvailableMicrophonesList renders a real list with ul/li + roles", () =
 				microphones={[micA, micB]}
 				activeMicId={null}
 				testRunning={false}
-				onSelectMicrophone={() => {}}
+				onSelectMicrophone={() => { }}
 			/>,
 		);
 
@@ -406,7 +406,7 @@ describe("AvailableMicrophonesList renders a real list with ul/li + roles", () =
 				microphones={[micA, micB]}
 				activeMicId="mic-a"
 				testRunning={false}
-				onSelectMicrophone={() => {}}
+				onSelectMicrophone={() => { }}
 			/>,
 		);
 
@@ -424,7 +424,7 @@ describe("AvailableMicrophonesList renders a real list with ul/li + roles", () =
 				microphones={[micA, micB]}
 				activeMicId={null}
 				testRunning={false}
-				onSelectMicrophone={() => {}}
+				onSelectMicrophone={() => { }}
 			/>,
 		);
 
@@ -450,9 +450,9 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 				preset="auto"
 				config={minimalConfig}
 				showAdvanced={true}
-				onPresetChange={() => {}}
-				onToggleAdvanced={() => {}}
-				onConfigChange={() => {}}
+				onPresetChange={() => { }}
+				onToggleAdvanced={() => { }}
+				onConfigChange={() => { }}
 			/>,
 		);
 
@@ -475,9 +475,9 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 				preset="auto"
 				config={minimalConfig}
 				showAdvanced={true}
-				onPresetChange={() => {}}
-				onToggleAdvanced={() => {}}
-				onConfigChange={() => {}}
+				onPresetChange={() => { }}
+				onToggleAdvanced={() => { }}
+				onConfigChange={() => { }}
 			/>,
 		);
 		const callsAfterFirstRender = tSpy.mock.calls.filter(
@@ -494,9 +494,9 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 				preset="studio"
 				config={minimalConfig}
 				showAdvanced={true}
-				onPresetChange={() => {}}
-				onToggleAdvanced={() => {}}
-				onConfigChange={() => {}}
+				onPresetChange={() => { }}
+				onToggleAdvanced={() => { }}
+				onConfigChange={() => { }}
 			/>,
 		);
 
@@ -514,8 +514,8 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 				config={minimalConfig}
 				showAdvanced={false}
 				onPresetChange={handlePresetChange}
-				onToggleAdvanced={() => {}}
-				onConfigChange={() => {}}
+				onToggleAdvanced={() => { }}
+				onConfigChange={() => { }}
 			/>,
 		);
 
@@ -538,8 +538,8 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 				config={minimalConfig}
 				showAdvanced={false}
 				onPresetChange={handlePresetChange}
-				onToggleAdvanced={() => {}}
-				onConfigChange={() => {}}
+				onToggleAdvanced={() => { }}
+				onConfigChange={() => { }}
 			/>,
 		);
 		expect(screen.getByTestId("mic-preset-current").textContent).toBe("OFF");
@@ -560,9 +560,9 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 				preset="auto"
 				config={minimalConfig}
 				showAdvanced={showAdvanced}
-				onPresetChange={() => {}}
+				onPresetChange={() => { }}
 				onToggleAdvanced={handleToggleAdvanced}
-				onConfigChange={() => {}}
+				onConfigChange={() => { }}
 			/>,
 		);
 
@@ -576,9 +576,9 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 				preset="custom"
 				config={minimalConfig}
 				showAdvanced={showAdvanced}
-				onPresetChange={() => {}}
+				onPresetChange={() => { }}
 				onToggleAdvanced={handleToggleAdvanced}
-				onConfigChange={() => {}}
+				onConfigChange={() => { }}
 			/>,
 		);
 
@@ -594,9 +594,9 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 				preset="custom"
 				config={minimalConfig}
 				showAdvanced={showAdvanced}
-				onPresetChange={() => {}}
+				onPresetChange={() => { }}
 				onToggleAdvanced={handleToggleAdvanced}
-				onConfigChange={() => {}}
+				onConfigChange={() => { }}
 			/>,
 		);
 		expect(
@@ -613,8 +613,8 @@ describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers"
 	const baseProps = {
 		config: minimalConfig,
 		showAdvanced: false,
-		onToggleAdvanced: () => {},
-		onConfigChange: () => {},
+		onToggleAdvanced: () => { },
+		onConfigChange: () => { },
 	};
 
 	it("does not keep any option description permanently visible in the DOM", () => {
@@ -622,7 +622,7 @@ describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers"
 			<PresetAccordionSelector
 				preset="auto"
 				{...baseProps}
-				onPresetChange={() => {}}
+				onPresetChange={() => { }}
 			/>,
 		);
 
@@ -645,7 +645,7 @@ describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers"
 			<PresetAccordionSelector
 				preset="auto"
 				{...baseProps}
-				onPresetChange={() => {}}
+				onPresetChange={() => { }}
 			/>,
 		);
 
@@ -706,7 +706,7 @@ describe("MicrophoneListItem radio row", () => {
 				checked={false}
 				showDefaultBadge={true}
 				disabled={false}
-				onSelect={() => {}}
+				onSelect={() => { }}
 			/>,
 		);
 
@@ -723,7 +723,7 @@ describe("MicrophoneListItem radio row", () => {
 				checked={true}
 				showDefaultBadge={false}
 				disabled={false}
-				onSelect={() => {}}
+				onSelect={() => { }}
 			/>,
 		);
 
@@ -737,7 +737,7 @@ describe("MicrophoneListItem radio row", () => {
 				checked={false}
 				showDefaultBadge={false}
 				disabled={false}
-				onSelect={() => {}}
+				onSelect={() => { }}
 			/>,
 		);
 

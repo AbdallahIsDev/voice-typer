@@ -5,11 +5,11 @@
  *     API key never leaves the Python process (C-DATA-1 offline-app
  */
 
-import { useCallback, useState } from "react";
 import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { formatErrorMessage, getProviderLabel } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { useCallback, useState } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -29,10 +29,10 @@ interface UseCloudProvidersArgs {
 		message: string,
 		kind: "success" | "error" | "warning" | "info",
 	) => void;
-	setConfig: React.Dispatch<React.SetStateAction<VoiceTyperConfig | null>>;
-	config: VoiceTyperConfig | null;
+	setConfig: React.Dispatch<React.SetStateAction<LausuConfig | null>>;
+	config: LausuConfig | null;
 	apiKeys: Record<string, string>;
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
+	updateConfig: (updates: Partial<LausuConfig>) => Promise<void>;
 	call: PythonCall;
 }
 
@@ -52,17 +52,17 @@ export interface UseCloudProvidersResult {
 /**
  *  helper: translate the cloud-provider key into the
  * matching `cloud_*_consent` config field. Returns the config key
- * (typed as a keyof VoiceTyperConfig so callers can index safely).
+ * (typed as a keyof LausuConfig so callers can index safely).
  * Exported so presentational consumers (CloudProvidersPanel) reuse
  * the SAME mapping instead of re-declaring a drifting duplicate.
  */
-export function consentKeyFor(provider: string): keyof VoiceTyperConfig {
+export function consentKeyFor(provider: string): keyof LausuConfig {
 	if (provider === "openai") return "cloud_openai_consent";
 	if (provider === "groq") return "cloud_groq_consent";
 	return "cloud_deepgram_consent";
 }
 
-function apiKeyConfigField(provider: string): keyof VoiceTyperConfig {
+function apiKeyConfigField(provider: string): keyof LausuConfig {
 	if (provider === "openai") return "openai_api_key";
 	if (provider === "groq") return "groq_api_key";
 	return "deepgram_api_key";
@@ -125,7 +125,7 @@ export function useCloudProviders({
 				showSnack(t("models.snack.apiKeyUnchanged"), "info");
 				return;
 			}
-			const updates = { [configKey]: key } as Partial<VoiceTyperConfig>;
+			const updates = { [configKey]: key } as Partial<LausuConfig>;
 			await updateConfig(updates);
 			showSnack(
 				t("models.snack.apiKeySaved", {
@@ -140,7 +140,7 @@ export function useCloudProviders({
 	const setCloudConsent = useCallback(
 		async (provider: string, granted: boolean) => {
 			const configKey = consentKeyFor(provider);
-			const updates = { [configKey]: granted } as Partial<VoiceTyperConfig>;
+			const updates = { [configKey]: granted } as Partial<LausuConfig>;
 			await updateConfig(updates);
 			setConfig((prev) => (prev ? { ...prev, [configKey]: granted } : prev));
 			showSnack(

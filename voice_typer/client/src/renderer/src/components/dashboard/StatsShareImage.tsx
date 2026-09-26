@@ -22,7 +22,11 @@ function StatsShareImageInner({
 	const isRtl = isRtlLocale(locale);
 
 	// Accent value colour, guaranteed legible against the card surface.
-	const accent = legibleOn(palette.primary, palette.card, palette.foreground);
+	const accent = legibleOn(
+		palette.primary,
+		palette.surface,
+		palette.foreground,
+	);
 	// Mode-chip colour, guaranteed legible against the background.
 	const modeAccent = legibleOn(
 		palette.primary,
@@ -112,7 +116,7 @@ function StatsShareImageInner({
 						padding: "10px 18px",
 						borderRadius: "999px",
 						border: `1px solid ${palette.border}`,
-						background: palette.card,
+						background: palette.surface,
 					}}
 				>
 					<span
@@ -247,11 +251,11 @@ function StatCard({
 				borderRadius: "16px",
 				// Card surface lifted slightly toward the foreground so the
 				// card is clearly FRAMED against the image background (the
-				// raw --card token is often nearly identical to --background
+				// raw --surface token is often nearly identical to --background
 				// in dark themes, making the cards look like floating text).
 				// Both inputs are theme tokens, so the lift stays correct
 				// across every preset.
-				background: mixHexColors(palette.card, palette.foreground, 0.06),
+				background: mixHexColors(palette.surface, palette.foreground, 0.06),
 				border: `1px solid ${mixHexColors(
 					palette.border,
 					palette.foreground,

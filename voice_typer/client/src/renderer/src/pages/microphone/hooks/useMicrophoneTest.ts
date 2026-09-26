@@ -8,13 +8,6 @@
 // ``selectMicrophoneRef`` indirection is removed now that all five
 // callbacks are ``useCallback``-stable in their respective sub-hooks.
 
-import {
-	type Dispatch,
-	type RefObject,
-	type SetStateAction,
-	useCallback,
-	useRef,
-} from "react";
 import { useFilterState } from "@/hooks/useFilterState";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -22,7 +15,14 @@ import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import type { AudioPreset } from "@/lib/utils/audioPresets";
-import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig, MicrophoneDevice } from "@/types/config";
+import {
+	type Dispatch,
+	type RefObject,
+	type SetStateAction,
+	useCallback,
+	useRef,
+} from "react";
 
 import type { TestResultQuality } from "../lib/types";
 import { useMicrophoneLevelMonitor } from "./useMicrophoneLevelMonitor";
@@ -30,10 +30,10 @@ import { useMicrophonePlayback } from "./useMicrophonePlayback";
 import { useMicrophoneTestSession } from "./useMicrophoneTestSession";
 
 interface UseMicrophoneTestOptions {
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	microphones: MicrophoneDevice[];
-	setConfig: Dispatch<SetStateAction<VoiceTyperConfig | null>>;
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
+	setConfig: Dispatch<SetStateAction<LausuConfig | null>>;
+	updateConfig: (updates: Partial<LausuConfig>) => void;
 	selectMicrophoneRef: RefObject<(micId: string | null) => Promise<void>>;
 	meterRef: RefObject<HTMLElement | null>;
 	levelMonitorPaused?: boolean;
@@ -71,7 +71,7 @@ export interface UseMicrophoneTestResult {
 	playAudio: (base64: string, isEnhanced: boolean) => void;
 	stopPlayback: () => void;
 	handlePresetChange: (preset: AudioPreset) => void;
-	handleConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
+	handleConfigChange: (updates: Partial<LausuConfig>) => void;
 	// Setters
 	setShowAdvanced: Dispatch<SetStateAction<boolean>>;
 }
@@ -177,7 +177,7 @@ export function useMicrophoneTest({
 	);
 
 	const handleConfigChange = useCallback(
-		(updates: Partial<VoiceTyperConfig>) => {
+		(updates: Partial<LausuConfig>) => {
 			updateConfig(updates);
 		},
 		[updateConfig],

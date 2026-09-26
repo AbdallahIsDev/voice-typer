@@ -9,8 +9,8 @@ import {
 	type ModelInfo,
 	type ModelMetadata,
 } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
-import type { ModelStatusMap } from "@/types/ipc";
+import type { LausuConfig } from "@/types/config";
+import type { ModelStatusResponse, ModelStorageSummary } from "@/types/ipc";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -24,7 +24,7 @@ interface UseModelConfigArgs {
 
 export interface UseModelConfigResult {
 	// public (spread into the facade's return)
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	/** Set when the gating `get_config` fetch fails. The page renders
 	 *  a load-failure EmptyState with a Retry action instead of an
 	 *  endless spinner (config stays null on failure). Cleared on the
@@ -35,11 +35,14 @@ export interface UseModelConfigResult {
 	apiKeys: Record<string, string>;
 	setApiKeys: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 	loadConfig: () => Promise<void>;
+	/** Shared-hub storage summary from `get_model_status._storage`
+	 *  (null until the first status fetch settles or on older backends). */
+	storage: ModelStorageSummary | null;
 	// internal (facade destructures these out, not part of the public
 	// return shape of useModelLifecycle)
 	refreshModelStatus: () => Promise<void>;
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
-	setConfig: React.Dispatch<React.SetStateAction<VoiceTyperConfig | null>>;
+	updateConfig: (updates: Partial<LausuConfig>) => Promise<void>;
+	setConfig: React.Dispatch<React.SetStateAction<LausuConfig | null>>;
 	setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 }
 
@@ -65,15 +68,15 @@ export function useModelConfig({
 	// the module cache (survives page unmount) so the page skips its
 	// loading branch entirely, `loadConfig` below still revalidates.
 	// Read ONCE at init (lazy useState initializers), not per render.
-	const [config, setConfig] = useState<VoiceTyperConfig | null>(
-		() => peekIpcCache<VoiceTyperConfig>(MODELS_CONFIG_CACHE_KEY) ?? null,
+	const [config, setConfig] = useState<LausuConfig | null>(
+		() => peekIpcCache<LausuConfig>(MODELS_CONFIG_CACHE_KEY) ?? null,
 	);
 	// Failure surface for the gating `get_config` fetch. Without this,
 	// a rejected `get_config` left `config` null forever and the page
 	// spun on its loading branch with no recovery path.
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [models, setModels] = useState<ModelInfo[]>(() => {
-		const seeded = peekIpcCache<VoiceTyperConfig>(MODELS_CONFIG_CACHE_KEY);
+		const seeded = peekIpcCache<LausuConfig>(MODELS_CONFIG_CACHE_KEY);
 		return seeded ? applyActiveState(INITIAL_MODELS, seeded) : [];
 	});
 
@@ -97,12 +100,16 @@ export function useModelConfig({
 		Record<string, ModelMetadata>
 	>({});
 	const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+	// Shared-hub storage summary (the `_storage` key of the
+	// `get_model_status` payload). Kept beside the model list because
+	// both derive from the same fetch; null = unknown, not zero.
+	const [storage, setStorage] = useState<ModelStorageSummary | null>(null);
 
 	// Per-mount config cache (replaces module-level
 	// `_cachedConfig`). The ref lets the `config_changed` event handler
 	// merge incoming partial updates without re-fetching the whole
 	// config, and without leaking state across HMR / test mounts.
-	const cachedConfigRef = useRef<VoiceTyperConfig | null>(null);
+	const cachedConfigRef = useRef<LausuConfig | null>(null);
 
 	// Refresh-model-status helper ─────────────────────────
 	// downloaded/depsOk = true" reconciliation block was duplicated
@@ -119,8 +126,10 @@ export function useModelConfig({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const refreshModelStatus = useCallback(async (): Promise<void> => {
 		try {
-			const status = await callRef.current<ModelStatusMap>("get_model_status");
+			const status =
+				await callRef.current<ModelStatusResponse>("get_model_status");
 			if (status && typeof status === "object") {
+				setStorage(status._storage ?? null);
 				setModels((prev) =>
 					prev.map((m) => {
 						const s = status[m.name];
@@ -159,8 +168,8 @@ export function useModelConfig({
 		const isCurrent = () => loadGenerationRef.current === generation;
 		try {
 			const results = await Promise.allSettled([
-				callRef.current<VoiceTyperConfig>("get_config"),
-				callRef.current<ModelStatusMap>("get_model_status"),
+				callRef.current<LausuConfig>("get_config"),
+				callRef.current<ModelStatusResponse>("get_model_status"),
 				callRef.current<{ models: ModelMetadata[] }>("get_model_catalog"),
 			]);
 
@@ -216,6 +225,7 @@ export function useModelConfig({
 			if (statusResult.status === "fulfilled") {
 				const status = statusResult.value;
 				if (status && typeof status === "object") {
+					setStorage(status._storage ?? null);
 					setModels((prev) =>
 						prev.map((m) => {
 							const s = status[m.name];
@@ -271,7 +281,7 @@ export function useModelConfig({
 				if (!data) return undefined;
 				const prev = cachedConfigRef.current;
 				if (!prev) return undefined;
-				const merged = { ...prev, ...data } as VoiceTyperConfig;
+				const merged = { ...prev, ...data } as LausuConfig;
 				cachedConfigRef.current = merged;
 				setConfig(merged);
 				setModels((curr) => applyActiveState(curr, merged));
@@ -288,7 +298,7 @@ export function useModelConfig({
 	// branch on the result.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const updateConfig = useCallback(
-		async (updates: Partial<VoiceTyperConfig>): Promise<void> => {
+		async (updates: Partial<LausuConfig>): Promise<void> => {
 			// callRef mirror (same convention as loadConfig /
 			// refreshModelStatus) so the identity stays stable even under
 			// test mocks that return a fresh `call` per render.
@@ -305,6 +315,7 @@ export function useModelConfig({
 		apiKeys,
 		setApiKeys,
 		loadConfig,
+		storage,
 		// internal, facade destructures these out
 		refreshModelStatus,
 		updateConfig,

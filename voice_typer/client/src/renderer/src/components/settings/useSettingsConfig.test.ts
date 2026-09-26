@@ -42,9 +42,9 @@ vi.mock("@/stores/appStore", () => ({
 }));
 
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
-const baseConfig: VoiceTyperConfig = {
+const baseConfig: LausuConfig = {
 	schema_version: 1,
 	fast_startup: true,
 	offline_pack_consent: true,
@@ -157,6 +157,7 @@ const baseConfig: VoiceTyperConfig = {
 	cloud_deepgram_consent: false,
 	voice_biometric_consent: false,
 	llm_polish_consent: false,
+	media_url_consent: false,
 	sound_feedback_enabled: false,
 	ai_enhancement_enabled: false,
 	auto_capitalize: true,

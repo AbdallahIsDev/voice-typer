@@ -1,5 +1,12 @@
 // for text/aria consumers. C-BG-1: no monitor while hidden. See
 
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
+import {
+	CONSENT_REQUIRED_CODE,
+	VOICE_BIOMETRIC_CONSENT_FIELD,
+} from "@/lib/consent";
+import type { LausuConfig } from "@/types/config";
 import {
 	type Dispatch,
 	type RefObject,
@@ -9,13 +16,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePython, usePythonEvent } from "@/hooks/usePython";
-import {
-	CONSENT_REQUIRED_CODE,
-	VOICE_BIOMETRIC_CONSENT_FIELD,
-} from "@/lib/consent";
-import type { VoiceTyperConfig } from "@/types/config";
 
 const START_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000];
 
@@ -24,9 +24,9 @@ let monitorStopClaimedSeq = 0;
 
 interface UseMicrophoneLevelMonitorOptions {
 	/**
-	 * Current voice-typer config (read for ``config.microphone``).
+	 * Current lausu config (read for ``config.microphone``).
 	 */
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	/**
 	 * Ref-to-latest "is audio playing" flag, owned by
 	 * ``useMicrophonePlayback``. Read at event-fire time so the

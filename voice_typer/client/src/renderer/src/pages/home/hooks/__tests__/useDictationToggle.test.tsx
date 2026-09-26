@@ -1,10 +1,10 @@
+import type { PythonCall } from "@/hooks/usePython";
+import { useDictationToggle } from "@/pages/home/hooks/useDictationToggle";
+import type { LausuConfig } from "@/types/config";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { toast } from "sonner";
 import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PythonCall } from "@/hooks/usePython";
-import { useDictationToggle } from "@/pages/home/hooks/useDictationToggle";
-import type { VoiceTyperConfig } from "@/types/config";
 
 // Bridge-call test double shaped as PythonCall (no real bridge in unit tests).
 const mockCall = vi.fn() as unknown as PythonCall & Mock;
@@ -23,18 +23,18 @@ vi.mock("@/lib/consentGate", () => ({
 	consentBodyKey: (field: string) => `consentDialog.field.${field}`,
 }));
 
-function renderToggle(cfg: VoiceTyperConfig | null) {
+function renderToggle(cfg: LausuConfig | null) {
 	return renderHook(() => useDictationToggle(mockCall, cfg));
 }
 
 function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+	overrides: Partial<LausuConfig> = {},
+): LausuConfig {
 	return {
 		hotkey: "F2",
 		voice_biometric_consent: true,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 beforeEach(() => {
@@ -110,7 +110,7 @@ describe("useDictationToggle", () => {
 	});
 
 	it("flips toggling while the IPC is in flight", async () => {
-		let resolveToggle: () => void = () => {};
+		let resolveToggle: () => void = () => { };
 		mockCall.mockImplementation(
 			() =>
 				new Promise<void>((resolve) => {

@@ -11,9 +11,6 @@
 // sections with no match are hidden; if nothing matches anywhere the
 // caller-supplied empty state renders instead.
 
-import { ArrowRight01Icon, Search01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo } from "react";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import {
@@ -21,15 +18,19 @@ import {
 	type SettingsSectionPage,
 } from "@/components/settings/settingsSections";
 import { getSectionLabels } from "@/components/settings/settingsTabLabels";
+import { fuzzyContains } from "@/hooks/useFuzzySearch";
 import { getLocale, getLocaleLabel, t, useT } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import { LANGUAGE_OPTIONS } from "@/lib/utils/languages";
 import { useGlobalSearch } from "@/stores/useGlobalSearch";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { ArrowRight01Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useMemo } from "react";
 
 /** Current-value label for an audio filter-chain preset. */
 const AUDIO_PRESET_SUMMARY_KEYS: Record<
-	VoiceTyperConfig["audio_preset"],
+	LausuConfig["audio_preset"],
 	string
 > = {
 	auto: "settings.audioEnhancement.presetAuto",
@@ -40,16 +41,16 @@ const AUDIO_PRESET_SUMMARY_KEYS: Record<
 };
 
 /** Current-value label for the color scheme. */
-const THEME_MODE_SUMMARY_KEYS: Record<VoiceTyperConfig["theme_mode"], string> =
-	{
-		system: "settings.appearance.systemDefault",
-		light: "settings.appearance.light",
-		dark: "settings.appearance.dark",
-	};
+const THEME_MODE_SUMMARY_KEYS: Record<LausuConfig["theme_mode"], string> =
+{
+	system: "settings.appearance.systemDefault",
+	light: "settings.appearance.light",
+	dark: "settings.appearance.dark",
+};
 
 function sectionSummary(
 	page: SettingsSectionPage,
-	config: VoiceTyperConfig,
+	config: LausuConfig,
 ): string | null {
 	switch (page) {
 		case "settingsGeneral":
@@ -74,12 +75,12 @@ function sectionSummary(
 		case "settingsAudio":
 			return t(
 				AUDIO_PRESET_SUMMARY_KEYS[config.audio_preset] ??
-					"settings.audioEnhancement.presetAuto",
+				"settings.audioEnhancement.presetAuto",
 			);
 		case "settingsAppearance":
 			return t(
 				THEME_MODE_SUMMARY_KEYS[config.theme_mode] ??
-					"settings.appearance.systemDefault",
+				"settings.appearance.systemDefault",
 			);
 		case "settingsPrivacy":
 			return null;
@@ -90,7 +91,7 @@ function sectionSummary(
 
 export interface SettingsHubProps {
 	/** Loaded config, the hub only renders once Settings has it. */
-	config: VoiceTyperConfig;
+	config: LausuConfig;
 	/** Navigate to a section page (wired to the nav store by Settings). */
 	onNavigateSection: (page: SettingsSectionPage) => void;
 }
@@ -99,7 +100,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 	const t = useT();
 	const query = useGlobalSearch((s) => s.query);
 	const clearQuery = useGlobalSearch((s) => s.clearQuery);
-	const q = query.trim().toLowerCase();
+	const q = query.trim();
 
 	// One row model per section: title/description/summary plus, when a
 	// query is active, the matched row labels (deduped, two section
@@ -122,11 +123,10 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 				];
 			}
 			const matchedLabels = [...new Set(labelsBySection[def.page])].filter(
-				(label) => label.toLowerCase().includes(q),
+				(label) => fuzzyContains(label, q),
 			);
 			const sectionItselfMatches =
-				title.toLowerCase().includes(q) ||
-				description.toLowerCase().includes(q);
+				fuzzyContains(title, q) || fuzzyContains(description, q);
 			if (matchedLabels.length === 0 && !sectionItselfMatches) return [];
 			return [
 				{
@@ -162,7 +162,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 			    SettingsSection card in the app (border + subtle bg + row
 			    dividers), rows as full-width buttons. overflow-hidden keeps
 			    the hover highlight inside the rounded corners. */}
-			<div className="overflow-hidden rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/5">
+			<div className="overflow-hidden rounded-lg border border-border/5 bg-surface-subtle divide-y divide-border/5">
 				{rows.map((row) => (
 					<button
 						key={row.def.page}
@@ -181,14 +181,14 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 							icon={row.def.icon}
 							strokeWidth={2}
 							aria-hidden="true"
-							className="h-5 w-5 shrink-0 text-(--text-muted)"
+							className="h-5 w-5 shrink-0 text-muted-foreground"
 						/>
 						<span className="flex min-w-0 flex-1 flex-col gap-2">
 							<span className="flex flex-col gap-0.5">
-								<span className="block text-sm font-medium text-(--text-primary)">
+								<span className="block text-sm font-medium text-foreground">
 									{row.title}
 								</span>
-								<span className="block truncate text-sm text-(--text-muted)">
+								<span className="block truncate text-sm text-muted-foreground">
 									{row.description}
 								</span>
 							</span>
@@ -197,7 +197,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 									{row.matchedLabels.map((label) => (
 										<span
 											key={label}
-											className="rounded-md border border-border/10 bg-(--bg) px-1.5 py-0.5 text-xs text-(--text-muted)"
+											className="rounded-lg border border-border/10 bg-surface px-1.5 py-0.5 text-xs text-muted-foreground"
 										>
 											{label}
 										</span>
@@ -207,7 +207,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 						</span>
 						<span className="flex shrink-0 items-center gap-2">
 							{row.summary !== null && (
-								<span className="max-w-45 truncate text-sm text-(--text-muted)">
+								<span className="max-w-45 truncate text-sm text-muted-foreground">
 									{row.summary}
 								</span>
 							)}
@@ -215,7 +215,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 								icon={ArrowRight01Icon}
 								strokeWidth={2}
 								aria-hidden="true"
-								className="nav-directional-icon h-4 w-4 text-(--text-muted)"
+								className="nav-directional-icon h-4 w-4 text-muted-foreground"
 							/>
 						</span>
 					</button>

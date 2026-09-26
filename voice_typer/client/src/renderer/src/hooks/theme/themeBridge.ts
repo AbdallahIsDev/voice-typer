@@ -1,5 +1,5 @@
 import type { PythonCall } from "@/hooks/usePython";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 /** Type alias for the public ``call`` function shape accepted by
  * ``useTheme``. The canonical declaration is the bridge's
@@ -8,7 +8,7 @@ import type { VoiceTyperConfig } from "@/types/config";
  * module-level ``activeCall`` slot. */
 export type ThemeCallFn = PythonCall;
 
-export type ThemeMergeConfigFn = (updates: Partial<VoiceTyperConfig>) => void;
+export type ThemeMergeConfigFn = (updates: Partial<LausuConfig>) => void;
 
 let activeCall: ThemeCallFn | null = null;
 let activeMergeConfig: ThemeMergeConfigFn | null = null;

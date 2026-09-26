@@ -16,7 +16,7 @@ describe("readThemePalette", () => {
 		const root = document.documentElement;
 		root.style.setProperty("--background", "#0d1117");
 		root.style.setProperty("--foreground", "#e6edf3");
-		root.style.setProperty("--card", "#161b22");
+		root.style.setProperty("--surface", "#161b22");
 		root.style.setProperty("--muted-foreground", "#8b949e");
 		root.style.setProperty("--primary", "#58a6ff");
 		root.style.setProperty("--border", "#30363d");
@@ -30,7 +30,7 @@ describe("readThemePalette", () => {
 
 		expect(palette.background).toBe("#0d1117");
 		expect(palette.foreground).toBe("#e6edf3");
-		expect(palette.card).toBe("#161b22");
+		expect(palette.surface).toBe("#161b22");
 		expect(palette.mutedForeground).toBe("#8b949e");
 		expect(palette.primary).toBe("#58a6ff");
 		expect(palette.border).toBe("#30363d");

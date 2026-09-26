@@ -36,9 +36,9 @@ export default function ExportFormatMenu({
 					// Match the muted-text / white-on-hover style of the
 					// sibling buttons in the same action row (Favorites, Clear
 					// All, Add Word, etc.). Without this, the outline variant
-					// inherits the default bright --text-primary color which
+					// inherits the default bright --foreground color which
 					// looks out of place next to the muted siblings.
-					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+					className="gap-2 text-muted-foreground hover:text-foreground"
 				>
 					<HugeiconsIcon
 						icon={Download01Icon}

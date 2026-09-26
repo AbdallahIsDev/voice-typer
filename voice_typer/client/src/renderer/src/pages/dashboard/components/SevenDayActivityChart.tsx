@@ -52,7 +52,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 	const ariaCounts = bars.map((b) => `${b.label}: ${b.count}`).join(", ");
 
 	return (
-		<div className="flex flex-col gap-4 rounded-xl border border-border/5 bg-(--bg-subtle) p-4">
+		<div className="flex flex-col gap-4 rounded-lg border border-border/5 bg-surface-subtle p-4">
 			<div className="flex items-center gap-2.5">
 				{/* Icon grouped directly left of the title (was stranded
 				in the top-right corner). */}
@@ -67,13 +67,13 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 					// Sized to roughly match the stacked title+subtitle block
 					// beside it (was h-4 w-4, disproportionately tiny next
 					// to a two-line text block).
-					className="h-8 w-8 shrink-0 text-(--text-muted)"
+					className="h-8 w-8 shrink-0 text-muted-foreground"
 				/>
 				<div className="flex flex-col gap-0.5">
-					<h2 className="font-sans text-sm font-semibold text-(--text-primary)">
+					<h2 className="font-sans text-sm font-semibold text-foreground">
 						{t("analytics.activityTitle")}
 					</h2>
-					<p className="text-xs text-(--text-muted)">
+					<p className="text-xs text-muted-foreground">
 						{rangeLabel} · {unitLabel}
 					</p>
 				</div>
@@ -90,7 +90,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 				<div className="flex gap-2">
 					{/* Y axis: unique tick labels (max / mid / 0; mid is
 						dropped when it would duplicate max). */}
-					<div className="flex h-36 w-7 shrink-0 flex-col justify-between pb-0 text-end text-[10px] tabular-nums text-(--text-muted)">
+					<div className="flex h-36 w-7 shrink-0 flex-col justify-between pb-0 text-end text-[10px] tabular-nums text-muted-foreground">
 						{yTicks.map((tick) => (
 							<span key={tick}>{tick}</span>
 						))}
@@ -126,20 +126,17 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 										className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
 									>
 										{/* count label above the bar (only when > 0) */}
-										<span className="text-[10px] leading-none tabular-nums text-(--text-muted)">
+										<span className="text-[10px] leading-none tabular-nums text-muted-foreground">
 											{bar.count > 0 ? bar.count : ""}
 										</span>
 										<div
 											title={tooltip}
 											className={cn(
-												// ~4px top corners (this theme's --radius-sm resolves
-												// to 6px, use an explicit value for the requested
-												// small rounding).
-												"w-full max-w-8 rounded-t-[4px] transition-all duration-300",
+												"w-full max-w-8 rounded-t-lg transition-all duration-300",
 												bar.count > 0 && "bg-accent/90 hover:bg-accent",
 												bar.count === 0 &&
 													!bar.isMissing &&
-													"h-1 rounded-sm bg-border/50",
+													"h-1 rounded-lg bg-border/50",
 												bar.isMissing &&
 													"h-1 border-t border-dashed border-border/5 bg-transparent",
 											)}
@@ -160,7 +157,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 							<div
 								key={bar.key}
 								className={cn(
-									"min-w-0 flex-1 text-center text-[10px] text-(--text-muted)",
+									"min-w-0 flex-1 text-center text-[10px] text-muted-foreground",
 									i % every !== 0 && "invisible",
 								)}
 							>

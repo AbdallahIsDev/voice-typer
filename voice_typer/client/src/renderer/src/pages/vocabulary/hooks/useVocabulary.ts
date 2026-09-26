@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useFuzzyFilter } from "@/hooks/useFuzzySearch";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import type { PythonCall } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
@@ -365,17 +366,14 @@ export function useVocabulary({
 	// underlying list, search query, category filter, or sort order
 	// changes, not on every keystroke that re-renders the page.
 
+	const fuzzyEntries = useFuzzyFilter(
+		entries,
+		searchQuery,
+		(e) => [e.original, e.correction],
+	);
 	const filteredSorted = useMemo(() => {
-		const q = searchQuery.trim().toLowerCase();
-		const bySearch = q
-			? entries.filter(
-					(e) =>
-						e.original.toLowerCase().includes(q) ||
-						e.correction.toLowerCase().includes(q),
-				)
-			: entries;
-		return sortEntries(bySearch, sortOrder);
-	}, [entries, searchQuery, sortOrder]);
+		return sortEntries(fuzzyEntries, sortOrder);
+	}, [fuzzyEntries, sortOrder]);
 
 	return {
 		entries,

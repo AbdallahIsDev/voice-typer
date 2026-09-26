@@ -1,7 +1,7 @@
 // router/pageLoaders.ts, the SINGLE lazy-import registry for the
 // secondary route chunks.
-// declared nine `lazy(() => import("@/pages/X"))` components while
-// prefetch.ts kept its own nine-entry `PAGE_LOADERS` map of the SAME
+// declared ten `lazy(() => import("@/pages/X"))` components while
+// prefetch.ts kept its own ten-entry `PAGE_LOADERS` map of the SAME
 // import specifiers, the two lists could (and did) drift silently.
 // This module is now the one source of truth:
 //   - `PAGE_LOADERS`, the raw chunk loaders (one `import()` per
@@ -16,7 +16,7 @@
 // Home stays an EAGER import in PageSwitch.tsx (default landing page —
 // lazy-loading it would put a Suspense fallback flash on every app
 // launch), so it deliberately has no entry here.
-// The nine entries are the pages with their own route chunk. The
+// The ten entries are the pages with their own route chunk. The
 // Settings HUB and ALL settings-section literals resolve to the SAME
 // Settings chunk (one entry covers them); `routeChunkLoader` returns
 // `undefined` for pages without their own chunk so `prefetchPage`
@@ -33,6 +33,7 @@ export const PAGE_LOADERS = {
 	aboutAndPrivacy: () => import("@/pages/AboutAndPrivacy"),
 	analytics: () => import("@/pages/Dashboard"),
 	history: () => import("@/pages/History"),
+	media: () => import("@/pages/Media"),
 	microphone: () => import("@/pages/Microphone"),
 	models: () => import("@/pages/Models"),
 	onboarding: () => import("@/pages/Onboarding"),
@@ -50,6 +51,7 @@ export const LAZY_PAGES = {
 	aboutAndPrivacy: lazy(PAGE_LOADERS.aboutAndPrivacy),
 	analytics: lazy(PAGE_LOADERS.analytics),
 	history: lazy(PAGE_LOADERS.history),
+	media: lazy(PAGE_LOADERS.media),
 	microphone: lazy(PAGE_LOADERS.microphone),
 	models: lazy(PAGE_LOADERS.models),
 	onboarding: lazy(PAGE_LOADERS.onboarding),

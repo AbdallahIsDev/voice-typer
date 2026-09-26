@@ -83,17 +83,15 @@ vi.mock("next-themes", () => ({
 // ─── Module imports (after vi.mock, these run with mocks in place) ───
 import { useConsentGateStore } from "@/lib/consentGate";
 import ModelsPage from "@/pages/Models";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
-/** A complete VoiceTyperConfig with all consent flags off (the privacy-
+/** A complete LausuConfig with all consent flags off (the privacy-
  *  by-default state). Mirrors the baseConfig in
  *  `pages/__tests__/Settings.test.tsx` so the Settings page sections all
  *  render without blowing up on missing fields. */
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -213,7 +211,7 @@ function makeConfig(
 		vocabulary_auto_confidence_threshold: 0.7,
 		vocabulary_auto_apply_threshold: 0.95,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 /** Count `set_config` IPC calls captured by mockCall. */
@@ -288,7 +286,7 @@ describe("About page, updates / help / feedback sections", () => {
 	it("does NOT render a 'Check for Updates' button and does NOT fetch the GitHub releases API (C-DATA-1)", async () => {
 		// C-DATA-1 (offline guarantee): the previous "Check for Updates"
 		// button fired a renderer `fetch()` to
-		// `https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest`
+		// `https://api.github.com/repos/AbdallahIsDev/lausu/releases/latest`
 		// on click, a network call in the production code path, which
 		// the offline guarantee forbids. The button + handler +
 		// latestVersion state have all been removed; the Updates section
@@ -316,9 +314,7 @@ describe("About page, updates / help / feedback sections", () => {
 		).toBeNull();
 
 		// The offline message MUST be rendered.
-		expect(
-			screen.getByText(/Voice Typer is an offline application/i),
-		).toBeTruthy();
+		expect(screen.getByText(/Lausu is an offline application/i)).toBeTruthy();
 
 		// No fetch should have fired, C-DATA-1 absolute guarantee.
 		expect(fetchSpy).not.toHaveBeenCalled();
@@ -353,7 +349,7 @@ describe("About page, updates / help / feedback sections", () => {
 		// Python invariant (test_about_page_has_feedback_links):
 		//   "Report a Bug" in src OR "Report an Issue" in src
 		//   OR "Report a Bug" in en OR "Report an Issue" in en
-		//   "github.com/AbdallahIsDev/voice-typer/issues" in src
+		//   "github.com/AbdallahIsDev/lausu/issues" in src
 		// Behavioral: an anchor with visible text matching
 		// /Report a (Bug|Issue)/ points at the GitHub issues URL.
 		const { ResourcesSettingsSection } = await import(
@@ -373,7 +369,7 @@ describe("About page, updates / help / feedback sections", () => {
 			name: /report a (bug|issue)/i,
 		});
 		const href = feedbackLink.getAttribute("href") ?? "";
-		expect(href).toContain("github.com/AbdallahIsDev/voice-typer/issues");
+		expect(href).toContain("github.com/AbdallahIsDev/lausu/issues");
 	});
 });
 
@@ -398,7 +394,7 @@ describe("Settings page, Troubleshooting section", () => {
 	 *  section page so the Troubleshooting + Diagnostics sections are
 	 *  mounted. */
 	async function renderSettingsOnAdvancedPage(
-		overrides: Partial<VoiceTyperConfig> = {},
+		overrides: Partial<LausuConfig> = {},
 	): Promise<void> {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(makeConfig(overrides));
@@ -636,29 +632,29 @@ describe("About & Settings, voice biometric consent disclosure", () => {
 	});
 });
 
-// Group 4: TestVoiceTyperConfigTypeIncludesAllFields (5 PORT tests)
+// Group 4: TestLausuConfigTypeIncludesAllFields (5 PORT tests)
 // The Python tests asserted on substring presence inside
 // `types/config.ts`. The TS type system already enforces the existence
 // of these keys at compile time, if a key is removed from the
 // interface, code that references it fails typecheck. The vitest
 // versions below add a runtime assertion that the field name is a
-// `keyof VoiceTyperConfig`, which catches the case where a field is
+// `keyof LausuConfig`, which catches the case where a field is
 // renamed but the rename isn't propagated to consumers.
 
-describe("VoiceTyperConfig type, consent flags", () => {
-	it("declares sound_feedback_enabled as a key of VoiceTyperConfig", () => {
+describe("LausuConfig type, consent flags", () => {
+	it("declares sound_feedback_enabled as a key of LausuConfig", () => {
 		// Python invariant (test_sound_feedback_enabled_in_type):
 		//   "sound_feedback_enabled" in types/config.ts source.
 		// Compile-time: the assignment below fails typecheck if
 		// "sound_feedback_enabled" is not a key of the type.
-		const key: keyof VoiceTyperConfig = "sound_feedback_enabled";
+		const key: keyof LausuConfig = "sound_feedback_enabled";
 		expect(key).toBe("sound_feedback_enabled");
 	});
 
-	it("declares huggingface_consent as a key of VoiceTyperConfig", () => {
+	it("declares huggingface_consent as a key of LausuConfig", () => {
 		// Python invariant (test_huggingface_consent_in_type):
 		//   "huggingface_consent" in types/config.ts source.
-		const key: keyof VoiceTyperConfig = "huggingface_consent";
+		const key: keyof LausuConfig = "huggingface_consent";
 		expect(key).toBe("huggingface_consent");
 	});
 
@@ -667,9 +663,9 @@ describe("VoiceTyperConfig type, consent flags", () => {
 		//   "cloud_openai_consent" in source
 		//   "cloud_groq_consent" in source
 		//   "cloud_deepgram_consent" in source
-		const openai: keyof VoiceTyperConfig = "cloud_openai_consent";
-		const groq: keyof VoiceTyperConfig = "cloud_groq_consent";
-		const deepgram: keyof VoiceTyperConfig = "cloud_deepgram_consent";
+		const openai: keyof LausuConfig = "cloud_openai_consent";
+		const groq: keyof LausuConfig = "cloud_groq_consent";
+		const deepgram: keyof LausuConfig = "cloud_deepgram_consent";
 		expect([openai, groq, deepgram]).toEqual([
 			"cloud_openai_consent",
 			"cloud_groq_consent",
@@ -677,18 +673,26 @@ describe("VoiceTyperConfig type, consent flags", () => {
 		]);
 	});
 
-	it("declares voice_biometric_consent as a key of VoiceTyperConfig", () => {
+	it("declares voice_biometric_consent as a key of LausuConfig", () => {
 		// Python invariant (test_voice_biometric_consent_in_type):
 		//   "voice_biometric_consent" in source.
-		const key: keyof VoiceTyperConfig = "voice_biometric_consent";
+		const key: keyof LausuConfig = "voice_biometric_consent";
 		expect(key).toBe("voice_biometric_consent");
 	});
 
-	it("declares llm_polish_consent as a key of VoiceTyperConfig", () => {
+	it("declares llm_polish_consent as a key of LausuConfig", () => {
 		// Python invariant (test_llm_polish_consent_in_type):
 		//   "llm_polish_consent" in source.
-		const key: keyof VoiceTyperConfig = "llm_polish_consent";
+		const key: keyof LausuConfig = "llm_polish_consent";
 		expect(key).toBe("llm_polish_consent");
+	});
+
+	it("declares media_url_consent as a key of LausuConfig", () => {
+		// ADR-0023: mirrored in the consent-gate registry
+		// (`lib/consentGate.ts` CONSENT_FIELD_NAMES) and in the
+		// server Config (tests/test_consent_and_privacy.py).
+		const key: keyof LausuConfig = "media_url_consent";
+		expect(key).toBe("media_url_consent");
 	});
 });
 
@@ -721,7 +725,7 @@ describe("Models page, cloud consent toggles", () => {
 	 *  `switchToCloudTab` is true (the default) we click that tab
 	 *  before returning. */
 	async function renderModels(
-		config: Partial<VoiceTyperConfig>,
+		config: Partial<LausuConfig>,
 		options: { switchToCloudTab?: boolean } = {},
 	): Promise<void> {
 		const { switchToCloudTab = true } = options;

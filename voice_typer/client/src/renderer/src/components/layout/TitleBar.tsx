@@ -14,7 +14,7 @@ import {
 	type ResolvedLinuxWindowButtons,
 	resolveLinuxWindowButtons,
 } from "@/lib/utils/windowButtons";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { Page, WindowBridge } from "@/types/ipc";
 
 // Focus-aware title bar: native OS title bars DIM their whole bar
@@ -69,8 +69,8 @@ interface TitleBarProps {
 	// it is part of the bar's control language. App.tsx passes the
 	// SAME state + change handler the sidebar's ThemeSwitch used, no
 	// second theme implementation.
-	themeMode: VoiceTyperConfig["theme_mode"];
-	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
+	themeMode: LausuConfig["theme_mode"];
+	onThemeChange: (mode: LausuConfig["theme_mode"]) => void;
 	/** Linux-only: the resolved window-button layout (side, visibility,
 	 *  circle-vs-square shell). App.tsx computes it from the
 	 *  `linux_window_buttons` config + the sidecar's
@@ -194,7 +194,7 @@ function TitleBarButton({
 	//migrate from raw <button> to the shared <Button> component
 	// so the design-system contract (focus ring, cva variant tokens,
 	// active:translate-y-px) is applied uniformly. The cva default
-	// (rounded-4xl, outline-hidden, border-transparent) is overridden
+	// (rounded-lg, outline-hidden, border-transparent) is overridden
 	// via className to match the title-bar's edge-to-edge framing —
 	// no rounded corners, no visible border, fixed 8x11.5 sizing.
 	// NOTE: deliberately NOT `asChild`, the children are bare SVG icon
@@ -220,8 +220,8 @@ function TitleBarButton({
 				"border-0",
 				// Window-control glyphs are PURE WHITE in dark mode and
 				// near-black in light mode, mirroring native title bars.
-				// `text-(--text-primary)` alone is NOT enough: in dark
-				// mode --text-primary aliases --foreground, which the
+				// `text-foreground` alone is NOT enough: in dark
+				// mode --foreground aliases --foreground, which the
 				// theme presets (Nord/Dracula/Tokyo Night/...) tint
 				// off-white (L 0.90-0.92), so the glyphs rendered gray
 				// instead of white. `dark:text-white` pins the dark-mode
@@ -230,7 +230,7 @@ function TitleBarButton({
 				// applied as container opacity on the whole bar (see
 				// TitleBarInner), which dims every element uniformly and
 				// cannot clash with theme colors.
-				"text-(--text-primary) dark:text-white transition-colors duration-150",
+				"text-foreground dark:text-white transition-colors duration-150",
 				// Linux shell styles. GNOME/Ubuntu (Yaru): circular buttons
 				// with an ALWAYS-VISIBLE subtle circle background, the
 				// gray circle is the button's resting state, NOT a hover
@@ -320,12 +320,12 @@ function ToolbarButton({
 			className={cn(
 				// Toolbar buttons are h-6 (24px) inside the p-1 group wrapper —
 				// the 4px padding keeps them off the full 36px bar height.
-				"no-drag press-scale flex h-6 w-6 items-center justify-center rounded",
+				"no-drag press-scale flex h-6 w-6 items-center justify-center rounded-lg",
 				// Theme-aware hover (muted at rest, primary text + subtle wash on
 				// hover, works for custom + dark themes, unlike a physical
 				// black/white pairing).
-				"text-(--text-muted) transition-colors duration-150",
-				"hover:bg-foreground/5 hover:text-(--text-primary)",
+				"text-muted-foreground transition-colors duration-150",
+				"hover:bg-foreground/5 hover:text-foreground",
 				disabled !== undefined &&
 					"disabled:opacity-30 disabled:cursor-not-allowed",
 				focusRing,
@@ -632,8 +632,8 @@ function TitleBarInner({
 					themeMode={themeMode}
 					onThemeChange={onThemeChange}
 					className={cn(
-						"no-drag press-scale h-6 w-6 rounded",
-						"text-(--text-muted) hover:text-(--text-primary)",
+						"no-drag press-scale h-6 w-6 rounded-lg",
+						"text-muted-foreground hover:text-foreground",
 					)}
 				/>
 			</div>

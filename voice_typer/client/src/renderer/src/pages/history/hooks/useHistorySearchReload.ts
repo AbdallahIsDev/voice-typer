@@ -9,6 +9,8 @@
 // refresh timer; each timer now lives with the hook that schedules it).
 
 import { useEffect, useRef } from "react";
+import { useDebouncedCallback } from "@/hooks/useDebounce";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 export interface UseHistorySearchReloadOptions {
 	/** The active global-search query (from the useGlobalSearch store). */
@@ -24,7 +26,15 @@ export function useHistorySearchReload({
 	favoritesOnly,
 	runLoad,
 }: UseHistorySearchReloadOptions): void {
-	const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Shared debounce; latest query wins, unmount auto-cancels so
+	// load() never fires on an unmounted component.
+	const runLoadRef = useLatestRef(runLoad);
+	const { debounced, cancel } = useDebouncedCallback(
+		(query: string, fav: boolean) => {
+			void runLoadRef.current(query, fav);
+		},
+		200,
+	);
 	// Guards the debounced-load effect so the initial mount load
 	// (handled by the separate mount effect) is not re-fired when the
 	// global query starts at "", only query CHANGES trigger a reload.
@@ -34,31 +44,23 @@ export function useHistorySearchReload({
 	// lives in the title bar's global search bar; when it changes this
 	// effect schedules a 200ms-delayed runLoad with the new query. The
 	// first-render guard keeps the mount load from double-firing.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runLoad is read via runLoadRef (latest wins) but listed so identity churn retriggers exactly like the previous inline timer
 	useEffect(() => {
 		if (isFirstRenderRef.current) {
 			isFirstRenderRef.current = false;
 			return;
 		}
-		if (searchTimer.current) clearTimeout(searchTimer.current);
-		searchTimer.current = setTimeout(() => {
-			runLoad(searchQuery, favoritesOnly);
-		}, 200);
+		debounced(searchQuery, favoritesOnly);
 		return () => {
-			if (searchTimer.current) {
-				clearTimeout(searchTimer.current);
-				searchTimer.current = null;
-			}
+			cancel();
 		};
-	}, [searchQuery, runLoad, favoritesOnly]);
+	}, [searchQuery, runLoad, favoritesOnly, debounced, cancel]);
 
 	// Clean up a pending search timer on unmount so load() never fires
 	// on an unmounted component.
 	useEffect(() => {
 		return () => {
-			if (searchTimer.current) {
-				clearTimeout(searchTimer.current);
-				searchTimer.current = null;
-			}
+			cancel();
 		};
-	}, []);
+	}, [cancel]);
 }

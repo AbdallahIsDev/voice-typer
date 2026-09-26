@@ -31,10 +31,10 @@ import {
 	formatModelDisplayName,
 	getProviderLabel,
 } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 export interface CloudProvidersPanelProps {
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	cloudProviders: readonly CloudProvider[];
 	apiKeys: Record<string, string>;
 	testResults: Record<string, ApiTestResult>;
@@ -82,7 +82,7 @@ export const CloudProvidersPanel = memo(function CloudProvidersPanel({
 
 	return (
 		<div className="flex flex-col gap-4">
-			<p className="text-sm text-(--text-muted)">
+			<p className="text-sm text-muted-foreground">
 				{t("models.cloudModelsDescription")}
 			</p>
 			<ModelGroupAccordion type="multiple">
@@ -178,7 +178,7 @@ export const CloudProvidersPanel = memo(function CloudProvidersPanel({
 
 interface ProviderConfigFormProps {
 	provider: CloudProvider;
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	apiKeyValue: string;
 	testResult?: ApiTestResult;
 	onApiKeyChange: (value: string) => void;
@@ -219,12 +219,12 @@ function ProviderConfigForm({
 	const saveDisabled = !apiKeyValue.trim();
 
 	return (
-		<div className="flex flex-col gap-4 rounded-lg border border-border/5 bg-(--bg) p-4">
+		<div className="flex flex-col gap-4 rounded-lg border border-border/5 bg-surface p-4">
 			<div className="flex flex-col gap-2">
 				<div className="flex items-center gap-2">
 					<label
 						htmlFor={`api-key-input-${provider.key}`}
-						className="text-sm font-medium text-(--text-primary)"
+						className="text-sm font-medium text-foreground"
 					>
 						{t("models.cloud.apiKey")}
 					</label>
@@ -246,7 +246,7 @@ function ProviderConfigForm({
 					<button
 						type="button"
 						onClick={() => setRevealKey((v) => !v)}
-						className="absolute inset-e-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+						className="absolute inset-e-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 						aria-label={
 							revealKey
 								? t("models.cloud.apiKeyHideAria", {
@@ -272,7 +272,7 @@ function ProviderConfigForm({
                                         the per-provider text is intentionally minimal so it
                                         doesn't mislead when a provider changes their key
                                         format. */}
-				<p className="text-xs text-(--text-muted)">
+				<p className="text-xs text-muted-foreground">
 					{t("models.cloud.apiKeyFormatHint", {
 						provider: getProviderLabel(provider.key),
 					})}
@@ -332,11 +332,11 @@ function ProviderConfigForm({
 								? "text-primary"
 								: testResult.status === "failure"
 									? "text-destructive"
-									: //`text-[(--text-muted)]` is invalid Tailwind
+									: //`text-[(--muted-foreground)]` is invalid Tailwind
 										// v4 syntax. The canonical form is
-										// `text-(--text-muted)`, matches every other call
+										// `text-muted-foreground`, matches every other call
 										// site in the codebase.
-										"text-(--text-muted)",
+										"text-muted-foreground",
 						)}
 					>
 						{testResult.message}
@@ -344,20 +344,20 @@ function ProviderConfigForm({
 				)}
 			</div>
 			{showConsent && (
-				<div className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4">
+				<div className="rounded-lg border border-border/5 bg-surface-subtle p-4">
 					<div className="flex items-start justify-between gap-4">
 						<div className="flex flex-1 flex-col gap-2">
 							<div className="flex flex-col gap-1">
-								<h4 className="text-sm font-semibold text-(--text-primary)">
+								<h4 className="text-sm font-semibold text-foreground">
 									{t("models.cloud.consentTitle")}
 								</h4>
-								<p className="text-xs leading-relaxed text-(--text-muted)">
+								<p className="text-xs leading-relaxed text-muted-foreground">
 									{t("models.cloud.consentDescription", {
 										provider: getProviderLabel(provider.key),
 									})}
 								</p>
 							</div>
-							<p className="text-xs text-(--text-muted)">
+							<p className="text-xs text-muted-foreground">
 								{t("models.cloud.statusLabel")}{" "}
 								{consentGranted ? (
 									<span className="font-medium text-success">

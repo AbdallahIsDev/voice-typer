@@ -111,7 +111,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// `exportTemplates`.
 		exportConfig: makeExportCommand(tauri, "export_config"),
 
-		// open the Voice Typer log directory in the OS
+		// open the Lausu log directory in the OS
 		// file manager. Invokes the Rust `open_logs` command which
 		// shells out to `explorer.exe` / `open` / `xdg-open`. The
 		// renderer call site (Settings.tsx viewLogs button) is
@@ -332,6 +332,28 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 					error: e instanceof Error ? e.message : String(e),
 				};
 			}
+		},
+
+		// ADR-0023 media page: native drag-drop delivers ABSOLUTE file
+		// paths (the web platform hides them). Tauri v2 emits
+		// `drag-drop` events on the current webview; only `drop`
+		// payloads carrying `paths` are forwarded. No host command is
+		// needed, the event API is part of the core runtime.
+		onDragDropFiles: (callback: (paths: string[]) => void) => {
+			const webview = tauri.webview?.getCurrentWebview?.();
+			if (!webview?.onDragDropEvent) return () => {};
+			return makeListener<string[]>(
+				(handler) =>
+					webview.onDragDropEvent((event) => {
+						if (
+							event?.payload?.type === "drop" &&
+							Array.isArray(event.payload.paths)
+						) {
+							handler(event.payload.paths);
+						}
+					}),
+				callback,
+			);
 		},
 	};
 }

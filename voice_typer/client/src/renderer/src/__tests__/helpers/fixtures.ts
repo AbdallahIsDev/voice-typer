@@ -2,7 +2,7 @@
  * , shared test fixtures for the renderer vitest suite.
  *
  * Before this file existed, ~6 test files each declared their own
- * `baseConfig: VoiceTyperConfig = { ... 100+ fields ... }` constant
+ * `baseConfig: LausuConfig = { ... 100+ fields ... }` constant
  * (see `__tests__/behavior-rewrite/feature-hardening-behavior.test.tsx`,
  * `pages/__tests__/Settings.test.tsx`, etc.). When a new config field
  * was added upstream, every copy went stale until a test failed for an
@@ -20,10 +20,10 @@
  * side effects on import (no `vi.mock`, no `window.*` mutation). Those
  * concerns live in `mocks.ts` and the per-test setup hooks.
  */
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 /**
- * The canonical default `VoiceTyperConfig` used by every renderer test.
+ * The canonical default `LausuConfig` used by every renderer test.
  *
  * Parity contract:
  *   - `schema_version` and `llm_preset` MUST mirror the Python `Config`
@@ -51,7 +51,7 @@ import type { VoiceTyperConfig } from "@/types/config";
  *     test-determinism override, fix it here ONCE rather than across
  *     N test files.
  */
-export const DEFAULT_CONFIG: VoiceTyperConfig = {
+export const DEFAULT_CONFIG: LausuConfig = {
 	schema_version: 3,
 	hotkey: "F2",
 	sample_rate: 16000,
@@ -196,6 +196,7 @@ export const DEFAULT_CONFIG: VoiceTyperConfig = {
 	cloud_deepgram_consent: false,
 	voice_biometric_consent: false,
 	llm_polish_consent: false,
+	media_url_consent: false,
 
 	sound_feedback_enabled: false,
 
@@ -210,7 +211,7 @@ export const DEFAULT_CONFIG: VoiceTyperConfig = {
 };
 
 /**
- * Build a complete `VoiceTyperConfig` for tests, overriding only the
+ * Build a complete `LausuConfig` for tests, overriding only the
  * fields the test cares about.
  *
  *   const cfg = makeConfig({ bubble_position: "bottom", hotkey: "F4" });
@@ -221,8 +222,6 @@ export const DEFAULT_CONFIG: VoiceTyperConfig = {
  * the Python dataclass default); tests that need a populated custom
  * theme should pass the whole object via the override.
  */
-export function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+export function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return { ...DEFAULT_CONFIG, ...overrides };
 }

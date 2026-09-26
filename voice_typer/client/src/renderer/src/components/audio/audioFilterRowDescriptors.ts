@@ -23,7 +23,7 @@
 // registry is automatically picked up by the section's search
 // visibility check.
 
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 export const AUDIO_SECTION_TITLE_KEY = "settings.audioEnhancement.title";
 
@@ -42,7 +42,7 @@ export interface AudioFilterRowDescriptor {
 	infoSearchKey: string;
 	/** i18n key for the section title (used in the search visibility predicate). */
 	sectionTitleKey: string;
-	configKey: keyof VoiceTyperConfig;
+	configKey: keyof LausuConfig;
 	/** Render kind: toggle (Switch), slider (RangeSlider), or select (Select). */
 	kind: "toggle" | "slider" | "select";
 	/** i18n key for the `SettingRow`'s info tooltip (the `t("...Info")` call). */
@@ -58,7 +58,7 @@ export interface AudioFilterRowDescriptor {
 	step?: number;
 	/** Slider-only: unit suffix (e.g. `"Hz"`, `"dB"`, `"ms"`, `":1"`). */
 	suffix?: string;
-	parentToggle?: keyof VoiceTyperConfig;
+	parentToggle?: keyof LausuConfig;
 	/** Select-only: option list. */
 	options?: readonly AudioFilterSelectOption[];
 }

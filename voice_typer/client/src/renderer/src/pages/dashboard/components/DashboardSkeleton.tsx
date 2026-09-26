@@ -32,7 +32,7 @@ const SETUP_IDS = ["dash-setup-0", "dash-setup-1", "dash-setup-2"];
 
 function StatCardSkeleton() {
 	return (
-		<div className="flex min-h-24 flex-col gap-2 rounded-xl border border-border/5 bg-(--bg-subtle) p-3">
+		<div className="flex min-h-24 flex-col gap-2 rounded-lg border border-border/5 bg-surface-subtle p-3">
 			<div className="flex min-w-0 items-center gap-2">
 				<Skeleton className="h-5 w-5 shrink-0" />
 				<Skeleton className="h-4 w-16" />
@@ -46,7 +46,7 @@ function StatCardSkeleton() {
 function QuickInfoCardSkeleton({ compact = false }: { compact?: boolean }) {
 	return (
 		<div
-			className={`flex items-stretch gap-3 rounded-xl border border-border/5 bg-(--bg-subtle) ${compact ? "p-3" : "p-4"}`}
+			className={`flex items-stretch gap-3 rounded-lg border border-border/5 bg-surface-subtle ${compact ? "p-3" : "p-4"}`}
 		>
 			<Skeleton className="h-5 w-5 shrink-0" />
 			<div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -66,7 +66,7 @@ export function DashboardSkeleton() {
 		>
 			<HeadingSkeleton />
 			<div className="flex flex-wrap items-center justify-between gap-3 pb-2">
-				<div className="flex gap-1 rounded-full border border-border/5 bg-(--bg-subtle) p-1">
+				<div className="flex gap-1 rounded-full border border-border/5 bg-surface-subtle p-1">
 					{STAT_IDS.map((id) => (
 						<Skeleton key={id} className="h-7 w-16 rounded-full" />
 					))}
@@ -78,7 +78,7 @@ export function DashboardSkeleton() {
 					<StatCardSkeleton key={id} />
 				))}
 			</div>
-			<div className="flex flex-col gap-4 rounded-xl border border-border/5 bg-(--bg-subtle) p-4">
+			<div className="flex flex-col gap-4 rounded-lg border border-border/5 bg-surface-subtle p-4">
 				<div className="flex items-center gap-2.5">
 					<Skeleton className="h-8 w-8 rounded-lg" />
 					<div className="flex min-w-0 flex-col gap-1">

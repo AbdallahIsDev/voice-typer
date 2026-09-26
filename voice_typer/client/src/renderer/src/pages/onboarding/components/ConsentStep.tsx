@@ -82,15 +82,15 @@ export default function ConsentStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.consentTitle")}
 			</h2>
-			<p className="text-sm text-(--text-muted)">
+			<p className="text-sm text-muted-foreground">
 				{t("onboarding.consentDescription")}
 			</p>
 
 			{/* Agree-to-All banner — grants every consent at once. The
 			    wizard defaults stay privacy-first (all off); this is a
 			    convenience, not an implicit grant. */}
-			<div className="flex items-center justify-between gap-3 rounded-lg border border-border/5 bg-(--bg-subtle) px-3.5 py-3">
-				<p className="text-xs text-(--text-muted)">
+			<div className="flex items-center justify-between gap-3 rounded-lg border border-border/5 bg-surface-subtle px-3.5 py-3">
+				<p className="text-xs text-muted-foreground">
 					{t("settings.privacy.privacyDescription")}
 				</p>
 				<Button
@@ -118,7 +118,7 @@ export default function ConsentStep({
 							data-testid={`onboarding-consent-row-${field}`}
 						>
 							<div className="flex min-w-0 flex-1 items-center gap-1.5">
-								<span className="truncate text-sm font-medium text-(--text-primary)">
+								<span className="truncate text-sm font-medium text-foreground">
 									{label}
 								</span>
 								<InfoTooltip text={t(infoKey)} contextLabel={label} />

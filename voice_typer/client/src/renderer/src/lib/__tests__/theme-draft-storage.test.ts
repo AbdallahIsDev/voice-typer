@@ -8,12 +8,12 @@ import type { CustomThemeData } from "@/themes";
 
 const VALID_DRAFT: CustomThemeData = {
 	light: {
-		"--bg": "#ffffff",
+		"--background": "#ffffff",
 		"--text": "#000000",
 		"--accent": "#3b82f6",
 	},
 	dark: {
-		"--bg": "#000000",
+		"--background": "#000000",
 		"--text": "#ffffff",
 		"--accent": "#60a5fa",
 	},
@@ -31,7 +31,7 @@ describe("theme-draft-storage, round-trip save/load", () => {
 		expect(loaded).not.toBeNull();
 		expect(loaded).toEqual(VALID_DRAFT);
 		// Deep equality on the nested structures.
-		expect(loaded?.light["--bg"]).toBe("#ffffff");
+		expect(loaded?.light["--background"]).toBe("#ffffff");
 		expect(loaded?.dark["--accent"]).toBe("#60a5fa");
 	});
 
@@ -77,9 +77,9 @@ describe("theme-draft-storage, round-trip save/load", () => {
 		// it is deliberately permissive about unknown extra fields so a
 		// NEWER draft loaded by an OLDER build still recovers its colors.
 		const futureDraft = {
-			light: { "--bg": "#ffffff" },
-			dark: { "--bg": "#000000" },
-			medium: { "--bg": "#cccccc" }, // extra field
+			light: { "--background": "#ffffff" },
+			dark: { "--background": "#000000" },
+			medium: { "--background": "#cccccc" }, // extra field
 		};
 		localStorage.setItem("vt_custom_theme_draft", JSON.stringify(futureDraft));
 
@@ -87,10 +87,10 @@ describe("theme-draft-storage, round-trip save/load", () => {
 
 		// The extra field is preserved verbatim (no stripping).
 		expect(loaded).not.toBeNull();
-		expect(loaded?.light["--bg"]).toBe("#ffffff");
-		expect(loaded?.dark["--bg"]).toBe("#000000");
+		expect(loaded?.light["--background"]).toBe("#ffffff");
+		expect(loaded?.dark["--background"]).toBe("#000000");
 		expect((loaded as unknown as Record<string, unknown>).medium).toEqual({
-			"--bg": "#cccccc",
+			"--background": "#cccccc",
 		});
 	});
 
@@ -98,14 +98,14 @@ describe("theme-draft-storage, round-trip save/load", () => {
 		// Simulate an older draft that only has `light` (no `dark`). The
 		// shape guard rejects it: consumers index `dark` directly, so a
 		// half-shaped draft would crash them. "No value" is null (E8).
-		const legacyDraft = { light: { "--bg": "#ffffff" } };
+		const legacyDraft = { light: { "--background": "#ffffff" } };
 		localStorage.setItem("vt_custom_theme_draft", JSON.stringify(legacyDraft));
 
 		expect(loadDraftFromLS()).toBeNull();
 	});
 
 	it("loadDraftFromLS returns null when the draft is missing `light`", () => {
-		const legacyDraft = { dark: { "--bg": "#000000" } };
+		const legacyDraft = { dark: { "--background": "#000000" } };
 		localStorage.setItem("vt_custom_theme_draft", JSON.stringify(legacyDraft));
 
 		expect(loadDraftFromLS()).toBeNull();
@@ -180,14 +180,14 @@ describe("theme-draft-storage, round-trip save/load", () => {
 	it("saveDraftToLS overwrites a prior draft (latest-wins)", () => {
 		saveDraftToLS(VALID_DRAFT);
 		const next: CustomThemeData = {
-			light: { "--bg": "#f0f0f0" },
-			dark: { "--bg": "#101010" },
+			light: { "--background": "#f0f0f0" },
+			dark: { "--background": "#101010" },
 		};
 		saveDraftToLS(next);
 
 		const loaded = loadDraftFromLS();
 		expect(loaded).toEqual(next);
-		expect(loaded?.light["--bg"]).toBe("#f0f0f0");
+		expect(loaded?.light["--background"]).toBe("#f0f0f0");
 	});
 });
 

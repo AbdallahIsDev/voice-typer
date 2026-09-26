@@ -22,7 +22,7 @@ vi.mock("@/lib/ipcCache", () => ({
 	writeIpcCache: vi.fn(),
 }));
 
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { HistoryRecord, ModelStatusMap } from "@/types/ipc";
 import type { CorrectionUsageSnapshot } from "../../lib/streaks";
 import {
@@ -59,12 +59,12 @@ function makeRow(
 	};
 }
 
-function makeConfig(): VoiceTyperConfig {
+function makeConfig(): LausuConfig {
 	return {
 		model_size: "tiny",
 		device: "cpu",
 		language: "en",
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 function localTodayKey(): string {

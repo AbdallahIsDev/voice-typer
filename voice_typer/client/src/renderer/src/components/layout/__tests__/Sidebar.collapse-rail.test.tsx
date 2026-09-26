@@ -50,6 +50,7 @@ const NAV_LABELS = [
 	"Analytics",
 	"Templates",
 	"Vocabulary",
+	"Media",
 	"Models",
 	"Microphone",
 	"Settings",
@@ -91,7 +92,7 @@ describe("Sidebar, collapse rail geometry & transition model", () => {
 					"aside button[data-nav-item='true']",
 				),
 			);
-			expect(buttons.length).toBe(9);
+			expect(buttons.length).toBe(10);
 			for (const btn of buttons) {
 				// The single anchored icon column: identical start padding
 				// in both states (container p-2 + button px-2 = 16px from
@@ -123,8 +124,8 @@ describe("Sidebar, collapse rail geometry & transition model", () => {
 			).filter((s) =>
 				s.className.includes("transition-[max-width,opacity,translate,filter]"),
 			);
-		// 9 nav items, every leaf + the Settings parent.
-		expect(labelSpans().length).toBe(9);
+		// 10 nav items, every leaf + the Settings parent.
+		expect(labelSpans().length).toBe(10);
 		for (const span of labelSpans()) {
 			expect(span.className).toContain("opacity-100");
 			expect(span.className).toContain("blur-[0px]");
@@ -273,7 +274,7 @@ describe("Sidebar, collapse rail geometry & transition model", () => {
 		expect(kbdTexts).toContain(",");
 	});
 
-	it("rapid collapse/expand toggling keeps all 9 nav buttons mounted with classes flipping cleanly", () => {
+	it("rapid collapse/expand toggling keeps all 10 nav buttons mounted with classes flipping cleanly", () => {
 		const { rerender } = renderWithProviders(<Sidebar {...baseProps} />);
 		const countButtons = () =>
 			document.querySelectorAll<HTMLButtonElement>(
@@ -285,13 +286,13 @@ describe("Sidebar, collapse rail geometry & transition model", () => {
 					<Sidebar {...baseProps} collapsed />
 				</TooltipProvider>,
 			);
-			expect(countButtons()).toBe(9);
+			expect(countButtons()).toBe(10);
 			rerender(
 				<TooltipProvider delayDuration={200} skipDelayDuration={500}>
 					<Sidebar {...baseProps} />
 				</TooltipProvider>,
 			);
-			expect(countButtons()).toBe(9);
+			expect(countButtons()).toBe(10);
 		}
 		// After the toggle storm the expanded tree is intact: labels,
 		// active state, and the Settings submenu contract all survive.

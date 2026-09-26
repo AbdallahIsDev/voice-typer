@@ -133,26 +133,24 @@ describe("bubble mid-flow modes (blocked / cancelling / permission_revoked / pas
 
 		// blocked
 		setBubbleState("blocked");
-		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer blocked indicator",
-		);
+		expect(output?.getAttribute("aria-label")).toBe("Lausu blocked indicator");
 
 		// cancelling
 		setBubbleState("cancelling");
 		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer cancelling indicator",
+			"Lausu cancelling indicator",
 		);
 
 		// permission_revoked
 		setBubbleState("permission_revoked");
 		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer microphone permission revoked indicator",
+			"Lausu microphone permission revoked indicator",
 		);
 
 		// paste_failed
 		setBubbleState("paste_failed");
 		expect(output?.getAttribute("aria-label")).toBe(
-			"Voice Typer paste failed indicator",
+			"Lausu paste failed indicator",
 		);
 	});
 

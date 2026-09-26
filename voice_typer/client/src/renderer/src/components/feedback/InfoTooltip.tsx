@@ -94,7 +94,7 @@ export function InfoTooltip({
 		/>
 	);
 	const triggerClassName = cn(
-		"inline-flex size-4 items-center justify-center rounded-full text-(--text-muted) shrink-0 appearance-none border-0 bg-transparent p-0 cursor-help",
+		"inline-flex size-4 items-center justify-center rounded-full text-muted-foreground shrink-0 appearance-none border-0 bg-transparent p-0 cursor-help",
 		focusRing,
 	);
 	return (

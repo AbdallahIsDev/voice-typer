@@ -1,3 +1,8 @@
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import PageHeading from "@/components/common/PageHeading";
+import { EmptyState } from "@/components/feedback/EmptyState";
+import { HelpOverlay } from "@/components/help/HelpOverlay";
+import { configHotkeyLabels } from "@/components/hotkey/hotkey-format";
 import {
 	AlertCircleIcon,
 	ArrowLeft01Icon,
@@ -5,11 +10,6 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ConfirmDialog from "@/components/common/ConfirmDialog";
-import PageHeading from "@/components/common/PageHeading";
-import { EmptyState } from "@/components/feedback/EmptyState";
-import { HelpOverlay } from "@/components/help/HelpOverlay";
-import { configHotkeyLabels } from "@/components/hotkey/hotkey-format";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
 // the MicrophonePermissionBanner placement on the Microphone page.
@@ -35,13 +35,14 @@ import {
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
 import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
+import { fuzzyContains } from "@/hooks/useFuzzySearch";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
 import { useGlobalSearch } from "@/stores/useGlobalSearch";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 import { SettingsPageSkeleton } from "./settings/components/SettingsPageSkeleton";
 import { useSettingsDeepLinks } from "./settings/hooks/useSettingsDeepLinks";
@@ -55,7 +56,7 @@ function SectionBackButton({ onBack }: { onBack: () => void }) {
 			type="button"
 			data-testid="settings-back-to-hub"
 			aria-label={t("settings.hub.backToSettings")}
-			className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-(--text-muted) transition-colors duration-150 hover:bg-foreground/5 hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+			className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-muted-foreground transition-colors duration-150 hover:bg-foreground/5 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 			onClick={onBack}
 		>
 			{/* Left-pointing chevron, mirrored in RTL by the shared
@@ -195,7 +196,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 		useCallback(
 			(data): (() => void) | undefined => {
 				if (!data) return undefined;
-				mergeExternalConfig(data as Partial<VoiceTyperConfig>);
+				mergeExternalConfig(data as Partial<LausuConfig>);
 				return undefined;
 			},
 			[mergeExternalConfig],
@@ -207,8 +208,8 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	//`onThemeChange` is now obtained from the useTheme hook
 	// directly (no longer a prop from App.tsx).
 	const handleThemeChangeLocal = useCallback(
-		(mode: VoiceTyperConfig["theme_mode"]) => {
-			mergeExternalConfig({ theme_mode: mode } as Partial<VoiceTyperConfig>);
+		(mode: LausuConfig["theme_mode"]) => {
+			mergeExternalConfig({ theme_mode: mode } as Partial<LausuConfig>);
 			handleThemeChange(mode);
 		},
 		[mergeExternalConfig, handleThemeChange],
@@ -236,12 +237,10 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	const _filter_settings = useCallback(
 		(label: string, info?: string, sectionTitle?: string): boolean => {
 			if (!settingsFilter.trim()) return true;
-			const q = settingsFilter.toLowerCase();
 			return (
-				label.toLowerCase().includes(q) ||
-				info?.toLowerCase().includes(q) ||
-				sectionTitle?.toLowerCase().includes(q) ||
-				false
+				fuzzyContains(label, settingsFilter) ||
+				(info ? fuzzyContains(info, settingsFilter) : false) ||
+				(sectionTitle ? fuzzyContains(sectionTitle, settingsFilter) : false)
 			);
 		},
 		[settingsFilter],
@@ -433,9 +432,9 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 								<section
 									aria-label={t("settings.otherTabsResults")}
 									data-testid="settings-other-tabs-results"
-									className="rounded-lg border border-border/10 bg-(--bg-subtle) px-3.5 py-3"
+									className="rounded-lg border border-border/10 bg-surface-subtle px-3.5 py-3"
 								>
-									<h2 className="text-sm font-medium text-(--text-primary)">
+									<h2 className="text-sm font-medium text-foreground">
 										{t("settings.otherTabsResults")}
 									</h2>
 									<div className="flex flex-col gap-2">
@@ -444,7 +443,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 												key={group.sectionPage}
 												className="flex flex-col gap-1"
 											>
-												<p className="text-xs font-medium text-(--text-muted)">
+												<p className="text-xs font-medium text-muted-foreground">
 													{t(SECTION_TITLE_BY_PAGE[group.sectionPage])}
 												</p>
 												<div className="flex flex-wrap gap-2">
@@ -452,7 +451,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 														<button
 															key={`${group.sectionPage}-${label}`}
 															type="button"
-															className="rounded-md border border-border/10 bg-(--bg) px-2 py-1 text-xs text-(--text-primary) transition-colors hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+															className="rounded-lg border border-border/10 bg-surface px-2 py-1 text-xs text-foreground transition-colors hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 															onClick={() =>
 																navigate(group.sectionPage, {
 																	settingsScrollTarget: { rowHint: label },

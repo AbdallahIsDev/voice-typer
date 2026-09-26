@@ -8,17 +8,11 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Core
 		"--background": "oklch(0.96 0.025 75)",
 		"--foreground": "oklch(0.18 0.025 40)",
-		"--bg-subtle": "oklch(0.93 0.02 75)",
+		"--surface-subtle": "oklch(0.93 0.02 75)",
 		"--surface-hover": "oklch(0.89 0.02 75)",
-		"--surface-page": "oklch(0.96 0.025 75)",
 		// Text
-		"--text-primary": "oklch(0.18 0.025 40)",
 		"--text-secondary": "oklch(0.35 0.02 40)",
-		// Cards / popovers
-		"--card": "oklch(0.97 0.025 75)",
-		"--card-foreground": "oklch(0.18 0.025 40)",
-		"--popover": "oklch(0.97 0.025 75)",
-		"--popover-foreground": "oklch(0.18 0.025 40)",
+		"--surface": "oklch(0.97 0.025 75)",
 		// Primary / accent
 		"--primary": "oklch(0.55 0.1 50)",
 		"--primary-foreground": "oklch(0.97 0 0)",
@@ -26,9 +20,6 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.55 0.1 50 / 0.1)",
 		"--accent-muted": "oklch(0.55 0.1 50 / 0.35)",
-		// Secondary / muted
-		"--secondary": "oklch(0.9 0.02 75)",
-		"--secondary-foreground": "oklch(0.22 0.025 40)",
 		"--muted": "oklch(0.92 0.02 75)",
 		"--muted-foreground": "oklch(0.45 0.02 40)",
 		// Borders / inputs / rings
@@ -42,15 +33,6 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Destructive (added so light matches dark coverage.)
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar
-		"--sidebar": "oklch(0.94 0.02 75)",
-		"--sidebar-foreground": "oklch(0.18 0.025 40)",
-		"--sidebar-primary": "oklch(0.55 0.1 50)",
-		"--sidebar-primary-foreground": "oklch(0.97 0 0)",
-		"--sidebar-accent": "oklch(0.9 0.02 75)",
-		"--sidebar-accent-foreground": "oklch(0.22 0.025 40)",
-		"--sidebar-border": "oklch(0.85 0.02 75)",
-		"--sidebar-ring": "oklch(0.48 0.08 50)",
 		// Charts
 		"--chart-1": "oklch(0.6 0.12 50)",
 		"--chart-2": "oklch(0.55 0.1 160)",
@@ -71,17 +53,11 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Core
 		"--background": "oklch(0.14 0.02 40)",
 		"--foreground": "oklch(0.93 0.015 75)",
-		"--bg-subtle": "oklch(0.11 0.015 40)",
+		"--surface-subtle": "oklch(0.11 0.015 40)",
 		"--surface-hover": "oklch(0.18 0.02 40)",
-		"--surface-page": "oklch(0.14 0.02 40)",
 		// Text
-		"--text-primary": "oklch(0.93 0.015 75)",
 		"--text-secondary": "oklch(0.75 0.01 75)",
-		// Cards / popovers
-		"--card": "oklch(0.16 0.02 40)",
-		"--card-foreground": "oklch(0.93 0.015 75)",
-		"--popover": "oklch(0.16 0.02 40)",
-		"--popover-foreground": "oklch(0.93 0.015 75)",
+		"--surface": "oklch(0.16 0.02 40)",
 		// Primary / accent
 		"--primary": "oklch(0.6 0.1 50)",
 		"--primary-foreground": "oklch(0.1 0 0)",
@@ -92,9 +68,6 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--accent-foreground": "oklch(0.1 0 0)",
 		"--accent-soft": "oklch(0.55 0.1 50 / 0.12)",
 		"--accent-muted": "oklch(0.55 0.1 50 / 0.4)",
-		// Secondary / muted
-		"--secondary": "oklch(0.22 0.02 40)",
-		"--secondary-foreground": "oklch(0.93 0.015 75)",
 		"--muted": "oklch(0.2 0.015 40)",
 		"--muted-foreground": "oklch(0.65 0.015 40)",
 		// Borders / inputs / rings
@@ -106,15 +79,6 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Destructive (added --destructive-foreground so dark
 		"--destructive": "oklch(0.55 0.25 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar
-		"--sidebar": "oklch(0.12 0.02 40)",
-		"--sidebar-foreground": "oklch(0.93 0.015 75)",
-		"--sidebar-primary": "oklch(0.6 0.1 50)",
-		"--sidebar-primary-foreground": "oklch(0.1 0 0)",
-		"--sidebar-accent": "oklch(0.18 0.02 40)",
-		"--sidebar-accent-foreground": "oklch(0.93 0.015 75)",
-		"--sidebar-border": "oklch(0.2 0.02 40)",
-		"--sidebar-ring": "oklch(0.7 0.08 60)",
 		// Charts
 		"--chart-1": "oklch(0.65 0.12 50)",
 		"--chart-2": "oklch(0.6 0.1 160)",

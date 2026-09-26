@@ -1,4 +1,3 @@
-import { create } from "zustand";
 import {
 	LS_CUSTOM_THEME,
 	LS_TEXT_SIZE,
@@ -6,14 +5,15 @@ import {
 	LS_THEME_PRESET,
 } from "@/lib/theme-storage-keys";
 import { type CustomThemeData, THEMES } from "@/themes";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { create } from "zustand";
 
 // duplicated in ``theme-bootstrap.ts``). They now live in
 // ``lib/theme-storage-keys.ts`` (single source of truth) so the
 // bootstrap and the hook cannot drift out of sync, a one-sided key
 // one, producing a FOUC on every launch).
 
-export function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
+export function readLsThemeMode(): LausuConfig["theme_mode"] {
 	try {
 		const v = localStorage.getItem(LS_THEME_MODE);
 		if (v === "light" || v === "dark" || v === "system") return v;
@@ -25,7 +25,7 @@ export function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
 	return "system";
 }
 
-export function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
+export function readLsThemePreset(): LausuConfig["theme_preset"] {
 	try {
 		const v = localStorage.getItem(LS_THEME_PRESET);
 		//validate against the canonical ``THEMES`` list
@@ -36,7 +36,7 @@ export function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
 		// remount (FOUC). The ``THEMES.some(t => t.id === v)``
 		// check auto-stays-in-sync as presets are added.
 		if (typeof v === "string" && THEMES.some((t) => t.id === v)) {
-			return v as VoiceTyperConfig["theme_preset"];
+			return v as LausuConfig["theme_preset"];
 		}
 	} catch (e) {
 		// localStorage read failure, using default.
@@ -81,8 +81,8 @@ export function readLsTextSize(): number {
 }
 
 export interface ThemeState {
-	themeMode: VoiceTyperConfig["theme_mode"];
-	themePreset: VoiceTyperConfig["theme_preset"];
+	themeMode: LausuConfig["theme_mode"];
+	themePreset: LausuConfig["theme_preset"];
 	customTheme: CustomThemeData | null;
 	textSize: number;
 	// FLASH-FIX: tracks whether the first ``reloadThemeFromConfig``
@@ -99,8 +99,8 @@ export interface ThemeState {
 	hasInitialReloadCompleted: boolean;
 
 	// Internal setters (state-only, NO backend save).
-	setThemeModeState: (mode: VoiceTyperConfig["theme_mode"]) => void;
-	setThemePresetState: (preset: VoiceTyperConfig["theme_preset"]) => void;
+	setThemeModeState: (mode: LausuConfig["theme_mode"]) => void;
+	setThemePresetState: (preset: LausuConfig["theme_preset"]) => void;
 	setCustomThemeState: (custom: CustomThemeData | null) => void;
 	setTextSizeState: (size: number) => void;
 	setHasInitialReloadCompleted: (value: boolean) => void;

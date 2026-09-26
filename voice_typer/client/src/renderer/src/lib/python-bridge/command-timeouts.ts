@@ -58,6 +58,12 @@ const COMMAND_TIMEOUTS: Record<string, number> = {
 	// better than implicit so future contributors don't accidentally
 	// remove the entry thinking it's the default).
 	toggle_dictation: 30_000,
+	// ADR-0023: resolves the pasted URL (yt-dlp extract) synchronously
+	// before acknowledging. 115s = 5s BELOW the host's 120s
+	// `DISPATCH_TIMEOUT_SECS` budget for the same command (see
+	// `_LONG_RUNNING_COMMANDS` in `dispatch.rs`), so the renderer
+	// surfaces the command-specific timeout first (house convention).
+	media_transcribe_start: 115_000,
 };
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;

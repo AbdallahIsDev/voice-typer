@@ -109,7 +109,7 @@ export function SearchField({
 				// decorative, the input's aria-label
 				// provides the accessible name.
 				aria-hidden="true"
-				className="absolute inset-s-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none"
+				className="absolute inset-s-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
 			/>
 			{/* Pointer-vs-keyboard focus modality lives in the shared
 			    Input primitive (components/ui/input.tsx), SearchField
@@ -126,7 +126,7 @@ export function SearchField({
 				// a bare `border-border` would override the Input's
 				// transparent border with a full-opacity line.
 				className={cn(
-					"ps-9 pe-9 rounded-xl bg-(--bg-subtle) border-border/5",
+					"ps-9 pe-9 rounded-lg bg-surface-subtle border-border/5",
 					className,
 				)}
 			/>
@@ -135,7 +135,7 @@ export function SearchField({
 					type="button"
 					onClick={handleClear}
 					aria-label={t("a11y.clearSearch")}
-					className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+					className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 				>
 					<HugeiconsIcon
 						icon={Cancel01Icon}

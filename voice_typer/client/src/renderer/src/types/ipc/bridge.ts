@@ -46,6 +46,10 @@ export interface WindowBridge {
 		data: unknown,
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
 	openLogs?: () => Promise<{ success: boolean; error?: string }>;
+	/** ADR-0023 media page: subscribe to native file-drop events, the
+	 *  callback receives the dropped files' ABSOLUTE paths. Returns an
+	 *  unsubscribe function (no-op when the webview API is unavailable). */
+	onDragDropFiles?: (callback: (paths: string[]) => void) => () => void;
 	//forward a renderer-caught error (e.g. from React's
 	// `componentDidCatch`) to the host for persistence in the host file
 	// log. The sandboxed renderer can't write to userData directly.

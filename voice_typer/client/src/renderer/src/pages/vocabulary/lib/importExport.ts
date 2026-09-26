@@ -12,6 +12,8 @@
 // rows so the caller can surface a toast.error with the parse failure
 // reason.
 
+import Papa from "papaparse";
+
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 
 import { CATEGORIES, detectCategory } from "./categories";
@@ -59,39 +61,32 @@ function parseJsonVocabulary(text: string): VocabularyEntry[] {
 	throw new Error("File does not contain a vocabulary array or data object");
 }
 
-// Parse a CSV vocabulary export. Mirrors the export side's
-// ``csvEscape`` (RFC 4180): cells containing a comma, double-quote, or
-// newline are wrapped in double-quotes with any embedded double-quote
-// doubled (``"`` → ``""``). The header row ``original,correction`` (or
-// ``original,correction,category``) is optional, if present, it is
-// skipped. Lines with fewer than 2 fields are skipped. A line with
-// exactly 2 fields auto-detects its category via ``detectCategory``;
-// a line with 3+ fields uses the third as the category (falling back
-// to auto-detect if the value isn't a known backend category).
-// Throws if zero valid rows are produced so the caller surfaces a
-// toast.error instead of silently importing nothing.
+// Parse a CSV vocabulary export via the shared CSV parser (RFC 4180
+// quoting, CRLF + quoted-newline rows). The header row
+// ``original,correction[,category]`` is optional and skipped on the
+// same case-insensitive first-cell rule as before. Rows with fewer
+// than 2 fields or two empty cells are skipped. A 2-field row
+// auto-detects its category; a 3+-field row uses the third cell when
+// it names a known backend category. Throws on zero valid rows so the
+// caller surfaces a toast instead of silently importing nothing.
 function parseCsvVocabulary(text: string): VocabularyEntry[] {
-	const rows: VocabularyEntry[] = [];
-	const lines = splitCsvLines(text);
+	const parsed = Papa.parse<string[]>(text, {
+		delimiter: ",",
+		header: false,
+		skipEmptyLines: true,
+	});
+	const data = (parsed.data ?? []).filter(
+		(row): row is string[] => Array.isArray(row),
+	);
 	let startIdx = 0;
-	// Optional header detection, if the first non-empty line's first
-	// cell is literally ``original`` (case-insensitive), skip it.
-	const firstLine = lines[0];
-	if (firstLine !== undefined) {
-		const firstCells = parseCsvLine(firstLine);
-		const firstCell = firstCells[0];
-		if (
-			firstCell !== undefined &&
-			firstCell.trim().toLowerCase() === "original"
-		) {
-			startIdx = 1;
-		}
+	const firstCell = data[0]?.[0];
+	if (firstCell !== undefined && firstCell.trim().toLowerCase() === "original") {
+		startIdx = 1;
 	}
-	for (let i = startIdx; i < lines.length; i++) {
-		const line = lines[i];
-		if (line === undefined) continue;
-		const cells = parseCsvLine(line);
-		if (cells.length < 2) continue;
+	const rows: VocabularyEntry[] = [];
+	for (let i = startIdx; i < data.length; i++) {
+		const cells = data[i];
+		if (cells === undefined || cells.length < 2) continue;
 		const original = cells[0] ?? "";
 		const correction = cells[1] ?? "";
 		if (!original && !correction) continue;
@@ -107,66 +102,4 @@ function parseCsvVocabulary(text: string): VocabularyEntry[] {
 		throw new Error("File does not contain a vocabulary array or data object");
 	}
 	return rows;
-}
-
-// Split the CSV text into logical lines, honouring quoted newlines.
-// A newline inside a double-quoted field does NOT terminate the row.
-function splitCsvLines(text: string): string[] {
-	const lines: string[] = [];
-	let current = "";
-	let inQuotes = false;
-	for (let i = 0; i < text.length; i++) {
-		const ch = text[i];
-		if (ch === '"') {
-			// Doubled double-quote inside a quoted field → literal quote,
-			// stay inQuotes. Otherwise toggle the in-quotes state.
-			if (inQuotes && text[i + 1] === '"') {
-				current += '""';
-				i++;
-				continue;
-			}
-			inQuotes = !inQuotes;
-			current += ch;
-			continue;
-		}
-		if ((ch === "\n" || ch === "\r") && !inQuotes) {
-			// Coalesce CRLF into a single line break.
-			if (ch === "\r" && text[i + 1] === "\n") i++;
-			lines.push(current);
-			current = "";
-			continue;
-		}
-		current += ch;
-	}
-	if (current.length > 0) lines.push(current);
-	return lines.filter((l) => l.length > 0);
-}
-
-// Parse a single CSV line into cell strings, honouring RFC 4180
-// double-quoting. Strips surrounding quotes from quoted cells and
-// unescapes doubled double-quotes (``""`` → ``"``).
-function parseCsvLine(line: string): string[] {
-	const cells: string[] = [];
-	let current = "";
-	let inQuotes = false;
-	for (let i = 0; i < line.length; i++) {
-		const ch = line[i];
-		if (ch === '"') {
-			if (inQuotes && line[i + 1] === '"') {
-				current += '"';
-				i++;
-				continue;
-			}
-			inQuotes = !inQuotes;
-			continue;
-		}
-		if (ch === "," && !inQuotes) {
-			cells.push(current);
-			current = "";
-			continue;
-		}
-		current += ch;
-	}
-	cells.push(current);
-	return cells;
 }

@@ -1,10 +1,10 @@
-import { useCallback, useEffect } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useAppStore } from "@/stores/appStore";
 import type { CustomThemeData } from "@/themes";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { useCallback, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { applyTextScale, applyThemeToDocument } from "./theme/themeApply";
 import { clearActiveBridge, setActiveCall } from "./theme/themeBridge";
 import {
@@ -179,7 +179,7 @@ export function useTheme(
 	// on every store change so the cache stays fresh for the next
 	// mount regardless of whether the backend save completes first.
 	const handleThemeChange = useCallback(
-		async (mode: VoiceTyperConfig["theme_mode"]): Promise<void> => {
+		async (mode: LausuConfig["theme_mode"]): Promise<void> => {
 			setThemeModeState(mode);
 			scheduleThemeSave({ theme_mode: mode });
 		},
@@ -187,7 +187,7 @@ export function useTheme(
 	);
 
 	const setThemePreset = useCallback(
-		(preset: VoiceTyperConfig["theme_preset"]): void => {
+		(preset: LausuConfig["theme_preset"]): void => {
 			setThemePresetState(preset);
 			scheduleThemeSave({ theme_preset: preset });
 		},

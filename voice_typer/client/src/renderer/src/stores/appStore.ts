@@ -1,6 +1,6 @@
-import { create } from "zustand";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { RecordingState } from "@/types/ipc";
+import { create } from "zustand";
 
 export type ConnectionStatus =
 	| "connected"
@@ -29,10 +29,10 @@ interface AppState {
 
 	// ── Config (cached snapshot) ────────────────────────────────
 	/** Cached config snapshot, updated on get_config and config_changed. */
-	config: Partial<VoiceTyperConfig> | null;
-	setConfig: (config: Partial<VoiceTyperConfig> | null) => void;
+	config: Partial<LausuConfig> | null;
+	setConfig: (config: Partial<LausuConfig> | null) => void;
 	/** Merge partial config updates (e.g. from config_changed events). */
-	mergeConfig: (updates: Partial<VoiceTyperConfig>) => void;
+	mergeConfig: (updates: Partial<LausuConfig>) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({

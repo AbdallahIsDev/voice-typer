@@ -283,12 +283,12 @@ export function SegmentedControl<T extends string>({
 				"relative inline-flex items-center",
 				variant === "default" &&
 					// SURFACE-FIX: use the standard card/surface token
-					// (bg-(--bg-subtle)) instead of bg-input/50, the input
+					// (bg-surface-subtle) instead of bg-input/50, the input
 					// wash rendered visibly different from the stat cards
 					// on the Analytics page.
 					(radius === "sm"
-						? "rounded-lg border border-border/5 bg-(--bg-subtle) p-0.5"
-						: "rounded-full border border-border/5 bg-(--bg-subtle) p-0.75"),
+						? "rounded-lg border border-border/5 bg-surface-subtle p-0.5"
+						: "rounded-full border border-border/5 bg-surface-subtle p-0.75"),
 				variant === "tabs" && "bg-transparent rounded-none p-1",
 				className,
 			)}
@@ -302,7 +302,7 @@ export function SegmentedControl<T extends string>({
 							(radius === "sm"
 								? "inset-y-0.5 rounded-lg bg-primary shadow-xs"
 								: "inset-y-0.75 rounded-full bg-primary shadow-xs"),
-						variant === "tabs" && "inset-y-1 rounded-md bg-input",
+						variant === "tabs" && "inset-y-1 rounded-lg bg-input",
 						indicatorClassName,
 					)}
 					style={{
@@ -365,8 +365,8 @@ export function SegmentedControl<T extends string>({
 								"focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden",
 								"rounded-none px-3 py-2 text-[0.8125rem] font-medium",
 								labelClassName,
-								active && "text-(--text-primary)",
-								!active && "text-(--text-muted) hover:text-(--text-primary)",
+								active && "text-foreground",
+								!active && "text-muted-foreground hover:text-foreground",
 							)}
 						>
 							{opt.icon && (
@@ -403,7 +403,7 @@ export function SegmentedControl<T extends string>({
 									: "rounded-full px-2 py-1 text-[0.6875rem] tracking-wider"),
 							labelClassName,
 							active && ["text-primary-foreground", activeClassName],
-							!active && "text-(--text-muted) hover:text-(--text-primary)",
+							!active && "text-muted-foreground hover:text-foreground",
 						)}
 					>
 						<input

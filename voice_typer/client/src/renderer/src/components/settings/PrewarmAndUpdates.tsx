@@ -25,12 +25,12 @@
 //     fast (seconds, not the 20-50 s subprocess), so the button
 //     re-fetches status once after starting instead of long-polling.
 
-import { RefreshIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useState } from "react";
 import { ExternalLink } from "@/components/common/ExternalLink";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
+import { RefreshIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useEffect, useState } from "react";
 // Reuse the byte/relative-time formatters exported by the diagnostics
 // section (they moved there with the diagnostics table in the IA split)
 // instead of duplicating them.
@@ -52,8 +52,8 @@ const APP_VERSION = pkg.version as string;
 // user explicitly clicks, which predecessor routes to the system browser
 // (or a new BrowserWindow depending on config). The C-DATA-1 rule
 // forbids automated network calls from the production code path; a
-// not Voice Typer.
-const RELEASES_URL = "https://github.com/AbdallahIsDev/voice-typer/releases";
+// not Lausu.
+const RELEASES_URL = "https://github.com/AbdallahIsDev/lausu/releases";
 
 // ADR-0009 Issue 3: shape of the ``get_prewarm_status`` IPC response.
 // Mirrors the dict returned by
@@ -92,7 +92,7 @@ function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
 					? "about.cacheCold"
 					: "about.cacheUnknown";
 	return (
-		<span className="inline-flex items-center gap-2 text-(--text-primary)">
+		<span className="inline-flex items-center gap-2 text-foreground">
 			<span className={`size-1.5 rounded-full ${colorClass}`} />
 			{t(textKey)}
 		</span>
@@ -198,7 +198,7 @@ export default function PrewarmAndUpdates({
 		} catch (err) {
 			showSnack(
 				t("about.prewarmLogOpenFailed") +
-					(err instanceof Error ? `: ${err.message}` : ""),
+				(err instanceof Error ? `: ${err.message}` : ""),
 				"error",
 			);
 		}
@@ -229,7 +229,7 @@ export default function PrewarmAndUpdates({
 			// that opening a log failed).
 			showSnack(
 				t("about.prewarmRunFailed") +
-					(err instanceof Error ? `: ${err.message}` : ""),
+				(err instanceof Error ? `: ${err.message}` : ""),
 				"error",
 			);
 		} finally {
@@ -273,108 +273,108 @@ export default function PrewarmAndUpdates({
 				t("about.cacheHealth"),
 				t("about.prewarmElapsed"),
 			].some((l) => isVisible(l, undefined, t("about.cacheTitle"))) && (
-				<SettingsSection
-					title={t("about.cacheTitle")}
-					description={t("about.cacheDescription")}
-				>
-					{isVisible(
-						t("about.prewarmStatus"),
-						undefined,
-						t("about.cacheTitle"),
-					) && (
-						<ReadonlyRow
-							label={t("about.prewarmStatus")}
-							value={
-								prewarmStatus ? (
-									<CacheStatusBadge label={prewarmStatus.cache_label} />
-								) : (
-									<span className="text-(--text-muted)">
-										{t("about.checking")}
-									</span>
-								)
-							}
-						/>
-					)}
-					{isVisible(t("about.lastRun"), undefined, t("about.cacheTitle")) && (
-						<ReadonlyRow
-							label={t("about.lastRun")}
-							value={
-								prewarmStatus?.last_run
-									? formatRelativeTime(prewarmStatus.last_run)
-									: prewarmStatus
-										? t("about.neverRun")
-										: t("about.checking")
-							}
-						/>
-					)}
-					{isVisible(
-						t("about.cacheHealth"),
-						undefined,
-						t("about.cacheTitle"),
-					) && (
-						<ReadonlyRow
-							label={t("about.cacheHealth")}
-							value={
-								prewarmStatus && prewarmStatus.total_bytes > 0
-									? `${Math.round(prewarmStatus.cache_ratio * 100)}% (${formatBytes(
-											prewarmStatus.cached_bytes,
-										)} / ${formatBytes(prewarmStatus.total_bytes)})`
-									: prewarmStatus
-										? `${Math.round(prewarmStatus.cache_ratio * 100)}%`
-										: t("about.checking")
-							}
-						/>
-					)}
-					{isVisible(
-						t("about.prewarmElapsed"),
-						undefined,
-						t("about.cacheTitle"),
-					) && (
-						<ReadonlyRow
-							label={t("about.prewarmElapsed")}
-							value={
-								prewarmStatus?.elapsed_s !== null &&
-								prewarmStatus?.elapsed_s !== undefined
-									? `${prewarmStatus.elapsed_s.toFixed(1)}s`
-									: prewarmStatus
-										? t("about.unknown")
-										: t("about.checking")
-							}
-						/>
-					)}
-					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border/5">
-						{/* "Run Prewarm Now" button (RESTORED 2026-08-14 §6.3
+					<SettingsSection
+						title={t("about.cacheTitle")}
+						description={t("about.cacheDescription")}
+					>
+						{isVisible(
+							t("about.prewarmStatus"),
+							undefined,
+							t("about.cacheTitle"),
+						) && (
+								<ReadonlyRow
+									label={t("about.prewarmStatus")}
+									value={
+										prewarmStatus ? (
+											<CacheStatusBadge label={prewarmStatus.cache_label} />
+										) : (
+											<span className="text-muted-foreground">
+												{t("about.checking")}
+											</span>
+										)
+									}
+								/>
+							)}
+						{isVisible(t("about.lastRun"), undefined, t("about.cacheTitle")) && (
+							<ReadonlyRow
+								label={t("about.lastRun")}
+								value={
+									prewarmStatus?.last_run
+										? formatRelativeTime(prewarmStatus.last_run)
+										: prewarmStatus
+											? t("about.neverRun")
+											: t("about.checking")
+								}
+							/>
+						)}
+						{isVisible(
+							t("about.cacheHealth"),
+							undefined,
+							t("about.cacheTitle"),
+						) && (
+								<ReadonlyRow
+									label={t("about.cacheHealth")}
+									value={
+										prewarmStatus && prewarmStatus.total_bytes > 0
+											? `${Math.round(prewarmStatus.cache_ratio * 100)}% (${formatBytes(
+												prewarmStatus.cached_bytes,
+											)} / ${formatBytes(prewarmStatus.total_bytes)})`
+											: prewarmStatus
+												? `${Math.round(prewarmStatus.cache_ratio * 100)}%`
+												: t("about.checking")
+									}
+								/>
+							)}
+						{isVisible(
+							t("about.prewarmElapsed"),
+							undefined,
+							t("about.cacheTitle"),
+						) && (
+								<ReadonlyRow
+									label={t("about.prewarmElapsed")}
+									value={
+										prewarmStatus?.elapsed_s !== null &&
+											prewarmStatus?.elapsed_s !== undefined
+											? `${prewarmStatus.elapsed_s.toFixed(1)}s`
+											: prewarmStatus
+												? t("about.unknown")
+												: t("about.checking")
+									}
+								/>
+							)}
+						<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border/5">
+							{/* "Run Prewarm Now" button (RESTORED 2026-08-14 §6.3
                                                 addendum 2nd half). Disabled while the run_prewarm IPC
                                                 is in flight; the in-process warm pass is fast, so no
                                                 long-running state. */}
-						<Button
-							variant="default"
-							size="sm"
-							onClick={handleRunPrewarm}
-							disabled={runPrewarmLoading}
-						>
-							{runPrewarmLoading
-								? t("about.cacheRunning")
-								: t("about.runPrewarmNow")}
-						</Button>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={fetchPrewarmStatus}
-							disabled={prewarmLoading}
-						>
-							{prewarmLoading
-								? t("about.checking")
-								: t("about.refreshCacheStatus")}
-						</Button>
-						{/* "View prewarm log" button. Opens the worker log
+							<Button
+								variant="default"
+								size="sm"
+								onClick={handleRunPrewarm}
+								disabled={runPrewarmLoading}
+							>
+								{runPrewarmLoading
+									? t("about.cacheRunning")
+									: t("about.runPrewarmNow")}
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={fetchPrewarmStatus}
+								disabled={prewarmLoading}
+							>
+								{prewarmLoading
+									? t("about.checking")
+									: t("about.refreshCacheStatus")}
+							</Button>
+							{/* "View prewarm log" button. Opens the worker log
                                                 (the prewarm record) in the OS default text editor. */}
-						<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
-							{t("about.viewPrewarmLog")}
-						</Button>
-					</div>
-				</SettingsSection>
-			)}
+							<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
+								{t("about.viewPrewarmLog")}
+							</Button>
+						</div>
+					</SettingsSection>
+				)}
 
 			{/* ── Updates (offline notice) ──────────────────────────── */}
 			{/* The "Check for Updates" button was removed because the
@@ -389,32 +389,32 @@ export default function PrewarmAndUpdates({
 				t("about.offlineUpdatesMessage"),
 				t("about.viewChangelog"),
 			].some((l) => isVisible(l, undefined, t("about.updatesTitle"))) && (
-				<SettingsSection
-					title={t("about.updatesTitle")}
-					description={t("about.updatesDescription")}
-				>
-					{isVisible(
-						t("about.installedVersion"),
-						undefined,
-						t("about.updatesTitle"),
-					) && (
-						<ReadonlyRow
-							label={t("about.installedVersion")}
-							value={t("about.versionValue", { version: APP_VERSION })}
-						/>
-					)}
-					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border/5">
-						{/* The "Check for Updates" button was removed because
+					<SettingsSection
+						title={t("about.updatesTitle")}
+						description={t("about.updatesDescription")}
+					>
+						{isVisible(
+							t("about.installedVersion"),
+							undefined,
+							t("about.updatesTitle"),
+						) && (
+								<ReadonlyRow
+									label={t("about.installedVersion")}
+									value={t("about.versionValue", { version: APP_VERSION })}
+								/>
+							)}
+						<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border/5">
+							{/* The "Check for Updates" button was removed because
                                                 the offline-by-default UX was preferred; if a future
                                                 iteration wants to add it back (user-initiated GitHub
                                                 API check), C-DATA-1 permits it under the auto-update
                                                 category, see docs/auto-update-feature.md. A static
                                                 offline notice now directs the user to open the
                                                 GitHub releases page in their own browser. */}
-						<p className="text-sm text-(--text-muted) me-auto">
-							{t("about.offlineUpdatesMessage")}
-						</p>
-						{/* "View Changelog", a real `<a href>` link to the
+							<p className="text-sm text-muted-foreground me-auto">
+								{t("about.offlineUpdatesMessage")}
+							</p>
+							{/* "View Changelog", a real `<a href>` link to the
                                                 GitHub releases page. This is NOT a renderer
                                                 network call: it's a user-activated OS-browser
                                                 navigation (the shared `ExternalLink`
@@ -423,20 +423,20 @@ export default function PrewarmAndUpdates({
                                                 app, while keeping the anchor semantics). C-DATA-1
                                                 forbids automated network calls; user-clicked
                                                 external links are the user's browser making the
-                                                call, not Voice Typer. */}
-						<Button asChild variant="ghost" size="sm">
-							<ExternalLink href={RELEASES_URL}>
-								<HugeiconsIcon
-									icon={RefreshIcon}
-									strokeWidth={2}
-									className="h-4 w-4"
-								/>
-								{t("about.viewChangelog")}
-							</ExternalLink>
-						</Button>
-					</div>
-				</SettingsSection>
-			)}
+                                                 call, not Lausu. */}
+							<Button asChild variant="ghost" size="sm">
+								<ExternalLink href={RELEASES_URL}>
+									<HugeiconsIcon
+										icon={RefreshIcon}
+										strokeWidth={2}
+										className="h-4 w-4"
+									/>
+									{t("about.viewChangelog")}
+								</ExternalLink>
+							</Button>
+						</div>
+					</SettingsSection>
+				)}
 		</>
 	);
 }

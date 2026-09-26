@@ -48,6 +48,8 @@ export function PageSwitch({
 				return <LAZY_PAGES.templates />;
 			case "vocabulary":
 				return <LAZY_PAGES.vocabulary />;
+			case "media":
+				return <LAZY_PAGES.media />;
 			case "models":
 				return <LAZY_PAGES.models />;
 			case "microphone":
@@ -90,10 +92,10 @@ export function PageSwitch({
 				// Both keys ship translated across all 8 locales.
 				return (
 					<div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-						<p className="text-sm font-medium text-(--text-primary)">
+						<p className="text-sm font-medium text-foreground">
 							{t("app.pageNotFoundTitle")}
 						</p>
-						<p className="text-xs text-(--text-muted)">
+						<p className="text-xs text-muted-foreground">
 							{t("app.pageNotFoundDescription", {
 								page: String(page),
 							})}

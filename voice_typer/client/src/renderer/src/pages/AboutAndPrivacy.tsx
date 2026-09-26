@@ -157,21 +157,21 @@ export default function AboutAndPrivacyPage() {
 			{/* Product identity card, compact, native-app About block.
 			    No marketing copy, no hero section: identity, capability
 			    split, version + update check. */}
-			<div className="rounded-xl border border-border/5 bg-(--bg-subtle)">
+			<div className="rounded-lg border border-border/5 bg-surface-subtle">
 				{/* Identity row: logo + name + capability summary. */}
 				<div className="flex items-center gap-3 px-4 pt-4">
 					<Logo size={40} className="shrink-0" />
 					<div className="min-w-0">
-						<h2 className="text-lg font-semibold tracking-tight text-(--text-primary)">
+						<h2 className="text-lg font-semibold tracking-tight text-foreground">
 							{APP_NAME}
 						</h2>
-						<p className="truncate text-xs text-(--text-muted)">
+						<p className="truncate text-xs text-muted-foreground">
 							{t("about.productTagline")}
 						</p>
 					</div>
 				</div>
 
-				<p className="p-4 text-sm leading-relaxed text-(--text-muted)">
+				<p className="p-4 text-sm leading-relaxed text-muted-foreground">
 					{t("about.productDesc")}
 				</p>
 
@@ -185,13 +185,13 @@ export default function AboutAndPrivacyPage() {
 								icon={Mic02Icon}
 								strokeWidth={1.75}
 								aria-hidden="true"
-								className="size-4 shrink-0 text-(--text-muted)"
+								className="size-4 shrink-0 text-muted-foreground"
 							/>
-							<p className="text-sm font-medium text-(--text-primary)">
+							<p className="text-sm font-medium text-foreground">
 								{t("about.localTitle")}
 							</p>
 						</div>
-						<p className="text-xs leading-relaxed text-(--text-muted)">
+						<p className="text-xs leading-relaxed text-muted-foreground">
 							{t("about.localDesc")}
 						</p>
 					</div>
@@ -201,13 +201,13 @@ export default function AboutAndPrivacyPage() {
 								icon={CloudIcon}
 								strokeWidth={1.75}
 								aria-hidden="true"
-								className="size-4 shrink-0 text-(--text-muted)"
+								className="size-4 shrink-0 text-muted-foreground"
 							/>
-							<p className="text-sm font-medium text-(--text-primary)">
+							<p className="text-sm font-medium text-foreground">
 								{t("about.cloudTitle")}
 							</p>
 						</div>
-						<p className="text-xs leading-relaxed text-(--text-muted)">
+						<p className="text-xs leading-relaxed text-muted-foreground">
 							{t("about.cloudDesc")}
 						</p>
 					</div>
@@ -221,10 +221,10 @@ export default function AboutAndPrivacyPage() {
 			    update check; fires ONLY on button click, never on mount). */}
 				<div className="flex flex-wrap items-center justify-between gap-4 border-t border-border/5 p-4">
 					<div className="flex items-baseline gap-2">
-						<span className="text-sm font-medium text-(--text-primary)">
+						<span className="text-sm font-medium text-foreground">
 							{t("about.version")}
 						</span>
-						<span className="text-sm text-(--text-muted)">
+						<span className="text-sm text-muted-foreground">
 							{t("about.versionValue", { version: APP_VERSION })}
 						</span>
 					</div>
@@ -247,7 +247,7 @@ export default function AboutAndPrivacyPage() {
 						className={`border-t border-border/5 px-4 py-2 text-xs ${
 							packOutcome === "failed"
 								? "text-destructive"
-								: "text-(--text-muted)"
+								: "text-muted-foreground"
 						}`}
 					>
 						{t(`about.updateOutcome.${packOutcome}`)}
@@ -258,17 +258,17 @@ export default function AboutAndPrivacyPage() {
 			{/* The privacy disclosure, five topic rows with thin dividers (the
                             section card's divide-y supplies them). Icons render
                             directly (no chip), in the standard muted icon tone. */}
-			<div className="divide-y divide-border/5 rounded-xl border border-border/5 bg-(--bg-subtle)">
+			<div className="divide-y divide-border/5 rounded-lg border border-border/5 bg-surface-subtle">
 				{PRIVACY_TOPICS.map((topic) => (
 					<div key={topic.title} className="flex gap-3 px-4 py-4">
 						<HugeiconsIcon
 							icon={topic.icon}
 							strokeWidth={1.75}
 							aria-hidden="true"
-							className="mt-0.5 size-5 shrink-0 text-(--text-muted)"
+							className="mt-0.5 size-5 shrink-0 text-muted-foreground"
 						/>
-						<div className="flex min-w-0 flex-col gap-1 text-sm leading-relaxed text-(--text-muted)">
-							<p className="font-medium text-(--text-primary)">
+						<div className="flex min-w-0 flex-col gap-1 text-sm leading-relaxed text-muted-foreground">
+							<p className="font-medium text-foreground">
 								{t(topic.title)}
 							</p>
 							{/* max-w-prose: keep paragraph line length

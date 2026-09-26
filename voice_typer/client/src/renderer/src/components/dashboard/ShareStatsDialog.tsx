@@ -77,7 +77,7 @@ const EXPORT_HEIGHT = 630;
 
 /** Project repo, the shared link for platforms whose URL schemes
  * require a link (Telegram's t.me/share/url needs the `url` param). */
-const GITHUB_REPO = "https://github.com/AbdallahIsDev/voice-typer";
+const GITHUB_REPO = "https://github.com/AbdallahIsDev/lausu";
 
 /** Social share intents. Web intents are text/URL-only, the image is
  * attached via the clipboard fallback (see header comment). */
@@ -227,7 +227,7 @@ export function ShareStatsDialog({
 					size="icon"
 					disabled={disabled}
 					aria-label={t("stats.shareImage.shareTooltip")}
-					className="text-(--text-muted) hover:text-(--text-primary)"
+					className="text-muted-foreground hover:text-foreground"
 				>
 					<HugeiconsIcon
 						icon={Share08Icon}
@@ -236,7 +236,10 @@ export function ShareStatsDialog({
 					/>
 				</Button>
 			</DialogTrigger>
-			<DialogContent size="lg" className="sm:max-w-4xl bg-(--bg) ring-border/5">
+			<DialogContent
+				size="lg"
+				className="sm:max-w-4xl bg-surface ring-border/5"
+			>
 				<DialogHeader>
 					<DialogTitle>{t("stats.shareImage.previewTitle")}</DialogTitle>
 					<DialogDescription>
@@ -257,7 +260,7 @@ export function ShareStatsDialog({
 						never stretches the dialog. */}
 					<div
 						ref={setContainerRef}
-						className="relative w-full overflow-hidden rounded-xl border border-border/5 bg-black/20"
+						className="relative w-full overflow-hidden rounded-lg border border-border/5 bg-black/20"
 						style={{
 							aspectRatio: `${EXPORT_WIDTH} / ${EXPORT_HEIGHT}`,
 						}}
@@ -279,7 +282,7 @@ export function ShareStatsDialog({
 					{/* Export + social actions, framed (rounded border +
 						padding) so the buttons read as one coherent block
 						tied to the preview, not full-bleed fragments. */}
-					<div className="flex w-full flex-col gap-2 rounded-xl border border-border/5 bg-black/20 p-3">
+					<div className="flex w-full flex-col gap-2 rounded-lg border border-border/5 bg-black/20 p-3">
 						{/* Neutral/secondary style, Download, Copy, and Save As
 						    are equally valid exports; none is privileged (the
 						    previous accent/primary treatment visually pushed
@@ -316,7 +319,7 @@ export function ShareStatsDialog({
 						</Button>
 
 						<div aria-hidden="true" className="h-px bg-border/5" />
-						<p className="text-[11px] font-medium tracking-wide text-(--text-muted) uppercase">
+						<p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
 							{t("stats.shareImage.socialShare")}
 						</p>
 						<div className="grid grid-cols-2 gap-2">

@@ -16,7 +16,8 @@
 //   - ./bubble_bridge, MainRendererBubbleMutators, BubbleEventSubscriptions,
 //                       BubbleWindowExtras, BubbleWindowBubble + the
 //                       `declare global { Window }` augmentation
-//   - ./model_status , ModelStatusEntry, ModelStatusMap, DiskInfo
+//   - ./model_status , ModelStatusEntry, ModelStatusMap, ModelStorageSummary,
+//                       ModelStatusResponse, DiskInfo
 //   - ./permissions  , PermissionsResult, AutostartStatus,
 //                       MicrophonePermissionResult
 

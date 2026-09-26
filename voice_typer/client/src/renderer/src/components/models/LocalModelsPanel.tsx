@@ -13,6 +13,7 @@ import {
 	ModelGroupTrigger,
 	ModelVariantRow,
 } from "@/components/models/ModelGroupList";
+import { ModelStorageCard } from "@/components/models/ModelStorageCard";
 import { useModelDownloadQueue } from "@/components/models/useModelDownloadQueue";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
@@ -28,6 +29,7 @@ import {
 	type ModelInfo,
 	type ModelMetadata,
 } from "@/lib/utils/models";
+import type { ModelStorageSummary } from "@/types/ipc";
 
 // Minimum free-disk threshold for the global warning banner. Picked to
 // catch "disk almost full" states without false-positiving on systems
@@ -74,6 +76,9 @@ export interface LocalModelsPanelProps {
 	diskInfo: DiskInfo | null;
 	modelsFolderSupported: boolean;
 	onOpenModelsFolder: () => void;
+	// Shared-hub storage summary (from `get_model_status._storage`).
+	// Optional so direct mounts / tests can omit it; null hides the card.
+	storage?: ModelStorageSummary | null;
 	//      optional initial open-accordion state (the active family), seeds
 	// INTERNAL state only (uncontrolled mode).
 	initialAccordionValue?: string[];
@@ -115,6 +120,7 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 	diskInfo,
 	modelsFolderSupported,
 	onOpenModelsFolder,
+	storage,
 	initialAccordionValue,
 	accordionValue: accordionValueProp,
 	onAccordionValueChange,
@@ -138,16 +144,20 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 			{/* Localized descriptive subtitle under the panel heading
                             (key exists in all 8 locales). */}
 			<p
-				className="text-sm text-(--text-muted)"
+				className="text-sm text-muted-foreground"
 				data-testid="local-models-description"
 			>
 				{t("models.localModelsDescription")}
 			</p>
 
+			{/* Shared-hub storage card (bytes + path + Open Data Folder).
+                            Hidden while unknown (older backends omit `_storage`). */}
+			<ModelStorageCard storage={storage ?? null} />
+
 			{/* low-disk warning banner. Only shown when the backend
                             exposes `get_disk_info` AND free space is below the threshold. */}
 			{showLowDiskWarning && diskInfo && (
-				<div className="rounded-xl border border-warning/40 bg-warning/5 p-4">
+				<div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
 					<div className="flex items-start gap-3">
 						<HugeiconsIcon
 							icon={Alert02Icon}
@@ -155,10 +165,10 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 							className="mt-0.5 h-5 w-5 shrink-0 text-warning"
 						/>
 						<div className="flex flex-1 flex-col gap-1">
-							<h3 className="text-sm font-semibold text-(--text-primary)">
+							<h3 className="text-sm font-semibold text-foreground">
 								{t("models.disk.lowSpaceTitle")}
 							</h3>
-							<p className="text-xs leading-relaxed text-(--text-muted)">
+							<p className="text-xs leading-relaxed text-muted-foreground">
 								{t("models.disk.lowSpaceBody")}{" "}
 								{t("models.disk.freeSpace", {
 									space: formatBytes(diskInfo.free_bytes),
@@ -181,7 +191,7 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 						variant="outline"
 						size="sm"
 						onClick={onOpenModelsFolder}
-						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+						className="gap-2 text-muted-foreground hover:text-foreground"
 						aria-label={t("models.openFolder.aria")}
 					>
 						<HugeiconsIcon
@@ -246,13 +256,13 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 													<>
 														{badge && (
 															<span
-																className={`shrink-0 inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold ${badge.className}`}
+																className={`shrink-0 inline-flex items-center rounded-lg border px-2 py-0.5 text-[11px] font-semibold ${badge.className}`}
 															>
 																{badge.label}
 															</span>
 														)}
 														{insufficientSpace && (
-															<span className="shrink-0 inline-flex items-center rounded-md border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[11px] font-semibold text-destructive">
+															<span className="shrink-0 inline-flex items-center rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[11px] font-semibold text-destructive">
 																{t("models.status.insufficientDisk")}
 															</span>
 														)}

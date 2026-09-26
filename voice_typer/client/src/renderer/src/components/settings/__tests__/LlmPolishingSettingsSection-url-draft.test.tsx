@@ -1,3 +1,4 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	act,
 	cleanup,
@@ -6,7 +7,6 @@ import {
 	screen,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
@@ -21,7 +21,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: vi.fn() }),
-	usePythonEvent: () => {},
+	usePythonEvent: () => { },
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
@@ -43,11 +43,11 @@ vi.mock("next-themes", () => ({ useTheme: () => ({ theme: "light" }) }));
 
 import { LlmPolishingSettingsSection } from "@/components/settings/LlmPolishingSettingsSection";
 import type { SettingsSectionSharedProps } from "@/components/settings/types";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+	overrides: Partial<LausuConfig> = {},
+): LausuConfig {
 	return {
 		llm_polish: true,
 		llm_polish_consent: true,
@@ -56,18 +56,18 @@ function makeConfig(
 		llm_model: "",
 		llm_preset: "professional",
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 const alwaysVisible: SettingsSectionSharedProps["isVisible"] = () => true;
 
-function renderSection(config: VoiceTyperConfig) {
+function renderSection(config: LausuConfig) {
 	return render(
 		<TooltipProvider delayDuration={200}>
 			<LlmPolishingSettingsSection
 				config={config}
-				updateConfig={() => {}}
-				updateConfigDebounced={() => {}}
+				updateConfig={() => { }}
+				updateConfigDebounced={() => { }}
 				isVisible={alwaysVisible}
 			/>
 		</TooltipProvider>,
@@ -102,8 +102,8 @@ describe("LlmPolishingSettingsSection, urlDraft resets on external config change
 				<TooltipProvider delayDuration={200}>
 					<LlmPolishingSettingsSection
 						config={makeConfig({ llm_api_url: "https://reset" })}
-						updateConfig={() => {}}
-						updateConfigDebounced={() => {}}
+						updateConfig={() => { }}
+						updateConfigDebounced={() => { }}
 						isVisible={alwaysVisible}
 					/>
 				</TooltipProvider>,
@@ -114,8 +114,8 @@ describe("LlmPolishingSettingsSection, urlDraft resets on external config change
 
 	it("unfocused: rerenders with the SAME committed value keep the draft untouched", () => {
 		const props = {
-			updateConfig: () => {},
-			updateConfigDebounced: () => {},
+			updateConfig: () => { },
+			updateConfigDebounced: () => { },
 			isVisible: alwaysVisible,
 		};
 		const { rerender } = renderSection(
@@ -140,8 +140,8 @@ describe("LlmPolishingSettingsSection, urlDraft resets on external config change
 
 	it("focused: our own debounced echo landing mid-typing does NOT clobber the draft", () => {
 		const props = {
-			updateConfig: () => {},
-			updateConfigDebounced: () => {},
+			updateConfig: () => { },
+			updateConfigDebounced: () => { },
 			isVisible: alwaysVisible,
 		};
 		const { rerender } = renderSection(makeConfig({ llm_api_url: "" }));

@@ -241,7 +241,7 @@ export default function HistoryPage() {
 							className={`gap-2 ${
 								favoritesOnly
 									? "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25"
-									: "text-(--text-muted) hover:text-(--text-primary)"
+									: "text-muted-foreground hover:text-foreground"
 							}`}
 						>
 							<HugeiconsIcon
@@ -256,7 +256,7 @@ export default function HistoryPage() {
 							size="sm"
 							onClick={handleClearAll}
 							aria-label={t("history.clearAllAria")}
-							className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive"
+							className="gap-2 text-muted-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive"
 						>
 							<HugeiconsIcon
 								icon={Delete01Icon}
@@ -293,7 +293,7 @@ export default function HistoryPage() {
                                             refreshes. Label styling matches the list header row on
                                             Home (`text-[12px] font-semibold`). */}
 					<div className="flex w-full items-center justify-between">
-						<span className="text-[12px] font-semibold text-(--text-primary)">
+						<span className="text-[12px] font-semibold text-foreground">
 							{t("home.recentActivity")}
 						</span>
 						<LastUpdatedIndicator
@@ -384,7 +384,7 @@ export default function HistoryPage() {
 							{records.length >= HISTORY_DISPLAY_CAP &&
 							visibleCount >= records.length &&
 							hasMore ? (
-								<p className="text-center text-xs text-(--text-muted)">
+								<p className="text-center text-xs text-muted-foreground">
 									{t("history.showingCap", {
 										shown: String(HISTORY_DISPLAY_CAP),
 										// While the count loads (or if the count fetch
@@ -403,7 +403,7 @@ export default function HistoryPage() {
 										setVisibleCount((c) => c + HISTORY_PAGE_SIZE);
 									}}
 									disabled={loadingMore}
-									className="w-full gap-2 text-xs rounded-xl border border-dashed border-border/5"
+									className="w-full gap-2 text-xs rounded-lg border border-dashed border-border/5"
 								>
 									{loadingMore ? (
 										<>

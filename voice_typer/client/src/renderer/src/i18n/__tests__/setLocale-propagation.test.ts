@@ -528,7 +528,7 @@ describe("NH-2/NH-3/NH-4 combined: a single setLocale call triggers all propagat
 		// it accidentally.
 		localStorage.clear();
 		setLocale("ar" as Locale);
-		expect(localStorage.getItem("voice-typer-ui-locale")).toBe("ar");
+		expect(localStorage.getItem("lausu-ui-locale")).toBe("ar");
 	});
 
 	it("updates document.documentElement.dir / lang (regression, F-4 contract)", () => {

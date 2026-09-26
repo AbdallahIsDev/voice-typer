@@ -85,7 +85,7 @@ export function MicToggleButton({
 					// (index.css defines --destructive-foreground as
 					// oklch(0.97 0 0) in :root AND .dark, and every theme
 					// preset + the custom-theme generator backfill it).
-					// `text-(--text-primary)` turned black in light mode;
+					// `text-foreground` turned black in light mode;
 					// raw `text-white` ignored custom palettes entirely.
 					// The stop icon on the recording state
 					// (bg-foreground/15) keeps the same near-white glyph.

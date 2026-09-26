@@ -55,7 +55,7 @@ export function VocabInlineForm({
 		<div
 			data-testid={testId}
 			className={cn(
-				"grid grid-cols-1 gap-2 bg-(--bg-subtle) px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-center",
+				"grid grid-cols-1 gap-2 bg-surface-subtle px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-center",
 				// Standalone quick-add row (above the table): full card
 				// treatment, same border, radius, and surface as the
 				// table container so the form reads as part of the same
@@ -63,7 +63,7 @@ export function VocabInlineForm({
 				// The in-list edit row (withBottomBorder=false) is
 				// already framed by the table card, so it keeps the
 				// matching surface without a second border box.
-				withBottomBorder && "rounded-xl border border-border/5",
+				withBottomBorder && "rounded-lg border border-border/5",
 			)}
 		>
 			<Input
@@ -71,14 +71,14 @@ export function VocabInlineForm({
 				onChange={(e) => onTriggerChange(e.target.value)}
 				placeholder={t("vocabulary.triggerPlaceholder")}
 				aria-label={t("vocabulary.whatYouSay")}
-				className="w-full rounded-xl bg-(--bg-subtle) border-border/5"
+				className="w-full rounded-lg bg-surface-subtle border-border/5"
 			/>
 			<Input
 				value={replacement}
 				onChange={(e) => onReplacementChange(e.target.value)}
 				placeholder={t("vocabulary.replacementPlaceholder")}
 				aria-label={t("vocabulary.whatGetsTyped")}
-				className="w-full rounded-xl bg-(--bg-subtle) border-border/5"
+				className="w-full rounded-lg bg-surface-subtle border-border/5"
 			/>
 			<div className="flex items-center gap-2">
 				<Button

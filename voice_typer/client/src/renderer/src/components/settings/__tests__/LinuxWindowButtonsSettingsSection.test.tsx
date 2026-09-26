@@ -1,11 +1,11 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettingsSectionSharedProps } from "@/components/settings/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type {
+	LausuConfig,
 	LinuxWindowButtonsConfig,
-	VoiceTyperConfig,
 } from "@/types/config";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const LINUX_UA =
 	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -26,13 +26,13 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 function makeProps(
 	linuxWindowButtons: Partial<LinuxWindowButtonsConfig> | undefined,
-	linux_window_buttons_system?: VoiceTyperConfig["linux_window_buttons_system"],
+	linux_window_buttons_system?: LausuConfig["linux_window_buttons_system"],
 ): SettingsSectionSharedProps {
 	return {
 		config: {
 			linux_window_buttons: linuxWindowButtons,
 			linux_window_buttons_system: linux_window_buttons_system,
-		} as unknown as VoiceTyperConfig,
+		} as unknown as LausuConfig,
 		updateConfig: vi.fn(),
 		updateConfigDebounced: vi.fn(),
 		isVisible: vi.fn(() => true),

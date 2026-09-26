@@ -10,7 +10,7 @@ const meta: Meta<typeof StatCards> = {
 		docs: {
 			description: {
 				component:
-					"Three-card row shown at the top of the Home / Dashboard page summarizing today's dictation usage: Voice Dictations (count), Text Transcribed (chars, formatted as `1.2K+`), and Dictation Time (duration, formatted as `1h 23m`). Each card uses an icon from `@hugeicons/core-free-icons` and `--bg-subtle` for the card background.",
+					"Three-card row shown at the top of the Home / Dashboard page summarizing today's dictation usage: Voice Dictations (count), Text Transcribed (chars, formatted as `1.2K+`), and Dictation Time (duration, formatted as `1h 23m`). Each card uses an icon from `@hugeicons/core-free-icons` and `--surface-subtle` for the card background.",
 			},
 		},
 	},
@@ -73,7 +73,7 @@ export const DarkBackground: Story = {
 		docs: {
 			description: {
 				story:
-					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`), verifies `--bg-subtle` card surfaces and icon contrast in dark mode.",
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`), verifies `--surface-subtle` card surfaces and icon contrast in dark mode.",
 			},
 		},
 	},

@@ -6,7 +6,7 @@ import {
 	LS_THEME_PRESET,
 } from "@/lib/theme-storage-keys";
 import type { CustomThemeData } from "@/themes";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import {
 	getActiveCall,
 	getActiveMergeConfig,
@@ -27,7 +27,7 @@ let themeInitStarted = false;
 export function reloadThemeFromConfig(): Promise<void> {
 	const activeCall = getActiveCall();
 	if (!activeCall) return Promise.resolve();
-	return activeCall<VoiceTyperConfig>("get_config")
+	return activeCall<LausuConfig>("get_config")
 		.then((cfg) => {
 			// FLASH-FIX: write the backend-confirmed values back
 			// to localStorage immediately so the NEXT mount
@@ -123,23 +123,21 @@ export function handleConfigChanged(
 	const activeMergeConfig = getActiveMergeConfig();
 	if (activeMergeConfig) {
 		// The backend's ``config_changed`` payload is a partial config
-		// object, cast to ``Partial<VoiceTyperConfig>`` for the
+		// object, cast to ``Partial<LausuConfig>`` for the
 		// ``mergeConfig`` call (the cast is safe because the backend
 		// only sends config-typed fields; unknown fields are silently
 		// ignored by ``mergeConfig``'s merge implementation).
-		activeMergeConfig(data as Partial<VoiceTyperConfig>);
+		activeMergeConfig(data as Partial<LausuConfig>);
 	}
 	const store = useThemeStore.getState();
 	if (typeof data.text_size === "number") {
 		store.setTextSizeState(data.text_size);
 	}
 	if (typeof data.theme_mode === "string") {
-		store.setThemeModeState(data.theme_mode as VoiceTyperConfig["theme_mode"]);
+		store.setThemeModeState(data.theme_mode as LausuConfig["theme_mode"]);
 	}
 	if (typeof data.theme_preset === "string") {
-		store.setThemePresetState(
-			data.theme_preset as VoiceTyperConfig["theme_preset"],
-		);
+		store.setThemePresetState(data.theme_preset as LausuConfig["theme_preset"]);
 	}
 	if (data.custom_theme && typeof data.custom_theme === "object") {
 		store.setCustomThemeState(data.custom_theme as CustomThemeData);
@@ -166,7 +164,7 @@ export function handleConfigChanged(
 // ``call`` function (e.g. in tests with a mocked bridge).
 export function ensureThemeSideEffects(
 	call: ThemeCallFn,
-	mergeConfig: (updates: Partial<VoiceTyperConfig>) => void,
+	mergeConfig: (updates: Partial<LausuConfig>) => void,
 ): void {
 	// Always refresh the singleton references, they're stable in
 	// practice (from ``usePython`` / ``useAppStore``), but refreshing

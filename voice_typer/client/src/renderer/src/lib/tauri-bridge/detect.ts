@@ -48,6 +48,17 @@ export interface TauriGlobal {
 			onResized: (handler: () => void) => Promise<() => void>;
 		};
 	};
+	/** Tauri v2 webview API (native drag-drop events carry absolute
+	 *  file paths; optional so a partial global never crashes the bridge). */
+	webview?: {
+		getCurrentWebview: () => {
+			onDragDropEvent: (
+				handler: (
+					event: TauriEvent<{ type: string; paths?: string[] }>,
+				) => void,
+			) => Promise<() => void>;
+		};
+	};
 }
 
 // ─── Detector ─────────────────────────────────────────────────────────

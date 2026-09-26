@@ -33,12 +33,12 @@ export function SettingsSection({
 				<div className="flex flex-col gap-1">
 					<h2
 						id={headingId}
-						className="font-sans text-lg font-semibold text-(--text-primary)"
+						className="font-sans text-lg font-semibold text-foreground"
 					>
 						{title}
 					</h2>
 					{description && (
-						<p className="text-sm text-(--text-muted)">{description}</p>
+						<p className="text-sm text-muted-foreground">{description}</p>
 					)}
 				</div>
 				{action}
@@ -49,7 +49,7 @@ export function SettingsSection({
 			    is uniform across the app). */}
 			<div
 				className={cn(
-					"rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/5",
+					"rounded-lg border border-border/5 bg-surface-subtle divide-y divide-border/5",
 					cardClassName,
 				)}
 			>

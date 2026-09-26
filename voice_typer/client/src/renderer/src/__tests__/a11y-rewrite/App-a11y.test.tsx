@@ -131,7 +131,7 @@ vi.mock("@/pages/Settings", () => ({
 
 import { _resetNavigationForTest } from "@/hooks/useNavigation";
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 /** Seed the shared nav store to a known page and re-read it into the store. */
 function seedNavPage(page: string): void {
@@ -142,7 +142,7 @@ function seedNavPage(page: string): void {
 	_resetNavigationForTest();
 }
 
-const completedConfig: Partial<VoiceTyperConfig> = {
+const completedConfig: Partial<LausuConfig> = {
 	onboarding_completed: true,
 };
 

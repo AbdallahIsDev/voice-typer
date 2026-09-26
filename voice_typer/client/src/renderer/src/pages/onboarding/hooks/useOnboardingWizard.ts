@@ -1,3 +1,9 @@
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
+import { useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
+import { openConsentGate } from "@/lib/consentGate";
+import type { LausuConfig } from "@/types/config";
 import {
 	type RefObject,
 	useCallback,
@@ -5,12 +11,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePython, usePythonEvent } from "@/hooks/usePython";
-import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
-import { openConsentGate } from "@/lib/consentGate";
-import type { VoiceTyperConfig } from "@/types/config";
 import { HOTKEY_DEFAULT, MODEL_DEFAULT } from "../lib/constants";
 import type { ModelOption, StepInfo } from "../lib/types";
 
@@ -234,7 +234,7 @@ export function useOnboardingWizard(
 				// catch.
 				const [cfgOutcome, presetsOutcome, modelsOutcome, catalogOutcome] =
 					await Promise.allSettled([
-						callRef.current<VoiceTyperConfig>("get_config").catch((e) => {
+						callRef.current<LausuConfig>("get_config").catch((e) => {
 							console.warn(
 								"[renderer:useOnboardingWizard] get_config probe failed:",
 								e,
@@ -268,7 +268,7 @@ export function useOnboardingWizard(
 					const savedConsents: Record<string, boolean> = {};
 					for (const f of CONSENT_FIELDS) {
 						// `CONSENT_FIELDS` is `as const`, every literal is a
-						// real VoiceTyperConfig boolean field, so index it
+						// real LausuConfig boolean field, so index it
 						// directly (no unsafe Record cast).
 						savedConsents[f] = cfg[f] === true;
 					}

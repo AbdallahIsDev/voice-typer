@@ -132,7 +132,7 @@ describe("ActivityList date grouping", () => {
 		for (const section of sections) {
 			expect(section.className).toContain("rounded-lg");
 			expect(section.className).toContain("border");
-			expect(section.className).toContain("bg-(--bg-subtle)");
+			expect(section.className).toContain("bg-surface-subtle");
 		}
 
 		// The cards are siblings under a gap parent ("new card = new
@@ -576,7 +576,7 @@ describe("ActivityList inline masked reveal", () => {
 		expect(screen.getByTestId("activity-row-text-toggle").className).toContain(
 			"pb-7",
 		);
-		expect(lessBtn.className).toContain("hover:text-(--text-primary)");
+		expect(lessBtn.className).toContain("hover:text-foreground");
 		expect(
 			screen.queryByRole("button", { name: t("home.showMore") }),
 		).toBeNull();

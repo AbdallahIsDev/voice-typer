@@ -23,24 +23,25 @@
 // removed, `refreshData` is called directly at both former `loadData`
 // call sites (initial mount + manual refresh).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useDebouncedCallback } from "@/hooks/useDebounce";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import { resolveActiveModel } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { HistoryRecord, ModelStatusMap } from "@/types/ipc";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
 	type ActivityChartData,
 	buildActivityBars,
-	type CorrectionStats,
-	type CorrectionUsageSnapshot,
 	computeCorrectionStats,
 	computePeriodStats,
 	computeStreaks,
+	type CorrectionStats,
+	type CorrectionUsageSnapshot,
 	type DashboardData,
 	dateKey,
 	type PeriodStats,
@@ -53,7 +54,7 @@ export const DASHBOARD_SAMPLE_LIMIT = 500;
 export const DASHBOARD_DELTA_LIMIT = 10;
 
 function buildDashboardData(args: {
-	cfg: VoiceTyperConfig | null;
+	cfg: LausuConfig | null;
 	recs: HistoryRecord[];
 	totalCount: number;
 	modelStatus: ModelStatusMap;
@@ -148,7 +149,7 @@ export interface UseDashboardDataArgs {
 
 export interface UseDashboardDataResult {
 	data: DashboardData | null;
-	configRaw: VoiceTyperConfig | null;
+	configRaw: LausuConfig | null;
 	/** Backend config directory (from get_status) for the data-path display. */
 	configDir: string;
 	refreshing: boolean;
@@ -190,7 +191,7 @@ export function useDashboardData({
 		() => peekIpcCache<DashboardData>(DASHBOARD_CACHE_KEY) ?? null,
 	);
 	// R7-F18: removed dead `const [, setLoading] = useState(true)`.
-	const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);
+	const [configRaw, setConfigRaw] = useState<LausuConfig | null>(null);
 	const [configDir, setConfigDir] = useState<string>("");
 	// the timestamp after each successful refreshData() to surface
 	// staleness to the user.
@@ -222,7 +223,7 @@ export function useDashboardData({
 	const totalCountRef = useRef<number | null>(null);
 	const correctionUsageRef = useRef<CorrectionUsageSnapshot | null>(null);
 	const coldRef = useRef<{
-		cfg: VoiceTyperConfig | null;
+		cfg: LausuConfig | null;
 		modelStatus: ModelStatusMap;
 	} | null>(null);
 
@@ -231,7 +232,7 @@ export function useDashboardData({
 		try {
 			const [cfg, history, totalCount, status, correctionUsage, modelStatus] =
 				await Promise.all([
-					callRef.current<VoiceTyperConfig>("get_config"),
+					callRef.current<LausuConfig>("get_config"),
 					callRef
 						.current<HistoryRecord[]>("get_history", {
 							limit: DASHBOARD_SAMPLE_LIMIT,
@@ -243,9 +244,11 @@ export function useDashboardData({
 					// computation (a 500-row sample covers weeks of use), but
 					// the "Total Dictations" stat card reflects the actual
 					// row count instead of capping at the sample forever.
-					callRef.current<{ count: number }>("get_history_count").catch(() => ({
-						count: 0,
-					})),
+					callRef
+						.current<{ count: number }>("get_history_count")
+						.catch(() => ({
+							count: 0,
+						})),
 					// Fetch the backend config directory (for the data-path display).
 					// Returns null on failure, the caller falls back to the default path.
 					callRef
@@ -270,7 +273,9 @@ export function useDashboardData({
 					// map on failure → treated as nothing installed
 					// (fail-safe: never advertise a model we can't
 					// verify).
-					callRef.current<ModelStatusMap>("get_model_status").catch(() => ({})),
+					callRef
+						.current<ModelStatusMap>("get_model_status")
+						.catch(() => ({})),
 				]);
 
 			const recs = history ?? [];
@@ -411,7 +416,8 @@ export function useDashboardData({
 	}, [refreshData]);
 
 	// ── Proactive background refresh after new transcriptions ────────
-	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Shared 500ms debounce (one timer for both event paths) so rapid
+	// events coalesce; unmount auto-cancels.
 
 	// stale-data flag. Set to `true` when a `transcription_final`,
 	// `history_changed`, or `config_changed` event arrives while the
@@ -422,6 +428,10 @@ export function useDashboardData({
 	// while the user isn't looking at the page. The next focus
 	// collapses the backlog into ONE fetch.
 	const staleRef = useRef(false);
+	const { debounced: debouncedFn, cancel: cancelDebouncedRefresh } =
+		useDebouncedCallback((fn: () => Promise<void>) => {
+			void fn();
+		}, 500);
 
 	// Shared debounced scheduler for event-triggered refreshes. Keeps
 	// the 500 ms debounce + the stale-while-hidden flag: background
@@ -439,11 +449,10 @@ export function useDashboardData({
 				staleRef.current = true;
 				return undefined;
 			}
-			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			refreshTimer.current = setTimeout(fn, 500);
+			debouncedFn(fn);
 			return undefined;
 		},
-		[],
+		[debouncedFn],
 	);
 
 	// when history changes through a path OUTSIDE this page (clear/delete/
@@ -494,9 +503,9 @@ export function useDashboardData({
 
 	useEffect(() => {
 		return () => {
-			if (refreshTimer.current) clearTimeout(refreshTimer.current);
+			cancelDebouncedRefresh();
 		};
-	}, []);
+	}, [cancelDebouncedRefresh]);
 
 	useEffect(() => {
 		refreshData();

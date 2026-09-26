@@ -10,7 +10,7 @@ import {
 	resolveActiveModel,
 } from "@/lib/utils/models";
 import { MODEL_DEFAULT as MODEL_DEFAULT_COMPAT } from "@/pages/onboarding/lib/constants";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
 
 function makeStatus(downloaded: boolean): ModelStatusMap {
@@ -31,11 +31,11 @@ function makeModel(backend: string, name = backend): ModelInfo {
 	};
 }
 
-function makeConfig(model_size: string): VoiceTyperConfig {
+function makeConfig(model_size: string): LausuConfig {
 	return {
 		model_size,
 		asr_backend: "whisper",
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 describe("isModelActive, empty model_size means nothing is active", () => {

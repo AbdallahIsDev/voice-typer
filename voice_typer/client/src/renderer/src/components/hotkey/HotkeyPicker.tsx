@@ -193,7 +193,7 @@ export function HotkeyPicker({
 							{!isPresetValue && value && (
 								<DropdownMenuItem
 									disabled
-									className="text-(--text-muted) cursor-default"
+									className="text-muted-foreground cursor-default"
 								>
 									<HotkeyChips
 										keys={t("hotkeyPicker.customLabel", {
@@ -222,7 +222,7 @@ export function HotkeyPicker({
 					<Button
 						variant="ghost"
 						size="icon-sm"
-						className="text-(--text-muted)"
+						className="text-muted-foreground"
 						onClick={() => onChange("")}
 						aria-label={t("hotkeyPicker.clearAria", { label: ariaLabel })}
 						title={t("hotkeyPicker.clearTitle")}
@@ -240,7 +240,7 @@ export function HotkeyPicker({
 					// max-w-72 + break-words keeps the capture hint from
 					// widening the row when a long modifier label is held
 					// (same wrap guard as the error <p> below).
-					className="max-w-72 break-words text-xs text-(--text-muted)"
+					className="max-w-72 break-words text-xs text-muted-foreground"
 					// live-region role so
 					// screen readers announce countdown ticks and the
 					// "Holding: …" line as they update.

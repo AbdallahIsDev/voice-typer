@@ -16,6 +16,9 @@ vi.mock("@/pages/Vocabulary", () => ({
 vi.mock("@/pages/Models", () => ({
 	default: () => <div data-testid="page-models">Models page</div>,
 }));
+vi.mock("@/pages/Media", () => ({
+	default: () => <div data-testid="page-media">Media page</div>,
+}));
 vi.mock("@/pages/Microphone", () => ({
 	default: () => <div data-testid="page-microphone">Microphone page</div>,
 }));
@@ -84,6 +87,7 @@ describe("PageSwitch, route table mapping", () => {
 		["templates", "page-templates"],
 		["vocabulary", "page-vocabulary"],
 		["models", "page-models"],
+		["media", "page-media"],
 		["microphone", "page-microphone"],
 		["analytics", "page-analytics"],
 		["aboutAndPrivacy", "page-aboutAndPrivacy"],

@@ -251,7 +251,7 @@ export const ModelCardActions = memo(function ModelCardActions({
 						variant="ghost"
 						size="icon-xs"
 						onClick={() => onCancelQueued?.(model.name)}
-						className="text-(--text-muted) hover:text-destructive"
+						className="text-muted-foreground hover:text-destructive"
 						aria-label={cancelQueuedLabel}
 						title={cancelQueuedLabel}
 					>
@@ -315,7 +315,7 @@ function DeleteButton({ model, onDelete }: DeleteButtonProps) {
 			variant="ghost"
 			size="icon-xs"
 			onClick={() => onDelete(model)}
-			className="text-(--text-muted) hover:text-destructive"
+			className="text-muted-foreground hover:text-destructive"
 			aria-label={t("models.card.deleteAria", { name: model.name })}
 			title={t("models.card.deleteAria", { name: model.name })}
 		>

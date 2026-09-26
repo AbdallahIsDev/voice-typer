@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFilterState } from "@/hooks/useFilterState";
+import { useFuzzyFilter } from "@/hooks/useFuzzySearch";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import type { PythonCall } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
@@ -340,20 +341,16 @@ export function useTemplates({
 	);
 
 	// ── Search + Sort (client-side) ─────────────────────────────────
-	// Applied via useMemo so the sort/filter only re-runs when the
-	// underlying list, search query, or sort order changes, not on
-	// every keystroke that re-renders the page.
+	// Fuzzy list comes from the shared hook (exact-substring first, so
+	// typed queries keep their previous order); sorting stays local.
+	const fuzzyTemplates = useFuzzyFilter(
+		templates,
+		searchQuery,
+		(r) => [r.trigger, r.expansion],
+	);
 	const filteredSortedTemplates = useMemo(() => {
-		const q = searchQuery.trim().toLowerCase();
-		const filtered = q
-			? templates.filter(
-					(r) =>
-						r.trigger.toLowerCase().includes(q) ||
-						r.expansion.toLowerCase().includes(q),
-				)
-			: templates;
-		return sortTemplateRows(filtered, sortOrder);
-	}, [templates, searchQuery, sortOrder]);
+		return sortTemplateRows(fuzzyTemplates, sortOrder);
+	}, [fuzzyTemplates, sortOrder]);
 
 	return {
 		templates,

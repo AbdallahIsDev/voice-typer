@@ -128,7 +128,7 @@ export default function ConfirmDialog({
 					    competed with the destructive action for prominence. */}
 					<AlertDialogCancel
 						variant="ghost"
-						className="text-(--text-muted) hover:bg-foreground/5 hover:text-(--text-primary)"
+						className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
 					>
 						{cancelLabel}
 					</AlertDialogCancel>
@@ -156,7 +156,7 @@ export default function ConfirmDialog({
 						className={cn(
 							variant === "destructive" &&
 								"bg-destructive text-destructive-foreground hover:bg-destructive/85 dark:bg-destructive dark:hover:bg-destructive/85",
-							variant === "warning" && "text-(--text-primary)",
+							variant === "warning" && "text-foreground",
 						)}
 					>
 						{confirmLabel}

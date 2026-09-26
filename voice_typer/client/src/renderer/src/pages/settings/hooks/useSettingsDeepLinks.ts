@@ -16,16 +16,16 @@
 // zeroes the saved privacy-page scroll offset BEFORE the restore effect
 // reads it. The page must call this hook BEFORE `useSettingsSurfaceScroll`.
 
-import { useEffect, useRef, useState } from "react";
 import { useNavigation } from "@/hooks/useNavigation";
 import { scrollToRowWithHighlight } from "@/pages/settings/lib/scrollToRowWithHighlight";
 import { useGlobalSearch } from "@/stores/useGlobalSearch";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
+import { useEffect, useRef, useState } from "react";
 
 export interface UseSettingsDeepLinksOptions {
 	/** The loaded config (or `null` while loading), gates the scroll effects. */
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	/** The active Settings surface page literal (route-switch prop). */
 	page: Page;
 	scrollPositionsRef: React.RefObject<Record<string, number>>;
@@ -162,7 +162,7 @@ export function useSettingsDeepLinks({
 			target: searchScrollHint,
 			matchFn: () =>
 				// SettingRow renders the row label inside a <span> with class
-				// `text-(--text-primary)`. We walk all rows on the page and
+				// `text-foreground`. We walk all rows on the page and
 				// pick the first whose label text contains the hint.
 				Array.from(
 					document.querySelectorAll<HTMLElement>("[data-settings-row-label]"),

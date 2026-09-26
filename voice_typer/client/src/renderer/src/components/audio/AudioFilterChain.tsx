@@ -8,7 +8,7 @@
 // consolidates them into one canonical implementation that uses the
 // shared `SettingRow` + `RangeSlider` primitives and the shared
 // `t()` translation keys.
-// Both call sites pass the same `config` (the full VoiceTyperConfig)
+// Both call sites pass the same `config` (the full LausuConfig)
 // and an `onConfigChange` callback that receives a partial update.
 // The component is purely presentational, it does not mutate config
 // directly.
@@ -32,16 +32,16 @@
 // `buildAudioFilterLabels(t)`. The original 935-LOC file is now
 // ~150 LOC.
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { getLocaleSnapshot, subscribeLocale, t } from "@/i18n/i18n";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { buildAudioFilterLabels } from "./audioFilterLabels";
 import { audioFilterRowDescriptors } from "./audioFilterRowDescriptors";
 import { type AudioFilterSet, FilterRow } from "./FilterRow";
 
 export interface AudioFilterChainProps {
-	config: VoiceTyperConfig;
-	onConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
+	config: LausuConfig;
+	onConfigChange: (updates: Partial<LausuConfig>) => void;
 	isVisible?: (label: string, info: string, sectionTitle: string) => boolean;
 }
 
@@ -69,7 +69,7 @@ export function AudioFilterChain({
 
 	// A single generic helper replaces the 25 per-field inline
 	//handlers from the pre- JSX. The generic `K` ensures the
-	// key/value pair stays type-checked against `VoiceTyperConfig`
+	// key/value pair stays type-checked against `LausuConfig`
 	// (call sites that pass a literal `configKey` get full inference;
 	// the data-driven `FilterRow` path casts through `never`).
 	// Wrapped in `useCallback` keyed on `onConfigChange` so the
@@ -78,8 +78,8 @@ export function AudioFilterChain({
 	// `set`, if `set` changed identity every render, those closures
 	// would too, defeating memoisation downstream).
 	const set: AudioFilterSet = useCallback(
-		<K extends keyof VoiceTyperConfig>(k: K, v: VoiceTyperConfig[K]): void => {
-			onConfigChange({ [k]: v } as Partial<VoiceTyperConfig>);
+		<K extends keyof LausuConfig>(k: K, v: LausuConfig[K]): void => {
+			onConfigChange({ [k]: v } as Partial<LausuConfig>);
 		},
 		[onConfigChange],
 	);

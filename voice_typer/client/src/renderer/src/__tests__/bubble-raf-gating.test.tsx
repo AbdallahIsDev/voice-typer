@@ -200,7 +200,7 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 		// Selector: the bars are the 7 `<span>` children of the
 		// `gap-0.75` wrapper div in BubbleVisualizer (same stable
 		// selector Bubble.test.tsx uses). The bar color class moved to
-		// the CSS-variable token `bg-(--text-primary)`, so the old
+		// the CSS-variable token `bg-foreground`, so the old
 		// `.bg-zinc-900.dark\:bg-white` selector no longer matches.
 		const bars = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(bars.length).toBe(7);

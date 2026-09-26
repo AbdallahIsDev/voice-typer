@@ -8,22 +8,14 @@ export const githubTheme: Omit<ThemePreset, "nameKey"> = {
 		// Core
 		"--background": "oklch(0.99 0 0)",
 		"--foreground": "oklch(0.12 0.008 0)",
-		"--bg-subtle": "oklch(0.96 0.004 0)",
+		"--surface-subtle": "oklch(0.96 0.004 0)",
 		"--surface-hover": "oklch(0.92 0.004 0)",
-		"--surface-page": "oklch(0.99 0 0)",
 		// Text
-		"--text-primary": "oklch(0.12 0.008 0)",
 		"--text-secondary": "oklch(0.38 0.006 0)",
-		// Cards / popovers
-		"--card": "oklch(1 0 0)",
-		"--card-foreground": "oklch(0.12 0.008 0)",
-		"--popover": "oklch(1 0 0)",
-		"--popover-foreground": "oklch(0.12 0.008 0)",
+		"--surface": "oklch(1 0 0)",
 		// Primary / accent
 		"--primary": "oklch(0.5 0.14 260)",
 		"--primary-foreground": "oklch(0.97 0 0)",
-		"--secondary": "oklch(0.94 0.004 0)",
-		"--secondary-foreground": "oklch(0.22 0.008 0)",
 		/* bump L from 0.52 to 0.48 so --muted-foreground clears WCAG AA
 		   4.5:1 against the near-white background. */
 		"--muted": "oklch(0.95 0.004 0)",
@@ -43,15 +35,6 @@ export const githubTheme: Omit<ThemePreset, "nameKey"> = {
 		// Destructive (backfill --destructive-foreground.)
 		"--destructive": "oklch(0.55 0.2 30)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar
-		"--sidebar": "oklch(0.96 0.004 0)",
-		"--sidebar-foreground": "oklch(0.12 0.008 0)",
-		"--sidebar-primary": "oklch(0.5 0.14 260)",
-		"--sidebar-primary-foreground": "oklch(0.97 0 0)",
-		"--sidebar-accent": "oklch(0.93 0.004 0)",
-		"--sidebar-accent-foreground": "oklch(0.22 0.008 0)",
-		"--sidebar-border": "oklch(0.85 0.004 0)",
-		"--sidebar-ring": "oklch(0.48 0.1 260)",
 		// Charts
 		"--chart-1": "oklch(0.55 0.14 260)",
 		"--chart-2": "oklch(0.5 0.1 200)",
@@ -71,19 +54,12 @@ export const githubTheme: Omit<ThemePreset, "nameKey"> = {
 	dark: {
 		"--background": "oklch(0.11 0.006 0)",
 		"--foreground": "oklch(0.94 0.004 0)",
-		"--bg-subtle": "oklch(0.08 0.006 0)",
+		"--surface-subtle": "oklch(0.08 0.006 0)",
 		"--surface-hover": "oklch(0.15 0.006 0)",
-		"--surface-page": "oklch(0.09 0.006 0)",
-		"--text-primary": "oklch(0.94 0.004 0)",
 		"--text-secondary": "oklch(0.78 0.004 0)",
-		"--card": "oklch(0.13 0.006 0)",
-		"--card-foreground": "oklch(0.94 0.004 0)",
-		"--popover": "oklch(0.13 0.006 0)",
-		"--popover-foreground": "oklch(0.94 0.004 0)",
+		"--surface": "oklch(0.13 0.006 0)",
 		"--primary": "oklch(0.6 0.12 260)",
 		"--primary-foreground": "oklch(0.1 0 0)",
-		"--secondary": "oklch(0.16 0.006 0)",
-		"--secondary-foreground": "oklch(0.94 0.004 0)",
 		"--muted": "oklch(0.15 0.006 0)",
 		"--muted-foreground": "oklch(0.65 0.004 0)",
 		/* WCAG AA: L lowered from 0.55 to 0.53 so the white
@@ -97,14 +73,6 @@ export const githubTheme: Omit<ThemePreset, "nameKey"> = {
 		"--border": "oklch(1 0 0)",
 		"--input": "oklch(0.52 0.006 0)",
 		"--ring": "oklch(0.7 0.08 260)",
-		"--sidebar": "oklch(0.1 0.006 0)",
-		"--sidebar-foreground": "oklch(0.94 0.004 0)",
-		"--sidebar-primary": "oklch(0.6 0.12 260)",
-		"--sidebar-primary-foreground": "oklch(0.1 0 0)",
-		"--sidebar-accent": "oklch(0.15 0.006 0)",
-		"--sidebar-accent-foreground": "oklch(0.94 0.004 0)",
-		"--sidebar-border": "oklch(0.18 0.006 0)",
-		"--sidebar-ring": "oklch(0.7 0.08 260)",
 		"--destructive": "oklch(0.55 0.2 30)",
 		// backfill --destructive-foreground so destructive button text
 		// is readable without relying on the stylesheet default.

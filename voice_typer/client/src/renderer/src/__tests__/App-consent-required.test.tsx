@@ -136,7 +136,7 @@ vi.mock("@/pages/Home", () => ({
 
 import { useConsentGateStore } from "@/lib/consentGate";
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import { makeConfig } from "./helpers/fixtures";
 
 describe("App, consent_required push handler (unified point-of-use consent gate)", () => {
@@ -157,7 +157,7 @@ describe("App, consent_required push handler (unified point-of-use consent gate)
 			connectionStatus: "connected",
 			recordingState: "idle",
 			lastError: null,
-			config: makeConfig() as VoiceTyperConfig,
+			config: makeConfig() as LausuConfig,
 		});
 	});
 

@@ -8,18 +8,11 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		// Core
 		"--background": "oklch(0.97 0.006 240)",
 		"--foreground": "oklch(0.2 0.015 240)",
-		"--bg-subtle": "oklch(0.94 0.008 240)",
+		"--surface-subtle": "oklch(0.94 0.008 240)",
 		"--surface-hover": "oklch(0.9 0.008 240)",
-		"--surface-page": "oklch(0.97 0.006 240)",
 		// Text
-		"--text-primary": "oklch(0.2 0.015 240)",
 		"--text-secondary": "oklch(0.4 0.01 240)",
-		// Cards / popovers (added --card-foreground +
-		// --popover-foreground so light matches dark coverage.)
-		"--card": "oklch(0.98 0.006 240)",
-		"--card-foreground": "oklch(0.2 0.015 240)",
-		"--popover": "oklch(0.98 0.006 240)",
-		"--popover-foreground": "oklch(0.2 0.015 240)",
+		"--surface": "oklch(0.98 0.006 240)",
 		// Primary / accent
 		"--primary": "oklch(0.5 0.08 240)",
 		"--primary-foreground": "oklch(0.97 0.014 254.604)",
@@ -27,9 +20,6 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.5 0.08 240 / 0.1)",
 		"--accent-muted": "oklch(0.5 0.08 240 / 0.35)",
-		// Secondary / muted
-		"--secondary": "oklch(0.92 0.006 240)",
-		"--secondary-foreground": "oklch(0.25 0.01 240)",
 		"--muted": "oklch(0.93 0.006 240)",
 		/* bump L from 0.5 to 0.48 so --muted-foreground clears WCAG AA
 		   4.5:1 against the near-white background. */
@@ -45,17 +35,6 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		// Destructive (added so light matches dark coverage.)
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar (added --sidebar-primary,
-		// --sidebar-primary-foreground, --sidebar-accent-foreground,
-		// --sidebar-ring so light matches dark coverage.)
-		"--sidebar": "oklch(0.94 0.008 240)",
-		"--sidebar-foreground": "oklch(0.2 0.015 240)",
-		"--sidebar-primary": "oklch(0.5 0.08 240)",
-		"--sidebar-primary-foreground": "oklch(0.97 0.014 254.604)",
-		"--sidebar-accent": "oklch(0.9 0.008 240)",
-		"--sidebar-accent-foreground": "oklch(0.25 0.01 240)",
-		"--sidebar-border": "oklch(0.86 0.008 240)",
-		"--sidebar-ring": "oklch(0.48 0.06 240)",
 		// Charts
 		"--chart-1": "oklch(0.6 0.15 240)",
 		"--chart-2": "oklch(0.55 0.1 200)",
@@ -73,20 +52,13 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		"--info": "oklch(0.62 0.14 240)",
 	},
 	dark: {
-		// Core (added --surface-page so dark matches light coverage.)
 		"--background": "oklch(0.18 0.01 240)",
 		"--foreground": "oklch(0.92 0.008 240)",
-		"--bg-subtle": "oklch(0.14 0.008 240)",
+		"--surface-subtle": "oklch(0.14 0.008 240)",
 		"--surface-hover": "oklch(0.22 0.008 240)",
-		"--surface-page": "oklch(0.18 0.01 240)",
 		// Text
-		"--text-primary": "oklch(0.92 0.008 240)",
 		"--text-secondary": "oklch(0.8 0.008 240)",
-		// Cards / popovers
-		"--card": "oklch(0.2 0.01 240)",
-		"--card-foreground": "oklch(0.92 0.008 240)",
-		"--popover": "oklch(0.2 0.01 240)",
-		"--popover-foreground": "oklch(0.92 0.008 240)",
+		"--surface": "oklch(0.2 0.01 240)",
 		// Primary / accent
 		"--primary": "oklch(0.6 0.08 240)",
 		"--primary-foreground": "oklch(0.1 0 0)",
@@ -97,9 +69,6 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		"--accent-foreground": "oklch(0.1 0 0)",
 		"--accent-soft": "oklch(0.6 0.08 240 / 0.12)",
 		"--accent-muted": "oklch(0.6 0.08 240 / 0.4)",
-		// Secondary / muted
-		"--secondary": "oklch(0.24 0.008 240)",
-		"--secondary-foreground": "oklch(0.92 0.008 240)",
 		"--muted": "oklch(0.22 0.008 240)",
 		"--muted-foreground": "oklch(0.6 0.01 240)",
 		// Borders / inputs / rings
@@ -111,15 +80,6 @@ export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 		// Destructive (added --destructive-foreground so dark
 		"--destructive": "oklch(0.55 0.25 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar
-		"--sidebar": "oklch(0.15 0.01 240)",
-		"--sidebar-foreground": "oklch(0.92 0.008 240)",
-		"--sidebar-primary": "oklch(0.6 0.08 240)",
-		"--sidebar-primary-foreground": "oklch(0.1 0 0)",
-		"--sidebar-accent": "oklch(0.22 0.008 240)",
-		"--sidebar-accent-foreground": "oklch(0.92 0.008 240)",
-		"--sidebar-border": "oklch(0.22 0.01 240)",
-		"--sidebar-ring": "oklch(0.7 0.1 240)",
 		// Charts
 		"--chart-1": "oklch(0.65 0.12 240)",
 		"--chart-2": "oklch(0.6 0.08 200)",

@@ -23,13 +23,13 @@ afterEach(() => {
 describe("useDocumentTitle", () => {
 	it("titles the initial mount from the nav key", () => {
 		renderHook(() => useDocumentTitle({ currentPage, t }));
-		expect(document.title).toBe("nav.home, Voice Typer");
+		expect(document.title).toBe("nav.home, Lausu");
 	});
 
 	it("uses the settings hub key for the settings surface", () => {
 		currentPage = "settings";
 		renderHook(() => useDocumentTitle({ currentPage, t }));
-		expect(document.title).toBe("settings.title, Voice Typer");
+		expect(document.title).toBe("settings.title, Lausu");
 	});
 
 	it("uses the section registry key for a settings sub-page", () => {
@@ -38,16 +38,16 @@ describe("useDocumentTitle", () => {
 		// The registry key (NOT a nav.* duplicate), hub row, card
 		// heading, and window title all read the same source.
 		expect(t).toHaveBeenCalledWith("settings.privacy.privacyTitle");
-		expect(document.title).toBe("settings.privacy.privacyTitle, Voice Typer");
+		expect(document.title).toBe("settings.privacy.privacyTitle, Lausu");
 	});
 
 	it("re-titles when the route changes", () => {
 		const { rerender } = renderHook(() => useDocumentTitle({ currentPage, t }));
-		expect(document.title).toBe("nav.home, Voice Typer");
+		expect(document.title).toBe("nav.home, Lausu");
 
 		currentPage = "history";
 		rerender();
-		expect(document.title).toBe("nav.history, Voice Typer");
+		expect(document.title).toBe("nav.history, Lausu");
 	});
 
 	it("re-titles when the locale (t identity) changes", () => {
@@ -56,11 +56,11 @@ describe("useDocumentTitle", () => {
 			({ tt }: { tt: Translate }) => useDocumentTitle({ currentPage, t: tt }),
 			{ initialProps: { tt: t } },
 		);
-		expect(document.title).toBe("nav.home, Voice Typer");
+		expect(document.title).toBe("nav.home, Lausu");
 		// A locale switch hands out a NEW t closure resolving the same
 		// key differently, the effect must re-fire and re-title.
 		const otherLocale = vi.fn((key: string) => `de:${key}`);
 		rerender({ tt: otherLocale });
-		expect(document.title).toBe("de:nav.home, Voice Typer");
+		expect(document.title).toBe("de:nav.home, Lausu");
 	});
 });

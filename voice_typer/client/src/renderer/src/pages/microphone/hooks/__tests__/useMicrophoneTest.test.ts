@@ -104,14 +104,12 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig, MicrophoneDevice } from "@/types/config";
 import { useMicrophoneTest } from "../useMicrophoneTest";
 // ── Helpers ──────────────────────────────────────────────────────────
 import { MICROPHONE_TEST_DURATION_SEC } from "../useMicrophoneTestSession";
 
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		hotkey: "<f2>",
@@ -151,7 +149,7 @@ function makeConfig(
 		// ``level_monitor_start`` in these tests.
 		voice_biometric_consent: true,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 function makeMicrophones(): MicrophoneDevice[] {
@@ -174,7 +172,7 @@ function makeSelectMicrophoneRef() {
 	} as unknown as React.RefObject<(micId: string | null) => Promise<void>>;
 }
 
-function makeHookArgs(configOverrides: Partial<VoiceTyperConfig> = {}) {
+function makeHookArgs(configOverrides: Partial<LausuConfig> = {}) {
 	const config = makeConfig(configOverrides);
 	const microphones = makeMicrophones();
 	const setConfig = vi.fn();

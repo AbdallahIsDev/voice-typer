@@ -36,7 +36,7 @@ const STEP_NAMES = ["Welcome", "Consent", "Model", "Hotkey"] as const;
 
 /** Localized step headings (en.json), used as step-render gates. */
 const STEP_HEADINGS: string[] = [
-	"Welcome to Voice Typer",
+	"Welcome to Lausu",
 	"Privacy & Consent",
 	"Choose Your Model",
 	"Choose Your Hotkey",

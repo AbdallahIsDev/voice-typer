@@ -48,7 +48,7 @@ vi.mock("@/i18n/i18n", () => ({
 	},
 }));
 
-import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig, MicrophoneDevice } from "@/types/config";
 // ── Helpers ──────────────────────────────────────────────────────────
 import { useMicrophoneData } from "../useMicrophoneData";
 
@@ -56,9 +56,7 @@ function makeMic(id: string, name = id): MicrophoneDevice {
 	return { id, name, index: 0 } as MicrophoneDevice;
 }
 
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		hotkey: "<f2>",
@@ -94,7 +92,7 @@ function makeConfig(
 		cloud_groq_consent: false,
 		cloud_deepgram_consent: false,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 function makeSelectMicrophoneRef() {

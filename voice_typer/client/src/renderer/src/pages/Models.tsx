@@ -206,7 +206,7 @@ export default function ModelsPage() {
 							onClick={lifecycle.handleImportModel}
 							disabled={lifecycle.isImporting}
 							title={t("models.import.title")}
-							className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+							className="gap-2 text-muted-foreground hover:text-foreground"
 							aria-label={t("models.import.title")}
 							aria-busy={lifecycle.isImporting}
 						>
@@ -231,7 +231,7 @@ export default function ModelsPage() {
 				{lifecycle.loadError && (
 					<div
 						role="alert"
-						className="flex flex-wrap items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2"
+						className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
 					>
 						<HugeiconsIcon
 							icon={AlertCircleIcon}
@@ -258,8 +258,8 @@ export default function ModelsPage() {
 				{/* Compact dismissible "no model" banner, replaces the former
                                     centered EmptyState (py-16) that pushed model cards below the
                                     fold. Uses the shared design-system tokens
-                                    (rounded-xl border-border/10 bg-(--bg-subtle)
-                                    text-(--text-primary)) so it matches model cards,
+                                    (rounded-lg border-border/10 bg-surface-subtle
+                                    text-foreground) so it matches model cards,
                                     SegmentedControl and other subtle surfaces in every
                                     theme (light/dark/Dracula/Monokai/etc. via CSS vars).
                                     Positioned in the normal page flow (not sticky) between
@@ -273,15 +273,15 @@ export default function ModelsPage() {
 							role="status"
 							aria-live="polite"
 							aria-atomic="true"
-							className="flex flex-wrap items-center gap-2 rounded-xl border border-border/5 bg-(--bg-subtle) px-3 py-2"
+							className="flex flex-wrap items-center gap-2 rounded-lg border border-border/5 bg-surface-subtle px-3 py-2"
 						>
 							<HugeiconsIcon
 								icon={AiBrain03Icon}
 								strokeWidth={2}
 								aria-hidden="true"
-								className="size-4 shrink-0 text-(--text-muted)"
+								className="size-4 shrink-0 text-muted-foreground"
 							/>
-							<p className="min-w-0 flex-1 text-xs font-medium text-(--text-primary)">
+							<p className="min-w-0 flex-1 text-xs font-medium text-foreground">
 								{t("models.noModelBanner")}
 							</p>
 							<button
@@ -299,7 +299,7 @@ export default function ModelsPage() {
 								}}
 								aria-label={t("common.close")}
 								title={t("common.close")}
-								className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
+								className="cursor-pointer rounded-lg p-1 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
 							>
 								<HugeiconsIcon
 									icon={Cancel01Icon}
@@ -324,14 +324,14 @@ export default function ModelsPage() {
 							labelClassName="flex-1 text-center"
 							//(2026-08-21): the outer tab container now carries the
 							// SAME card/surface border treatment as the model
-							// cards below it (`rounded-xl border border-border/5
-							// bg-(--bg-subtle)`, the app-wide page-card token),
+							// cards below it (`rounded-lg border border-border/5
+							// bg-surface-subtle`, the app-wide page-card token),
 							// so the segmented control reads as one card among
 							// the model cards instead of a borderless strip.
 							// The active segment uses the matching
 							// `border-border/5` treatment via
 							// `tabPageIndicatorClassName`.
-							className="w-full rounded-xl border border-border/5 bg-(--bg-subtle)"
+							className="w-full rounded-lg border border-border/5 bg-surface-subtle"
 							getTabId={(v) => `models-tab-${v}`}
 							getPanelId={(v) => `models-panel-${v}`}
 						/>
@@ -370,6 +370,7 @@ export default function ModelsPage() {
 								diskInfo={lifecycle.diskInfo}
 								modelsFolderSupported={lifecycle.modelsFolderSupported}
 								onOpenModelsFolder={lifecycle.handleOpenModelsFolder}
+								storage={lifecycle.storage}
 								accordionValue={effectiveAccordionValue}
 								onAccordionValueChange={setUserAccordionValue}
 							/>
@@ -411,7 +412,7 @@ export default function ModelsPage() {
 			 *     their network quota without consent.
 			 *
 			 * Full writeup: docs/ux/model-delete-rationale.md
-			 * Backend assumption: `VoiceTyperService.delete_model`
+			 * Backend assumption: `LausuService.delete_model`
 			 * is a hard `shutil.rmtree` (see
 			 * `voice_typer/server/service.py`), which is what makes
 			 * both undo options bad.

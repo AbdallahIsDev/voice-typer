@@ -49,7 +49,7 @@ describe("Sidebar", () => {
 		onNavigate: vi.fn(),
 	};
 
-	it("renders all 9 navigation items with their labels", () => {
+	it("renders all 10 navigation items with their labels", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const labels = [
 			"Home",
@@ -57,6 +57,7 @@ describe("Sidebar", () => {
 			"Analytics",
 			"Templates",
 			"Vocabulary",
+			"Media",
 			"Models",
 			"Microphone",
 			"Settings",

@@ -3,6 +3,7 @@ import {
 	Analytics01Icon,
 	BookOpen02Icon,
 	File02Icon,
+	Film01Icon,
 	HistoryIcon,
 	Home04Icon,
 	Mic02Icon,
@@ -36,6 +37,7 @@ type NavLeafId = Extract<
 	| "models"
 	| "templates"
 	| "vocabulary"
+	| "media"
 	| "settings"
 	| "microphone"
 	| "aboutAndPrivacy"
@@ -71,6 +73,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
 	{ id: "models", icon: AiBrain03Icon },
 	{ id: "templates", icon: File02Icon },
 	{ id: "vocabulary", icon: BookOpen02Icon },
+	{ id: "media", icon: Film01Icon },
 ];
 
 // (General / AI & Audio / Appearance / Privacy) is gone: the Settings
@@ -363,7 +366,7 @@ function SidebarInner({
 										<span
 											className={cn(
 												// block: CSS transforms do not apply to inline elements.
-												"block whitespace-nowrap text-xs font-semibold capitalize tracking-wider text-(--text-muted)",
+												"block whitespace-nowrap text-xs font-semibold capitalize tracking-wider text-muted-foreground",
 												// The text fade runs slightly FASTER (150ms) than the
 												// container's 200ms space collapse, deliberate exit
 												// choreography so the label is gone before the
@@ -445,7 +448,7 @@ function NavLeaf({
 				tabIndex={tabIndex}
 				aria-current={isActive ? "page" : undefined}
 				className={cn(
-					"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
+					"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-lg",
 					// Clip the row so the animating label never paints outside
 					// the button while the rail width transitions.
 					"overflow-hidden",
@@ -458,15 +461,15 @@ function NavLeaf({
 					isActive
 						? cn(
 								// Active page = the standard card treatment: the
-								// app's card surface (--bg) + the shared card
+								// app's card surface (--background) + the shared card
 								// border token at the same ~10% opacity every
 								// card in the app uses. No custom border color.
-								"border-border/5 bg-(--bg) hover:bg-(--bg)",
-								"text-(--text-primary) font-medium",
+								"border-border/5 bg-surface hover:bg-surface",
+								"text-foreground font-medium",
 							)
 						: cn(
-								"text-(--text-muted)",
-								"hover:bg-foreground/5 hover:text-(--text-primary)",
+								"text-muted-foreground",
+								"hover:bg-foreground/5 hover:text-foreground",
 							),
 				)}
 				onClick={() => onNavigate(item.id)}

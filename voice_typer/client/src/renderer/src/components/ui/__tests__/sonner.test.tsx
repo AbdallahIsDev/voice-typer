@@ -123,8 +123,8 @@ describe("Sonner Toaster, ZU-33 stacking configuration", () => {
 		]);
 		// Neutral surface mapping consumed by sonner's --normal-* vars.
 		expect(lastToasterProps?.style).toMatchObject({
-			"--normal-bg": "var(--popover)",
-			"--normal-text": "var(--popover-foreground)",
+			"--normal-bg": "var(--surface)",
+			"--normal-text": "var(--foreground)",
 			"--normal-border": "var(--border)",
 			"--border-radius": "var(--radius)",
 		});

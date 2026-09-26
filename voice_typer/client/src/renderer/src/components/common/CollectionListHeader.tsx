@@ -29,7 +29,7 @@
 // only some of the visible rows are selected), the SAME Checkbox
 // component the rows use, so the header and per-row checkboxes look
 // identical in every state (unchecked, checked, indeterminate dash).
-// rounded-t-xl: when the header pins to the viewport top on scroll,
+// rounded-t-lg: when the header pins to the viewport top on scroll,
 // the container's own rounded corners are off-screen above, so the
 // header's own top corners must carry the radius (the container's
 // overflow-clip handles the at-rest state).
@@ -79,7 +79,7 @@ export function CollectionListHeader({
 	return (
 		<div
 			data-testid={testId}
-			className="sticky top-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-t-xl border-b border-border/5 bg-(--bg-subtle)/95 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-(--text-muted) backdrop-blur-sm sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]"
+			className="sticky top-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-t-lg border-b border-border/5 bg-surface-subtle/95 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-sm sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]"
 		>
 			{/* Radix Checkbox takes `checked="indeterminate"` for the
 				partial-selection state (renders the dash). */}

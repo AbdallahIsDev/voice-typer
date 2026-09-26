@@ -33,11 +33,9 @@ vi.mock("@/i18n/i18n", () => ({
 
 // ── Helpers ──────────────────────────────────────────────────────────
 import { useModelConfig } from "@/hooks/models/useModelConfig";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		hotkey: "<f2>",
@@ -73,7 +71,7 @@ function makeConfig(
 		cloud_groq_consent: false,
 		cloud_deepgram_consent: false,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 function makeHookArgs() {
@@ -277,7 +275,7 @@ describe("useModelConfig, config drift detection (config_changed event)", () => 
 	it("does NOT apply the partial merge when no cached config exists yet (early return)", async () => {
 		// Make get_config slow so the cachedConfigRef is still null at the
 		// time the config_changed event fires.
-		let resolveGetConfig: (v: VoiceTyperConfig) => void = () => {};
+		let resolveGetConfig: (v: LausuConfig) => void = () => {};
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config")
 				return new Promise((resolve) => {

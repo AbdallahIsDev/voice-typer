@@ -47,7 +47,7 @@ describe("VocabularySkeleton", () => {
 		render(<VocabularySkeleton />);
 		const status = screen.getByRole("status", { name: LOADING_LABEL });
 		// ONE list card, overflow-clipped, with a column header + rows.
-		const card = status.querySelector(".overflow-clip.rounded-xl");
+		const card = status.querySelector(".overflow-clip.rounded-lg");
 		expect(card).not.toBeNull();
 		// Column header grid mirrors CollectionListHeader (auto 1fr auto
 		// / sm: auto 1fr 1fr 6.25rem).
@@ -65,7 +65,7 @@ describe("TemplatesSkeleton", () => {
 	it("renders the columned card with two-line trigger + pill rows", () => {
 		render(<TemplatesSkeleton />);
 		const status = screen.getByRole("status", { name: LOADING_LABEL });
-		const card = status.querySelector(".overflow-clip.rounded-xl");
+		const card = status.querySelector(".overflow-clip.rounded-lg");
 		expect(card).not.toBeNull();
 		const rows = card?.querySelectorAll(".divide-y > .grid");
 		expect(rows?.length).toBe(8);
@@ -93,7 +93,7 @@ describe("ModelsSkeleton", () => {
 		expect(segments[0]?.className).toContain("bg-input");
 		// 3 collapsed family accordion cards (OpenAI / NVIDIA / Qwen).
 		const families = status.querySelectorAll(
-			".rounded-xl.border > .flex.items-center.justify-between",
+			".rounded-lg.border > .flex.items-center.justify-between",
 		);
 		expect(families.length).toBe(3);
 	});
@@ -106,7 +106,7 @@ describe("MicrophoneSkeleton", () => {
 		// LevelBar track placeholder (h-1.5) inside the test card.
 		expect(status.querySelector(".h-1\\.5")).not.toBeNull();
 		// Preset accordion value-chip placeholder.
-		expect(status.querySelector(".h-6.w-20.rounded-md")).not.toBeNull();
+		expect(status.querySelector(".h-6.w-20.rounded-lg")).not.toBeNull();
 		// 3 device rows with trailing radio placeholders.
 		const deviceRows = status.querySelectorAll(
 			".rounded-lg.border .divide-y > .flex.items-center.gap-3",

@@ -1,5 +1,5 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 
 const renderWithProviders = (ui: React.ReactElement) => {
 	const wrapped = (node: React.ReactElement) => (
@@ -40,12 +40,12 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
 import type { SettingsSectionSharedProps } from "@/components/settings/types";
 import { type Locale, setLocale } from "@/i18n/i18n";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 /** Minimal config that satisfies GeneralSettingsSection's render path. */
 function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+	overrides: Partial<LausuConfig> = {},
+): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -110,18 +110,18 @@ function makeConfig(
 		theme_preset: "default",
 		custom_theme: {
 			light: {
-				"--bg": "#ffffff",
-				"--bg-subtle": "#f5f5f5",
+				"--background": "#ffffff",
+				"--surface-subtle": "#f5f5f5",
 				"--text": "#000000",
-				"--text-muted": "#666666",
+				"--muted-foreground": "#666666",
 				"--accent": "#3b82f6",
 				"--border": "#e5e7eb",
 			},
 			dark: {
-				"--bg": "#000000",
-				"--bg-subtle": "#111111",
+				"--background": "#000000",
+				"--surface-subtle": "#111111",
 				"--text": "#ffffff",
-				"--text-muted": "#999999",
+				"--muted-foreground": "#999999",
 				"--accent": "#60a5fa",
 				"--border": "#222222",
 			},
@@ -181,7 +181,7 @@ function makeConfig(
 		vocabulary_auto_confidence_threshold: 0.7,
 		vocabulary_auto_apply_threshold: 0.95,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 /** isVisible that always returns true (we're not testing search here). */

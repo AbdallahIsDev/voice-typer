@@ -36,7 +36,7 @@ export const LongText: Story = {
 
 export const InlineUsage: Story = {
 	render: () => (
-		<p className="text-sm text-(--text-primary)">
+		<p className="text-sm text-foreground">
 			VAD aggressiveness
 			<InfoTooltip text="Higher values detect speech more aggressively." />
 		</p>

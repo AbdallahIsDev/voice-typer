@@ -67,10 +67,10 @@ describe("Sidebar, Settings is a single leaf (no submenu)", () => {
 		onNavigate: vi.fn(),
 	};
 
-	it("the nav contains exactly 9 leaf buttons and Settings is one of them", () => {
+	it("the nav contains exactly 10 leaf buttons and Settings is one of them", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const buttons = allNavButtons();
-		expect(buttons.length).toBe(9);
+		expect(buttons.length).toBe(10);
 		expect(findNavButton(t("nav.settings"))).toBeTruthy();
 	});
 

@@ -124,7 +124,7 @@ describe("CollectionListHeader, visual tokens (byte-identical extraction)", () =
 		const header = screen.getByTestId("test-list-header");
 		expect(header.className).toContain("sticky top-0 z-10");
 		expect(header.className).toContain(
-			"rounded-t-xl border-b border-border/5 bg-(--bg-subtle)/95",
+			"rounded-t-lg border-b border-border/5 bg-surface-subtle/95",
 		);
 		expect(header.className).toContain("backdrop-blur-sm");
 	});

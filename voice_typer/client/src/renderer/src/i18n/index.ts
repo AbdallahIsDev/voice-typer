@@ -79,7 +79,7 @@ export function initI18n(): void {
 	let next: Locale = "en";
 	try {
 		if (typeof localStorage !== "undefined") {
-			const saved = localStorage.getItem("voice-typer-ui-locale");
+			const saved = localStorage.getItem("lausu-ui-locale");
 			if (saved && (SUPPORTED_LOCALES as readonly string[]).includes(saved)) {
 				next = saved as Locale;
 			} else {

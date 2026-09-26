@@ -77,20 +77,20 @@ export function CollectionBulkBar({
 			data-testid={testId}
 			// stacked a second outline on top of the border and read as a
 			// thicker/inconsistent stroke. Background matches the search
-			// input / table container surface (--bg-subtle) so the bar
-			// reads as part of the same design system, bg-popover was a
+			// input / table container surface (--surface-subtle) so the bar
+			// reads as part of the same design system, bg-surface was a
 			// separate, floating-element tone that didn't belong to any
 			// other surface on the page.
-			className="sticky bottom-4 z-20 mx-auto mt-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-2xl border border-border/5 bg-(--bg-subtle) px-3 py-2 shadow-lg"
+			className="sticky bottom-4 z-20 mx-auto mt-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border border-border/5 bg-surface-subtle px-3 py-2 shadow-lg"
 		>
-			<span className="px-1 text-xs font-medium text-(--text-muted)">
+			<span className="px-1 text-xs font-medium text-muted-foreground">
 				{t(selectedCountKey, { count: String(selectedCount) })}
 			</span>
 			<Button
 				variant="outline"
 				size="sm"
 				onClick={onDeleteSelected}
-				className="gap-2 text-xs text-(--text-muted) hover:text-destructive hover:border-destructive/40"
+				className="gap-2 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40"
 			>
 				<HugeiconsIcon
 					icon={Delete01Icon}
@@ -106,7 +106,7 @@ export function CollectionBulkBar({
 						variant="outline"
 						size="sm"
 						aria-label={t(exportSelectedKey)}
-						className="gap-2 text-xs text-(--text-muted) hover:text-(--text-primary)"
+						className="gap-2 text-xs text-muted-foreground hover:text-foreground"
 					>
 						<HugeiconsIcon
 							icon={Download01Icon}
@@ -131,7 +131,7 @@ export function CollectionBulkBar({
 				onClick={onClearSelection}
 				aria-label={t(deselectAllKey)}
 				title={t(deselectAllKey)}
-				className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+				className="cursor-pointer rounded-lg p-1 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 			>
 				<HugeiconsIcon
 					icon={Cancel01Icon}

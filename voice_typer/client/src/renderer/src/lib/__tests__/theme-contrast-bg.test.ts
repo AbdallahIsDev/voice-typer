@@ -23,17 +23,17 @@ const draftWithLightPrimary: CustomThemeData = {
 		"--background": "#ffffff",
 		"--foreground": "#09090b",
 		"--primary": LIGHT_PRIMARY_OKLCH,
-		"--bg-subtle": "#f5f5f5",
+		"--surface-subtle": "#f5f5f5",
 		"--border": "#e4e4e7",
-		"--text-muted": "#71717b",
+		"--muted-foreground": "#71717b",
 	},
 	dark: {
 		"--background": "#131313",
 		"--foreground": "#fafafa",
 		"--primary": LIGHT_PRIMARY_OKLCH,
-		"--bg-subtle": "#0f0f0f",
+		"--surface-subtle": "#0f0f0f",
 		"--border": "#1f1f1f",
-		"--text-muted": "#9f9fa9",
+		"--muted-foreground": "#9f9fa9",
 	},
 };
 
@@ -42,17 +42,17 @@ const draftWithDarkPrimary: CustomThemeData = {
 		"--background": "#ffffff",
 		"--foreground": "#09090b",
 		"--primary": DARK_PRIMARY_HEX,
-		"--bg-subtle": "#f5f5f5",
+		"--surface-subtle": "#f5f5f5",
 		"--border": "#e4e4e7",
-		"--text-muted": "#71717b",
+		"--muted-foreground": "#71717b",
 	},
 	dark: {
 		"--background": "#131313",
 		"--foreground": "#fafafa",
 		"--primary": DARK_PRIMARY_HEX,
-		"--bg-subtle": "#0f0f0f",
+		"--surface-subtle": "#0f0f0f",
 		"--border": "#1f1f1f",
-		"--text-muted": "#9f9fa9",
+		"--muted-foreground": "#9f9fa9",
 	},
 };
 

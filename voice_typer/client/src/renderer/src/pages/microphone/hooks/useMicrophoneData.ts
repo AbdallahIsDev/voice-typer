@@ -16,6 +16,11 @@
 // ``selectMicrophoneRef.current`` at call time so it always invokes
 // the latest closure without re-subscribing on every render.
 
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
+import { useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
+import type { LausuConfig, MicrophoneDevice } from "@/types/config";
 import {
 	type Dispatch,
 	type RefObject,
@@ -25,17 +30,12 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePython, usePythonEvent } from "@/hooks/usePython";
-import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
-import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 
 // Module-level cache, persists across page navigations so microphone
 // settings render instantly on re-visit instead of showing a loading
 // spinner.
 let _cachedMicrophones: MicrophoneDevice[] = [];
-let _cachedConfig: VoiceTyperConfig | null = null;
+let _cachedConfig: LausuConfig | null = null;
 
 // Boot-race recovery: on cold start the renderer can connect (and this
 // page can fetch ``get_microphones``) BEFORE the backend's startup
@@ -58,7 +58,7 @@ type MicReconcileDecision =
 	| { action: "noop" };
 
 function decideMicReconcile(
-	cfg: VoiceTyperConfig | null,
+	cfg: LausuConfig | null,
 	mics: readonly MicrophoneDevice[],
 	lastMissingId: string | null,
 ): MicReconcileDecision {
@@ -81,12 +81,12 @@ interface UseMicrophoneDataOptions {
 
 export interface UseMicrophoneDataResult {
 	microphones: MicrophoneDevice[];
-	config: VoiceTyperConfig | null;
-	setConfig: Dispatch<SetStateAction<VoiceTyperConfig | null>>;
+	config: LausuConfig | null;
+	setConfig: Dispatch<SetStateAction<LausuConfig | null>>;
 	loading: boolean;
 	loadError: string | null;
 	loadData: (isCancelled?: () => boolean) => Promise<void>;
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
+	updateConfig: (updates: Partial<LausuConfig>) => void;
 }
 
 export function useMicrophoneData({
@@ -111,7 +111,7 @@ export function useMicrophoneData({
 
 	const [microphones, setMicrophones] =
 		useState<MicrophoneDevice[]>(_cachedMicrophones);
-	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
+	const [config, setConfig] = useState<LausuConfig | null>(_cachedConfig);
 	const [loading, setLoading] = useState(true);
 	//surface backend-load failures to the user instead of
 	// console, leaving the user with an empty mic list and no indication
@@ -142,7 +142,7 @@ export function useMicrophoneData({
 
 	/** Optimistic config update: writes through to backend + local cache. */
 	const updateConfig = useCallback(
-		(updates: Partial<VoiceTyperConfig>) => {
+		(updates: Partial<LausuConfig>) => {
 			setConfig((prev) => {
 				if (!prev) return prev;
 				const next = { ...prev, ...updates };
@@ -168,7 +168,7 @@ export function useMicrophoneData({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadData = useCallback(
 		async (isCancelled: () => boolean = () => false) => {
-			function reconcileActiveMic(cfg: VoiceTyperConfig | null): void {
+			function reconcileActiveMic(cfg: LausuConfig | null): void {
 				const decision = decideMicReconcile(
 					cfg,
 					_cachedMicrophones,
@@ -206,7 +206,7 @@ export function useMicrophoneData({
 			try {
 				const [mics, cfg] = await Promise.all([
 					callRef.current<MicrophoneDevice[]>("get_microphones"),
-					callRef.current<VoiceTyperConfig>("get_config"),
+					callRef.current<LausuConfig>("get_config"),
 				]);
 				if (isCancelled()) return;
 				_cachedMicrophones = Array.isArray(mics) ? mics : [];
@@ -335,9 +335,9 @@ export function useMicrophoneData({
 			// full loadData() only when there is no device cache to
 			// reconcile against (first load raced / cache cleared).
 			void (async () => {
-				let cfg: VoiceTyperConfig;
+				let cfg: LausuConfig;
 				try {
-					cfg = await callRef.current<VoiceTyperConfig>("get_config");
+					cfg = await callRef.current<LausuConfig>("get_config");
 				} catch (err) {
 					console.error(
 						"[renderer:useMicrophoneData] Failed to refresh config on config_changed:",

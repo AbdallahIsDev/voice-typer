@@ -152,7 +152,7 @@ describe("EmptyState, BG-R13 (title as <h3> + icon prop wiring)", () => {
 	});
 
 	it("info icon relies on the muted token alone, no stacked opacity wash", () => {
-		// Stacking opacity-50 on top of text-(--text-muted) pushed the
+		// Stacking opacity-50 on top of text-muted-foreground pushed the
 		// icon below the WCAG 1.4.11 non-text contrast minimum; the
 		// muted token must carry the hierarchy by itself.
 		render(<EmptyState icon={Mic02Icon} title="No dictations yet" />);
@@ -161,7 +161,7 @@ describe("EmptyState, BG-R13 (title as <h3> + icon prop wiring)", () => {
 			(el) => el.getAttribute("data-name") === "Mic02Icon",
 		);
 		expect(titleIcon).toBeDefined();
-		expect(titleIcon?.className).toContain("text-(--text-muted)");
+		expect(titleIcon?.className).toContain("text-muted-foreground");
 		expect(titleIcon?.className).not.toMatch(/opacity-\d/);
 	});
 

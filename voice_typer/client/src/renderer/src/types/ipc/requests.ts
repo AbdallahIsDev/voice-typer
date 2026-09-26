@@ -193,6 +193,14 @@ export interface OpenPrewarmLogRequest {
 	data?: Record<string, unknown>;
 }
 
+// Opens the app config (data) dir in the OS file manager (Models
+// storage card + Diagnostics button). No payload; the target is
+// fixed server-side and containment-checked there.
+export interface OpenDataFolderRequest {
+	type: "open_data_folder";
+	data?: Record<string, unknown>;
+}
+
 export interface OnboardingGetModelOptionsRequest {
 	type: "onboarding_get_model_options";
 	data?: Record<string, unknown>;
@@ -218,6 +226,26 @@ export interface TranscribeOfflineRequest {
 		sample_rate: number;
 		language: string | null;
 	};
+}
+
+// ADR-0023 universal media-to-text: local files and pasted URLs.
+export interface MediaTranscribeStartRequest {
+	type: "media_transcribe_start";
+	data: {
+		source: string;
+		export_path?: string | null;
+		export_format?: string | null;
+		/** ADR-0023 E13: opt-in subtitle fast-path (default off). */
+		use_subtitles?: boolean;
+	};
+}
+
+export interface MediaTranscribeCancelRequest {
+	type: "media_transcribe_cancel";
+}
+
+export interface MediaTranscribeStatusRequest {
+	type: "media_transcribe_status";
 }
 
 // GitHub Releases pack-manifest check (always-on pack auto-update).
@@ -396,7 +424,11 @@ export type PythonRequest =
 	| OnboardingSkipRequest
 	| OnboardingStartRequest
 	| CheckPackUpdateRequest
+	| MediaTranscribeStartRequest
+	| MediaTranscribeCancelRequest
+	| MediaTranscribeStatusRequest
 	| OpenPrewarmLogRequest
+	| OpenDataFolderRequest
 	| PauseModelDownloadRequest
 	| RepasteLastRequest
 	| RestoreHistoryRequest

@@ -133,21 +133,21 @@ describe("themeSync, reloadThemeFromConfig", () => {
 		expect(state.textSize).toBe(16);
 		expect(state.hasInitialReloadCompleted).toBe(true);
 
-		expect(localStorage.getItem("voice-typer-theme-mode")).toBe("dark");
-		expect(localStorage.getItem("voice-typer-text-size")).toBe("16");
+		expect(localStorage.getItem("lausu-theme-mode")).toBe("dark");
+		expect(localStorage.getItem("lausu-text-size")).toBe("16");
 		expect(mocks.setSoundFeedbackEnabled).toHaveBeenCalledWith(false);
 	});
 
 	it("clears a stale custom-theme cache when the backend confirms a non-custom preset", async () => {
 		armBridge();
-		localStorage.setItem("voice-typer-custom-theme", '{"stale":true}');
+		localStorage.setItem("lausu-custom-theme", '{"stale":true}');
 		callMock.mockResolvedValueOnce({
 			theme_preset: "default",
 		});
 
 		await reloadThemeFromConfig();
 
-		expect(localStorage.getItem("voice-typer-custom-theme")).toBeNull();
+		expect(localStorage.getItem("lausu-custom-theme")).toBeNull();
 	});
 
 	it("flips hasInitialReloadCompleted even when get_config rejects", async () => {

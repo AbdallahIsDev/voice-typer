@@ -313,7 +313,7 @@ function BubbleInner() {
 					// subtly over the desktop (same treatment as the page
 					// window frame in App.tsx).
 					"border border-border/5",
-					"bg-card text-card-foreground",
+					"bg-surface text-foreground",
 					"px-4 py-2.5",
 					draggable ? "drag-region" : "no-drag",
 				)}

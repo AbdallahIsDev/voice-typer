@@ -131,7 +131,7 @@ describe("ThemeSwitch", () => {
 			<ThemeSwitch
 				themeMode="dark"
 				onThemeChange={vi.fn()}
-				className="no-drag h-8 w-8 rounded text-(--text-muted)"
+				className="no-drag h-8 w-8 rounded-lg text-muted-foreground"
 			/>,
 		);
 		const cls = screen.getByRole("button").className;
@@ -140,6 +140,6 @@ describe("ThemeSwitch", () => {
 		expect(cls).toContain("w-8");
 		expect(cls).toContain("rounded");
 		expect(cls).toContain("no-drag");
-		expect(cls).toContain("text-(--text-muted)");
+		expect(cls).toContain("text-muted-foreground");
 	});
 });

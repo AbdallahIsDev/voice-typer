@@ -113,4 +113,8 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"paste_deferred",
 	// Tray-unavailable fallback (predecessor/headless path only):
 	"tray_fallback_notification",
+	// ADR-0023 universal media-to-text job events:
+	"media_transcribe_progress",
+	"media_transcribe_complete",
+	"media_transcribe_error",
 ]);

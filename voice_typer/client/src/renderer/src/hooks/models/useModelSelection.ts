@@ -1,8 +1,8 @@
-import { useCallback, useState } from "react";
 import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { formatErrorMessage, type ModelInfo } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { useCallback, useState } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -14,14 +14,14 @@ interface UseModelSelectionArgs {
 	) => void;
 	setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 	refreshModelStatus: () => Promise<void>;
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
+	updateConfig: (updates: Partial<LausuConfig>) => Promise<void>;
 	/** Optimistic config-state merge after a successful save, the
 	 * `config_changed` echo would correct this within milliseconds, but
 	 * config-derived UI (e.g. the "No speech model is selected" banner)
 	 * must reflect the user's committed action IMMEDIATELY, without a
 	 * transport round-trip. Same pattern as setCloudConsent's
 	 * optimistic consent flip. */
-	setConfig: React.Dispatch<React.SetStateAction<VoiceTyperConfig | null>>;
+	setConfig: React.Dispatch<React.SetStateAction<LausuConfig | null>>;
 }
 
 export interface UseModelSelectionResult {
@@ -77,14 +77,13 @@ export function useModelSelection({
 			}
 			setSelectingModel(model.name);
 			try {
-				const updates: Partial<VoiceTyperConfig> = {};
+				const updates: Partial<LausuConfig> = {};
 				if (model.backend === "whisper") {
 					updates.asr_backend = "whisper";
-					updates.model_size = model.name as VoiceTyperConfig["model_size"];
+					updates.model_size = model.name as LausuConfig["model_size"];
 				} else {
-					updates.asr_backend =
-						model.backend as VoiceTyperConfig["asr_backend"];
-					updates.model_size = model.name as VoiceTyperConfig["model_size"];
+					updates.asr_backend = model.backend as LausuConfig["asr_backend"];
+					updates.model_size = model.name as LausuConfig["model_size"];
 				}
 				await updateConfig(updates);
 				// Optimistic config merge, same pattern as

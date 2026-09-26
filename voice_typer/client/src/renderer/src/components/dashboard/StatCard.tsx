@@ -35,7 +35,7 @@ function TrendIndicator({ trend }: { trend: StatTrend }) {
 			aria-label={ariaLabel}
 			className={cn(
 				"inline-flex items-center gap-0.5 text-[11px] font-medium tabular-nums",
-				pct === 0 && "text-(--text-muted)",
+				pct === 0 && "text-muted-foreground",
 				pct > 0 && up && "text-emerald-500",
 				pct > 0 && !up && "text-destructive",
 			)}
@@ -66,7 +66,7 @@ export function StatCard({
 		// breathing room between it and the number. `min-h-24`
 		// guarantees that breathing room even when the row's tallest
 		// card is otherwise only as tall as its content.
-		<div className="flex min-h-24 flex-col gap-2 rounded-xl border border-border/5 bg-(--bg-subtle) p-3">
+		<div className="flex min-h-24 flex-col gap-2 rounded-lg border border-border/5 bg-surface-subtle p-3">
 			{/* Label row, icon on the far left, immediately followed
 			    by the card's title. Truncated to a single line so a
 			    long label can never wrap and break the card's
@@ -75,17 +75,17 @@ export function StatCard({
 				<HugeiconsIcon
 					icon={icon}
 					strokeWidth={1.75}
-					className="h-5 w-5 shrink-0 text-(--text-muted)"
+					className="h-5 w-5 shrink-0 text-muted-foreground"
 				/>
-				<p className="min-w-0 max-w-full truncate text-xs leading-tight text-(--text-muted)">
+				<p className="min-w-0 max-w-full truncate text-xs leading-tight text-muted-foreground">
 					{label}
 				</p>
 			</div>
-			<p className="mt-auto text-2xl font-semibold leading-none tracking-tight tabular-nums text-(--text-primary)">
+			<p className="mt-auto text-2xl font-semibold leading-none tracking-tight tabular-nums text-foreground">
 				{value}
 			</p>
 			{sublabel && (
-				<p className="max-w-full truncate text-xs leading-tight text-(--text-muted)">
+				<p className="max-w-full truncate text-xs leading-tight text-muted-foreground">
 					{sublabel}
 				</p>
 			)}

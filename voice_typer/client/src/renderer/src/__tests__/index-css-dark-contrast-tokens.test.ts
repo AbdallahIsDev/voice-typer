@@ -14,7 +14,7 @@ function darkBlock(): string {
 	return css.slice(start, end);
 }
 
-describe("index.css .dark, opaque input/sidebar-border tokens", () => {
+describe("index.css .dark, opaque input token", () => {
 	it("--input is opaque (no alpha) at the preset dark lightness", () => {
 		const match = /--input:\s*([^;]+);/.exec(darkBlock());
 		const value = match?.[1];
@@ -23,18 +23,6 @@ describe("index.css .dark, opaque input/sidebar-border tokens", () => {
 		// Preset dark themes use L 0.52–0.54; the base fallback sits at
 		// the same lightness band (github.ts dark uses 0.52).
 		expect(value.trim()).toMatch(/^oklch\(0\.5[234]/);
-	});
-
-	it("--sidebar-border is opaque (no alpha) at the preset dark lightness", () => {
-		const match = /--sidebar-border:\s*([^;]+);/.exec(darkBlock());
-		const value = match?.[1];
-		if (!value) {
-			throw new Error("no --sidebar-border declaration in the .dark block");
-		}
-		expect(value.trim()).not.toContain("/");
-		// Preset dark themes use L 0.18–0.22 (dark-on-dark divider
-		// treatment); the base fallback sits inside that band.
-		expect(value.trim()).toMatch(/^oklch\(0\.(1[89]|2[0-2]?)(\D|$)/);
 	});
 
 	it("no alpha-composited oklch(1 0 0 / N%) tokens remain in the .dark block", () => {

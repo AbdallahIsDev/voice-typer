@@ -8,17 +8,11 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Core
 		"--background": "oklch(1 0 0)",
 		"--foreground": "oklch(0.1 0 0)",
-		"--bg-subtle": "oklch(0.96 0 0)",
+		"--surface-subtle": "oklch(0.96 0 0)",
 		"--surface-hover": "oklch(0.92 0 0)",
-		"--surface-page": "oklch(1 0 0)",
 		// Text
-		"--text-primary": "oklch(0.1 0 0)",
 		"--text-secondary": "oklch(0.4 0 0)",
-		// Cards / popovers
-		"--card": "oklch(1 0 0)",
-		"--card-foreground": "oklch(0.1 0 0)",
-		"--popover": "oklch(1 0 0)",
-		"--popover-foreground": "oklch(0.1 0 0)",
+		"--surface": "oklch(1 0 0)",
 		// Primary / accent
 		"--primary": "oklch(0.488 0.243 264.376)",
 		"--primary-foreground": "oklch(0.97 0.014 254.604)",
@@ -26,9 +20,6 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		"--accent-foreground": "oklch(0.97 0.014 254.604)",
 		"--accent-soft": "oklch(0.488 0.243 264.376 / 0.08)",
 		"--accent-muted": "oklch(0.488 0.243 264.376 / 0.3)",
-		// Secondary / muted
-		"--secondary": "oklch(0.92 0 0)",
-		"--secondary-foreground": "oklch(0.1 0 0)",
 		"--muted": "oklch(0.96 0 0)",
 		/* bump L from 0.5 to 0.48 so --muted-foreground clears WCAG AA
 		   4.5:1 against the white background. */
@@ -51,15 +42,6 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		   text clear AA 4.5:1 against the slightly deeper red. */
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar
-		"--sidebar": "oklch(0.98 0 0)",
-		"--sidebar-foreground": "oklch(0.1 0 0)",
-		"--sidebar-primary": "oklch(0.488 0.243 264.376)",
-		"--sidebar-primary-foreground": "oklch(0.97 0.014 254.604)",
-		"--sidebar-accent": "oklch(0.92 0 0)",
-		"--sidebar-accent-foreground": "oklch(0.1 0 0)",
-		"--sidebar-border": "oklch(0.9 0 0)",
-		"--sidebar-ring": "oklch(0.488 0.243 264.376)",
 		// Charts
 		"--chart-1": "oklch(0.55 0.22 264)",
 		"--chart-2": "oklch(0.6 0.18 145)",
@@ -80,17 +62,11 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Core
 		"--background": "oklch(0 0 0)",
 		"--foreground": "oklch(0.985 0 0)",
-		"--bg-subtle": "oklch(0.04 0 0)",
+		"--surface-subtle": "oklch(0.04 0 0)",
 		"--surface-hover": "oklch(0.1 0 0)",
-		"--surface-page": "oklch(0 0 0)",
 		// Text
-		"--text-primary": "oklch(0.985 0 0)",
 		"--text-secondary": "oklch(0.8 0 0)",
-		// Cards / popovers
-		"--card": "oklch(0.04 0 0)",
-		"--card-foreground": "oklch(0.985 0 0)",
-		"--popover": "oklch(0.04 0 0)",
-		"--popover-foreground": "oklch(0.985 0 0)",
+		"--surface": "oklch(0.04 0 0)",
 		// Primary / accent (added --primary + --primary-foreground
 		// relied on the stylesheet default for these).
 		"--primary": "oklch(0.546 0.245 262.881)",
@@ -99,9 +75,6 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		"--accent-foreground": "oklch(0.97 0.014 254.604)",
 		"--accent-soft": "oklch(0.424 0.199 265.638 / 0.08)",
 		"--accent-muted": "oklch(0.546 0.245 262.881 / 0.3)",
-		// Secondary / muted
-		"--secondary": "oklch(0.1 0 0)",
-		"--secondary-foreground": "oklch(0.985 0 0)",
 		"--muted": "oklch(0.08 0 0)",
 		"--muted-foreground": "oklch(0.65 0 0)",
 		// Borders / inputs / rings
@@ -113,15 +86,6 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Destructive (added so dark matches light coverage.)
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar
-		"--sidebar": "oklch(0.02 0 0)",
-		"--sidebar-foreground": "oklch(0.985 0 0)",
-		"--sidebar-primary": "oklch(0.546 0.245 262.881)",
-		"--sidebar-primary-foreground": "oklch(0.97 0.014 254.604)",
-		"--sidebar-accent": "oklch(0.08 0 0)",
-		"--sidebar-accent-foreground": "oklch(0.985 0 0)",
-		"--sidebar-border": "oklch(0.1 0 0)",
-		"--sidebar-ring": "oklch(0.7 0 0)",
 		// Charts (added so dark matches light coverage.)
 		"--chart-1": "oklch(0.6 0.22 264)",
 		"--chart-2": "oklch(0.65 0.18 145)",

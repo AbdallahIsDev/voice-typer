@@ -1,8 +1,8 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { describe, expect, it, vi } from "vitest";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Disable color-contrast, the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be
@@ -13,7 +13,7 @@ const AXE_OPTIONS: axe.RunOptions = {
 	},
 };
 
-// Stub config that satisfies the VoiceTyperConfig type minimally.
+// Stub config that satisfies the LausuConfig type minimally.
 // Individual page tests extend this as needed.
 const STUB_CONFIG = {
 	theme_mode: "dark" as const,
@@ -209,7 +209,7 @@ vi.mock("@/hooks/useTheme", () => ({
 }));
 
 vi.mock("@/hooks/useSoundFeedback", () => ({
-	useSoundFeedback: () => {},
+	useSoundFeedback: () => { },
 }));
 
 vi.mock("@/hooks/useLastUpdated", () => ({
@@ -552,7 +552,7 @@ describe("axe-core automated WCAG scan, interactive surfaces", () => {
 			</div>,
 		);
 		// Let the title bar's focus/blur + search effects settle.
-		await act(async () => {});
+		await act(async () => { });
 		await expectNoAxeViolations(container);
 	});
 
@@ -561,7 +561,7 @@ describe("axe-core automated WCAG scan, interactive surfaces", () => {
 		const { container } = renderPage(
 			<Sidebar currentPage="home" onNavigate={vi.fn()} collapsed />,
 		);
-		await act(async () => {});
+		await act(async () => { });
 		await expectNoAxeViolations(container);
 	});
 
@@ -639,7 +639,7 @@ describe("axe-core automated WCAG scan, interactive surfaces", () => {
 				<SettingsPage page={sectionPage} />,
 			);
 			// Flush async section init (IPC mocks resolve on microtasks).
-			await act(async () => {});
+			await act(async () => { });
 			await expectNoAxeViolations(container);
 			unmount();
 		}
@@ -657,7 +657,7 @@ describe("axe-core automated WCAG scan, interactive surfaces", () => {
 	it("Settings hotkeys section: full-rule scan stays green after the slider aria fix", async () => {
 		const SettingsPage = (await import("@/pages/Settings")).default;
 		const { container } = renderPage(<SettingsPage page="settingsHotkeys" />);
-		await act(async () => {});
+		await act(async () => { });
 		await expectNoAxeViolations(container);
 	});
 });

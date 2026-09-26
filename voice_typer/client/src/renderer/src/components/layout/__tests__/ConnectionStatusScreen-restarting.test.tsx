@@ -168,13 +168,13 @@ describe("ConnectionStatusScreen, roleless wrapper + restarting spinner + force-
 				connectingProgress={null}
 			/>,
 		);
-		// Same local calm card as disconnected: bg-card surface, no
+		// Same local calm card as disconnected: bg-surface surface, no
 		// destructive wash.
 		const card = document.querySelector(
 			'[data-testid="connection-status"] > div',
 		) as HTMLElement;
 		expect(card).toBeTruthy();
-		expect(card.className).toContain("bg-card");
+		expect(card.className).toContain("bg-surface");
 		expect(card.className).not.toContain("bg-destructive/5");
 		// No error-icon disc in the connecting state; the Spinner output
 		// is the loading affordance.

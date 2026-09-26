@@ -29,7 +29,7 @@ vi.mock("@/i18n/i18n", () => ({
 import { useModelSelection } from "@/hooks/models/useModelSelection";
 // ── Helpers ──────────────────────────────────────────────────────────
 import type { ModelInfo } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 function makeModel(overrides: Partial<ModelInfo> = {}): ModelInfo {
 	return {
@@ -49,8 +49,8 @@ function makeHookArgs(
 		call?: typeof callMock;
 		setModels?: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 		refreshModelStatus?: () => Promise<void>;
-		updateConfig?: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
-		setConfig?: React.Dispatch<React.SetStateAction<VoiceTyperConfig | null>>;
+		updateConfig?: (updates: Partial<LausuConfig>) => Promise<void>;
+		setConfig?: React.Dispatch<React.SetStateAction<LausuConfig | null>>;
 	} = {},
 ) {
 	const setModels =
@@ -63,7 +63,7 @@ function makeHookArgs(
 	const setConfig =
 		overrides.setConfig ??
 		(vi.fn() as unknown as React.Dispatch<
-			React.SetStateAction<VoiceTyperConfig | null>
+			React.SetStateAction<LausuConfig | null>
 		>);
 	const showSnack = vi.fn();
 	return {
@@ -113,8 +113,8 @@ describe("useModelSelection, selectModel success path", () => {
 		expect(args.setConfig).toHaveBeenCalledTimes(1);
 		const cfgUpdater = (args.setConfig as unknown as ReturnType<typeof vi.fn>)
 			.mock.calls[0]?.[0] as (
-			prev: Partial<VoiceTyperConfig> | null,
-		) => Partial<VoiceTyperConfig>;
+			prev: Partial<LausuConfig> | null,
+		) => Partial<LausuConfig>;
 		expect(cfgUpdater({ asr_backend: "whisper", model_size: "" })).toEqual({
 			asr_backend: "whisper",
 			model_size: "tiny",

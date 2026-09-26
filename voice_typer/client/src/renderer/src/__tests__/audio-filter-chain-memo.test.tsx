@@ -1,5 +1,5 @@
-import { act, cleanup, render } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { act, cleanup, render } from "@testing-library/react";
 
 const renderWithProviders = (ui: React.ReactElement) => {
 	const wrapped = (node: React.ReactElement) => (
@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import { setLocale } from "@/i18n/i18n";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 // Stub the icons used by SettingRow / Radix Select / Switch so the
 // render graph doesn't pull in the full hugeicons dependency tree.
@@ -31,7 +31,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 	return createHugeiconsMock();
 });
 
-function makeStubConfig(): VoiceTyperConfig {
+function makeStubConfig(): LausuConfig {
 	return {
 		audio_preset: "custom",
 		// Minimal stub, AudioFilterChain only reads noise_filter_* fields.
@@ -58,7 +58,7 @@ function makeStubConfig(): VoiceTyperConfig {
 		limiter_release_ms: 100,
 		notch_filter_enabled: false,
 		notch_filter_frequency_hz: 50,
-	} as unknown as VoiceTyperConfig;
+	} as unknown as LausuConfig;
 }
 
 describe("TY-37: AudioFilterChain labels are memoised", () => {

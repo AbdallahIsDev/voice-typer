@@ -8,12 +8,8 @@ export const solarizedTheme: Omit<ThemePreset, "nameKey"> = {
 		// Core
 		"--background": "oklch(0.96 0.02 90)",
 		"--foreground": "oklch(0.2 0.015 250)",
-		"--bg-subtle": "oklch(0.93 0.02 90)",
+		"--surface-subtle": "oklch(0.93 0.02 90)",
 		"--surface-hover": "oklch(0.89 0.02 90)",
-		// backfill --surface-page (was missing in light, present in dark).
-		"--surface-page": "oklch(0.96 0.02 90)",
-		// Text (backfill --text-primary).
-		"--text-primary": "oklch(0.2 0.015 250)",
 		"--text-secondary": "oklch(0.35 0.01 250)",
 		// Borders / inputs / rings
 		/* WCAG 1.4.11: L lowered from 0.84 to 0.62 so the border clears
@@ -23,16 +19,10 @@ export const solarizedTheme: Omit<ThemePreset, "nameKey"> = {
 		/* bump L from 0.6 to 0.48 so the focus ring (combined with
 		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
 		"--ring": "oklch(0.48 0.08 200)",
-		// Cards / popovers
-		"--card": "oklch(0.97 0.02 90)",
-		"--card-foreground": "oklch(0.2 0.015 250)",
-		"--popover": "oklch(0.97 0.02 90)",
-		"--popover-foreground": "oklch(0.2 0.015 250)",
+		"--surface": "oklch(0.97 0.02 90)",
 		// Primary / accent
 		"--primary": "oklch(0.55 0.1 200)",
 		"--primary-foreground": "oklch(0.1 0 0)",
-		"--secondary": "oklch(0.9 0.015 90)",
-		"--secondary-foreground": "oklch(0.22 0.015 250)",
 		"--accent": "oklch(0.5 0.08 160)",
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.55 0.1 200 / 0.1)",
@@ -42,15 +32,6 @@ export const solarizedTheme: Omit<ThemePreset, "nameKey"> = {
 		// Destructive (/backfill --destructive + --destructive-foreground.)
 		"--destructive": "oklch(0.55 0.25 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar
-		"--sidebar": "oklch(0.94 0.02 90)",
-		"--sidebar-foreground": "oklch(0.2 0.015 250)",
-		"--sidebar-primary": "oklch(0.55 0.1 200)",
-		"--sidebar-primary-foreground": "oklch(0.1 0 0)",
-		"--sidebar-accent": "oklch(0.9 0.015 90)",
-		"--sidebar-accent-foreground": "oklch(0.22 0.015 250)",
-		"--sidebar-border": "oklch(0.85 0.015 90)",
-		"--sidebar-ring": "oklch(0.48 0.08 200)",
 		// Charts
 		"--chart-1": "oklch(0.6 0.12 200)",
 		"--chart-2": "oklch(0.55 0.1 160)",
@@ -70,20 +51,12 @@ export const solarizedTheme: Omit<ThemePreset, "nameKey"> = {
 	dark: {
 		"--background": "oklch(0.15 0.015 240)",
 		"--foreground": "oklch(0.9 0.015 90)",
-		"--bg-subtle": "oklch(0.12 0.012 240)",
+		"--surface-subtle": "oklch(0.12 0.012 240)",
 		"--surface-hover": "oklch(0.19 0.015 240)",
-		// backfill --surface-page so dark matches light coverage.
-		"--surface-page": "oklch(0.15 0.015 240)",
-		"--text-primary": "oklch(0.9 0.015 90)",
 		"--text-secondary": "oklch(0.75 0.01 90)",
-		"--card": "oklch(0.17 0.015 240)",
-		"--card-foreground": "oklch(0.9 0.015 90)",
-		"--popover": "oklch(0.17 0.015 240)",
-		"--popover-foreground": "oklch(0.9 0.015 90)",
+		"--surface": "oklch(0.17 0.015 240)",
 		"--primary": "oklch(0.6 0.1 200)",
 		"--primary-foreground": "oklch(0.1 0 0)",
-		"--secondary": "oklch(0.22 0.015 240)",
-		"--secondary-foreground": "oklch(0.9 0.015 90)",
 		"--muted": "oklch(0.2 0.012 240)",
 		"--muted-foreground": "oklch(0.65 0.01 240)",
 		/* WCAG AA: --accent L=0.55 + chroma 0.08 in dark mode means the
@@ -99,14 +72,6 @@ export const solarizedTheme: Omit<ThemePreset, "nameKey"> = {
 		"--border": "oklch(1 0 0)",
 		"--input": "oklch(0.54 0.015 240)",
 		"--ring": "oklch(0.7 0.12 200)",
-		"--sidebar": "oklch(0.13 0.015 240)",
-		"--sidebar-foreground": "oklch(0.9 0.015 90)",
-		"--sidebar-primary": "oklch(0.6 0.1 200)",
-		"--sidebar-primary-foreground": "oklch(0.1 0 0)",
-		"--sidebar-accent": "oklch(0.2 0.015 240)",
-		"--sidebar-accent-foreground": "oklch(0.9 0.015 90)",
-		"--sidebar-border": "oklch(0.21 0.015 240)",
-		"--sidebar-ring": "oklch(0.7 0.12 200)",
 		"--destructive": "oklch(0.55 0.25 27)",
 		// backfill --destructive-foreground so destructive button text
 		// is readable without relying on the stylesheet default.

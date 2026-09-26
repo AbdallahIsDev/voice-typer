@@ -48,14 +48,12 @@ vi.mock("sonner", () => ({
 }));
 
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 // Build a config where every consent flag is `false`.  This makes the
 // "Agree to All" banner visible (it shows when not all consents are
 // true) so the section renders every toggle row.
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -163,7 +161,7 @@ function makeConfig(
 		cloud_deepgram_consent: false,
 		llm_polish_consent: false,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 // The Settings page passes an isVisible predicate that always returns

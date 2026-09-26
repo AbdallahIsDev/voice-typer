@@ -29,7 +29,7 @@ export function VocabDuplicateBanner({
 		<div
 			data-testid="vocab-duplicate-banner"
 			role="status"
-			className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2"
+			className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2"
 		>
 			<HugeiconsIcon
 				icon={Alert01Icon}
@@ -37,7 +37,7 @@ export function VocabDuplicateBanner({
 				aria-hidden="true"
 				className="size-4 shrink-0 text-warning"
 			/>
-			<p className="min-w-0 flex-1 text-xs font-medium text-(--text-primary)">
+			<p className="min-w-0 flex-1 text-xs font-medium text-foreground">
 				{t("vocabulary.duplicateBanner", { count: String(count) })}
 			</p>
 			<Button
@@ -53,7 +53,7 @@ export function VocabDuplicateBanner({
 				onClick={onDismiss}
 				aria-label={t("common.close")}
 				title={t("common.close")}
-				className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+				className="cursor-pointer rounded-lg p-1 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 			>
 				<HugeiconsIcon
 					icon={Cancel01Icon}

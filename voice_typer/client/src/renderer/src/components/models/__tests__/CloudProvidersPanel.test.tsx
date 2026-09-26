@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CloudProvidersPanel } from "@/components/models/CloudProvidersPanel";
 import type { ApiTestResult } from "@/hooks/useModelLifecycle";
 import type { CloudProvider } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 // Mock the HugeiconsIcon wrapper so the test doesn't depend on the SVG
 // renderer.
@@ -71,7 +71,7 @@ const baseConfig = {
 	cloud_groq_consent: false,
 	cloud_deepgram_consent: false,
 	keyring_status: undefined,
-} as unknown as VoiceTyperConfig;
+} as unknown as LausuConfig;
 
 const baseProps = {
 	config: baseConfig,
@@ -228,7 +228,7 @@ describe("CloudProvidersPanel, three test-result color branches", () => {
 		openApiKeyForm();
 		const span = screen.getByText("ok");
 		expect(span.className).toContain("text-primary");
-		expect(span.className).not.toContain("text-[(--text-muted)]");
+		expect(span.className).not.toContain("text-[(--muted-foreground)]");
 	});
 
 	it("failure branch uses text-destructive", () => {
@@ -247,7 +247,7 @@ describe("CloudProvidersPanel, three test-result color branches", () => {
 		expect(span.className).toContain("text-destructive");
 	});
 
-	it("info branch uses the canonical text-(--text-muted) class (NOT the invalid text-[(--text-muted)] form)", () => {
+	it("info branch uses the canonical text-muted-foreground class (NOT the invalid text-[(--muted-foreground)] form)", () => {
 		const testResult: ApiTestResult = {
 			message: "testing…",
 			status: "info",
@@ -260,11 +260,11 @@ describe("CloudProvidersPanel, three test-result color branches", () => {
 		);
 		openApiKeyForm();
 		const span = screen.getByText("testing…");
-		//`text-[(--text-muted)]` is invalid Tailwind v4 syntax.
-		// The canonical form is `text-(--text-muted)`, matches every other
+		//`text-[(--muted-foreground)]` is invalid Tailwind v4 syntax.
+		// The canonical form is `text-muted-foreground`, matches every other
 		// call site in the codebase.
-		expect(span.className).toContain("text-(--text-muted)");
-		expect(span.className).not.toContain("text-[(--text-muted)]");
+		expect(span.className).toContain("text-muted-foreground");
+		expect(span.className).not.toContain("text-[(--muted-foreground)]");
 	});
 });
 
@@ -277,7 +277,7 @@ describe("CloudProvidersPanel, consent progressive disclosure", () => {
 				{...baseProps}
 				apiKeys={{}}
 				config={
-					{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig
+					{ ...baseConfig, cloud_openai_consent: false } as LausuConfig
 				}
 			/>,
 		);
@@ -291,7 +291,7 @@ describe("CloudProvidersPanel, consent progressive disclosure", () => {
 				{...baseProps}
 				apiKeys={{ openai: "sk-test" }}
 				config={
-					{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig
+					{ ...baseConfig, cloud_openai_consent: false } as LausuConfig
 				}
 			/>,
 		);
@@ -306,7 +306,7 @@ describe("CloudProvidersPanel, consent progressive disclosure", () => {
 				{...baseProps}
 				apiKeys={{}}
 				config={
-					{ ...baseConfig, cloud_openai_consent: true } as VoiceTyperConfig
+					{ ...baseConfig, cloud_openai_consent: true } as LausuConfig
 				}
 			/>,
 		);
@@ -322,7 +322,7 @@ describe("CloudProvidersPanel, consent progressive disclosure", () => {
 				{...baseProps}
 				apiKeys={{ openai: "sk-test" }}
 				config={
-					{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig
+					{ ...baseConfig, cloud_openai_consent: false } as LausuConfig
 				}
 				onConsentChange={onConsentChange}
 			/>,

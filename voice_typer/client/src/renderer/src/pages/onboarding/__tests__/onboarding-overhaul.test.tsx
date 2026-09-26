@@ -168,7 +168,7 @@ describe("Onboarding 4-step essentials flow", () => {
 		// Advance through the whole wizard; every step must render its
 		// expected heading with the progress text matching its index.
 		const expected: string[] = [
-			"Welcome to Voice Typer",
+			"Welcome to Lausu",
 			"Privacy & Consent",
 			"Choose Your Model",
 			"Choose Your Hotkey",

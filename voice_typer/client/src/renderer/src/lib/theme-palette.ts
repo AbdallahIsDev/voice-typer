@@ -22,8 +22,8 @@ import { THEME_APPLIED_EVENT } from "@/themes";
 export interface StatsThemePalette {
 	/** Main page background (--background). */
 	background: string;
-	/** Card / panel surface (--card). */
-	card: string;
+	/** Raised panel surface (--surface). */
+	surface: string;
 	/** Primary text (--foreground). */
 	foreground: string;
 	/** Secondary / dimmed text (--muted-foreground). */
@@ -45,7 +45,7 @@ export interface StatsThemePalette {
  * dark theme so the export never renders broken/empty colours. */
 export const FALLBACK_THEME_PALETTE: StatsThemePalette = {
 	background: "#131313",
-	card: "#171717",
+	surface: "#171717",
 	foreground: "#fafafa",
 	mutedForeground: "#9f9fa9",
 	primary: "#193cb8",
@@ -70,7 +70,7 @@ export function readThemePalette(): StatsThemePalette {
 		// cssColorToHex returns #000000 for unparseable input, treat
 		// that as a miss for the background/surface tokens (a genuinely
 		// black theme would still set its own --background explicitly).
-		if (hex === "#000000" && name !== "--foreground" && name !== "--card") {
+		if (hex === "#000000" && name !== "--foreground" && name !== "--surface") {
 			return fallback;
 		}
 		return hex;
@@ -81,7 +81,7 @@ export function readThemePalette(): StatsThemePalette {
 
 	return {
 		background: read("--background", FALLBACK_THEME_PALETTE.background),
-		card: read("--card", FALLBACK_THEME_PALETTE.card),
+		surface: read("--surface", FALLBACK_THEME_PALETTE.surface),
 		foreground: read("--foreground", FALLBACK_THEME_PALETTE.foreground),
 		mutedForeground: read(
 			"--muted-foreground",

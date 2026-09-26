@@ -52,25 +52,26 @@ describe("dead exports stay removed, Rust host", () => {
 	// tray_available.ts / refreshTrayAvailableCache) was deleted with
 	// the predecessor shell; that assertion is gone with it.
 
-	it("export.rs has no allocation-returning csv_escape twin (production uses csv_escape_into)", () => {
+	it("export.rs delegates CSV quoting to the csv crate (no hand-rolled escaper)", () => {
 		const src = readFileSync(
 			resolve(REPO_ROOT, "src-tauri/src/commands/export.rs"),
 			"utf8",
 		);
-		// The exact-twin signature, must not match `fn csv_escape_into(`.
-		expect(src).not.toContain("fn csv_escape(s: &str) -> String");
+		// The hand-rolled RFC 4180 escaper was deleted: `json_to_csv` writes
+		// through the `csv` crate's Writer, so no escape twin can come back.
+		expect(src).not.toContain("fn csv_escape");
 		expect(src).not.toContain("#[allow(dead_code)]");
-		// The production escape path must still exist.
-		expect(src).toContain("fn csv_escape_into(out: &mut String, s: &str)");
+		expect(src).toContain("csv::Writer::from_writer");
 	});
 
-	it("export_tests.rs exercises the escape behavior through csv_escape_into only", () => {
+	it("export_tests.rs has no reference to a removed escape helper", () => {
 		const src = readFileSync(
 			resolve(REPO_ROOT, "src-tauri/src/commands/export_tests.rs"),
 			"utf8",
 		);
 		expect(src).not.toMatch(/use super::\{[^}]*\bcsv_escape, /s);
 		expect(src).not.toMatch(/assert_eq!\(csv_escape\(/);
+		expect(src).not.toMatch(/\bcsv_escape_into\(/);
 	});
 });
 

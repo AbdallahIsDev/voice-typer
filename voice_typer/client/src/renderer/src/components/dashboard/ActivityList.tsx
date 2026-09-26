@@ -195,7 +195,7 @@ const ActivityListRow = memo(function ActivityListRow({
 						data-testid={expandable ? "activity-row-text-toggle" : undefined}
 						onClick={expandable ? () => void toggleExpanded() : undefined}
 						onKeyDown={expandable ? handleTextKeyDown : undefined}
-						className={`rounded-md transition-colors ${
+						className={`rounded-lg transition-colors ${
 							expandable
 								? "cursor-pointer focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
 								: ""
@@ -212,7 +212,7 @@ const ActivityListRow = memo(function ActivityListRow({
 							// expandable rows): single-line and expanded
 							// text must render unmasked. Full-height fade
 							// (0% to 100%).
-							className={`text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis ${
+							className={`text-sm text-foreground leading-snug overflow-hidden text-ellipsis ${
 								expandable && !expanded ? "mask-b-from-0% mask-b-to-100%" : ""
 							}`}
 							style={
@@ -249,7 +249,7 @@ const ActivityListRow = memo(function ActivityListRow({
 									void toggleExpanded();
 								}}
 								onKeyDown={(e) => e.stopPropagation()}
-								className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
+								className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-pointer whitespace-nowrap text-sm leading-snug text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden rounded-lg"
 							>
 								{loadingText
 									? t("history.loading")
@@ -266,7 +266,7 @@ const ActivityListRow = memo(function ActivityListRow({
 			    the cluster) keeps the two ends pinned even when the
 			    metadata is short. */}
 			<div className="flex items-center justify-between gap-2">
-				<span className="text-xs text-(--text-muted) block min-w-0 truncate">
+				<span className="text-xs text-muted-foreground block min-w-0 truncate">
 					{grouped
 						? formatRecordTime(item.timestamp)
 						: formatTimestamp(item.timestamp)}
@@ -289,7 +289,7 @@ const ActivityListRow = memo(function ActivityListRow({
 						variant="ghost"
 						size="icon-xs"
 						onClick={() => onCopy({ ...item, text: displayedText })}
-						className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
+						className="shrink-0 text-muted-foreground hover:text-foreground"
 						title={t("history.copyText")}
 						aria-label={t("history.copyText")}
 					>
@@ -312,7 +312,7 @@ const ActivityListRow = memo(function ActivityListRow({
 							variant="ghost"
 							size="icon-xs"
 							onClick={() => onToggleFavorite(item.id)}
-							className="shrink-0 text-(--text-muted) hover:text-warning"
+							className="shrink-0 text-muted-foreground hover:text-warning"
 							title={
 								item.favorite
 									? t("activityList.removeFromFavorites")
@@ -336,7 +336,7 @@ const ActivityListRow = memo(function ActivityListRow({
 							variant="ghost"
 							size="icon-xs"
 							onClick={() => onDelete(item.id)}
-							className="shrink-0 text-(--text-muted) hover:text-destructive"
+							className="shrink-0 text-muted-foreground hover:text-destructive"
 							title={t("common.delete")}
 							aria-label={t("history.deleteEntry")}
 						>
@@ -409,7 +409,7 @@ function ActivityListInner({
 			<div className="flex w-full flex-col gap-2 [text-wrap:auto]">
 				{!hideHeader && (
 					<div className="flex items-center justify-between w-full">
-						<span className="text-[12px] font-semibold text-(--text-primary)">
+						<span className="text-[12px] font-semibold text-foreground">
 							{title}
 						</span>
 						{showViewAll && onViewAll && (
@@ -417,15 +417,15 @@ function ActivityListInner({
 								onClick={onViewAll}
 								variant="link"
 								size="xs"
-								className="text-[12px] font-semibold text-(--text-muted) hover:text-(--text-primary) p-0"
+								className="text-[12px] font-semibold text-muted-foreground hover:text-foreground p-0"
 							>
 								{t("activityList.viewAll")}
 							</Button>
 						)}
 					</div>
 				)}
-				<div className="rounded-lg border border-border/5 bg-(--bg-subtle)">
-					<p className="px-3.5 py-4 text-xs text-(--text-muted) text-center">
+				<div className="rounded-lg border border-border/5 bg-surface-subtle">
+					<p className="px-3.5 py-4 text-xs text-muted-foreground text-center">
 						{t("activityList.noRecentActivity")}
 					</p>
 				</div>
@@ -444,7 +444,7 @@ function ActivityListInner({
 		<div className="flex w-full flex-col gap-2 [text-wrap:auto]">
 			{!hideHeader && (
 				<div className="flex items-center justify-between w-full">
-					<span className="text-[12px] font-semibold text-(--text-primary)">
+					<span className="text-[12px] font-semibold text-foreground">
 						{title}
 					</span>
 					{showViewAll && onViewAll && (
@@ -452,7 +452,7 @@ function ActivityListInner({
 							onClick={onViewAll}
 							variant="link"
 							size="xs"
-							className="text-[12px] font-semibold text-(--text-muted) hover:text-(--text-primary) p-0"
+							className="text-[12px] font-semibold text-muted-foreground hover:text-foreground p-0"
 						>
 							{t("activityList.viewAll")}
 						</Button>
@@ -471,7 +471,7 @@ function ActivityListInner({
 							aria-labelledby={
 								group.label ? `history-date-${group.key}` : undefined
 							}
-							className="rounded-lg border border-border/5 bg-(--bg-subtle)"
+							className="rounded-lg border border-border/5 bg-surface-subtle"
 						>
 							{group.label && (
 								<div className="px-4 pt-3 pb-1">
@@ -482,7 +482,7 @@ function ActivityListInner({
 									    unchanged (still the muted 12px label). */}
 									<h2
 										id={`history-date-${group.key}`}
-										className="text-xs font-semibold tracking-wide text-(--text-muted)"
+										className="text-xs font-semibold tracking-wide text-muted-foreground"
 									>
 										{group.label}
 									</h2>
@@ -507,7 +507,7 @@ function ActivityListInner({
 					))}
 				</div>
 			) : (
-				<div className="rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/5">
+				<div className="rounded-lg border border-border/5 bg-surface-subtle divide-y divide-border/5">
 					{" "}
 					{items.map((item) => (
 						<ActivityListRow

@@ -89,7 +89,7 @@ export function Spinner({
 				style={resolvedStyle}
 			/>
 			{label ? (
-				<span className="ms-2 text-xs text-(--text-muted)">{label}</span>
+				<span className="ms-2 text-xs text-muted-foreground">{label}</span>
 			) : null}
 		</>
 	);

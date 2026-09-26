@@ -102,6 +102,7 @@ const _RENDERER_CALLED_COMMANDS = {
 	onboarding_start: true,
 	// phantom ``open_models_folder`` removed, same
 	// reason as ``get_disk_info`` above.
+	open_data_folder: true, // Models storage card + Diagnostics button (config dir)
 	pause_model_download: true,
 	repaste_last: true,
 	restore_history: true,
@@ -232,8 +233,12 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	force_cancel_transcription: true,
 	transcribe_offline: true,
 	check_offline_pack_update: true, // auto-update feature (docs/auto-update-feature.md)
+	media_transcribe_start: true, // ADR-0023 universal media-to-text jobs
+	media_transcribe_cancel: true,
+	media_transcribe_status: true,
 	get_prewarm_status: true, // RESTORED 2026-08-14 (About-page Cache Status card, plan §6.3)
 	open_prewarm_log: true, // RESTORED 2026-08-14 (About-page Cache Status card, plan §6.3)
+	open_data_folder: true, // Models storage card + Diagnostics button (config dir)
 	run_prewarm: true, // RESTORED 2026-08-14 (§6.3 addendum 2nd half, in-process warm pass)
 	heartbeat: true,
 	relaunch_ack: true,

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import type { TauriGlobal } from "@/lib/tauri-bridge/detect";
+import { describe, expect, it, vi } from "vitest";
 
 import { createPythonNamespace } from "@/lib/tauri-bridge/python-namespace";
 import type { PythonPushEvent } from "@/types/ipc";
@@ -85,7 +85,7 @@ describe("python-namespace: supervisor_failed listener (XZ-R16-02)", () => {
 			payload: {
 				reason: "circuit_breaker_tripped",
 				message:
-					"Native sidecar crashed 5 times in a row. Please reinstall Voice Typer.",
+					"Native sidecar crashed 5 times in a row. Please reinstall Lausu.",
 				restart_count: 5,
 			},
 		});
@@ -105,7 +105,7 @@ describe("python-namespace: supervisor_failed listener (XZ-R16-02)", () => {
 		// the renderer can surface the reinstall prompt verbatim.
 		expect(typeof event.data?.message).toBe("string");
 		expect(event.data?.message).toContain(
-			"Native sidecar crashed 5 times in a row. Please reinstall Voice Typer.",
+			"Native sidecar crashed 5 times in a row. Please reinstall Lausu.",
 		);
 		// The stable sentinel substring must also be present so any
 		// legacy substring-match fallback in the renderer still works.

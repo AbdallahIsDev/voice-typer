@@ -14,7 +14,7 @@ export const FIRST_RECORD_CELEBRATED_KEY = "vt_first_recording_celebrated";
 export const FORCE_CANCEL_DELAY_MS = 5_000;
 
 export const STATUS_COLORS: Record<string, string> = {
-	idle: "var(--text-muted)",
+	idle: "var(--muted-foreground)",
 	recording: "var(--success)",
 	transcribing: "var(--info)",
 	loading: "var(--warning)",
@@ -22,4 +22,4 @@ export const STATUS_COLORS: Record<string, string> = {
 	error: "var(--destructive)",
 };
 
-export const DEFAULT_STATUS_COLOR = "var(--text-muted)";
+export const DEFAULT_STATUS_COLOR = "var(--muted-foreground)";

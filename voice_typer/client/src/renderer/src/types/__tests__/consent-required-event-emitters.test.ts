@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ConsentRequiredEvent } from "@/types/ipc";
 
-// Repo root = voice-typer/ (7 levels up from this file's directory:
+// Repo root = lausu/ (7 levels up from this file's directory:
 // __tests__ → types → src → renderer → src → client → voice_typer → root).
 const REPO_ROOT = resolve(__dirname, "../../../../../../..");
 

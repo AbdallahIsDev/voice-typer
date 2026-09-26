@@ -1,5 +1,5 @@
 /**
- * Built-in theme presets for Voice Typer.
+ * Built-in theme presets for Lausu.
  *
  * Each preset defines CSS variable overrides for **both** light and dark
  * colour-scheme variants.  When a preset is active, the variables are
@@ -56,25 +56,18 @@ export interface CustomThemeData {
  * switching presets or reverting to default.
  */
 export const THEME_VARIABLES: readonly string[] = [
-	// Core background / foreground
+	// Surfaces (page canvas, raised panels, quiet zones, hover fill)
 	"--background",
-	"--foreground",
-	"--bg-subtle",
+	"--surface",
+	"--surface-subtle",
 	"--surface-hover",
-	"--surface-page",
 
-	// Text (--text-muted removed, aliased to --muted-foreground
-	// in index.css. Only --muted-foreground is the canonical token now.)
-	"--text-primary",
+	// Text tiers (must-read / body / hints)
+	"--foreground",
 	"--text-secondary",
+	"--muted-foreground",
 
-	// Cards, popovers, dialogs
-	"--card",
-	"--card-foreground",
-	"--popover",
-	"--popover-foreground",
-
-	// Primary / accent
+	// Brand (primary fill + accent tints)
 	"--primary",
 	"--primary-foreground",
 	"--accent",
@@ -82,11 +75,8 @@ export const THEME_VARIABLES: readonly string[] = [
 	"--accent-soft",
 	"--accent-muted",
 
-	// Secondary / muted
-	"--secondary",
-	"--secondary-foreground",
+	// Neutral interactive fill
 	"--muted",
-	"--muted-foreground",
 
 	// Borders / inputs / rings
 	"--border",
@@ -105,16 +95,6 @@ export const THEME_VARIABLES: readonly string[] = [
 	"--warning",
 	"--info",
 
-	// Sidebar
-	"--sidebar",
-	"--sidebar-foreground",
-	"--sidebar-primary",
-	"--sidebar-primary-foreground",
-	"--sidebar-accent",
-	"--sidebar-accent-foreground",
-	"--sidebar-border",
-	"--sidebar-ring",
-
 	// Charts (kept in sync with default palette)
 	"--chart-1",
 	"--chart-2",
@@ -126,6 +106,59 @@ export const THEME_VARIABLES: readonly string[] = [
 	"--scrollbar-thumb",
 	"--scrollbar-thumb-hover",
 ];
+
+// ─── Legacy custom-property migration ───────────────────────────────
+// Custom themes saved before the token consolidation carry the old
+// duplicate/alias names. Translate them to the current tokens so
+// stored themes keep applying unchanged.
+const LEGACY_THEME_VAR_MAP: Record<string, string> = {
+	"--bg": "--background",
+	"--surface-page": "--background",
+	"--bg-subtle": "--surface-subtle",
+	"--text-primary": "--foreground",
+	"--text-muted": "--muted-foreground",
+	"--card": "--surface",
+	"--popover": "--surface",
+	"--card-foreground": "--foreground",
+	"--popover-foreground": "--foreground",
+	"--secondary": "--muted",
+	"--secondary-foreground": "--foreground",
+};
+
+/** Pre-consolidation tokens with no current equivalent; dropped. */
+const RETIRED_THEME_VARS = new Set([
+	"--text",
+	"--sidebar",
+	"--sidebar-foreground",
+	"--sidebar-primary",
+	"--sidebar-primary-foreground",
+	"--sidebar-accent",
+	"--sidebar-accent-foreground",
+	"--sidebar-border",
+	"--sidebar-ring",
+]);
+
+/**
+ * Translate legacy key names to current tokens and drop retired ones.
+ * An explicitly present current key always wins over a legacy alias
+ * mapping to it. Pure function; safe on any custom-theme map.
+ */
+export function normalizeThemeVars(
+	vars: Record<string, string>,
+): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const [key, value] of Object.entries(vars)) {
+		if (RETIRED_THEME_VARS.has(key) || key in LEGACY_THEME_VAR_MAP) continue;
+		out[key] = value;
+	}
+	for (const [legacy, current] of Object.entries(LEGACY_THEME_VAR_MAP)) {
+		const value = vars[legacy];
+		if (value !== undefined && out[current] === undefined) {
+			out[current] = value;
+		}
+	}
+	return out;
+}
 
 // ─── Helper: apply a theme preset to the document ──────────────────────
 
@@ -161,7 +194,9 @@ export function applyThemeVars(
 	if (presetId !== "default") {
 		// Custom theme, use the passed-in variable map directly
 		if (presetId === CUSTOM_THEME_ID && customVars) {
-			for (const [key, value] of Object.entries(customVars)) {
+			for (const [key, value] of Object.entries(
+				normalizeThemeVars(customVars),
+			)) {
 				// Only set variables that are in our known list
 				if ((THEME_VARIABLES as readonly string[]).includes(key)) {
 					root.style.setProperty(key, value);
@@ -216,15 +251,13 @@ export function getThemeById(id: string): ThemePreset {
 }
 
 /**
- * Core CSS variables exposed in the custom-theme colour picker.
- * Other variables (card, popover, sidebar, chart, scrollbar) are
- * auto-derived from these core values.
- */
-/**
- * each entry now carries ``labelKey`` / ``descriptionKey``, i18n
- * keys resolved via ``t()`` in ``ThemeSettingsSection.tsx``. The legacy
- * ``label`` / ``description`` English strings are kept as fallbacks for
- * the rare caller that reads them outside a React context (e.g. tests).
+ * Core CSS variables exposed in the custom-theme colour picker (6
+ * entries; each carries ``labelKey`` / ``descriptionKey``, i18n keys
+ * resolved via ``t()`` in ``ThemeSettingsSection.tsx``). Other
+ * tokens (surface fill, charts, scrollbar) are auto-derived from
+ * these core values. The legacy ``label`` / ``description`` English
+ * strings are kept as fallbacks for the rare caller that reads them
+ * outside a React context (e.g. tests).
  */
 export const CUSTOM_COLOR_KEYS: {
 	var: string;
@@ -255,9 +288,9 @@ export const CUSTOM_COLOR_KEYS: {
 		descriptionKey: "settings.appearance.colorDescription.primary",
 	},
 	{
-		var: "--bg-subtle",
+		var: "--surface-subtle",
 		label: "Surface",
-		description: "Card / sidebar / secondary background",
+		description: "Cards, panels, and quiet surfaces",
 		labelKey: "settings.appearance.colorLabel.bg-subtle",
 		descriptionKey: "settings.appearance.colorDescription.bg-subtle",
 	},
@@ -269,7 +302,7 @@ export const CUSTOM_COLOR_KEYS: {
 		descriptionKey: "settings.appearance.colorDescription.border",
 	},
 	{
-		var: "--text-muted",
+		var: "--muted-foreground",
 		label: "Muted Text",
 		description: "Secondary / dimmed text colour",
 		labelKey: "settings.appearance.colorLabel.text-muted",
@@ -291,18 +324,18 @@ export const DEFAULT_CUSTOM_LIGHT: Record<string, string> = {
 	"--background": "#ffffff",
 	"--foreground": "#09090b",
 	"--primary": "#1447e6",
-	"--bg-subtle": "#f5f5f5",
+	"--surface-subtle": "#f5f5f5",
 	"--border": "#e4e4e7",
-	"--text-muted": "#71717b",
+	"--muted-foreground": "#71717b",
 };
 
 export const DEFAULT_CUSTOM_DARK: Record<string, string> = {
 	"--background": "#131313",
 	"--foreground": "#fafafa",
 	"--primary": "#193cb8",
-	"--bg-subtle": "#0f0f0f",
+	"--surface-subtle": "#0f0f0f",
 	"--border": "#1f1f1f",
-	"--text-muted": "#9f9fa9",
+	"--muted-foreground": "#9f9fa9",
 };
 
 /** Build a full set of CSS var overrides from the 6 core custom colours. */
@@ -315,15 +348,18 @@ export function deriveCustomVars(
 	// function free of null-checks while preserving the original
 	// behaviour (defaults below are guaranteed by the literals above,
 	// so the empty-string fallback only kicks in if a caller passes a
-	// core dict missing one of the canonical keys, which downstream
-	// darken/lighten/contrast calls already treat as black).
+	// dict missing one of the canonical keys, which downstream
+	// darken/lighten/contrast calls already treat as black). The
+	// normalize pass translates pre-consolidation key names.
+	const vars = normalizeThemeVars(core);
 	const defaults = isDark ? DEFAULT_CUSTOM_DARK : DEFAULT_CUSTOM_LIGHT;
-	const bg = core["--background"] ?? defaults["--background"] ?? "";
-	const fg = core["--foreground"] ?? defaults["--foreground"] ?? "";
-	const primary = core["--primary"] ?? defaults["--primary"] ?? "";
-	const subtle = core["--bg-subtle"] ?? defaults["--bg-subtle"] ?? "";
-	const border = core["--border"] ?? defaults["--border"] ?? "";
-	const muted = core["--text-muted"] ?? defaults["--text-muted"] ?? "";
+	const bg = vars["--background"] ?? defaults["--background"] ?? "";
+	const fg = vars["--foreground"] ?? defaults["--foreground"] ?? "";
+	const primary = vars["--primary"] ?? defaults["--primary"] ?? "";
+	const subtle = vars["--surface-subtle"] ?? defaults["--surface-subtle"] ?? "";
+	const border = vars["--border"] ?? defaults["--border"] ?? "";
+	const muted =
+		vars["--muted-foreground"] ?? defaults["--muted-foreground"] ?? "";
 
 	const destructive = isDark ? "#ef4444" : "#dc2626";
 	const scrollbar = isDark ? darken(bg, -0.15) : darken(subtle, 0.1);
@@ -332,23 +368,16 @@ export function deriveCustomVars(
 	return {
 		"--background": bg,
 		"--foreground": fg,
-		"--bg-subtle": subtle,
+		"--surface": isDark ? lighten(bg, 0.03) : darken(bg, 0.02),
+		"--surface-subtle": subtle,
 		"--surface-hover": isDark ? lighten(subtle, 0.08) : darken(subtle, 0.06),
-		"--surface-page": isDark ? darken(bg, 0.03) : lighten(bg, 0.005),
-		"--text-primary": fg,
 		"--text-secondary": isDark ? lighten(muted, 0.3) : darken(muted, 0.2),
-		"--card": isDark ? lighten(bg, 0.03) : darken(bg, 0.02),
-		"--card-foreground": fg,
-		"--popover": isDark ? lighten(bg, 0.03) : darken(bg, 0.02),
-		"--popover-foreground": fg,
 		"--primary": primary,
 		/* deriveCustomVars used to hardcode --primary-foreground to
 		   white in both modes. For mid-tone primaries (green/amber/teal),
 		   white fails WCAG AA 4.5:1. Pick whichever of white/black has
 		   better contrast with the user-chosen primary. */
 		"--primary-foreground": pickContrastForeground(primary),
-		"--secondary": isDark ? lighten(bg, 0.05) : darken(subtle, 0.03),
-		"--secondary-foreground": fg,
 		"--muted": isDark ? lighten(bg, 0.05) : darken(subtle, 0.02),
 		"--muted-foreground": muted,
 		"--accent": primary,
@@ -358,14 +387,6 @@ export function deriveCustomVars(
 		"--border": border,
 		"--input": border,
 		"--ring": `${primary}80`,
-		"--sidebar": isDark ? subtle : lighten(subtle, 0.03),
-		"--sidebar-foreground": fg,
-		"--sidebar-primary": primary,
-		"--sidebar-primary-foreground": pickContrastForeground(primary),
-		"--sidebar-accent": isDark ? lighten(subtle, 0.05) : darken(subtle, 0.03),
-		"--sidebar-accent-foreground": fg,
-		"--sidebar-border": border,
-		"--sidebar-ring": `${primary}80`,
 		"--destructive": destructive,
 		"--destructive-foreground": "#ffffff",
 		/* emit the three status tokens so custom themes don't fall

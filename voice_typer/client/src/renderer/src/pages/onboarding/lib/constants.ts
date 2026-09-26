@@ -33,4 +33,4 @@ export { MODEL_DEFAULT } from "@/lib/utils/models";
 // Fix 10: 5s → 10s, too short for users still reading the instructions.
 export const TEST_HOTKEY_TIMEOUT_MS = 10_000;
 export const HEADING_CLASS =
-	"text-lg font-semibold text-(--text-primary) outline-none";
+	"text-lg font-semibold text-foreground outline-none";

@@ -19,13 +19,13 @@
 export type ThemeMode = "light" | "dark" | "system";
 
 /** localStorage key for the persisted ``ThemeMode`` value. */
-export const LS_THEME_MODE = "voice-typer-theme-mode";
+export const LS_THEME_MODE = "lausu-theme-mode";
 
 /** localStorage key for the persisted theme preset id. */
-export const LS_THEME_PRESET = "voice-typer-theme-preset";
+export const LS_THEME_PRESET = "lausu-theme-preset";
 
 /** localStorage key for the persisted custom-theme colour map JSON. */
-export const LS_CUSTOM_THEME = "voice-typer-custom-theme";
+export const LS_CUSTOM_THEME = "lausu-custom-theme";
 
 /** localStorage key for the persisted text-size value (integer px). */
-export const LS_TEXT_SIZE = "voice-typer-text-size";
+export const LS_TEXT_SIZE = "lausu-text-size";

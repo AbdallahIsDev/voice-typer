@@ -73,13 +73,13 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 				// Neutral track: no border, the fill is flush with the
 				// track (same height, rounded ends), so an outline around
 				// the bar read as a diluting extra layer. ``bg-input/30``
-				// / ``bg-(--text-muted)/10`` (frozen) keep the empty track
+				// / ``bg-muted-foreground/10`` (frozen) keep the empty track
 				// visible in dark + light themes without any outline.
 				// The track IS the component root: with the clipping icon
 				// gone there is no sibling to lay out, so no wrapper is
 				// needed and the bar spans the full available width.
 				"h-1.5 w-full rounded-full overflow-hidden transition-opacity duration-200",
-				playing ? "bg-(--text-muted)/10" : "bg-input/30",
+				playing ? "bg-muted-foreground/10" : "bg-input/30",
 			)}
 			role="progressbar"
 			aria-label={

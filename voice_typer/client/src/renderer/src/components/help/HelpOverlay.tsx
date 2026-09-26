@@ -117,7 +117,7 @@ function HelpOverlayInner({
 							key={shortcut.keys}
 							className="flex items-center justify-between gap-4"
 						>
-							<span className="text-(--text-muted)">{shortcut.desc}</span>
+							<span className="text-muted-foreground">{shortcut.desc}</span>
 							<HotkeyChips keys={shortcut.keys} />
 						</li>
 					))}
@@ -129,7 +129,7 @@ function HelpOverlayInner({
 				Rendering from the same array keeps the overlay in
 				lock-step with the actual key bindings. */}
 				<div className="flex flex-col gap-2">
-					<h3 className="text-sm font-medium text-(--text-primary)">
+					<h3 className="text-sm font-medium text-foreground">
 						{t("help.shortcuts.title")}
 					</h3>
 					<ul className="flex flex-col gap-2 text-sm">
@@ -138,7 +138,7 @@ function HelpOverlayInner({
 								key={`${shortcut.category}-${shortcut.keys}`}
 								className="flex items-center justify-between gap-4"
 							>
-								<span className="text-(--text-muted)">
+								<span className="text-muted-foreground">
 									{t(shortcut.labelKey)}
 								</span>
 								<HotkeyChips keys={shortcut.keys} />
@@ -148,7 +148,7 @@ function HelpOverlayInner({
 				</div>
 
 				<PunctuationCheatSheet />
-				<p className="text-xs text-(--text-muted)">
+				<p className="text-xs text-muted-foreground">
 					{t("help.closeHint", { key: SHORTCUTS.cancel.keys })}
 				</p>
 			</div>

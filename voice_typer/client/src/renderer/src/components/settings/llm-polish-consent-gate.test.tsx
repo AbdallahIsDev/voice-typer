@@ -1,3 +1,4 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	act,
 	cleanup,
@@ -5,12 +6,10 @@ import {
 	render,
 	screen,
 } from "@testing-library/react";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	hugeiconsCoreMock,
 	hugeiconsReactMock,
@@ -19,6 +18,7 @@ import {
 	snackbarMock,
 	sonnerMock,
 } from "@/__tests__/helpers/stableMocks";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => hugeiconsReactMock());
 vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
@@ -30,12 +30,12 @@ vi.mock("next-themes", () => nextThemesMock());
 import { LlmPolishingSettingsSection } from "@/components/settings/LlmPolishingSettingsSection";
 import type { SettingsSectionSharedProps } from "@/components/settings/types";
 import { useConsentGateStore } from "@/lib/consentGate";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 /** Minimal valid config (same shape as the Settings test suite's). */
 function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+	overrides: Partial<LausuConfig> = {},
+): LausuConfig {
 	return {
 		llm_polish: false,
 		llm_polish_consent: false,
@@ -44,7 +44,7 @@ function makeConfig(
 		llm_model: "",
 		llm_preset: "professional",
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 const alwaysVisible: SettingsSectionSharedProps["isVisible"] = () => true;
@@ -52,18 +52,18 @@ const alwaysVisible: SettingsSectionSharedProps["isVisible"] = () => true;
 describe("LlmPolishingSettingsSection, enabling LLM polish asks for llm_polish_consent first", () => {
 	let updateConfig: SettingsSectionSharedProps["updateConfig"];
 
-	const renderSection = (config: VoiceTyperConfig) =>
+	const renderSection = (config: LausuConfig) =>
 		renderWithProviders(
 			<LlmPolishingSettingsSection
 				config={config}
 				updateConfig={updateConfig}
-				updateConfigDebounced={() => {}}
+				updateConfigDebounced={() => { }}
 				isVisible={alwaysVisible}
 			/>,
 		);
 
 	beforeEach(() => {
-		updateConfig = vi.fn<(updates: Partial<VoiceTyperConfig>) => void>();
+		updateConfig = vi.fn<(updates: Partial<LausuConfig>) => void>();
 		useConsentGateStore.setState({ request: null });
 	});
 

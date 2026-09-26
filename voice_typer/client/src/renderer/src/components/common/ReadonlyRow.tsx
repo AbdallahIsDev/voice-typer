@@ -31,8 +31,8 @@ export function ReadonlyRow({
 				className={cn(
 					"text-sm",
 					labelEmphasized
-						? "font-medium text-(--text-primary)"
-						: "text-(--text-muted)",
+						? "font-medium text-foreground"
+						: "text-muted-foreground",
 				)}
 			>
 				{label}
@@ -41,8 +41,8 @@ export function ReadonlyRow({
 				className={cn(
 					"text-sm",
 					labelEmphasized
-						? "shrink-0 text-end text-(--text-muted)"
-						: "font-medium text-(--text-primary)",
+						? "shrink-0 text-end text-muted-foreground"
+						: "font-medium text-foreground",
 				)}
 			>
 				{value}

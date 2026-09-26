@@ -82,7 +82,7 @@ export function OfflinePackPreparingBanner({
 			aria-label={t("pack.preparingOfflineEngineAria", { status })}
 			data-pack-status={status}
 			className={cn(
-				"block text-[13px] text-(--text-muted) animate-fade-in",
+				"block text-[13px] text-muted-foreground animate-fade-in",
 				className,
 			)}
 		>

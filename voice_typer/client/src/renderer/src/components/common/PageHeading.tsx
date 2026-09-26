@@ -15,11 +15,11 @@ function HeadingContent({
 }) {
 	return (
 		<>
-			<h1 className="font-sans text-2xl font-semibold tracking-tight text-(--text-primary)">
+			<h1 className="font-sans text-2xl font-semibold tracking-tight text-foreground">
 				{title}
 			</h1>
 			{description !== undefined ? (
-				<p className="text-sm text-(--text-muted) text-balance">
+				<p className="text-sm text-muted-foreground text-balance">
 					{description || "\u00A0"}
 				</p>
 			) : null}

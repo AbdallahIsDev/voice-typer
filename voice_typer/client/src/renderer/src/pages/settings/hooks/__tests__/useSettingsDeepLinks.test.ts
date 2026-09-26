@@ -5,9 +5,9 @@ import { makeConfig } from "@/__tests__/helpers/fixtures";
 import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 import { useSettingsDeepLinks } from "@/pages/settings/hooks/useSettingsDeepLinks";
 import { useGlobalSearch } from "@/stores/useGlobalSearch";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
-const config: VoiceTyperConfig = makeConfig({});
+const config: LausuConfig = makeConfig({});
 
 function mount(
 	overrides: Partial<Parameters<typeof useSettingsDeepLinks>[0]> = {},

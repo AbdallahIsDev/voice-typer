@@ -56,8 +56,8 @@ describe("RangeSlider, visible min/max endpoint labels", () => {
 		);
 		const minLabel = screen.getByText("0");
 		const maxLabel = screen.getByText("100");
-		expect(minLabel.className).toContain("text-(--text-muted)");
-		expect(maxLabel.className).toContain("text-(--text-muted)");
+		expect(minLabel.className).toContain("text-muted-foreground");
+		expect(maxLabel.className).toContain("text-muted-foreground");
 		expect(minLabel.className).toContain("text-xs");
 	});
 

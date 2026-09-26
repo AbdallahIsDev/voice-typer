@@ -17,7 +17,7 @@
       100-200ms after first paint).
 
       The inline script reads localStorage for
-      `voice-typer-ui-locale` (the same key i18n.ts persists the active
+      `lausu-ui-locale` (the same key i18n.ts persists the active
       locale to) and maps the locale code to a BCP-47 language tag.
       Unknown / missing values fall through to the existing lang="en"
       attribute (the SSR / first-run default).
@@ -41,7 +41,7 @@
       // `let`/`const` instead of `var` (block-scoped, no global leak).
       let locale, SUPPORTED, tag;
       try {
-        locale = localStorage.getItem("voice-typer-ui-locale");
+        locale = localStorage.getItem("lausu-ui-locale");
         if (typeof locale !== "string" || locale === "") return;
         // Map our 8 supported locale codes (ar, de, en, es, fr, hi, ru, zh)
         // to language tags.  We don't add a region subtag because
@@ -124,7 +124,7 @@
     document.title = APP_NAME;
   </script>
 
-  <title>Voice Typer</title>
+  <title>Lausu</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 </head>

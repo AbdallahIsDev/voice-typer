@@ -64,7 +64,7 @@ export const _localeLoadPromises: Map<Locale, Promise<void>> = new Map();
 
 /**
  * Flatten a nested JSON object into dot-separated keys.
- * e.g. { "app": { "name": "Voice Typer" } } → { "app.name": "Voice Typer" }
+ * e.g. { "app": { "name": "Lausu" } } → { "app.name": "Lausu" }
  */
 export function flatten(
 	obj: TranslationDict,
@@ -245,7 +245,7 @@ export function setLocale(locale: Locale): void {
 	// caller did this and relied on a full reload to re-read it.
 	try {
 		if (typeof localStorage !== "undefined") {
-			localStorage.setItem("voice-typer-ui-locale", next);
+			localStorage.setItem("lausu-ui-locale", next);
 		}
 	} catch (e) {
 		// localStorage may be unavailable in some contexts

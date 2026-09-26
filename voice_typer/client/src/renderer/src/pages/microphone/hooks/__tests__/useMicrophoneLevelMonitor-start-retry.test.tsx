@@ -221,7 +221,7 @@ describe("useMicrophoneLevelMonitor, bounded level_monitor_start retry", () => {
 		// mount. Pre-fix this sent `level_monitor_start` → (cleanup)
 		// `level_monitor_stop` → `level_monitor_start`, producing the
 		// `[LEVEL-MON] Monitoring started / stopped / started` bounce
-		// in voice-typer.log on EVERY page mount. The fix tracks
+		// in lausu.log on EVERY page mount. The fix tracks
 		// per-effect-instance `startedHere`: run 1's cleanup runs while
 		// run 1's start IPC is still in flight, so it skips the stop;
 		// run 2's start then finds the stream already active (a backend

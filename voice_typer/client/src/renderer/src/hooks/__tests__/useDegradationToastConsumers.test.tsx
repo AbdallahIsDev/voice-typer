@@ -122,8 +122,8 @@ describe("useHistoryIntegrityToast", () => {
 	it("history_corrupted: recovery warning names the recovered count", () => {
 		renderHook(() => useHistoryIntegrityToast(mockT));
 		registered.get("history_corrupted")?.({
-			path: "/home/u/.config/voice-typer/history.db.corrupt",
-			db_path: "/home/u/.config/voice-typer/history.db",
+			path: "/home/u/.config/lausu/history.db.corrupt",
+			db_path: "/home/u/.config/lausu/history.db",
 			recovered_count: 42,
 		});
 

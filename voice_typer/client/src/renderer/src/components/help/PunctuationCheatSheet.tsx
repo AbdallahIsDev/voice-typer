@@ -9,7 +9,7 @@
  *
  * Source of truth: `voice_typer/server/text_cleanup.py:374`
  * (`_RE_SPACING_PUNCT_BEFORE = re.compile(r"\s+([,.;:!?])")`)
- *, these are the punctuation characters Voice Typer's cleanup
+ *, these are the punctuation characters Lausu's cleanup
  * pipeline recognizes and preserves. Whisper / faster-whisper itself
  * turns the spoken forms ("comma", "period", "question mark", etc.)
  * into the literal characters; text_cleanup.py then normalizes
@@ -98,11 +98,13 @@ export function PunctuationCheatSheet({
 		>
 			<h3
 				id="punctuation-cheat-sheet-title"
-				className="text-sm font-semibold text-(--text-primary)"
+				className="text-sm font-semibold text-foreground"
 			>
 				{t("help.punctuationTitle")}
 			</h3>
-			<p className="text-xs text-(--text-muted)">{t("help.punctuationHint")}</p>
+			<p className="text-xs text-muted-foreground">
+				{t("help.punctuationHint")}
+			</p>
 			<ul
 				className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs"
 				data-testid="punctuation-cheat-sheet-list"
@@ -114,7 +116,7 @@ export function PunctuationCheatSheet({
 						data-testid="punctuation-cheat-sheet-entry"
 						data-character={entry.character}
 					>
-						<span className="text-(--text-muted)">{t(entry.labelKey)}</span>
+						<span className="text-muted-foreground">{t(entry.labelKey)}</span>
 						{/*
 						 * `<code>` is the correct semantic element here, these
 						 * are voice-inserted characters, not keyboard shortcuts.

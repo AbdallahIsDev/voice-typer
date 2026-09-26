@@ -26,15 +26,6 @@
 //   ``selectMicrophone`` closure so the data hook's
 //   ``microphones_changed`` hot-swap handler can invoke it.
 
-import {
-	type Dispatch,
-	type RefObject,
-	type SetStateAction,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import type { PythonCall } from "@/hooks/usePython";
 import { usePythonEvent } from "@/hooks/usePython";
@@ -45,7 +36,16 @@ import {
 } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
-import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig, MicrophoneDevice } from "@/types/config";
+import {
+	type Dispatch,
+	type RefObject,
+	type SetStateAction,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
 import { fetchTestAudioFileDeduped } from "../lib/testAudioTransfer";
@@ -92,14 +92,14 @@ type ShowSnack = (
 interface UseMicrophoneTestSessionOptions {
 	/** ``call`` from ``usePython()``, passed in so the composition hook owns the single bridge subscription. */
 	call: PythonCall;
-	/** Current voice-typer config. */
-	config: VoiceTyperConfig | null;
+	/** Current lausu config. */
+	config: LausuConfig | null;
 	/** Available microphones (used for the "Using mic X" snackbar label). */
 	microphones: MicrophoneDevice[];
 	/** Config setter (used by ``selectMicrophone`` for the optimistic update). */
-	setConfig: Dispatch<SetStateAction<VoiceTyperConfig | null>>;
+	setConfig: Dispatch<SetStateAction<LausuConfig | null>>;
 	/** Config updater, kept for parity with the prior signature; not used directly here. */
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
+	updateConfig: (updates: Partial<LausuConfig>) => void;
 	/** Snackbar toaster (passed in so the hook is testable without the React context). */
 	showSnack: ShowSnack;
 	/** i18n ``t`` function (passed in for testability). */

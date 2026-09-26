@@ -1,7 +1,7 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import fs from "node:fs";
 import path from "node:path";
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
@@ -163,7 +163,7 @@ vi.mock("@/hooks/useConnectionToasts", () => ({
 }));
 
 vi.mock("@/hooks/useGlobalKeyboardShortcuts", () => ({
-	useGlobalKeyboardShortcuts: () => {},
+	useGlobalKeyboardShortcuts: () => { },
 }));
 
 vi.mock("@/hooks/useMediaQuery", () => ({
@@ -189,7 +189,7 @@ vi.mock("@/hooks/useTheme", () => ({
 }));
 
 vi.mock("@/hooks/useSoundFeedback", () => ({
-	useSoundFeedback: () => {},
+	useSoundFeedback: () => { },
 }));
 
 vi.mock("@/hooks/useModelLifecycle", () => ({
@@ -343,10 +343,10 @@ if (typeof globalThis.matchMedia !== "function") {
 	});
 }
 
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 /** Minimal valid config that satisfies every Section's `if (!config)` guard. */
-function makeStubConfig(): VoiceTyperConfig {
+function makeStubConfig(): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -466,7 +466,7 @@ function makeStubConfig(): VoiceTyperConfig {
 		vocabulary_automation_enabled: false,
 		vocabulary_auto_confidence_threshold: 0.7,
 		vocabulary_auto_apply_threshold: 0.95,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 /** Section-level shared props (no-op callbacks; isVisible always true). */
@@ -696,7 +696,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			// through the captured handler.  Home's handler
 			// celebrates first runs + refreshes stats; it must NOT
 			// render the transcribed text anywhere (no preview).
-			const transcribedText = "Hello world from voice typer.";
+			const transcribedText = "Hello world from Lausu.";
 			act(() => {
 				capturedTranscriptionFinalHandler?.({ text: transcribedText });
 			});
@@ -887,8 +887,8 @@ describe("NEW-UX-012: Dialog accessibility", () => {
 		const src = fs.readFileSync(errorBoundaryPath, "utf-8");
 		expect(
 			src.includes("aria-live") ||
-				src.includes('role="alert"') ||
-				src.includes("role='alert'"),
+			src.includes('role="alert"') ||
+			src.includes("role='alert'"),
 		).toBe(true);
 	});
 });
@@ -1060,7 +1060,7 @@ describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 	it("Modal renders role=dialog when open", async () => {
 		const { Modal } = await import("@/components/common/Modal");
 		renderWithProviders(
-			<Modal open onClose={() => {}} title="Delete confirmation">
+			<Modal open onClose={() => { }} title="Delete confirmation">
 				<p>Are you sure?</p>
 			</Modal>,
 		);
@@ -1071,7 +1071,7 @@ describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 	it("Modal exposes the title as its accessible name (aria-labelledby)", async () => {
 		const { Modal } = await import("@/components/common/Modal");
 		renderWithProviders(
-			<Modal open onClose={() => {}} title="Delete confirmation">
+			<Modal open onClose={() => { }} title="Delete confirmation">
 				<p>Are you sure?</p>
 			</Modal>,
 		);
@@ -1089,7 +1089,7 @@ describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 		renderWithProviders(
 			<Modal
 				open
-				onClose={() => {}}
+				onClose={() => { }}
 				title="Delete confirmation"
 				description="This action cannot be undone."
 			>

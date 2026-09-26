@@ -9,8 +9,8 @@ import { sanitizeTemplateField } from "./sanitize";
 import type { Template } from "./types";
 
 //Templates are persisted by the Python backend to
-// ``voice-typer-templates.json`` in the user's voice-typer config
-// directory (``~/.voice-typer`` on POSIX, ``%APPDATA%\voice-typer``
+// ``lausu-templates.json`` in the user's lausu config
+// directory (``~/.lausu`` on POSIX, ``%APPDATA%\lausu``
 // on Windows).  This file survives predecessor userData resets and
 // reinstalls, so templates are no longer lost on app data wipe.
 // localStorage is now used ONLY as a one-time migration source: if

@@ -1,6 +1,6 @@
 // src/renderer/src/types/__tests__/config-parity.test.ts
 //(parity guard): static type-level
-// regression tests pinning the TS `VoiceTyperConfig` interface to the
+// regression tests pinning the TS `LausuConfig` interface to the
 // Python `Config` dataclass + IPC validator constraints.
 // The Python side (config.py, config_validators.py) is owned by the
 // server-side scope. The cross-language contract is:
@@ -40,11 +40,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-	KeyringStatus,
-	ModelSize,
-	VoiceTyperConfig,
-} from "@/types/config";
+import type { KeyringStatus, LausuConfig, ModelSize } from "@/types/config";
 
 describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () => {
 	it("includes the empty-string no-model sentinel plus all Python-allowed model values", () => {
@@ -117,10 +113,8 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 		// assignable to `audio_preset`. The conditional resolves to
 		// `false` while the union excludes them; if a contributor
 		// re-adds either, the `false` assignment fails to compile.
-		type HasNone = "none" extends VoiceTyperConfig["audio_preset"]
-			? true
-			: false;
-		type HasRecommended = "recommended" extends VoiceTyperConfig["audio_preset"]
+		type HasNone = "none" extends LausuConfig["audio_preset"] ? true : false;
+		type HasRecommended = "recommended" extends LausuConfig["audio_preset"]
 			? true
 			: false;
 		const _none: HasNone = false;
@@ -130,7 +124,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 	});
 
 	it("audio_preset includes all 5 IPC-accepted values", () => {
-		const values: VoiceTyperConfig["audio_preset"][] = [
+		const values: LausuConfig["audio_preset"][] = [
 			"auto",
 			"studio",
 			"noisy_room",
@@ -145,7 +139,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 		// `audio_filters/noise_suppressor.py`) and was rejected at
 		// the IPC boundary. Removed from the TS union to eliminate
 		// the drift.
-		type HasSpeex = "speex" extends VoiceTyperConfig["noise_suppression_method"]
+		type HasSpeex = "speex" extends LausuConfig["noise_suppression_method"]
 			? true
 			: false;
 		const _guard: HasSpeex = false;
@@ -153,7 +147,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 	});
 
 	it("noise_suppression_method includes all 3 Python-allowed values", () => {
-		const values: VoiceTyperConfig["noise_suppression_method"][] = [
+		const values: LausuConfig["noise_suppression_method"][] = [
 			"rnnoise",
 			"gtcrn",
 			"none",
@@ -185,11 +179,11 @@ describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate
 		// `true` assignment fails to compile.
 		type IsOptional<T> = undefined extends T ? true : false;
 		type PerSessionOptional = IsOptional<
-			VoiceTyperConfig["volume_duck_per_session"]
+			LausuConfig["volume_duck_per_session"]
 		>;
-		type SmartOptional = IsOptional<VoiceTyperConfig["volume_duck_smart"]>;
+		type SmartOptional = IsOptional<LausuConfig["volume_duck_smart"]>;
 		type GateThresholdOptional = IsOptional<
-			VoiceTyperConfig["noise_filter_gate_threshold"]
+			LausuConfig["noise_filter_gate_threshold"]
 		>;
 		const _perSession: PerSessionOptional = true;
 		const _smart: SmartOptional = true;
@@ -205,7 +199,7 @@ describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate
 		// can still read stale on-disk config files / older sidecar
 		// responses that echo them. The values surface as
 		// `T | undefined`.
-		const cfg = {} as VoiceTyperConfig;
+		const cfg = {} as LausuConfig;
 		const _perSession: boolean | undefined = cfg.volume_duck_per_session;
 		const _smart: boolean | undefined = cfg.volume_duck_smart;
 		const _gate: number | undefined = cfg.noise_filter_gate_threshold;
@@ -216,7 +210,7 @@ describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate
 });
 
 describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture, RUNTIME switches per ADR 0009 (NOT deprecated)", () => {
-	it("both fields are still REQUIRED on VoiceTyperConfig (compile-time presence guard)", () => {
+	it("both fields are still REQUIRED on LausuConfig (compile-time presence guard)", () => {
 		//per ADR 0009, these two fields are RUNTIME switches
 		// (server-controlled, NOT IPC-settable). The Python Config
 		// dataclass at `voice_typer/server/config.py:842-843` declares
@@ -227,14 +221,14 @@ describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture, RUNTIME switc
 		// NOT in the IPC allowlist (renderer `set_config(...)` calls
 		// are rejected by the validator), but they ARE echoed on
 		// `get_config` and the renderer must surface them in the UI.
-		// `VoiceTyperConfig` must type-check (NOT `boolean | undefined`
+		// `LausuConfig` must type-check (NOT `boolean | undefined`
 		//, they're required). If a future contributor removes either
 		// field from the interface or makes them optional, the
 		// `boolean` (non-undefined) annotation fails to compile.
-		const cfg = {} as VoiceTyperConfig;
+		const cfg = {} as LausuConfig;
 		const _rnnoise: boolean = cfg.noise_filter_rnnoise;
 		const _postCapture: boolean = cfg.noise_filter_post_capture;
-		// Runtime sanity: `{} as VoiceTyperConfig` is an unsafe cast so
+		// Runtime sanity: `{} as LausuConfig` is an unsafe cast so
 		// the fields are actually `undefined` at runtime, but the
 		// *static* type is `boolean` (required, non-optional).
 		expect(_rnnoise).toBeUndefined();
@@ -251,9 +245,9 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds,
 		// all four fields; bubble_scale / test_duration_seconds remain
 		// OPTIONAL on the TS side for back-compat with older
 		// config.json files / older sidecars.
-		// We use `as VoiceTyperConfig` (not `as unknown as`) so the
+		// We use `as LausuConfig` (not `as unknown as`) so the
 		// compiler still checks the OTHER required fields are present.
-		const minimal: VoiceTyperConfig = {
+		const minimal: LausuConfig = {
 			schema_version: 3,
 			hotkey: "F2",
 			sample_rate: 16000,
@@ -371,6 +365,7 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds,
 			cloud_deepgram_consent: false,
 			voice_biometric_consent: false,
 			llm_polish_consent: false,
+			media_url_consent: false,
 			sound_feedback_enabled: true,
 			ai_enhancement_enabled: false,
 			auto_capitalize: true,
@@ -379,7 +374,7 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds,
 			vocabulary_automation_enabled: false,
 			vocabulary_auto_confidence_threshold: 0.7,
 			vocabulary_auto_apply_threshold: 0.95,
-		} satisfies VoiceTyperConfig;
+		} satisfies LausuConfig;
 		// `satisfies` proves the literal is assignable (so all
 		// required fields are present) AND lets us assert the four
 		// deprecated fields are absent from the literal:
@@ -392,14 +387,14 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds,
 });
 
 describe("GT-37: warn_elevated_paste / warn_password_paste, optional paste-safety toggles", () => {
-	it("both fields are declared on VoiceTyperConfig (compile-time presence guard)", () => {
-		// type `VoiceTyperConfig` must type-check. If a future
+	it("both fields are declared on LausuConfig (compile-time presence guard)", () => {
+		// type `LausuConfig` must type-check. If a future
 		// contributor removes either field from the interface, the
 		// property access below fails to compile and CI catches it.
 		// The fields are OPTIONAL (`boolean | undefined`) for back-compat
 		//with older sidecars that predate ; the renderer treats
 		// absence as `true` (the Python default).
-		const cfg = {} as VoiceTyperConfig;
+		const cfg = {} as LausuConfig;
 		const _elevated: boolean | undefined = cfg.warn_elevated_paste;
 		const _password: boolean | undefined = cfg.warn_password_paste;
 		expect(_elevated).toBeUndefined();
@@ -413,7 +408,7 @@ describe("GT-F2-3: onboarding_failed / recording_channels / pre_roll_buffer_seco
 		// must yield `undefined` (no default at the TS layer).
 		const cfg = {
 			schema_version: 3,
-		} as VoiceTyperConfig;
+		} as LausuConfig;
 		expect(cfg.onboarding_failed).toBeUndefined();
 		expect(cfg.recording_channels).toBeUndefined();
 		expect(cfg.pre_roll_buffer_seconds).toBeUndefined();
@@ -422,7 +417,7 @@ describe("GT-F2-3: onboarding_failed / recording_channels / pre_roll_buffer_seco
 
 //removed: last_load_warnings was a Python-only transient
 // instance attribute (NOT part of the IPC config type).  The TS
-// VoiceTyperConfig does not include it.
+// LausuConfig does not include it.
 
 describe("XZ-CFG-03 / XZ-CFG-06 / XZ-CFG-15: KeyringStatus shape (regression guard)", () => {
 	it("KeyringStatus has the documented fields (available, backend, fallback, reason?)", () => {

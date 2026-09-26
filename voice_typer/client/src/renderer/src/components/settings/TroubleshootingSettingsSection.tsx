@@ -6,6 +6,15 @@
 // `resetToDefaults` async handler with the page-level `config` state
 // `onResetClick` to request the dialog.
 
+import { SettingsSection } from "@/components/common/SettingsSection";
+import { Button } from "@/components/ui/button";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { usePython } from "@/hooks/usePython";
+import { useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
+import { openExternalUrl } from "@/lib/external-links";
+import type { LausuConfig } from "@/types/config";
+import type { Page } from "@/types/ipc";
 import {
 	ArrowTurnBackwardIcon,
 	Book02Icon,
@@ -17,15 +26,6 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useState } from "react";
-import { SettingsSection } from "@/components/common/SettingsSection";
-import { Button } from "@/components/ui/button";
-import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePython } from "@/hooks/usePython";
-import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
-import { openExternalUrl } from "@/lib/external-links";
-import type { VoiceTyperConfig } from "@/types/config";
-import type { Page } from "@/types/ipc";
 import { anyRowVisible } from "./settingsRowGating";
 import type { IsVisibleFn } from "./types";
 
@@ -34,7 +34,7 @@ interface TroubleshootingSettingsSectionProps {
 	isVisible: IsVisibleFn;
 	/** Used by the "Re-run setup wizard" button to flip
 	 *  `onboarding_completed` to false before navigating. */
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
+	updateConfig: (updates: Partial<LausuConfig>) => void;
 	/** Routes the user to the About page (diagnostics) or the Onboarding
 	 *  wizard (re-run setup). */
 	onNavigate?: (page: Page) => void;
@@ -201,18 +201,18 @@ export const TroubleshootingSettingsSection = memo(
 					showSnack(
 						result.command
 							? t(
-									"settings.troubleshooting.resetAccessibilityToastWithCommand",
-									{
-										command: result.command,
-									},
-								)
+								"settings.troubleshooting.resetAccessibilityToastWithCommand",
+								{
+									command: result.command,
+								},
+							)
 							: t("settings.troubleshooting.resetAccessibilityToast"),
 						"success",
 					);
 				} else {
 					showSnack(
 						result?.error ||
-							t("settings.troubleshooting.resetAccessibilityFailed"),
+						t("settings.troubleshooting.resetAccessibilityFailed"),
 						"error",
 					);
 				}
@@ -240,8 +240,8 @@ export const TroubleshootingSettingsSection = memo(
 					showSnack(
 						result.command
 							? t("settings.troubleshooting.resetLinuxToastWithCommand", {
-									command: result.command,
-								})
+								command: result.command,
+							})
 							: t("settings.troubleshooting.resetLinuxToast"),
 						"success",
 					);
@@ -285,7 +285,7 @@ export const TroubleshootingSettingsSection = memo(
 							className="gap-2"
 							onClick={() =>
 								void openExternalUrl(
-									"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
+									"https://github.com/AbdallahIsDev/lausu/blob/main/README.md",
 								)
 							}
 							aria-label={t("settings.troubleshooting.openDocsAria")}
@@ -305,7 +305,7 @@ export const TroubleshootingSettingsSection = memo(
 							className="gap-2"
 							onClick={() =>
 								void openExternalUrl(
-									"https://github.com/AbdallahIsDev/voice-typer/issues",
+									"https://github.com/AbdallahIsDev/lausu/issues",
 								)
 							}
 							aria-label={t("settings.troubleshooting.reportBugAria")}
@@ -378,7 +378,7 @@ export const TroubleshootingSettingsSection = memo(
 							{staleResetCommand && (
 								<p className="text-xs text-muted-foreground">
 									{t("settings.troubleshooting.resetAccessibilitySuggestion")}
-									<code className="ms-1 rounded bg-muted px-1 py-0.5 font-mono text-xs">
+									<code className="ms-1 rounded-lg bg-muted px-1 py-0.5 font-mono text-xs">
 										{staleResetCommand}
 									</code>
 								</p>

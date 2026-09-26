@@ -50,7 +50,7 @@ export function EmptyState({
 				// Error variant: tinted ring + soft destructive wash so
 				// load failures don't masquerade as "no data yet".
 				isError &&
-					"rounded-xl border border-destructive/40 bg-destructive/5 px-6",
+					"rounded-lg border border-destructive/40 bg-destructive/5 px-6",
 			)}
 		>
 			<HugeiconsIcon
@@ -65,24 +65,24 @@ export function EmptyState({
 							// pushes the icon below WCAG 1.4.11.
 							"text-destructive"
 						: // No opacity wash for the info variant either —
-							// text-(--text-muted) alone carries the visual
+							// text-muted-foreground alone carries the visual
 							// hierarchy. Stacking opacity on top of the
 							// already-muted token pushed the icon below the
 							// WCAG 1.4.11 non-text contrast minimum (3:1)
 							// (same rationale as the description below).
-							"text-(--text-muted)",
+							"text-muted-foreground",
 				)}
 			/>
 			{/* Title is rendered as an <h3> (not a <p>) so screen-reader
 			    users can navigate empty-state cards by heading. The heading
 			    level (h3) is chosen to sit below the typical page <h1>/<h2>
 			    hierarchy used across the app. */}
-			<h3 className="text-sm text-(--text-muted)">{title}</h3>
-			{/* Dropped opacity-70, text-(--text-muted) is already a
+			<h3 className="text-sm text-muted-foreground">{title}</h3>
+			{/* Dropped opacity-70, text-muted-foreground is already a
 			    low-contrast token, and stacking opacity on top pushed the
 			    effective contrast below WCAG AA for body text. */}
 			{description && (
-				<p className="text-xs text-(--text-muted)">{description}</p>
+				<p className="text-xs text-muted-foreground">{description}</p>
 			)}
 			{children}
 			{actionLabel && onAction && (

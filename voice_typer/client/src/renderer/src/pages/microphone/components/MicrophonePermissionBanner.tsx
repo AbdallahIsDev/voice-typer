@@ -64,14 +64,14 @@ export function MicrophonePermissionBanner({
 					<p className="text-sm font-semibold text-destructive">
 						{t("microphone.permissionDeniedTitle")}
 					</p>
-					<p className="text-xs text-(--text-primary)">{message}</p>
+					<p className="text-xs text-foreground">{message}</p>
 				</div>
 			</div>
 			{deepLink && (
 				<a
 					href={deepLink}
 					aria-label={t("microphone.openSettingsAria")}
-					className="inline-flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+					className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
 				>
 					<HugeiconsIcon
 						icon={Settings01Icon}

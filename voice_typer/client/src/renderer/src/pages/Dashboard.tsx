@@ -16,6 +16,15 @@
 //      Language) so system/config info doesn't compete with usage
 //      metrics for attention.
 
+import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
+import PageHeading from "@/components/common/PageHeading";
+import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
+import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
+import { StatCard } from "@/components/dashboard/StatCard";
+import { formatCompactNumber } from "@/components/dashboard/StatCards";
+import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
+import { EmptyState } from "@/components/feedback/EmptyState";
+import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 import {
 	AiBrain03Icon,
 	AlertCircleIcon,
@@ -31,15 +40,6 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { CSSProperties } from "react";
 import { useMemo } from "react";
-import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
-import PageHeading from "@/components/common/PageHeading";
-import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
-import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
-import { StatCard } from "@/components/dashboard/StatCard";
-import { formatCompactNumber } from "@/components/dashboard/StatCards";
-import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
-import { EmptyState } from "@/components/feedback/EmptyState";
-import { HotkeyChips } from "@/components/hotkey/HotkeyChips";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
 // the MicrophonePermissionBanner placement on the Microphone page.
@@ -144,28 +144,28 @@ export default function DashboardPage() {
 		() =>
 			data && configRaw
 				? computeShareStats(
-						{
-							count: data.todayCount,
-							chars: data.todayChars,
-							word_count: data.todayWordCount,
-							duration: data.todayDuration,
-						},
-						configRaw.asr_backend,
-						{
-							totalCount: data.totalCount,
-							totalChars: data.totalChars,
-							totalDuration: data.totalDuration,
-							activeDays: data.activeDays,
-							currentStreak: data.currentStreak,
-							// Only include the setup line when a model is genuinely
-							// installed (data.model/device are null otherwise) —
-							// the share image never claims a model that isn't
-							// there, and the values are pre-formatted for
-							// display ("Tiny", "GPU").
-							model: data.model ? formatModel(data.model) : "",
-							device: data.device ? formatDevice(data.device) : "",
-						},
-					)
+					{
+						count: data.todayCount,
+						chars: data.todayChars,
+						word_count: data.todayWordCount,
+						duration: data.todayDuration,
+					},
+					configRaw.asr_backend,
+					{
+						totalCount: data.totalCount,
+						totalChars: data.totalChars,
+						totalDuration: data.totalDuration,
+						activeDays: data.activeDays,
+						currentStreak: data.currentStreak,
+						// Only include the setup line when a model is genuinely
+						// installed (data.model/device are null otherwise) —
+						// the share image never claims a model that isn't
+						// there, and the values are pre-formatted for
+						// display ("Tiny", "GPU").
+						model: data.model ? formatModel(data.model) : "",
+						device: data.device ? formatDevice(data.device) : "",
+					},
+				)
 				: null,
 		[data, configRaw],
 	);
@@ -291,8 +291,8 @@ export default function DashboardPage() {
 							sublabel={
 								d.currentStreak > 0
 									? t("analytics.dayStreak", {
-											count: String(d.currentStreak),
-										})
+										count: String(d.currentStreak),
+									})
 									: undefined
 							}
 						/>
@@ -338,9 +338,9 @@ export default function DashboardPage() {
 							sublabel={
 								correctionStats.rate !== null
 									? t("analytics.correctionsRate", {
-											pct: String(Math.round(correctionStats.rate * 100)),
-											dictations: String(correctionStats.dictations),
-										})
+										pct: String(Math.round(correctionStats.rate * 100)),
+										dictations: String(correctionStats.dictations),
+									})
 									: undefined
 							}
 						/>
@@ -352,7 +352,7 @@ export default function DashboardPage() {
 						className="flex flex-col gap-2.5"
 						aria-label={t("analytics.currentSetup")}
 					>
-						<h3 className="text-[11px] font-semibold uppercase tracking-wider text-(--text-muted)">
+						<h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
 							{t("analytics.currentSetup")}
 						</h3>
 						<div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -385,9 +385,9 @@ export default function DashboardPage() {
 						</div>
 					</section>
 
-					<p className="pb-4 text-center text-xs text-(--text-muted)">
+					<p className="pb-4 text-center text-xs text-muted-foreground">
 						{t("analytics.dataPath", {
-							path: configDir || "~/.voice-typer/",
+							path: configDir || "~/.lausu/",
 						})}
 					</p>
 				</div>

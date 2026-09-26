@@ -288,6 +288,7 @@ describe("Route switching lazy-loads secondary pages behind a Suspense fallback"
 		["aboutAndPrivacy", "@/pages/AboutAndPrivacy"],
 		["analytics", "@/pages/Dashboard"],
 		["history", "@/pages/History"],
+		["media", "@/pages/Media"],
 		["microphone", "@/pages/Microphone"],
 		["models", "@/pages/Models"],
 		["onboarding", "@/pages/Onboarding"],

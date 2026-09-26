@@ -67,7 +67,7 @@ describe("Sidebar", () => {
 
 	//active nav item visual hierarchy ───────────────────────
 
-	it("UX-16: active leaf nav item blends with the page (card border, --bg background, primary text)", () => {
+	it("UX-16: active leaf nav item blends with the page (card border, --background background, primary text)", () => {
 		renderWithProviders(<Sidebar {...baseProps} currentPage="home" />);
 		const activeButton = findNavButton("Home");
 		expect(activeButton).toBeTruthy();
@@ -79,12 +79,12 @@ describe("Sidebar", () => {
 		expect(cls).not.toContain("border-s-2");
 		expect(cls).not.toContain("border-s-transparent");
 		expect(cls).not.toContain("before:bg-accent");
-		// Active background matches the page background (--bg), and the
+		// Active background matches the page background (--background), and the
 		// old soft-accent tint is gone.
-		expect(cls).toContain("bg-(--bg)");
+		expect(cls).toContain("bg-surface");
 		expect(cls).not.toContain("bg-(--accent-soft)");
 		// Text color + weight bumped to primary/medium.
-		expect(cls).toContain("text-(--text-primary)");
+		expect(cls).toContain("text-foreground");
 		expect(cls).toContain("font-medium");
 	});
 
@@ -107,8 +107,8 @@ describe("Sidebar", () => {
 		// render the leaf inactive-by-style with the tab stop only (see
 		// Sidebar.settings-leaf.test.tsx).
 		expect(cls).toContain("border-border/5");
-		expect(cls).toContain("bg-(--bg)");
-		expect(cls).toContain("text-(--text-primary)");
+		expect(cls).toContain("bg-surface");
+		expect(cls).toContain("text-foreground");
 		expect(cls).toContain("font-medium");
 		expect(settingsButton.getAttribute("aria-current")).toBe("page");
 		// The Button base's inactive weight must not leak through the
@@ -128,7 +128,7 @@ describe("Sidebar", () => {
 		expect(cls).not.toContain("border-border/5");
 		expect(cls).not.toContain("border-s-(--accent)");
 		expect(cls).not.toContain("bg-(--accent-soft)");
-		expect(cls).not.toContain("bg-(--bg)");
+		expect(cls).not.toContain("bg-surface");
 		expect(cls).not.toContain("before:bg-accent");
 		expect(cls).not.toContain("font-medium");
 	});
@@ -156,7 +156,7 @@ describe("Sidebar", () => {
 		expect(document.querySelectorAll("aside section").length).toBe(2);
 	});
 
-	it("Home/History/Analytics/Models/Templates/Vocabulary are in the header-less Main group; Settings/Microphone/About & Privacy in System", () => {
+	it("Home/History/Analytics/Models/Templates/Vocabulary/Media are in the header-less Main group; Settings/Microphone/About & Privacy in System", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const groupOf = (label: string) =>
 			findNavButton(label).closest("section")?.getAttribute("aria-label");
@@ -167,6 +167,7 @@ describe("Sidebar", () => {
 		expect(groupOf("Models")).toBe("Main");
 		expect(groupOf("Templates")).toBe("Main");
 		expect(groupOf("Vocabulary")).toBe("Main");
+		expect(groupOf("Media")).toBe("Main");
 
 		expect(groupOf("Settings")).toBe("System");
 		expect(groupOf("Microphone")).toBe("System");
@@ -179,7 +180,7 @@ describe("Sidebar", () => {
 		expect(nav.querySelectorAll("hr").length).toBe(0);
 	});
 
-	it("PROD-7: still renders all 9 nav item labels (grouping does not drop items)", () => {
+	it("PROD-7: still renders all 10 nav item labels (grouping does not drop items)", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const labels = [
 			"Home",
@@ -187,6 +188,7 @@ describe("Sidebar", () => {
 			"Analytics",
 			"Templates",
 			"Vocabulary",
+			"Media",
 			"Models",
 			"Microphone",
 			"Settings",

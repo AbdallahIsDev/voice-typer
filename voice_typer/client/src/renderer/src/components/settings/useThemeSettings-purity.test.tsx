@@ -23,7 +23,7 @@ vi.mock("@/themes", async (importOriginal) => {
 
 import { saveDraftToLS } from "@/lib/theme-draft-storage";
 import { applyThemeVars } from "@/themes";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import { _themeColorCache } from "./themeColorCache";
 import type { UseThemeSettingsReturn } from "./useThemeSettings";
 import { useThemeSettings } from "./useThemeSettings";
@@ -32,11 +32,11 @@ function StrictModeWrapper({ children }: { children: ReactNode }) {
 	return <StrictMode>{children}</StrictMode>;
 }
 
-const makeConfig = (): VoiceTyperConfig =>
+const makeConfig = (): LausuConfig =>
 	({
 		theme_preset: "custom",
 		custom_theme: null,
-	}) as unknown as VoiceTyperConfig;
+	}) as unknown as LausuConfig;
 
 interface HookCallbacks {
 	updateConfig: ReturnType<typeof vi.fn>;
@@ -47,7 +47,7 @@ interface RenderedThemeHook extends HookCallbacks {
 	result: { current: UseThemeSettingsReturn };
 }
 
-function renderThemeHook(config: VoiceTyperConfig | null): RenderedThemeHook {
+function renderThemeHook(config: LausuConfig | null): RenderedThemeHook {
 	const callbacks: HookCallbacks = {
 		updateConfig: vi.fn(),
 		updateConfigDebounced: vi.fn(),
@@ -61,10 +61,10 @@ function renderThemeHook(config: VoiceTyperConfig | null): RenderedThemeHook {
 				// untyped mock is still fully assertable on the return
 				// value below).
 				updateConfig: callbacks.updateConfig as unknown as (
-					updates: Partial<VoiceTyperConfig>,
+					updates: Partial<LausuConfig>,
 				) => void,
 				updateConfigDebounced: callbacks.updateConfigDebounced as unknown as (
-					key: keyof VoiceTyperConfig,
+					key: keyof LausuConfig,
 					value: unknown,
 					delayMs?: number,
 				) => void,

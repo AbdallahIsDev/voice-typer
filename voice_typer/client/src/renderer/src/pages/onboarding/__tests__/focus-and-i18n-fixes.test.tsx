@@ -97,7 +97,7 @@ describe("errorBoundary.unknownError exists in all 8 locales (onboarding fallbac
 describe("onboarding heading class is shared (MO-44)", () => {
 	it("exports one HEADING_CLASS; Welcome/Consent import it (no local redefinition)", () => {
 		expect(HEADING_CLASS).toBe(
-			"text-lg font-semibold text-(--text-primary) outline-none",
+			"text-lg font-semibold text-foreground outline-none",
 		);
 		const componentsDir = join(
 			RENDERER_SRC,

@@ -33,7 +33,7 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 /** Minimal valid config, same shape as Settings.test.tsx's baseConfig.
  *  Built on the shared `makeConfig` fixture so this file no longer keeps
- *  its own ~120-field copy of `VoiceTyperConfig` (XA-15-2 drift hazard).
+ *  its own ~120-field copy of `LausuConfig` (XA-15-2 drift hazard).
  *  Only the fields that differ from `DEFAULT_CONFIG` are overridden here. */
 const baseConfig = makeConfig({
 	schema_version: 1,

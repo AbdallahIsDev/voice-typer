@@ -14,7 +14,7 @@
  *     `connectingProgress` value (if any) as a progress bar.
  *   - When `status === "disconnected"`: shows the last error (if any)
  *     and a primary Retry button.
- *   - Uses a LOCAL card (bg-card, subtle border) instead of the shared
+ *   - Uses a LOCAL card (bg-surface, subtle border) instead of the shared
  *     `<EmptyState variant="error">`: that error variant paints a
  *     full-card destructive wash + role="alert", which is out of scope
  *     to change (other screens use it) and too alarming here.
@@ -95,7 +95,7 @@ export function ConnectionStatusScreen({
 			className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6 py-12"
 			data-testid="connection-status"
 		>
-			<div className="flex w-full flex-col items-center gap-4 rounded-xl border border-border/10 bg-card px-6 py-10 text-center">
+			<div className="flex w-full flex-col items-center gap-4 rounded-lg border border-border/10 bg-surface px-6 py-10 text-center">
 				{/* Disconnected-only icon: AlertCircle in a destructive-tint
 				 * disc. Connecting/restarting render the Spinner output below
 				 * instead (no error icon). No full-card red wash. */}
@@ -108,7 +108,7 @@ export function ConnectionStatusScreen({
 						/>
 					</div>
 				)}
-				<h2 className="text-lg font-semibold text-(--text-primary)">{title}</h2>
+				<h2 className="text-lg font-semibold text-foreground">{title}</h2>
 				{/* The description doubles as THE polite live region for this
 				 * screen (role="status" ⇒ implicit aria-live="polite"). The
 				 * wrapper div is intentionally ROLELESS: a role="alert"
@@ -119,7 +119,7 @@ export function ConnectionStatusScreen({
 				 * once, calmly, while the progressbar below reports its own
 				 * value changes via aria-valuenow.
 				 */}
-				<p role="status" className="text-sm text-(--text-muted)">
+				<p role="status" className="text-sm text-muted-foreground">
 					{description}
 				</p>
 				{(isConnecting || isRestarting) && (
@@ -142,11 +142,11 @@ export function ConnectionStatusScreen({
 						</output>
 						{progressPercent !== null && (
 							<div className="flex w-full max-w-xs flex-col items-center gap-1">
-								<span className="text-xs text-(--text-muted)">
+								<span className="text-xs text-muted-foreground">
 									{progressPercent}%
 								</span>
 								<div
-									className="h-1.5 w-full overflow-hidden rounded-full bg-(--bg-subtle)"
+									className="h-1.5 w-full overflow-hidden rounded-full bg-surface-subtle"
 									role="progressbar"
 									aria-valuenow={progressPercent}
 									aria-valuemin={0}

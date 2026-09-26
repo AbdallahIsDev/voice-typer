@@ -45,3 +45,24 @@ declare module "*.ico" {
 	const content: string;
 	export default content;
 }
+
+declare module "papaparse" {
+	export interface ParseResult<T> {
+		data: T[];
+		errors: Array<{ message: string; row?: number }>;
+		meta: { fields?: string[]; delimiter: string; linebreak: string };
+	}
+	export interface ParseConfig {
+		delimiter?: string;
+		header?: boolean;
+		skipEmptyLines?: boolean | "greedy";
+	}
+	export function parse<T>(
+		input: string,
+		config?: ParseConfig,
+	): ParseResult<T>;
+	const Papa: {
+		parse<T>(input: string, config?: ParseConfig): ParseResult<T>;
+	};
+	export default Papa;
+}

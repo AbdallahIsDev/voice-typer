@@ -97,7 +97,7 @@ function languageBadgeKey(
 /** Small info chip used for the VRAM / language badges on a model row. */
 function ModelBadge({ children }: { children: string }) {
 	return (
-		<span className="rounded-full bg-(--bg-subtle) px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-(--text-muted)">
+		<span className="rounded-full bg-surface-subtle px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
 			{children}
 		</span>
 	);
@@ -147,14 +147,14 @@ export function ModelStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.modelTitle")}
 			</h2>
-			<p className="text-sm text-(--text-muted)">
+			<p className="text-sm text-muted-foreground">
 				{t("onboarding.modelDescription")}
 			</p>
 
 			{/* Local vs cloud choice — the SAME SegmentedControl the Models
 			    page uses for its Local/Cloud tabs (identical tokens:
-			    rounded-xl border border-border/10 bg-(--bg-subtle) container
-			    + bg-(--bg) bordered active segment, C-MODELS-1). This is the
+			    rounded-lg border border-border/10 bg-surface-subtle container
+			    + bg-surface bordered active segment, C-MODELS-1). This is the
 			    single place where the user decides how transcription runs;
 			    the app never downloads a model on its own. */}
 			<SegmentedControl
@@ -163,9 +163,9 @@ export function ModelStep({
 				value={selectedBackend}
 				onChange={setSelectedBackend}
 				ariaLabel={t("onboarding.backendAria")}
-				indicatorClassName="bg-(--bg) border border-border/10"
+				indicatorClassName="bg-surface border border-border/10"
 				labelClassName="flex-1 text-center"
-				className="w-full rounded-xl border border-border/10 bg-(--bg-subtle)"
+				className="w-full rounded-lg border border-border/10 bg-surface-subtle"
 				getTabId={(v) => `onboarding-backend-tab-${v}`}
 				getPanelId={(v) => `onboarding-backend-panel-${v}`}
 			/>
@@ -189,7 +189,7 @@ export function ModelStep({
 						// The first family (whisper) starts expanded, matching the
 						// Models page's expand-the-active-family default.
 						defaultValue={families[0] ? [families[0].id] : []}
-						className="rounded-lg border border-border/10 bg-(--bg-subtle)"
+						className="rounded-lg border border-border/10 bg-surface-subtle"
 						data-testid="onboarding-model-accordion"
 					>
 						{families.map((family) => (
@@ -197,7 +197,7 @@ export function ModelStep({
 								<AccordionTrigger className="px-4 hover:no-underline">
 									<span className="flex items-center gap-2">
 										<FamilyLogo family={family.id} />
-										<span className="text-sm font-medium text-(--text-primary)">
+										<span className="text-sm font-medium text-foreground">
 											{FAMILY_LABELS[family.id] ?? family.id}
 										</span>
 									</span>
@@ -225,19 +225,19 @@ export function ModelStep({
 														type="button"
 														aria-pressed={isSelected}
 														onClick={() => setSelectedModel(m.name)}
-														className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-md p-1 text-start outline-none focus-visible:ring-1 focus-visible:ring-ring"
+														className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-lg p-1 text-start outline-none focus-visible:ring-1 focus-visible:ring-ring"
 														aria-label={t("onboarding.modelSelectAria", {
 															name: m.name,
 														})}
 														data-testid={`onboarding-model-select-${m.name}`}
 													>
 														<span
-															className={`text-sm font-medium ${isSelected ? "text-accent" : "text-(--text-primary)"}`}
+															className={`text-sm font-medium ${isSelected ? "text-accent" : "text-foreground"}`}
 														>
 															{m.name}
 															{isSelected ? " ✓" : ""}
 														</span>
-														<span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-(--text-muted)">
+														<span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 															<span>
 																{m.description ?? ""}
 																{m.description && m.size ? ", " : ""}
@@ -333,7 +333,7 @@ export function ModelStep({
 								</span>
 								<span>{progressPct}%</span>
 							</div>
-							<div className="h-1.5 w-full rounded-full bg-(--bg-subtle)">
+							<div className="h-1.5 w-full rounded-full bg-surface-subtle">
 								<div
 									className="h-1.5 rounded-full bg-accent transition-all duration-300"
 									style={{ width: `${Math.min(100, downloadProgress)}%` }}
@@ -354,7 +354,7 @@ export function ModelStep({
 					<div className="flex flex-col gap-1">
 						<label
 							htmlFor="onboarding-cloud-provider"
-							className="text-sm font-medium text-(--text-primary)"
+							className="text-sm font-medium text-foreground"
 						>
 							{t("onboarding.cloudProviderLabel")}
 						</label>
@@ -363,7 +363,7 @@ export function ModelStep({
 							value={cloudProvider}
 							onChange={(e) => setCloudProvider(e.target.value)}
 							aria-label={t("onboarding.cloudProviderLabel")}
-							className="w-full rounded-md border border-border/5 bg-(--bg) px-3 py-2 text-sm text-(--text-primary)"
+							className="w-full rounded-lg border border-border/5 bg-surface px-3 py-2 text-sm text-foreground"
 							data-testid="onboarding-cloud-provider"
 						>
 							{CLOUD_PROVIDERS.map((p) => (
@@ -377,7 +377,7 @@ export function ModelStep({
 					<div className="flex flex-col gap-1">
 						<label
 							htmlFor="onboarding-cloud-api-key"
-							className="text-sm font-medium text-(--text-primary)"
+							className="text-sm font-medium text-foreground"
 						>
 							{t("models.cloud.apiKey")}
 						</label>
@@ -408,7 +408,7 @@ export function ModelStep({
 							htmlFor="onboarding-cloud-consent"
 							className="flex min-w-0 flex-1 flex-col gap-1 text-sm"
 						>
-							<span className="font-medium text-(--text-primary)">
+							<span className="font-medium text-foreground">
 								{t("models.cloud.consentTitle")}
 								<InfoTooltip
 									text={t("models.cloud.consentDescription", {
@@ -420,7 +420,7 @@ export function ModelStep({
 						</label>
 					</div>
 
-					<p className="text-xs text-(--text-muted)">
+					<p className="text-xs text-muted-foreground">
 						{t("onboarding.cloudNote")}
 					</p>
 				</div>

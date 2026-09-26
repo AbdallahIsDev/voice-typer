@@ -25,7 +25,7 @@ describe("PunctuationCheatSheet (NEW-UX-026)", () => {
 
 	it("includes all six text_cleanup.py punctuation characters: , . ; : ! ?", () => {
 		// text_cleanup.py:374, `_RE_SPACING_PUNCT_BEFORE = re.compile(r"\s+([,.;:!?])")`
-		// is the canonical source of truth for the punctuation Voice Typer
+		// is the canonical source of truth for the punctuation Lausu
 		// preserves. The cheat sheet must surface each of these so users
 		// know how to produce them by voice.
 		render(<PunctuationCheatSheet />);

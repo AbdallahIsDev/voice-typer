@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 import { DEFAULT_CONFIG, makeConfig } from "../fixtures";
 
@@ -31,14 +31,14 @@ describe("DEFAULT_CONFIG (XZ-CFG-05 drift pin)", () => {
 		// pinned fields, a test that needs an older schema
 		// version (e.g. to test the migration path) must still be
 		// able to override via makeConfig({ schema_version: 2 }).
-		const cfg: VoiceTyperConfig = makeConfig({ schema_version: 2 });
+		const cfg: LausuConfig = makeConfig({ schema_version: 2 });
 		expect(cfg.schema_version).toBe(2);
 		// Default still 3 when not overridden.
 		expect(DEFAULT_CONFIG.schema_version).toBe(3);
 	});
 
 	it("makeConfig overrides llm_preset when explicitly provided", () => {
-		const cfg: VoiceTyperConfig = makeConfig({ llm_preset: "email" });
+		const cfg: LausuConfig = makeConfig({ llm_preset: "email" });
 		expect(cfg.llm_preset).toBe("email");
 		// Default still "professional" when not overridden.
 		expect(DEFAULT_CONFIG.llm_preset).toBe("professional");

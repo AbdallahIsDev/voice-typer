@@ -32,7 +32,7 @@ export function RecordingTimer({ isRecording }: RecordingTimerProps) {
 	const duration = formatElapsedSeconds(elapsedSec);
 	return (
 		<span
-			className="font-mono text-sm tabular-nums text-(--text-muted)"
+			className="font-mono text-sm tabular-nums text-muted-foreground"
 			role="timer"
 			aria-live="off"
 			aria-label={t("home.timerAria", { duration })}

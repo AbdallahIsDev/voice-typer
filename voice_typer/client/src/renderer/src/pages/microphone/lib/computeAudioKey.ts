@@ -1,6 +1,6 @@
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
-export function computeAudioKey(config: VoiceTyperConfig | null): string {
+export function computeAudioKey(config: LausuConfig | null): string {
 	if (!config) return "";
 	return JSON.stringify({
 		preset: config.audio_preset,

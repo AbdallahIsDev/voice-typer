@@ -1,11 +1,11 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 import { installConsoleCapture } from "@/lib/console-capture";
 import { installGlobalErrorHandlers } from "@/lib/globalErrorHandler";
+import React from "react";
+import ReactDOM from "react-dom/client";
 import App from "./App";
-import { ensureTauriBridgeInstalled } from "./lib/tauri-bridge/ensure";
 import "./index.css";
+import { ensureTauriBridgeInstalled } from "./lib/tauri-bridge/ensure";
 
 // React app mounts so `window.python` / `window.bubble` / `window.window_`
 // are available when `usePython` and other hooks initialize. The runtime
@@ -40,7 +40,7 @@ installGlobalErrorHandlers();
 // each webview's `console-message` and routed WARN/ERROR into the host
 // log; Tauri has no such listener, so `console.warn` / `console.error`
 // from UI code that never reached React's boundary left no trace in
-// `voice-typer-rust.log`. INFO/DEBUG stay out of the file (the host file
+// `lausu-rust.log`. INFO/DEBUG stay out of the file (the host file
 // is WARN-only by default) and the forwarding volume is
 // token-bucketed inside the module.
 installConsoleCapture();

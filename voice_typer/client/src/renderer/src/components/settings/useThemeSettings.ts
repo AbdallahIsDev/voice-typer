@@ -1,5 +1,3 @@
-import type { ChangeEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cssColorToHex } from "@/lib/color-utils";
 import {
 	clearDraftLS,
@@ -16,7 +14,9 @@ import {
 	deriveCustomVars,
 	THEMES,
 } from "@/themes";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import type { ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { _themeColorCache } from "./themeColorCache";
 
@@ -226,16 +226,16 @@ export function getThemePreviewColors(
  * ``ThemeSettingsSection`` component receives that the hook needs to
  */
 export interface UseThemeSettingsConfig {
-	config: VoiceTyperConfig | null;
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
+	config: LausuConfig | null;
+	updateConfig: (updates: Partial<LausuConfig>) => void;
 	updateConfigDebounced: (
-		key: keyof VoiceTyperConfig,
+		key: keyof LausuConfig,
 		value: unknown,
 		delayMs?: number,
 	) => void;
-	themeModeProp?: VoiceTyperConfig["theme_mode"];
-	onThemeChange?: (mode: VoiceTyperConfig["theme_mode"]) => void;
-	themePresetProp?: VoiceTyperConfig["theme_preset"];
+	themeModeProp?: LausuConfig["theme_mode"];
+	onThemeChange?: (mode: LausuConfig["theme_mode"]) => void;
+	themePresetProp?: LausuConfig["theme_preset"];
 }
 
 /**
@@ -258,7 +258,7 @@ export interface UseThemeSettingsReturn {
 	/**
 	 * Effective preset (prefers ``themePresetProp`` over ``config.theme_preset``).
 	 */
-	effectivePreset: VoiceTyperConfig["theme_preset"];
+	effectivePreset: LausuConfig["theme_preset"];
 	/**
 	 * ``true`` when the draft matches the built-in DEFAULT_CUSTOM_* maps.
 	 */
@@ -290,7 +290,7 @@ export function useThemeSettings({
 	onThemeChange,
 	themePresetProp,
 }: UseThemeSettingsConfig): UseThemeSettingsReturn {
-	const savedPresetRef = useRef<VoiceTyperConfig["theme_preset"]>(
+	const savedPresetRef = useRef<LausuConfig["theme_preset"]>(
 		config?.theme_preset ?? "default",
 	);
 	useEffect(() => {
@@ -327,7 +327,7 @@ export function useThemeSettings({
 
 	const [hexDrafts, setHexDrafts] = useState<Record<string, string>>({});
 
-	const effectivePreset: VoiceTyperConfig["theme_preset"] =
+	const effectivePreset: LausuConfig["theme_preset"] =
 		themePresetProp ?? config?.theme_preset ?? "default";
 
 	const customDraftIsDefault = useMemo(() => {
@@ -433,7 +433,7 @@ export function useThemeSettings({
 
 	const handleColorSchemeChange = useCallback(
 		(v: string) => {
-			const m = v as VoiceTyperConfig["theme_mode"];
+			const m = v as LausuConfig["theme_mode"];
 			onThemeChange?.(m);
 		},
 		[onThemeChange],
@@ -441,7 +441,7 @@ export function useThemeSettings({
 
 	const handleThemePresetChange = useCallback(
 		(v: string) => {
-			const preset = v as VoiceTyperConfig["theme_preset"];
+			const preset = v as LausuConfig["theme_preset"];
 			savedPresetRef.current = preset;
 			updateConfig({ theme_preset: preset });
 		},

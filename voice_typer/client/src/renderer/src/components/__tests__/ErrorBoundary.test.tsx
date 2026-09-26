@@ -127,7 +127,7 @@ describe("ErrorBoundary", () => {
 		expect(screen.queryByText("Something went wrong")).toBeNull();
 	});
 
-	it("renders the calm app-theme card (bg-card container, destructive icon disc, title hook)", () => {
+	it("renders the calm app-theme card (bg-surface container, destructive icon disc, title hook)", () => {
 		shouldThrow = true;
 		const { container } = render(
 			<ErrorBoundary>
@@ -135,13 +135,13 @@ describe("ErrorBoundary", () => {
 			</ErrorBoundary>,
 		);
 		const alert = screen.getByRole("alert");
-		// Inner card: w-full max-w-lg rounded-xl border bg-card surface.
+		// Inner card: w-full max-w-lg rounded-lg border bg-surface surface.
 		const card = Array.from(alert.querySelectorAll("div")).find((el) =>
-			el.className.includes("bg-card"),
+			el.className.includes("bg-surface"),
 		) as HTMLElement | undefined;
 		expect(card).toBeTruthy();
 		expect(card?.className).toContain("max-w-lg");
-		expect(card?.className).toContain("rounded-xl");
+		expect(card?.className).toContain("rounded-lg");
 		expect(card?.className).toContain("border-border/10");
 		// Destructive icon disc: rounded-full bg-destructive/10 wrapper.
 		const disc = Array.from(alert.querySelectorAll("div")).find((el) =>

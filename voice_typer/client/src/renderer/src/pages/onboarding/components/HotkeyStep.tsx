@@ -45,7 +45,7 @@ export function HotkeyStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.hotkeyTitle")}
 			</h2>
-			<p className="text-sm text-(--text-muted)">
+			<p className="text-sm text-muted-foreground">
 				{t("onboarding.hotkeyDescription")}
 			</p>
 			<Select value={selectedHotkey} onValueChange={setSelectedHotkey}>
@@ -76,12 +76,12 @@ export function HotkeyStep({
 						{t("onboarding.permissionsTestButton")}
 					</Button>
 					{permissionsTest?.kind === "listening" && (
-						<p className="text-xs text-(--text-muted)">
+						<p className="text-xs text-muted-foreground">
 							{t("onboarding.permissionsTestLabel")}
 						</p>
 					)}
 					{permissionsTest?.kind === "success" && (
-						<p className="text-xs text-(--text-primary)">
+						<p className="text-xs text-foreground">
 							{t("onboarding.permissionsTestSuccess")}
 						</p>
 					)}

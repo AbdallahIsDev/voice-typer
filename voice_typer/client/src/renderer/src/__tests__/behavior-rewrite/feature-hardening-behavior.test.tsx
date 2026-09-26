@@ -144,7 +144,7 @@ vi.mock("@/pages/Onboarding", () => ({
 import { _resetNavigationForTest } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { RecordingState } from "@/types/ipc";
 
 // ── Compile-time invariants on hook return types ────────────────────
@@ -166,7 +166,7 @@ const _noSnackbarComponent: HasSnackbarComponent extends false ? true : false =
 // ── Shared test fixtures ────────────────────────────────────────────
 
 /** Mirrors the fixture in pages/__tests__/Settings.test.tsx. */
-const baseConfig: VoiceTyperConfig = {
+const baseConfig: LausuConfig = {
 	schema_version: 1,
 	fast_startup: true,
 	offline_pack_consent: true,
@@ -234,18 +234,18 @@ const baseConfig: VoiceTyperConfig = {
 	theme_preset: "custom",
 	custom_theme: {
 		light: {
-			"--bg": "#ffffff",
-			"--bg-subtle": "#f5f5f5",
+			"--background": "#ffffff",
+			"--surface-subtle": "#f5f5f5",
 			"--text": "#000000",
-			"--text-muted": "#666666",
+			"--muted-foreground": "#666666",
 			"--accent": "#3b82f6",
 			"--border": "#e5e7eb",
 		},
 		dark: {
-			"--bg": "#000000",
-			"--bg-subtle": "#111111",
+			"--background": "#000000",
+			"--surface-subtle": "#111111",
 			"--text": "#ffffff",
-			"--text-muted": "#999999",
+			"--muted-foreground": "#999999",
 			"--accent": "#60a5fa",
 			"--border": "#222222",
 		},
@@ -296,6 +296,7 @@ const baseConfig: VoiceTyperConfig = {
 	cloud_deepgram_consent: false,
 	voice_biometric_consent: false,
 	llm_polish_consent: false,
+	media_url_consent: false,
 	sound_feedback_enabled: false,
 	ai_enhancement_enabled: false,
 	auto_capitalize: true,

@@ -1,7 +1,7 @@
+import { getLocale, setLocale } from "@/i18n/i18n";
 import { act, cleanup, render } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getLocale, setLocale } from "@/i18n/i18n";
 import { BubbleBridgeProvider, useBubbleBridge } from "../useBubbleBridge";
 import { useThemeSync } from "../useThemeSync";
 
@@ -46,7 +46,7 @@ beforeEach(() => {
 	mockBubble = makeMockBubble();
 	(window as unknown as Record<string, unknown>).bubble =
 		mockBubble.api as never;
-	localStorage.removeItem("voice-typer-ui-locale");
+	localStorage.removeItem("lausu-ui-locale");
 	// jsdom's documentElement persists across tests in this file —
 	// clear the inline --font-scale a previous test may have set so
 	// assertions on it start clean.
@@ -57,7 +57,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	delete (window as unknown as Record<string, unknown>).bubble;
-	localStorage.removeItem("voice-typer-ui-locale");
+	localStorage.removeItem("lausu-ui-locale");
 	setLocale("en");
 	vi.restoreAllMocks();
 });
@@ -69,7 +69,7 @@ function Harness({ children }: { children?: ReactNode }) {
 	useThemeSync();
 	useEffect(() => {
 		if (!bridge) return;
-		return bridge.on("config", () => {});
+		return bridge.on("config", () => { });
 	}, [bridge]);
 	return <div data-testid="harness">{children}</div>;
 }
@@ -109,7 +109,7 @@ describe("useThemeSync, localeChanged push", () => {
 
 	it("ignores unsupported / garbled payloads (no dir flip, locale unchanged)", () => {
 		renderHarness();
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => { });
 
 		act(() => {
 			for (const cb of mockBubble.listeners.localeChanged ?? []) cb("<script>");

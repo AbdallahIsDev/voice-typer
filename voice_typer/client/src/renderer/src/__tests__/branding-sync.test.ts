@@ -9,13 +9,13 @@ import { APP_NAME as RENDERER_APP_NAME } from "@/branding";
 //   <repo-root>/voice_typer/client/src/renderer/src/__tests__/branding-sync.test.ts
 // so `__dirname` is `.../__tests__`. We walk up to the project root and
 // back down into the other branding files.
-// Trace (__dirname = .../voice-typer/voice_typer/client/src/renderer/src/__tests__):
-//   ..   → .../voice-typer/voice_typer/client/src/renderer/src
-//   ../.. → .../voice-typer/voice_typer/client/src/renderer
-//   ../../.. → .../voice-typer/voice_typer/client/src
-//   ../../../.. → .../voice-typer/voice_typer/client
-//   ../../../../.. → .../voice-typer/voice_typer
-//   ../../../../../.. → .../voice-typer  (project root)
+// Trace (__dirname = .../lausu/voice_typer/client/src/renderer/src/__tests__):
+//   ..   → .../lausu/voice_typer/client/src/renderer/src
+//   ../.. → .../lausu/voice_typer/client/src/renderer
+//   ../../.. → .../lausu/voice_typer/client/src
+//   ../../../.. → .../lausu/voice_typer/client
+//   ../../../../.. → .../lausu/voice_typer
+//   ../../../../../.. → .../lausu  (project root)
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..", "..", "..");
 
 const SERVER_BRANDING_PATH = path.resolve(

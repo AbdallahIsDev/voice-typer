@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { t, tChoice } from "@/i18n/i18n";
+import { formatLastUpdatedLabel } from "@/lib/relativeTime";
 
 export function useLastUpdated(): {
 	lastUpdated: number | null;
@@ -93,28 +93,9 @@ export function useLastUpdated(): {
 		[],
 	);
 
-	// Compute the relative label using the same i18n keys used by the
-	// About page's formatRelativeTime helper (lessThanMinute, minutesAgo,
-	// hoursAgo) so the vocabulary stays consistent across the app.
-	let agoLabel: string;
-	if (lastUpdated === null) {
-		agoLabel = t("common.lastUpdatedNever");
-	} else {
-		const seconds = Math.max(0, Math.floor((now - lastUpdated) / 1000));
-		if (seconds < 5) {
-			agoLabel = t("common.lastUpdatedJustNow");
-		} else if (seconds < 60) {
-			agoLabel = tChoice("common.lastUpdatedSecondsAgo", seconds);
-		} else {
-			const minutes = Math.floor(seconds / 60);
-			if (minutes < 60) {
-				agoLabel = tChoice("common.lastUpdatedMinutesAgo", minutes);
-			} else {
-				const hours = Math.floor(minutes / 60);
-				agoLabel = tChoice("common.lastUpdatedHoursAgo", hours);
-			}
-		}
-	}
+	// Shared vocabulary with the diagnostics relative-time helper
+	// (lessThanMinute, minutesAgo, hoursAgo) so labels stay consistent.
+	const agoLabel = formatLastUpdatedLabel(lastUpdated, now);
 
 	return { lastUpdated, markUpdated, agoLabel, refreshing, withRefresh };
 }

@@ -67,9 +67,9 @@ describe("deriveCustomVars emits status tokens for custom themes", () => {
 				"--background": "#ffffff",
 				"--foreground": "#09090b",
 				"--primary": "#1447e6",
-				"--bg-subtle": "#f5f5f5",
+				"--surface-subtle": "#f5f5f5",
 				"--border": "#e4e4e7",
-				"--text-muted": "#71717b",
+				"--muted-foreground": "#71717b",
 			},
 			false,
 		);
@@ -87,9 +87,9 @@ describe("deriveCustomVars emits status tokens for custom themes", () => {
 				"--background": "#131313",
 				"--foreground": "#fafafa",
 				"--primary": "#193cb8",
-				"--bg-subtle": "#0f0f0f",
+				"--surface-subtle": "#0f0f0f",
 				"--border": "#1f1f1f",
-				"--text-muted": "#9f9fa9",
+				"--muted-foreground": "#9f9fa9",
 			},
 			true,
 		);

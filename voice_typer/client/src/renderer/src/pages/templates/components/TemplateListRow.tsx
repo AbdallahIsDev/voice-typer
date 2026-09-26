@@ -89,7 +89,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 			<div className="flex min-w-0 flex-col items-start gap-1">
 				<span
 					title={row.trigger}
-					className="min-w-0 truncate text-sm font-semibold text-(--text-primary)"
+					className="min-w-0 truncate text-sm font-semibold text-foreground"
 				>
 					{row.trigger}
 				</span>
@@ -110,7 +110,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 			{/* Expansion (col 3 on sm+; row 2 on mobile), the body the
                             trigger expands to. */}
 			<div className="col-start-2 flex min-w-0 items-center sm:col-start-auto">
-				<p className="min-w-0 truncate text-xs text-(--text-muted)">
+				<p className="min-w-0 truncate text-xs text-muted-foreground">
 					{row.expansion}
 				</p>
 			</div>
@@ -134,7 +134,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 						e.stopPropagation();
 						onDelete(row);
 					}}
-					className="text-(--text-muted) transition-colors hover:text-destructive"
+					className="text-muted-foreground transition-colors hover:text-destructive"
 					aria-label={t("templates.deleteAria", { name: row.trigger })}
 				>
 					<HugeiconsIcon
@@ -151,7 +151,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 						e.stopPropagation();
 						onEdit(row);
 					}}
-					className="text-(--text-muted) transition-colors hover:text-(--text-primary)"
+					className="text-muted-foreground transition-colors hover:text-foreground"
 					aria-label={t("templates.editAria", { name: row.trigger })}
 				>
 					<HugeiconsIcon

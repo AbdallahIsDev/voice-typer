@@ -167,7 +167,7 @@ export function CollectionToolbar({
 					// the user knows what shape the import expects without
 					// trial-and-error.
 					title={t(importTitleKey)}
-					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+					className="gap-2 text-muted-foreground hover:text-foreground"
 				>
 					<HugeiconsIcon
 						icon={Upload01Icon}
@@ -196,7 +196,7 @@ export function CollectionToolbar({
 					// out-specifies a plain hover:bg-destructive (Tailwind
 					// v4 `&:is(.dark *)`), so dark mode would hover
 					// translucent grey, not solid red.
-					className="gap-2 text-(--text-muted) hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive"
+					className="gap-2 text-muted-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive"
 					aria-label={t(clearAllAriaLabelKey)}
 					title={t(clearAllAriaLabelKey)}
 				>

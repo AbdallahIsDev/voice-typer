@@ -21,9 +21,6 @@
 // its persistent PlusSignIcon stays "+" in both states (app-wide
 // accordion convention).
 
-import { ArrowDown01Icon, FilterIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo, useRef } from "react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import { SelectableRow } from "@/components/common/SelectableRow";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
@@ -41,11 +38,14 @@ import {
 	AUDIO_PRESET_OPTIONS,
 	type AudioPreset,
 } from "@/lib/utils/audioPresets";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { ArrowDown01Icon, FilterIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useEffect, useMemo, useRef } from "react";
 
 interface PresetAccordionSelectorProps {
 	preset: AudioPreset;
-	config: VoiceTyperConfig;
+	config: LausuConfig;
 	/** Whether the Custom-filters panel is expanded. */
 	showAdvanced: boolean;
 	/** Called when the user picks a new preset. */
@@ -53,7 +53,7 @@ interface PresetAccordionSelectorProps {
 	/** Called when the user toggles the Custom-filters disclosure. */
 	onToggleAdvanced: () => void;
 	/** Called when any individual filter field changes. */
-	onConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
+	onConfigChange: (updates: Partial<LausuConfig>) => void;
 }
 
 interface PresetOption {
@@ -91,10 +91,10 @@ export function PresetAccordionSelector({
 	const current =
 		preset === "off"
 			? {
-					value: "off" as AudioPreset,
-					label: t("settings.audioEnhancement.presetOff"),
-					description: "",
-				}
+				value: "off" as AudioPreset,
+				label: t("settings.audioEnhancement.presetOff"),
+				description: "",
+			}
 			: presetOptions.find((o) => o.value === preset);
 	const enabled = preset !== "off";
 	const isCustom = preset === "custom";
@@ -119,7 +119,7 @@ export function PresetAccordionSelector({
 		<Accordion
 			type="single"
 			collapsible
-			className="rounded-lg border border-border/5 bg-(--bg-subtle) overflow-hidden"
+			className="rounded-lg border border-border/5 bg-surface-subtle overflow-hidden"
 		>
 			<AccordionItem
 				value={ACCORDION_ITEM_VALUE}
@@ -137,10 +137,10 @@ export function PresetAccordionSelector({
 					// instance (user decision for this selector) and replaced by
 					// the dedicated rotating chevron below, the primitive itself
 					// is untouched, so every other accordion keeps its "+".
-					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring **:data-[slot=accordion-trigger-icon]:hidden **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
+					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring **:data-[slot=accordion-trigger-icon]:hidden **:data-[slot=accordion-trigger-icon]:text-muted-foreground"
 				>
 					<span className="flex items-center gap-2 min-w-0">
-						<span className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
+						<span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
 							{t("settings.audioEnhancement.microphoneQuality")}
 						</span>
 						{/* Inline (span) trigger: this tooltip lives INSIDE the
@@ -158,13 +158,13 @@ export function PresetAccordionSelector({
                                         (plain span, the whole row is the one control) that visually
                                         communicates the current selection, grouped with the expand
                                         control it belongs to. Mirrors the SelectTrigger shell
-                                        (bg-background lifts it off the bg-(--bg-subtle) card). The
+                                        (bg-background lifts it off the bg-surface-subtle card). The
                                         chevron is decorative (the trigger owns aria-expanded) and
                                         rotates via the primitive's data-state, collapsed points
                                         down (can expand), expanded points up (can collapse). */}
 					<span className="flex items-center gap-2 shrink-0">
 						<span
-							className="inline-flex max-w-40 items-center rounded-md border border-border/5 bg-background px-2.5 py-1 text-xs font-medium text-(--text-primary)"
+							className="inline-flex max-w-40 items-center rounded-lg border border-border/5 bg-background px-2.5 py-1 text-xs font-medium text-foreground"
 							data-testid="mic-preset-current"
 						>
 							<span className="truncate">{current?.label ?? preset}</span>
@@ -173,7 +173,7 @@ export function PresetAccordionSelector({
 							icon={ArrowDown01Icon}
 							strokeWidth={1.625}
 							aria-hidden="true"
-							className="size-4 shrink-0 text-(--text-muted) transition-transform duration-200 group-data-[state=open]/accordion-trigger:rotate-180"
+							className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]/accordion-trigger:rotate-180"
 						/>
 					</span>
 				</AccordionTrigger>
@@ -197,7 +197,7 @@ export function PresetAccordionSelector({
 						{/* Distinct from the trigger's label: reusing
                                         `microphoneQuality` here echoed the section title
                                         twice on screen while the panel was expanded. */}
-						<span className="text-sm font-medium text-(--text-primary)">
+						<span className="text-sm font-medium text-foreground">
 							{t("settings.audioEnhancement.microphoneQualityEnable")}
 						</span>
 						<Switch
@@ -260,7 +260,7 @@ export function PresetAccordionSelector({
                                                                     InfoTooltip) keeps clicks/keys off the row
                                                                     handler. */}
 										<span className="flex items-center gap-2 min-w-0">
-											<span className="text-sm font-medium text-(--text-primary) truncate">
+											<span className="text-sm font-medium text-foreground truncate">
 												{option.label}
 											</span>
 											<InfoTooltip
@@ -278,7 +278,7 @@ export function PresetAccordionSelector({
 						<>
 							<button
 								type="button"
-								className="flex w-full items-center justify-between rounded-lg border border-border/5 px-3 py-2.5 text-xs font-medium text-(--text-primary) hover:bg-foreground/5 transition-colors cursor-pointer"
+								className="flex w-full items-center justify-between rounded-lg border border-border/5 px-3 py-2.5 text-xs font-medium text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
 								onClick={onToggleAdvanced}
 								aria-expanded={showAdvanced}
 								aria-controls={panelId}
@@ -287,7 +287,7 @@ export function PresetAccordionSelector({
 									<HugeiconsIcon
 										icon={FilterIcon}
 										strokeWidth={2}
-										className="h-4 w-4 text-(--text-muted)"
+										className="h-4 w-4 text-muted-foreground"
 									/>
 									{t("settings.audioEnhancement.customFiltersTitle")}
 								</span>

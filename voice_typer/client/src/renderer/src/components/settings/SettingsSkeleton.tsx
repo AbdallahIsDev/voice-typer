@@ -14,7 +14,7 @@ interface SettingsSkeletonProps {
 
 function ControlSkeleton({ control }: { control: "switch" | "select" }) {
 	if (control === "select") {
-		return <Skeleton className="h-8 w-24 rounded-4xl" />;
+		return <Skeleton className="h-8 w-24 rounded-lg" />;
 	}
 	return <SwitchSkeleton />;
 }
@@ -34,7 +34,7 @@ export function SettingsSkeleton({
 				<Skeleton className="h-7 w-40" />
 				<Skeleton className="h-5 w-64" />
 			</div>
-			<div className="w-full rounded-lg border border-border/5 bg-(--bg-subtle) divide-y divide-border/5">
+			<div className="w-full rounded-lg border border-border/5 bg-surface-subtle divide-y divide-border/5">
 				{Array.from({ length: rows }, (_, i) => (
 					<div
 						//restored biome-ignore, the rule fires under `preset: "recommended"` (the previous `recommended: true` was deprecated and silently skipped enforcement). Skeleton rows are static, identical, and never reorder; index is the only stable key.

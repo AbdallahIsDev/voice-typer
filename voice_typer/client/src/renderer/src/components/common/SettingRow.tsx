@@ -94,7 +94,7 @@ export function SettingRow({
 					id={labelId}
 					htmlFor={htmlFor}
 					data-settings-row-label={label}
-					className="text-sm font-medium text-(--text-primary) cursor-default"
+					className="text-sm font-medium text-foreground cursor-default"
 				>
 					{label}
 				</LabelTag>

@@ -29,7 +29,6 @@
 // identity). The regression test greps Home.tsx source for this pattern, so
 // it stays here in the composition root rather than moving into a hook.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
@@ -52,8 +51,9 @@ import { useThemePalette } from "@/lib/theme-palette";
 import { formatDevice, formatModel } from "@/lib/utils/configDisplay";
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MicToggleButton } from "./home/components/MicToggleButton";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
 import { RecordingTimer } from "./home/components/RecordingTimer";
@@ -114,7 +114,7 @@ export default function Home() {
 	const [initialLoading, setInitialLoading] = useState(
 		() => stats === null && recent.length === 0,
 	);
-	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
+	const [cfg, setCfg] = useState<LausuConfig | null>(null);
 
 	// ── Extracted event-concern hooks (./home/hooks/) ──
 	// root: the download-progress bar, the ephemeral last-
@@ -264,7 +264,7 @@ export default function Home() {
 	useEffect(() => {
 		let cancelled = false;
 		const cfgSettled = callRef
-			.current<VoiceTyperConfig>("get_config")
+			.current<LausuConfig>("get_config")
 			.then((cfg) => {
 				if (cancelled) return;
 				setCfg(cfg);
@@ -313,7 +313,7 @@ export default function Home() {
 		setRefreshing(true);
 		try {
 			const [cfgTry, sTry, hTry] = await Promise.allSettled([
-				call<VoiceTyperConfig>("get_config"),
+				call<LausuConfig>("get_config"),
 				call<TodayStats>("get_today_stats"),
 				call<HistoryRecord[]>("get_history", { limit: 5 }),
 			]);
@@ -365,7 +365,7 @@ export default function Home() {
 		let cancelled = false;
 		const reloadHotkey = async () => {
 			try {
-				const cfg = await call<VoiceTyperConfig>("get_config");
+				const cfg = await call<LausuConfig>("get_config");
 				if (cancelled) return;
 				setHotkey(normalizeHotkey(cfg?.hotkey ?? HOTKEY_DEFAULT));
 				setCfg(cfg);
@@ -433,11 +433,11 @@ export default function Home() {
 		() =>
 			stats && asrBackend
 				? computeShareStats(stats, asrBackend, {
-						// Pre-formatted display values ("Tiny", "GPU"), the
-						// share image renders them as-is.
-						model: cfg?.model_size ? formatModel(cfg.model_size) : "",
-						device: cfg?.device ? formatDevice(cfg.device) : "",
-					})
+					// Pre-formatted display values ("Tiny", "GPU"), the
+					// share image renders them as-is.
+					model: cfg?.model_size ? formatModel(cfg.model_size) : "",
+					device: cfg?.device ? formatDevice(cfg.device) : "",
+				})
 				: null,
 		[stats, asrBackend, cfg?.model_size, cfg?.device],
 	);
@@ -523,7 +523,7 @@ export default function Home() {
 		<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center gap-4 px-16 py-4">
 			{downloadPct !== null && (
 				<div
-					className="h-0.5 w-32 rounded-full bg-(--bg-subtle)"
+					className="h-0.5 w-32 rounded-full bg-surface-subtle"
 					role="progressbar"
 					aria-valuemin={0}
 					aria-valuemax={100}
@@ -541,7 +541,7 @@ export default function Home() {
 				<button
 					type="button"
 					onClick={forceCancel.handleForceCancel}
-					className="rounded-sm text-xs text-warning hover:text-warning/80 hover:underline transition-colors focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+					className="rounded-lg text-xs text-warning hover:text-warning/80 hover:underline transition-colors focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
 					aria-label={t("home.forceCancelHint")}
 				>
 					{t("home.forceCancelHint")}
@@ -580,9 +580,8 @@ export default function Home() {
 			<output
 				aria-live="polite"
 				role={hint?.variant === "error" ? "alert" : undefined}
-				className={`flex items-center gap-2 text-[0.8125rem] animate-fade-in ${
-					hint?.variant === "error" ? "text-destructive" : "text-(--text-muted)"
-				}`}
+				className={`flex items-center gap-2 text-[0.8125rem] animate-fade-in ${hint?.variant === "error" ? "text-destructive" : "text-muted-foreground"
+					}`}
 			>
 				{hint ? (
 					noModelSelected && hint.variant === "error" ? (
@@ -608,7 +607,7 @@ export default function Home() {
 			{stats && (
 				<div className="flex w-full flex-col gap-3">
 					<div className="flex items-center justify-between">
-						<span className="text-xs font-medium text-(--text-muted) capitalize tracking-wide">
+						<span className="text-xs font-medium text-muted-foreground capitalize tracking-wide">
 							{t("home.todayStats")}
 						</span>
 						<div className="flex items-center gap-2">

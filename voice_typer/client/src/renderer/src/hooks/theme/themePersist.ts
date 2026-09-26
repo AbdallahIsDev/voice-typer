@@ -1,3 +1,4 @@
+import { createDebouncedCallback } from "@/hooks/useDebounce";
 import {
 	LS_CUSTOM_THEME,
 	LS_TEXT_SIZE,
@@ -5,25 +6,35 @@ import {
 	LS_THEME_PRESET,
 } from "@/lib/theme-storage-keys";
 import type { CustomThemeData } from "@/themes";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import { getActiveCall } from "./themeBridge";
 
 /** The config fields this subsystem owns, as accepted by ``set_config``. */
 export type ThemeSaveUpdates = Partial<
 	Pick<
-		VoiceTyperConfig,
+		LausuConfig,
 		"theme_mode" | "theme_preset" | "custom_theme" | "text_size"
 	>
 >;
 
-let themeSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingThemeUpdates: ThemeSaveUpdates | null = null;
 
+// Shared debounce timer; the payload merge lives above so rapid
+// changes coalesce, the bridge resolves at fire time (registered
+// after schedule), and flush keeps its own sync warn path.
+const themeSaver = createDebouncedCallback(() => {
+	const pending = pendingThemeUpdates;
+	pendingThemeUpdates = null;
+	const activeCall = getActiveCall();
+	if (!pending || !activeCall) return;
+	activeCall("set_config", pending).catch((e) => {
+		// Theme is local-only if backend unavailable
+		console.warn("[renderer:useTheme] set_config (debounced) failed:", e);
+	});
+}, 300);
+
 export function flushPendingThemeSave(): void {
-	if (themeSaveTimer) {
-		clearTimeout(themeSaveTimer);
-		themeSaveTimer = null;
-	}
+	themeSaver.cancel();
 	const pending = pendingThemeUpdates;
 	if (pending) {
 		pendingThemeUpdates = null;
@@ -53,28 +64,12 @@ export function scheduleThemeSave(updates: ThemeSaveUpdates): void {
 		...pendingThemeUpdates,
 		...updates,
 	};
-	// Cancel any pending save and schedule a new one.
-	if (themeSaveTimer) {
-		clearTimeout(themeSaveTimer);
-	}
-	themeSaveTimer = setTimeout(async () => {
-		themeSaveTimer = null;
-		const pending = pendingThemeUpdates;
-		pendingThemeUpdates = null;
-		const activeCall = getActiveCall();
-		if (!pending || !activeCall) return;
-		try {
-			await activeCall("set_config", pending);
-		} catch (e) {
-			// Theme is local-only if backend unavailable
-			console.warn("[renderer:useTheme] set_config (debounced) failed:", e);
-		}
-	}, 300);
+	themeSaver.debounced();
 }
 
 export function syncThemeCacheToLocalStorage(
-	themeMode: VoiceTyperConfig["theme_mode"],
-	themePreset: VoiceTyperConfig["theme_preset"],
+	themeMode: LausuConfig["theme_mode"],
+	themePreset: LausuConfig["theme_preset"],
 	customTheme: CustomThemeData | null,
 	textSize: number,
 ): void {
@@ -110,9 +105,6 @@ export function removeBeforeUnloadFlush(): void {
 /** Drop any pending save + cancel the debounce timer, used by the
  * ``_resetThemeStoreForTest`` seam. */
 export function resetThemePersistState(): void {
-	if (themeSaveTimer) {
-		clearTimeout(themeSaveTimer);
-		themeSaveTimer = null;
-	}
+	themeSaver.cancel();
 	pendingThemeUpdates = null;
 }

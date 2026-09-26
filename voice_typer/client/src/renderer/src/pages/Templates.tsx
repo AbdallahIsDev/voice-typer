@@ -213,7 +213,7 @@ export default function TemplatesPage() {
 							/>
 						) : (
 							<>
-								<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
+								<div className="overflow-clip rounded-lg border border-border/5 bg-surface-subtle">
 									{/* Shared column-header shell, keys + the
                                                                                 page-unique testid are injected.
                                                                                 visibleIds is capped at displayCount to

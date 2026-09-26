@@ -8,10 +8,10 @@
 // configured. The values are read from ``config`` and forwarded to
 // ``microphone_test_start``.
 
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 export function buildTestFilters(
-	config: VoiceTyperConfig | null,
+	config: LausuConfig | null,
 ): Record<string, unknown> {
 	if (!config || config.audio_preset === "off") {
 		return { noise_filter_enabled: false };

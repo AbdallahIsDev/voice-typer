@@ -5,10 +5,10 @@ import { useCallback } from "react";
 import { SunMoonIcon } from "@/components/common/SunMoonIcon";
 import { t } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 const THEME_CYCLE: {
-	mode: VoiceTyperConfig["theme_mode"];
+	mode: LausuConfig["theme_mode"];
 	icon: IconSvgElement;
 	labelKey: string;
 }[] = [
@@ -33,8 +33,8 @@ const THEME_CYCLE_FALLBACK: (typeof THEME_CYCLE)[number] = {
 
 /** Get the next mode in the cycle. Light → Dark → System → Light */
 function nextMode(
-	current: VoiceTyperConfig["theme_mode"],
-): VoiceTyperConfig["theme_mode"] {
+	current: LausuConfig["theme_mode"],
+): LausuConfig["theme_mode"] {
 	const idx = THEME_CYCLE.findIndex((item) => item.mode === current);
 	const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
 	// noUncheckedIndexedAccess: `next` is `T | undefined`; THEME_CYCLE
@@ -44,8 +44,8 @@ function nextMode(
 }
 
 interface ThemeSwitchProps {
-	themeMode: VoiceTyperConfig["theme_mode"];
-	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
+	themeMode: LausuConfig["theme_mode"];
+	onThemeChange: (mode: LausuConfig["theme_mode"]) => void;
 	className?: string;
 }
 export function ThemeSwitch({
@@ -96,7 +96,7 @@ export function ThemeSwitch({
 				// constant (ring-1 / ring-ring/30) for parity with the
 				// design-system Button.
 				focusRing,
-				"h-7 w-7 rounded-md",
+				"h-7 w-7 rounded-lg",
 				className,
 			)}
 			// The title attribute mirrors the aria-label so sighted mouse

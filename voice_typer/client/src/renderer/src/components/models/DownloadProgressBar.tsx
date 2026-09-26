@@ -4,7 +4,7 @@ import { memo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
-import { formatBytes, formatSpeed } from "@/lib/format";
+import { formatBytes, formatClockDuration, formatSpeed } from "@/lib/format";
 
 interface DownloadProgressBarProps {
 	progress: number;
@@ -27,16 +27,6 @@ interface DownloadProgressBarProps {
 	/** When provided AND `error` is set, a "Retry" button renders
 	 * next to Cancel. */
 	onRetry?: () => void;
-}
-
-function formatEta(seconds: number | null | undefined): string {
-	if (seconds == null || seconds < 0 || !Number.isFinite(seconds)) return "—";
-	const s = Math.floor(seconds % 60);
-	const m = Math.floor((seconds / 60) % 60);
-	const h = Math.floor(seconds / 3600);
-	const pad = (n: number) => n.toString().padStart(2, "0");
-	if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
-	return `${pad(m)}:${pad(s)}`;
 }
 
 function progressAriaLabel(progress: number, modelName?: string): string {
@@ -119,7 +109,7 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 					// tabular-nums: per-tick numbers (bytes/percent) keep a
 					// constant width so the row doesn't jitter every push.
 					className={`min-w-0 flex-1 truncate text-xs tabular-nums ${
-						hasError ? "text-destructive font-medium" : "text-(--text-muted)"
+						hasError ? "text-destructive font-medium" : "text-muted-foreground"
 					}`}
 					// Truncated status line gets a native tooltip with the
 					title={statusText}
@@ -146,7 +136,7 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 					)}
 				</p>
 				{!hasError && downloadedBytes !== null && totalBytes !== null && (
-					<span className="shrink-0 whitespace-nowrap text-end text-xs text-(--text-muted) tabular-nums">
+					<span className="shrink-0 whitespace-nowrap text-end text-xs text-muted-foreground tabular-nums">
 						· {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
 					</span>
 				)}
@@ -156,16 +146,16 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 					// them, live pushes repopulate) shifts the whole row.
 					// Absent data renders "—" in a fixed-width,
 					// tabular-nums slot instead.
-					<span className="min-w-[9ch] shrink-0 whitespace-nowrap text-end text-xs text-(--text-muted) tabular-nums">
+					<span className="min-w-[9ch] shrink-0 whitespace-nowrap text-end text-xs text-muted-foreground tabular-nums">
 						· {speedBps !== null && speedBps > 0 ? formatSpeed(speedBps) : "—"}
 					</span>
 				)}
 				{!hasError && (
-					<span className="min-w-[13ch] shrink-0 whitespace-nowrap text-end text-xs text-(--text-muted) tabular-nums">
+					<span className="min-w-[13ch] shrink-0 whitespace-nowrap text-end text-xs text-muted-foreground tabular-nums">
 						·{" "}
 						{etaSeconds !== null && etaSeconds > 0
 							? t("models.progress.eta", {
-									time: formatEta(etaSeconds),
+									time: formatClockDuration(etaSeconds),
 								})
 							: "—"}
 					</span>

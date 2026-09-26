@@ -1,12 +1,12 @@
 // Shared prop types for settings section components.
 //
 // The Settings page (src/renderer/src/pages/Settings.tsx) owns the
-// VoiceTyperConfig state, the updateConfig / updateConfigDebounced
+// LausuConfig state, the updateConfig / updateConfigDebounced
 // callbacks, and the search-filter function. Each section component
 // receives these as props so it can render its rows identically to the
 // previous monolithic implementation (no behaviour change).
 
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 /** Visible-state predicate, matches the page-level `_filter_settings`
  *  helper.
@@ -28,17 +28,17 @@ export type IsVisibleFn = (
 
 /** Props every settings section accepts. */
 export interface SettingsSectionSharedProps {
-	/** Current Voice Typer config (null while the page is still loading). */
-	config: VoiceTyperConfig | null;
+	/** Current Lausu config (null while the page is still loading). */
+	config: LausuConfig | null;
 	/** Commit a partial config update (also persists to the Python backend). */
-	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
+	updateConfig: (updates: Partial<LausuConfig>) => void;
 	/**
 	 * Debounced commit for inputs that fire on every keystroke (text fields,
 	 * sliders). Updates local state immediately and schedules an IPC commit
 	 * after `delayMs` of idle.
 	 */
 	updateConfigDebounced: (
-		key: keyof VoiceTyperConfig,
+		key: keyof LausuConfig,
 		value: unknown,
 		delayMs?: number,
 	) => void;

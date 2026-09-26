@@ -38,7 +38,7 @@ vi.mock("next-themes", () => nextThemesMock());
 
 import { makeConfig } from "@/__tests__/helpers/fixtures";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 /**
  * Settings-page render helper. The page's render graph uses Radix
@@ -48,28 +48,28 @@ const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 /**
- * A complete, valid VoiceTyperConfig with `theme_preset: "custom"` so the
+ * A complete, valid LausuConfig with `theme_preset: "custom"` so the
  * color picker renders on first paint.  Only the theme-related fields are
  */
-const baseConfig: VoiceTyperConfig = makeConfig({
+const baseConfig: LausuConfig = makeConfig({
 	schema_version: 1,
 	fast_startup: true,
 	llm_preset: "default",
 	theme_preset: "custom",
 	custom_theme: {
 		light: {
-			"--bg": "#ffffff",
-			"--bg-subtle": "#f5f5f5",
+			"--background": "#ffffff",
+			"--surface-subtle": "#f5f5f5",
 			"--text": "#000000",
-			"--text-muted": "#666666",
+			"--muted-foreground": "#666666",
 			"--accent": "#3b82f6",
 			"--border": "#e5e7eb",
 		},
 		dark: {
-			"--bg": "#000000",
-			"--bg-subtle": "#111111",
+			"--background": "#000000",
+			"--surface-subtle": "#111111",
 			"--text": "#ffffff",
-			"--text-muted": "#999999",
+			"--muted-foreground": "#999999",
 			"--accent": "#60a5fa",
 			"--border": "#222222",
 		},
@@ -384,7 +384,7 @@ describe("Settings page, PERF-002 batched config writes", () => {
 						granted: false,
 						platform: "macos",
 						suggest_reset: true,
-						reset_command: "tccutil reset Accessibility com.voicetyper.desktop",
+						reset_command: "tccutil reset Accessibility com.Lausu.desktop",
 					});
 				return Promise.resolve({});
 			});
@@ -402,7 +402,7 @@ describe("Settings page, PERF-002 batched config writes", () => {
 			await waitFor(() => {
 				expect(
 					screen.getByText(
-						"tccutil reset Accessibility com.voicetyper.desktop",
+						"tccutil reset Accessibility com.Lausu.desktop",
 					),
 				).toBeTruthy();
 			});

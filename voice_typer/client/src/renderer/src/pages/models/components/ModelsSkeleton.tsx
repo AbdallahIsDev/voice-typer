@@ -2,11 +2,11 @@
 // Mirrors the loaded Models layout (`pages/Models.tsx` +
 // `components/models/LocalModelsPanel.tsx`): page shell → heading with
 // the trailing Import-Model action (the loaded PageHeading has one) →
-// full-width Local/Cloud segmented control (rounded-xl card, p-1, two
+// full-width Local/Cloud segmented control (rounded-lg card, p-1, two
 // h-8 segments, active segment carries the bg-input indicator) →
 // panel description + right-aligned Open-folder pill → the
-// ModelGroupAccordion family cards: `rounded-xl border-border/5
-// bg-(--bg-subtle)` rows with a `px-4 py-2` trigger (bare h-4 family
+// ModelGroupAccordion family cards: `rounded-lg border-border/5
+// bg-surface-subtle` rows with a `px-4 py-2` trigger (bare h-4 family
 // logo + text-sm name + trailing plus icon), collapsed like the real
 // accordions' default state.
 
@@ -25,10 +25,10 @@ export function ModelsSkeleton() {
 			<HeadingSkeleton action={<PillSkeleton className="w-28" />} />
 			<div className="flex flex-col gap-3">
 				<div className="pb-4">
-					<div className="w-full rounded-xl border border-border/5 bg-(--bg-subtle) p-1">
+					<div className="w-full rounded-lg border border-border/5 bg-surface-subtle p-1">
 						<div className="grid grid-cols-2 gap-1">
-							<Skeleton className="h-8 rounded-md bg-input" />
-							<Skeleton className="h-8 rounded-md" />
+							<Skeleton className="h-8 rounded-lg bg-input" />
+							<Skeleton className="h-8 rounded-lg" />
 						</div>
 					</div>
 				</div>
@@ -43,14 +43,14 @@ export function ModelsSkeleton() {
 						{FAMILY_IDS.map((id) => (
 							<div
 								key={id}
-								className="w-full rounded-xl border border-border/5 bg-(--bg-subtle)"
+								className="w-full rounded-lg border border-border/5 bg-surface-subtle"
 							>
 								<div className="flex items-center justify-between gap-2 px-4 py-2">
 									<div className="flex min-w-0 items-center gap-2">
 										<Skeleton className="h-4 w-10" />
 										<Skeleton className="h-5 w-28" />
 									</div>
-									<Skeleton className="size-4 rounded" />
+									<Skeleton className="size-4 rounded-sm" />
 								</div>
 							</div>
 						))}

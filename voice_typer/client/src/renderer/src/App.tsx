@@ -373,7 +373,7 @@ export default function App() {
 					// it persists across React re-renders) but the 1px hard
 					// outline around the whole app is removed, the content
 					// background alone separates the window from the desktop.
-					"flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden",
+					"flex h-screen flex-col bg-surface-subtle font-sans text-foreground overflow-hidden",
 					!isMaximized && "rounded-lg",
 				)}
 			>
@@ -427,13 +427,13 @@ export default function App() {
 							// silently instead.
 							// Clean-window: no left/top panel border around the
 							// content area. The bg contrast against the
-							// --bg-subtle wrapper still separates content from
+							// --surface-subtle wrapper still separates content from
 							// chrome without a hard frame line.
 							// 1px frame around the page window, drawn with the theme's
 							// own --border token at 10% opacity so it reads as a faint
 							// separation line and blends with every theme (light, dark,
 							// and custom palettes all define --border).
-							className="flex-1 overflow-y-auto bg-(--bg) focus:outline-none rounded-l-lg border border-border/5"
+							className="flex-1 overflow-y-auto bg-background focus:outline-none rounded-l-lg border border-border/5"
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{connectionStatus === "connected" ? (

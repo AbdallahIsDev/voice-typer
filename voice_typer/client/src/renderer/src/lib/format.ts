@@ -390,6 +390,23 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
+ * Format seconds as a clock duration: ``H:MM:SS`` past an hour, else
+ * ``MM:SS`` (seconds precision for live ETAs). Returns ``"—"`` for
+ * null / negative / non-finite inputs. Hoisted from DownloadProgressBar's
+ * local ``formatEta`` so the Models bar and the Media page share one
+ * implementation (E7: no duplicated helpers).
+ */
+export function formatClockDuration(seconds: number | null | undefined): string {
+	if (seconds == null || seconds < 0 || !Number.isFinite(seconds)) return "—";
+	const s = Math.floor(seconds % 60);
+	const m = Math.floor((seconds / 60) % 60);
+	const h = Math.floor(seconds / 3600);
+	const pad = (n: number) => n.toString().padStart(2, "0");
+	if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+	return `${pad(m)}:${pad(s)}`;
+}
+
+/**
  * Format a transfer rate (bytes per second) using locale-aware unit
  * formatting.
  *

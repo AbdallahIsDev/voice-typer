@@ -1,4 +1,4 @@
-// i18n infrastructure for Voice Typer.
+// i18n infrastructure for Lausu.
 // package. This file is now a THIN RE-EXPORT so existing consumers
 // (which import from `@/i18n/i18n`) keep working without code changes.
 // New consumers can import directly from `@/i18n` (which resolves to

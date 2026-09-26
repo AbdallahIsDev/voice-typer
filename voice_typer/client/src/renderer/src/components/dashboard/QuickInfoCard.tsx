@@ -29,27 +29,29 @@ export function QuickInfoCard({
 		// stat cards.
 		<div
 			className={cn(
-				"flex items-stretch gap-3 rounded-xl border border-border/5",
-				muted ? "bg-(--bg-subtle)/50 p-3" : "bg-(--bg-subtle) p-4",
+				"flex items-stretch gap-3 rounded-lg border border-border/5",
+				muted ? "bg-surface-subtle/50 p-3" : "bg-surface-subtle p-4",
 			)}
 		>
 			<HugeiconsIcon
 				icon={icon}
 				strokeWidth={1.75}
-				className="h-5 w-5 shrink-0 text-(--text-muted)"
+				className="h-5 w-5 shrink-0 text-muted-foreground"
 			/>
 			<div className="flex min-w-0 flex-col">
-				<p className="text-[11px] font-medium text-(--text-muted)">{label}</p>
+				<p className="text-[11px] font-medium text-muted-foreground">{label}</p>
 				<p
 					className={cn(
-						"mt-auto truncate font-semibold text-(--text-primary)",
+						"mt-auto truncate font-semibold text-foreground",
 						muted ? "text-[13px]" : "text-sm",
 					)}
 				>
 					{value}
 				</p>
 				{sublabel && (
-					<p className="truncate text-[11px] text-(--text-muted)">{sublabel}</p>
+					<p className="truncate text-[11px] text-muted-foreground">
+						{sublabel}
+					</p>
 				)}
 			</div>
 		</div>

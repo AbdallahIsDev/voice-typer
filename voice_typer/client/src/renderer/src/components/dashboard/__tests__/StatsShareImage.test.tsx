@@ -33,7 +33,7 @@ const stats: ShareStats = {
 
 const palette: StatsThemePalette = {
 	background: "#101014",
-	card: "#17171c",
+	surface: "#17171c",
 	foreground: "#ececf1",
 	mutedForeground: "#9a9aa5",
 	primary: "#7aa2f7",

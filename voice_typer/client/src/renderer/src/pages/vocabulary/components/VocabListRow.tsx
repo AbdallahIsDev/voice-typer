@@ -148,7 +148,7 @@ export const VocabListRow = memo(function VocabListRow({
 				{usage && usage.count > 0 && (
 					<span
 						data-testid="vocab-entry-usage"
-						className="truncate text-[11px] text-(--text-muted)"
+						className="truncate text-[11px] text-muted-foreground"
 					>
 						{t("vocabulary.usedCount", { count: String(usage.count) })}
 						{usage.last_ts > 0 &&
@@ -163,7 +163,7 @@ export const VocabListRow = memo(function VocabListRow({
 			<span className="col-start-2 flex min-w-0 items-center sm:col-start-auto">
 				<span
 					title={entry.correction}
-					className="min-w-0 truncate text-sm font-medium text-(--text-primary)"
+					className="min-w-0 truncate text-sm font-medium text-foreground"
 				>
 					{entry.correction}
 				</span>
@@ -198,7 +198,7 @@ export const VocabListRow = memo(function VocabListRow({
 						if (testResult) return;
 						onTest(entry);
 					}}
-					className="text-(--text-muted) transition-colors hover:text-accent"
+					className="text-muted-foreground transition-colors hover:text-accent"
 				>
 					<HugeiconsIcon
 						icon={TestTube01Icon}
@@ -215,7 +215,7 @@ export const VocabListRow = memo(function VocabListRow({
 						e.stopPropagation();
 						onDelete(entry);
 					}}
-					className="text-(--text-muted) transition-colors hover:text-destructive"
+					className="text-muted-foreground transition-colors hover:text-destructive"
 				>
 					<HugeiconsIcon
 						icon={Delete01Icon}
@@ -232,7 +232,7 @@ export const VocabListRow = memo(function VocabListRow({
 						e.stopPropagation();
 						onEdit(entry);
 					}}
-					className="text-(--text-muted) transition-colors hover:text-(--text-primary)"
+					className="text-muted-foreground transition-colors hover:text-foreground"
 				>
 					<HugeiconsIcon
 						icon={PencilEdit02Icon}
@@ -252,7 +252,7 @@ export const VocabListRow = memo(function VocabListRow({
 					className="col-span-full ms-10 -mt-0.5 min-w-0"
 				>
 					{testResult.status === "running" && pendingVisible && (
-						<div className="flex items-center gap-2 text-xs text-(--text-muted)">
+						<div className="flex items-center gap-2 text-xs text-muted-foreground">
 							<Spinner decorative size={12} className="border-current" />
 							{t("vocabulary.testEntryPending")}
 						</div>
@@ -263,8 +263,8 @@ export const VocabListRow = memo(function VocabListRow({
 							// the "this is correct" signal lives in the
 							// corrected text's green colour, not a
 							// green-bordered box.
-							<div className="flex flex-col gap-0.5 rounded-xl border border-border/5 bg-(--bg) px-3 py-2">
-								<p className="text-[11px] font-semibold uppercase tracking-wide text-(--text-muted)">
+							<div className="flex flex-col gap-0.5 rounded-lg border border-border/5 bg-surface px-3 py-2">
+								<p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
 									{t("vocabulary.testCorrected")}
 								</p>
 								<p className="whitespace-pre-wrap wrap-break-word text-sm font-medium text-emerald-700 dark:text-emerald-400">
@@ -287,7 +287,7 @@ export const VocabListRow = memo(function VocabListRow({
 									e.stopPropagation();
 									onTest(entry);
 								}}
-								className="cursor-pointer rounded-full border border-border/5 bg-(--bg-subtle) px-2.5 py-0.5 font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5"
+								className="cursor-pointer rounded-full border border-border/5 bg-surface-subtle px-2.5 py-0.5 font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5"
 							>
 								{t("vocabulary.retry")}
 							</button>

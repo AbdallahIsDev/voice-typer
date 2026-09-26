@@ -81,17 +81,17 @@ export function PageShell({
  * Buttons land within 2px of it).
  */
 export function PillSkeleton({ className }: { className?: string }) {
-	return <Skeleton className={cn("h-8 rounded-4xl", className)} />;
+	return <Skeleton className={cn("h-8 rounded-lg", className)} />;
 }
 
 /** Ghost `size="icon-xs"` action button placeholder (real: size-6). */
 export function IconButtonSkeleton({ className }: { className?: string }) {
-	return <Skeleton className={cn("size-6 rounded-md", className)} />;
+	return <Skeleton className={cn("size-6 rounded-lg", className)} />;
 }
 
-/** ui/checkbox placeholder (real: size-4 rounded-[5px]). */
+/** ui/checkbox placeholder (real: size-4 rounded-sm). */
 export function CheckboxSkeleton({ className }: { className?: string }) {
-	return <Skeleton className={cn("size-4 rounded-[5px]", className)} />;
+	return <Skeleton className={cn("size-4 rounded-sm", className)} />;
 }
 
 /** ui/radio-group item placeholder (real: size-4 rounded-full). */

@@ -17,9 +17,6 @@
 // Only `LevelBarContainer` (the `LevelBar` + `LiveQualityFeedback`
 // pair that actually consumes `level`/`peak`) re-renders on each push.
 
-import { Mic02Icon, PlayIcon, StopIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { memo } from "react";
 import { LevelBar } from "@/components/feedback/LevelBar";
 import { LiveQualityFeedback } from "@/components/feedback/LiveQualityFeedback";
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
@@ -27,7 +24,10 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { AudioPreset } from "@/lib/utils/audioPresets";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { Mic02Icon, PlayIcon, StopIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 import { MICROPHONE_TEST_DURATION_SEC } from "../hooks/useMicrophoneTestSession";
 import type { TestResultQuality } from "../lib/types";
 import { PresetAccordionSelector } from "./PresetAccordionSelector";
@@ -63,7 +63,7 @@ export interface ActiveMicrophoneCardProps {
 	filtersChangedSinceTest: string | false;
 	hasFiltersEnabled: boolean;
 	showAdvanced: boolean;
-	config: VoiceTyperConfig | null;
+	config: LausuConfig | null;
 	onStartTest: () => void;
 	onStopTest: () => void;
 	onPlayEnhanced: () => void;
@@ -72,7 +72,7 @@ export interface ActiveMicrophoneCardProps {
 	onRetest: () => void;
 	onToggleAdvanced: () => void;
 	onPresetChange: (preset: AudioPreset) => void;
-	onConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
+	onConfigChange: (updates: Partial<LausuConfig>) => void;
 }
 
 export function ActiveMicrophoneCard({
@@ -118,8 +118,8 @@ export function ActiveMicrophoneCard({
 				// `LiveQualityFeedback`), the test controls row, the
 				// filter-invalidation notice, `TestReviewPanel` and the
 				// preset-selector wrapper.
-				"flex flex-col gap-3 rounded-xl border border-border/5 p-4 transition-colors",
-				"bg-(--bg-subtle)",
+				"flex flex-col gap-3 rounded-lg border border-border/5 p-4 transition-colors",
+				"bg-surface-subtle",
 			)}
 		>
 			{/* Mic header */}
@@ -130,7 +130,7 @@ export function ActiveMicrophoneCard({
 					className="h-4 w-4 shrink-0"
 				/>
 				<div className="min-w-0">
-					<p className="text-sm font-semibold text-(--text-primary) truncate">
+					<p className="text-sm font-semibold text-foreground truncate">
 						{activeMicName}
 					</p>
 					{/* Description only for System Default, its text carries
@@ -138,7 +138,7 @@ export function ActiveMicrophoneCard({
                                         device a "Selected microphone" line is redundant with the
                                         radio list + card context (C-MIC-13), so no desc renders. */}
 					{isSystemDefault && (
-						<p className="text-xs text-(--text-muted)">
+						<p className="text-xs text-muted-foreground">
 							{t("microphone.systemDefaultDesc")}
 						</p>
 					)}
@@ -212,17 +212,17 @@ export function ActiveMicrophoneCard({
                                     would duplicate the value AND spam AT at up to 30 Hz
                                     (the ``mic_level`` push rate). */}
 				<span
-					className="text-xs text-(--text-muted) ms-auto"
+					className="text-xs text-muted-foreground ms-auto"
 					aria-hidden={true}
 				>
 					{testRunning
 						? t("microphone.level", {
-								percent: String(Math.round(level * 100)),
-							})
+							percent: String(Math.round(level * 100)),
+						})
 						: micMonitoring
 							? t("microphone.level", {
-									percent: String(Math.round(level * 100)),
-								})
+								percent: String(Math.round(level * 100)),
+							})
 							: t("microphone.monitoringOff")}
 				</span>
 			</div>

@@ -1,8 +1,8 @@
 // Vocabulary page loading skeleton (full page).
 // Mirrors the loaded Vocabulary layout (`pages/Vocabulary.tsx`): page
 // shell → heading → CollectionToolbar (import/export/clear + sort
-// pills left, Add pill right) → ONE `overflow-clip rounded-xl
-// border-border/5 bg-(--bg-subtle)` list card containing the sticky
+// pills left, Add pill right) → ONE `overflow-clip rounded-lg
+// border-border/5 bg-surface-subtle` list card containing the sticky
 // column header grid (`auto 1fr auto` / `sm: auto 1fr 1fr 6.25rem`,
 // px-3.5 py-2) and `divide-y` rows of the VocabListRow grid
 // (`px-4 py-2`, checkbox + two text columns + trailing icon actions).
@@ -58,8 +58,8 @@ export function VocabularySkeleton() {
 				<PillSkeleton className="w-28" />
 			</div>
 			<div className="flex w-full flex-col gap-3">
-				<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
-					<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-t-xl border-b border-border/5 bg-(--bg-subtle)/95 px-3.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]">
+				<div className="overflow-clip rounded-lg border border-border/5 bg-surface-subtle">
+					<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-t-lg border-b border-border/5 bg-surface-subtle/95 px-3.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_6.25rem]">
 						<CheckboxSkeleton />
 						<Skeleton className="h-4 w-14" />
 						<Skeleton className="col-start-2 h-4 w-10 sm:col-start-auto" />

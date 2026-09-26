@@ -75,11 +75,9 @@ import {
 	validateHotkey,
 } from "@/components/hotkey/hotkey-utils";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -180,7 +178,7 @@ function makeConfig(
 		noise_filter_limiter: false,
 		noise_filter_limiter_ceiling_db: 0,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 const alwaysVisible = () => true;

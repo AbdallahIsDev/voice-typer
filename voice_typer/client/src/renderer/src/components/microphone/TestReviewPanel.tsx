@@ -128,16 +128,16 @@ export function TestReviewPanel({
 		// Spacing contract: the only production parent (`ActiveMicrophoneCard`)
 		// is a `flex flex-col gap-3` stack that owns inter-child spacing, so this
 		// panel carries no top margin of its own.
-		<div className="flex flex-col gap-4 rounded-xl border border-border/10 bg-(--bg-subtle) p-4">
+		<div className="flex flex-col gap-4 rounded-lg border border-border/10 bg-surface-subtle p-4">
 			{/* Standard card surface (C-MIC-6): subtle bg + card border,
 			    no tint. Spacing is parent gap only (C-UI-10). */}
 			{/* Header */}
 			<div className="flex items-center justify-between">
 				<div>
-					<p className="text-sm font-semibold text-(--text-primary)">
+					<p className="text-sm font-semibold text-foreground">
 						{t("microphoneTest.title")}
 					</p>
-					<p className="text-xs text-(--text-muted)">
+					<p className="text-xs text-muted-foreground">
 						{t("microphoneTest.duration", {
 							duration: (durationMs / 1000).toFixed(1),
 						})}
@@ -164,12 +164,12 @@ export function TestReviewPanel({
                             explanation names the actual state instead of silence. */}
 			{(transcription || transcriptionUnavailable) && (
 				<div className="flex flex-col gap-1">
-					<p className="text-xs font-medium text-(--text-muted)">
+					<p className="text-xs font-medium text-muted-foreground">
 						{t("microphone.youSaid")}
 					</p>
 					{transcription ? (
 						<p
-							className="text-sm text-(--text-primary)"
+							className="text-sm text-foreground"
 							data-testid="test-transcription"
 						>
 							{transcription}
@@ -177,7 +177,7 @@ export function TestReviewPanel({
 					) : (
 						transcriptionUnavailable && (
 							<p
-								className="text-xs text-(--text-muted)"
+								className="text-xs text-muted-foreground"
 								data-testid="test-transcription-unavailable"
 							>
 								{t("microphone.transcriptionUnavailable")}
@@ -199,7 +199,7 @@ export function TestReviewPanel({
 						aria-live="polite"
 						aria-atomic="true"
 					>
-						<span className="text-xs font-medium text-(--text-muted)">
+						<span className="text-xs font-medium text-muted-foreground">
 							{t("microphoneTest.estimatedQuality")}
 						</span>
 						{/* HONEST-METRIC INVARIANT: without a loaded speech model the
@@ -208,7 +208,7 @@ export function TestReviewPanel({
                                                  old bug rendered a false "0%"). Render an explicit
                                                  not-applicable state instead. */}
 						{transcriptionUnavailable ? (
-							<span className="text-sm font-bold text-(--text-muted)">
+							<span className="text-sm font-bold text-muted-foreground">
 								{t("microphoneTest.qualityFeedback.qualityNotApplicable")}
 							</span>
 						) : (
@@ -236,7 +236,7 @@ export function TestReviewPanel({
 					{/* Detected issues */}
 					{quality.detected_issues.length > 0 && (
 						<div
-							className="flex flex-col gap-1 text-xs text-(--text-muted)"
+							className="flex flex-col gap-1 text-xs text-muted-foreground"
 							aria-live="polite"
 							aria-atomic="true"
 						>
@@ -278,7 +278,7 @@ export function TestReviewPanel({
                                                                                         active one (no-op CTA would be
                                                                                         misleading). */}
 										{recommendation && (
-											<div className="ms-4 flex flex-wrap items-center gap-2 text-(--text-muted)">
+											<div className="ms-4 flex flex-wrap items-center gap-2 text-muted-foreground">
 												<span
 													className="text-[11px] leading-snug"
 													data-testid="issue-recommendation"

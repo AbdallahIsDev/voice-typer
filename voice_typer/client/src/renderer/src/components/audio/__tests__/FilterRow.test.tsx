@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import {
 	type AudioFilterRowDescriptor,
 	audioFilterRowDescriptors,
@@ -28,9 +28,9 @@ function descriptorFor(configKey: string): AudioFilterRowDescriptor {
 	return d;
 }
 
-/** Empty config cast to VoiceTyperConfig, tests override individual keys. */
-function emptyConfig(): VoiceTyperConfig {
-	return {} as VoiceTyperConfig;
+/** Empty config cast to LausuConfig, tests override individual keys. */
+function emptyConfig(): LausuConfig {
+	return {} as LausuConfig;
 }
 
 describe("FilterRow, toggle kind", () => {

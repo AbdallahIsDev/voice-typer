@@ -8,7 +8,7 @@ export function themeVariantDecorator(options: {
 		<div
 			dir={options.rtl ? "rtl" : undefined}
 			lang={options.rtl ? "ar" : undefined}
-			className={`bg-background p-6 text-(--text-primary) ${
+			className={`bg-background p-6 text-foreground ${
 				options.dark ? "dark" : ""
 			}`}
 		>

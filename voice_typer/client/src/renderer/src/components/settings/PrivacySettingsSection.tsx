@@ -8,12 +8,6 @@
 // `get_templates` / `get_config` IPC calls and surface their results
 // without needing the parent to forward `call` or `showSnack` as props.
 
-import {
-	CheckmarkCircle01Icon,
-	InformationCircleIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { memo, type ReactNode, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
@@ -24,16 +18,22 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { useT } from "@/i18n/i18n";
 import type { TranslationKey } from "@/i18n/translation-keys";
 import { cn } from "@/lib/utils";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import {
+	CheckmarkCircle01Icon,
+	InformationCircleIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { memo, type ReactNode, useState } from "react";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
 type BooleanConfigKey = {
-	[K in keyof VoiceTyperConfig]-?: VoiceTyperConfig[K] extends boolean
-		? K
-		: never;
-}[keyof VoiceTyperConfig];
+	[K in keyof LausuConfig]-?: LausuConfig[K] extends boolean
+	? K
+	: never;
+}[keyof LausuConfig];
 
 export interface ConsentFieldDescriptor {
 	/** Which Settings section renders the row. */
@@ -142,6 +142,21 @@ export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 		consentRow: true,
 		agreeToAll: true,
 	},
+	// ADR-0023 media-URL extraction consent: surfaced for review /
+	// revocation like the other flags. Point-of-use grant flows
+	// through the shared consent gate (`consentGate.ts`); it is NOT
+	// part of the Agree-to-All subset (that bulk action stays scoped
+	// to the six cloud / biometric / download flags).
+	{
+		section: "privacy",
+		configKey: "media_url_consent",
+		labelKey: "settings.privacy.mediaUrlExtractionLabel",
+		infoKey: "settings.privacy.mediaUrlExtractionInfo",
+		infoSearchKey: "settings.privacy.mediaUrlExtractionInfoSearch",
+		ariaKey: "settings.privacy.mediaUrlExtractionAria",
+		defaultValue: false,
+		consentRow: true,
+	},
 	// user-tunable): transcription logging and the clipboard
 	// borrow/restore behavior (ADR-0010). Both are privacy-relevant
 	// (transcription text leaving traces; the app reading clipboard
@@ -187,7 +202,7 @@ function ConsentRow({
 			data-consent-field={field}
 			className={cn(
 				"rounded-lg transition-shadow duration-500",
-				highlighted && "ring-1ring-primary bg-(--bg-subtle)",
+				highlighted && "ring-1ring-primary bg-surface-subtle",
 			)}
 		>
 			{children}
@@ -221,13 +236,13 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	// One handler factory replaces the nine verbatim per-field
 	// `(checked) => updateConfig({ key: checked })` closures.
 	// `configKey` is a non-literal union, so the computed key widens
-	// to a string index signature which `Partial<VoiceTyperConfig>`
+	// to a string index signature which `Partial<LausuConfig>`
 	// (whose keys hold strings/numbers/…) rejects, the cast is the
 	// documented registry-path exception (same as the audio-filter
 	// row registry's `set` helper).
 	const makeConsentChangeHandler =
 		(configKey: BooleanConfigKey) => (checked: boolean) =>
-			updateConfig({ [configKey]: checked } as Partial<VoiceTyperConfig>);
+			updateConfig({ [configKey]: checked } as Partial<LausuConfig>);
 
 	//opening the ConfirmDialog instead of granting all 6 consents
 	// immediately. The actual updateConfig call happens in
@@ -243,7 +258,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 		updateConfig(
 			Object.fromEntries(
 				AGREE_TO_ALL_FIELDS.map((field) => [field.configKey, true]),
-			) as Partial<VoiceTyperConfig>,
+			) as Partial<LausuConfig>,
 		);
 	};
 
@@ -350,9 +365,9 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 								<HugeiconsIcon
 									icon={InformationCircleIcon}
 									strokeWidth={2}
-									className="h-4 w-4 mt-0.5 shrink-0 text-(--text-muted)"
+									className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground"
 								/>
-								<div className="flex min-w-0 flex-col gap-2 text-sm text-(--text-muted)">
+								<div className="flex min-w-0 flex-col gap-2 text-sm text-muted-foreground">
 									<p>{t("settings.privacy.consentBannerDesc")}</p>
 									<ul className="list-disc ps-4 flex flex-col gap-0.5 text-xs">
 										<li>{t("settings.privacy.huggingFaceItem")}</li>
@@ -366,7 +381,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 								</div>
 							</div>
 							<div className="flex items-center justify-between gap-3">
-								<div className="text-xs text-(--text-muted)">
+								<div className="text-xs text-muted-foreground">
 									{t("settings.privacy.consentsGranted", {
 										granted: String(grantedConsentCount),
 									})}

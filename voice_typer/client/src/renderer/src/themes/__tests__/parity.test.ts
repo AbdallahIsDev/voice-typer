@@ -177,14 +177,6 @@ describe("theme preset WCAG contrast invariants", () => {
 				);
 			});
 
-			it("dark-mode --sidebar-ring mirrors dark-mode --ring)", () => {
-				expect(preset.dark["--sidebar-ring"]).toBe(preset.dark["--ring"]);
-			});
-
-			it("light-mode --sidebar-ring mirrors light-mode --ring)", () => {
-				expect(preset.light["--sidebar-ring"]).toBe(preset.light["--ring"]);
-			});
-
 			it("dark-mode --muted-foreground clears WCAG AA 4.5:1 against dark --background)", () => {
 				const fg = cssColorToHex(preset.dark["--muted-foreground"] ?? "");
 				const bg = cssColorToHex(preset.dark["--background"] ?? "");

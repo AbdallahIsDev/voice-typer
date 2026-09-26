@@ -121,12 +121,12 @@ export default function OnboardingPage({
 				<div
 					ref={initErrorRef}
 					tabIndex={-1}
-					className="flex w-full flex-col gap-4 rounded-xl border border-destructive/40 bg-destructive/5 p-8 text-center outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+					className="flex w-full flex-col gap-4 rounded-lg border border-destructive/40 bg-destructive/5 p-8 text-center outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
 				>
-					<h2 className="text-lg font-semibold text-(--text-primary)">
+					<h2 className="text-lg font-semibold text-foreground">
 						{t("errorBoundary.title")}
 					</h2>
-					<p className="text-sm text-(--text-muted)">{initError}</p>
+					<p className="text-sm text-muted-foreground">{initError}</p>
 					<div className="flex items-center justify-center gap-3">
 						<Button variant="default" onClick={retryInit}>
 							{t("errorBoundary.tryAgain")}
@@ -163,7 +163,7 @@ export default function OnboardingPage({
 			    step-title span that used to sit at the top-right duplicated
 			    the card's own <h2> heading and was removed. */}
 			<div className="flex w-full flex-col gap-2">
-				<div className="text-xs text-(--text-muted)">
+				<div className="text-xs text-muted-foreground">
 					<span>
 						{t("onboarding.stepProgress", {
 							current: String(step.step + 1),
@@ -172,7 +172,7 @@ export default function OnboardingPage({
 					</span>
 				</div>
 				<div
-					className="h-1.5 w-full rounded-full bg-(--bg-subtle)"
+					className="h-1.5 w-full rounded-full bg-surface-subtle"
 					role="progressbar"
 					aria-valuenow={step.step + 1}
 					aria-valuemin={1}
@@ -209,7 +209,7 @@ export default function OnboardingPage({
 			{/* Parent card (ONB-3): widened max-w-lg → max-w-xl for
 			    breathing room around the consent rows and the model
 			    accordion. */}
-			<div className="flex w-full flex-col gap-6 rounded-xl border border-border/5 bg-(--bg) p-8">
+			<div className="flex w-full flex-col gap-6 rounded-lg border border-border/5 bg-surface p-8">
 				{step.step_name === "Welcome" && (
 					<WelcomeStep headingRef={headingRef} />
 				)}
@@ -264,10 +264,10 @@ export default function OnboardingPage({
 						data-testid="onboarding-apply-error"
 						className="flex flex-col gap-1 rounded-lg border border-destructive/40 bg-destructive/5 p-4"
 					>
-						<p className="text-sm font-medium text-(--text-primary)">
+						<p className="text-sm font-medium text-foreground">
 							{t("onboarding.applyFailedTitle")}
 						</p>
-						<p className="text-xs text-(--text-muted)">
+						<p className="text-xs text-muted-foreground">
 							{t("onboarding.applyFailedDescription")}
 						</p>
 					</div>
@@ -292,7 +292,7 @@ export default function OnboardingPage({
 					<div className="flex flex-col items-end gap-1">
 						{showDefaultHotkeyHint && (
 							<span
-								className="text-xs text-(--text-muted)"
+								className="text-xs text-muted-foreground"
 								data-testid="onboarding-default-hotkey-hint"
 							>
 								{t("theme.preset.default")}: {formatHotkey(HOTKEY_DEFAULT)}

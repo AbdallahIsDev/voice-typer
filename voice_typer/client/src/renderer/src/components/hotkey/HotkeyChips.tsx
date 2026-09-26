@@ -43,7 +43,7 @@ export function HotkeyChips({ keys, className }: HotkeyChipsProps) {
 			{alternatives.map((alt, i) => (
 				<Fragment key={alt}>
 					{i > 0 && (
-						<span aria-hidden className="text-xs text-(--text-muted)">
+						<span aria-hidden className="text-xs text-muted-foreground">
 							{" / "}
 						</span>
 					)}

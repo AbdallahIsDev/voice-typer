@@ -1,3 +1,4 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	act,
 	cleanup,
@@ -7,7 +8,6 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
@@ -16,7 +16,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
-	Element.prototype.scrollIntoView = function scrollIntoView() {};
+	Element.prototype.scrollIntoView = function scrollIntoView() { };
 }
 
 const stable = vi.hoisted(() => ({
@@ -110,7 +110,7 @@ vi.mock("@/hooks/useTheme", () => ({
 }));
 
 vi.mock("@/hooks/useSoundFeedback", () => ({
-	useSoundFeedback: () => {},
+	useSoundFeedback: () => { },
 }));
 
 vi.mock("@/components/ui/sonner", () => ({
@@ -149,14 +149,14 @@ afterEach(() => {
 	global.fetch = originalFetch;
 });
 
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
 /**
- * A complete, valid VoiceTyperConfig used as the mock get_config return
+ * A complete, valid LausuConfig used as the mock get_config return
  * value.  Mirrors the shape used by pages/__tests__/Settings.test.tsx
  */
-const baseConfig: VoiceTyperConfig = {
+const baseConfig: LausuConfig = {
 	schema_version: 1,
 	fast_startup: true,
 	offline_pack_consent: true,
@@ -224,18 +224,18 @@ const baseConfig: VoiceTyperConfig = {
 	theme_preset: "custom",
 	custom_theme: {
 		light: {
-			"--bg": "#ffffff",
-			"--bg-subtle": "#f5f5f5",
+			"--background": "#ffffff",
+			"--surface-subtle": "#f5f5f5",
 			"--text": "#000000",
-			"--text-muted": "#666666",
+			"--muted-foreground": "#666666",
 			"--accent": "#3b82f6",
 			"--border": "#e5e7eb",
 		},
 		dark: {
-			"--bg": "#000000",
-			"--bg-subtle": "#111111",
+			"--background": "#000000",
+			"--surface-subtle": "#111111",
 			"--text": "#ffffff",
-			"--text-muted": "#999999",
+			"--muted-foreground": "#999999",
 			"--accent": "#60a5fa",
 			"--border": "#222222",
 		},
@@ -286,6 +286,7 @@ const baseConfig: VoiceTyperConfig = {
 	cloud_deepgram_consent: false,
 	voice_biometric_consent: false,
 	llm_polish_consent: false,
+	media_url_consent: false,
 	sound_feedback_enabled: false,
 	ai_enhancement_enabled: false,
 	auto_capitalize: true,
@@ -517,7 +518,7 @@ let useNavigationHarness: () => {
 	canGoBack: boolean;
 	canGoForward: boolean;
 };
-let resetNavigationForTestHook: () => void = () => {};
+let resetNavigationForTestHook: () => void = () => { };
 
 beforeAll(async () => {
 	const mod = (await vi.importActual("@/hooks/useNavigation")) as {
@@ -525,7 +526,7 @@ beforeAll(async () => {
 		_resetNavigationForTest?: () => void;
 	};
 	useNavigationHarness = mod.useNavigation;
-	resetNavigationForTestHook = mod._resetNavigationForTest ?? (() => {});
+	resetNavigationForTestHook = mod._resetNavigationForTest ?? (() => { });
 });
 
 import { beforeAll } from "vitest";
@@ -666,7 +667,7 @@ describe("About, rewrite of loaded_via tests", () => {
 			if (type === "get_status") {
 				return Promise.resolve({
 					status: "idle",
-					config_dir: "/tmp/voice-typer",
+					config_dir: "/tmp/lausu",
 					loaded_via: "cuda",
 				});
 			}
@@ -700,7 +701,7 @@ describe("About, rewrite of loaded_via tests", () => {
 			if (type === "get_status") {
 				return Promise.resolve({
 					status: "idle",
-					config_dir: "/tmp/voice-typer",
+					config_dir: "/tmp/lausu",
 				});
 			}
 			if (type === "get_config") {
@@ -876,7 +877,7 @@ describe("TitleBar, rewrite of isMaximized prop tests", () => {
 			<TitleBar
 				isMaximized={true}
 				themeMode="light"
-				onThemeChange={() => {}}
+				onThemeChange={() => { }}
 			/>,
 		);
 
@@ -890,7 +891,7 @@ describe("TitleBar, rewrite of isMaximized prop tests", () => {
 			<TitleBar
 				isMaximized={false}
 				themeMode="light"
-				onThemeChange={() => {}}
+				onThemeChange={() => { }}
 			/>,
 		);
 
@@ -919,7 +920,7 @@ describe("TitleBar, rewrite of isMaximized prop tests", () => {
 				<TitleBar
 					isMaximized={true}
 					themeMode="light"
-					onThemeChange={() => {}}
+					onThemeChange={() => { }}
 				/>,
 			);
 
@@ -933,7 +934,7 @@ describe("TitleBar, rewrite of isMaximized prop tests", () => {
 
 import { useAppStore } from "@/stores/appStore";
 
-const completedConfig: Partial<VoiceTyperConfig> = {
+const completedConfig: Partial<LausuConfig> = {
 	onboarding_completed: true,
 };
 

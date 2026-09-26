@@ -223,7 +223,7 @@ vi.mock("@/pages/Settings", () => ({
 
 import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 // Bind the real useAppStore into the hoisted ref so the mocked Settings
 // page's click handler can call `mergeConfig` on the SAME store instance
@@ -233,7 +233,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 store.useAppStore = useAppStore;
 
 /** A minimal valid config with onboarding_completed=true (the bug scenario). */
-const completedConfig: Partial<VoiceTyperConfig> = {
+const completedConfig: Partial<LausuConfig> = {
 	onboarding_completed: true,
 };
 

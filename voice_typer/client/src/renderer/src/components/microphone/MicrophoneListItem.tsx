@@ -50,11 +50,11 @@ export function MicrophoneListItem({
 			<HugeiconsIcon
 				icon={Mic02Icon}
 				strokeWidth={2}
-				className="h-4 w-4 shrink-0 text-(--text-muted)"
+				className="h-4 w-4 shrink-0 text-muted-foreground"
 			/>
 			<div className="flex flex-col flex-1 min-w-0 gap-1">
 				<div className="flex items-center gap-2">
-					<p className="text-sm font-medium text-(--text-primary) truncate">
+					<p className="text-sm font-medium text-foreground truncate">
 						{mic.name}
 					</p>
 					{showDefaultBadge && (

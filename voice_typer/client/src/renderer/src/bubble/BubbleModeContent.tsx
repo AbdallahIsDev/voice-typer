@@ -65,7 +65,7 @@ export function BubbleModeContent({
 								"bubble.transcriptPreviewAria",
 								"Live transcript preview",
 							)}
-							className="max-w-45 truncate text-(--text-muted)"
+							className="max-w-45 truncate text-muted-foreground"
 						>
 							{preview}
 						</output>
@@ -73,7 +73,7 @@ export function BubbleModeContent({
 					{TRANSCRIBING_DOT_INDICES.map((i) => (
 						<span
 							key={i}
-							className="inline-block h-1 w-1 animate-bounce rounded-full bg-(--text-muted)"
+							className="inline-block h-1 w-1 animate-bounce rounded-full bg-muted-foreground"
 							style={{
 								animationDelay: `${i * 0.2}s`,
 								animationDuration: "1.2s",
@@ -104,7 +104,7 @@ export function BubbleModeContent({
 								"bubble.transcriptPreviewAria",
 								"Live transcript preview",
 							)}
-							className="max-w-45 truncate text-(--text-muted)"
+							className="max-w-45 truncate text-muted-foreground"
 						>
 							{preview}
 						</output>
@@ -127,9 +127,9 @@ export function BubbleModeContent({
 						<HugeiconsIcon
 							icon={Mic02Icon}
 							strokeWidth={2}
-							className="w-3 h-3 text-(--text-muted)"
+							className="w-3 h-3 text-muted-foreground"
 						/>
-						<span className="text-[0.625rem] font-medium text-(--text-muted)">
+						<span className="text-[0.625rem] font-medium text-muted-foreground">
 							{tf("bubble.idleLabel", "Ready")}
 						</span>
 					</div>
@@ -160,12 +160,12 @@ export function BubbleModeContent({
 			return (
 				<div className="flex h-6 items-center gap-2 px-2">
 					<span
-						className="text-[0.6875rem] leading-none text-(--text-muted)"
+						className="text-[0.6875rem] leading-none text-muted-foreground"
 						aria-hidden
 					>
 						⊘
 					</span>
-					<span className="text-[0.625rem] font-medium text-(--text-muted)">
+					<span className="text-[0.625rem] font-medium text-muted-foreground">
 						{tf("bubble.blockedLabel", "Blocked")}
 					</span>
 				</div>
@@ -174,12 +174,12 @@ export function BubbleModeContent({
 			return (
 				<div className="flex h-6 items-center gap-2 px-2">
 					<span
-						className="text-[0.6875rem] leading-none text-(--text-muted) animate-pulse"
+						className="text-[0.6875rem] leading-none text-muted-foreground animate-pulse"
 						aria-hidden
 					>
 						⏇
 					</span>
-					<span className="text-[0.625rem] font-medium text-(--text-muted)">
+					<span className="text-[0.625rem] font-medium text-muted-foreground">
 						{tf("bubble.cancellingLabel", "Cancelling…")}
 					</span>
 				</div>
@@ -213,7 +213,7 @@ export function BubbleModeContent({
 				<div className="flex items-center gap-2">
 					<BubbleVisualizer dotRefs={dotRefs} />
 					{livePreviewUnsupported && (
-						<span className="text-[0.625rem] font-medium text-(--text-muted)">
+						<span className="text-[0.625rem] font-medium text-muted-foreground">
 							{tf(
 								"bubble.livePreviewUnavailable",
 								"No live preview for this engine",

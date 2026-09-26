@@ -1,9 +1,9 @@
-import { toPng } from "html-to-image";
-import { useCallback, useRef } from "react";
 import { t } from "@/i18n/i18n";
 import { compactNumber, formatDuration } from "@/lib/format";
 import type { TodayStats } from "@/types/ipc";
 import type { ShareStats } from "@/types/stats";
+import { toPng } from "html-to-image";
+import { useCallback, useRef } from "react";
 
 const AVG_TYPING_WPM = 40;
 
@@ -12,7 +12,7 @@ const CLOUD_BACKENDS = new Set(["openai", "groq", "deepgram"]);
 
 /** Default export filename (the `.png` extension is appended by the
  * main process / fallback download). */
-export const STATS_IMAGE_FILENAME = "voice-typer-stats";
+export const STATS_IMAGE_FILENAME = "lausu-stats";
 
 export function canShareStats(opts: {
 	todayCount: number;

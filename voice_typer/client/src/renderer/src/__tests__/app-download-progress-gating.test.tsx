@@ -138,7 +138,7 @@ vi.mock("@/pages/Home", () => ({
 }));
 
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import { makeConfig } from "./helpers/fixtures";
 
 describe("App, download_progress subscription gating", () => {
@@ -159,7 +159,7 @@ describe("App, download_progress subscription gating", () => {
 			connectionStatus: "connected",
 			recordingState: "idle",
 			lastError: null,
-			config: makeConfig() as VoiceTyperConfig,
+			config: makeConfig() as LausuConfig,
 		});
 	});
 

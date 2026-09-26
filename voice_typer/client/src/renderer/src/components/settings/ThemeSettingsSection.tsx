@@ -12,8 +12,6 @@
 // respectively. This file is now JSX-only: it calls the hook, reads
 // translations, and renders the section.
 
-import { Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
-import { memo } from "react";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
@@ -44,7 +42,9 @@ import {
 	DEFAULT_THEME_PRESET,
 	THEMES,
 } from "@/themes";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
+import { Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
+import { memo } from "react";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import type { SettingsSectionSharedProps } from "./types";
 import {
@@ -69,10 +69,10 @@ const _THEME_OPTION_KEYS = [
 
 interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
 	/** Theme mode provided by the App-level useTheme hook (overrides config while a save is in-flight). */
-	themeModeProp?: VoiceTyperConfig["theme_mode"];
+	themeModeProp?: LausuConfig["theme_mode"];
 	/** App-level theme-change handler, persists the mode via the debounced save in useTheme. */
-	onThemeChange?: (mode: VoiceTyperConfig["theme_mode"]) => void;
-	themePresetProp?: VoiceTyperConfig["theme_preset"];
+	onThemeChange?: (mode: LausuConfig["theme_mode"]) => void;
+	themePresetProp?: LausuConfig["theme_preset"];
 }
 
 // ── Preset-dropdown sub-components ────────────────────────────────────
@@ -110,7 +110,7 @@ const ThemeSwatch = memo(function ThemeSwatch({
 	return (
 		<span className={`flex items-center ${gap}`}>
 			<span
-				className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+				className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs font-semibold"
 				style={{ backgroundColor: bg, color: fg }}
 			>
 				A
@@ -385,26 +385,24 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 			{effectivePreset === "custom" && customDraft && (
 				<div className="animate-fade-in flex flex-col gap-3 p-4">
 					{/* Light / Dark mode tabs */}
-					<div className="flex gap-1 rounded-lg bg-(--bg-subtle) p-0.5">
+					<div className="flex gap-1 rounded-lg bg-surface-subtle p-0.5">
 						<button
 							type="button"
 							onClick={handleSetLightMode}
-							className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-								customEditorMode === "light"
-									? "bg-(--bg) text-(--text-primary) shadow-xs"
-									: "text-(--text-muted) hover:text-(--text-primary)"
-							}`}
+							className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${customEditorMode === "light"
+									? "bg-surface text-foreground shadow-xs"
+									: "text-muted-foreground hover:text-foreground"
+								}`}
 						>
 							{t("settings.appearance.light")}
 						</button>
 						<button
 							type="button"
 							onClick={handleSetDarkMode}
-							className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-								customEditorMode === "dark"
-									? "bg-(--bg) text-(--text-primary) shadow-xs"
-									: "text-(--text-muted) hover:text-(--text-primary)"
-							}`}
+							className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${customEditorMode === "dark"
+									? "bg-surface text-foreground shadow-xs"
+									: "text-muted-foreground hover:text-foreground"
+								}`}
 						>
 							{t("settings.appearance.dark")}
 						</button>
@@ -437,7 +435,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							return (
 								<div
 									key={varName}
-									className="flex items-center gap-2.5 rounded-lg border border-border/5 bg-(--bg) p-2"
+									className="flex items-center gap-2.5 rounded-lg border border-border/5 bg-surface p-2"
 								>
 									<div className="relative shrink-0">
 										<Input
@@ -448,15 +446,15 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 											aria-label={t("settings.appearance.colorAria", { label })}
 										/>
 										<div
-											className="h-8 w-8 rounded-md border border-border/5 shadow-xs"
+											className="h-8 w-8 rounded-lg border border-border/5 shadow-xs"
 											style={{ backgroundColor: currentHex }}
 										/>
 									</div>
 									<div className="min-w-0 flex-1">
-										<span className="block text-xs font-medium text-(--text-primary)">
+										<span className="block text-xs font-medium text-foreground">
 											{label}
 										</span>
-										<p className="truncate text-xs text-(--text-muted)">
+										<p className="truncate text-xs text-muted-foreground">
 											{description}
 										</p>
 									</div>
@@ -525,14 +523,14 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 										onChange={handleHexInputChange(varName)}
 										onBlur={handleHexInputBlur(varName, currentHex ?? "")}
 										className={cn(
-											"w-18 shrink-0 text-center text-[11px] font-mono text-(--text-primary)",
+											"w-18 shrink-0 text-center text-[11px] font-mono text-foreground",
 											// red border when the draft value is non-empty and
 											// doesn't match the strict ``#rrggbb`` regex.
 											// ``border-destructive`` is the existing design-system
 											// token for error borders (used by form validation
 											// throughout the app).
 											isHexInvalid &&
-												"border-destructive focus-visible:ring-destructive/30",
+											"border-destructive focus-visible:ring-destructive/30",
 										)}
 										spellCheck={false}
 										aria-label={t("settings.appearance.hexValueAria", {
@@ -555,7 +553,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 					{/* Reset to defaults.
                                                         Part C5: the previously-broken "#888" 3-digit hex in
-                                                        DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+                                                        DEFAULT_CUSTOM_DARK["--muted-foreground"] is now "#888888" (6-digit)
                                                         so the validator accepts the payload, no more "Failed to
                                                         save settings" toast.
                                                         Part C6: button is disabled while the draft already matches
@@ -564,7 +562,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						type="button"
 						disabled={customDraftIsDefault}
 						onClick={handleResetCustomColors}
-						className="w-full rounded-lg border border-border/5 px-3 py-2 text-xs text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-(--text-muted)"
+						className="w-full rounded-lg border border-border/5 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-(--surface-hover) hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
 					>
 						{t("settings.appearance.resetToDefaultColors")}
 					</button>

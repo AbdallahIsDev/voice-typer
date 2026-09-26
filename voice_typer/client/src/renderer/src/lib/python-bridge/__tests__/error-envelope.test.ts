@@ -176,7 +176,7 @@ describe("parseTauriErrorEnvelope, legacy_code (Tauri-only superset)", () => {
 
 describe("parseTauriErrorEnvelope, Rust passthrough byte fixtures", () => {
 	it("parses the exact serde_json output of the Rust Server passthrough (sorted keys)", () => {
-		// Byte-for-byte what `VoiceTyperError::Server` serializes to:
+		// Byte-for-byte what `LausuError::Server` serializes to:
 		// serde_json (no preserve_order) emits map keys in sorted order —
 		// `"data"` before `"type"`, and passes the sidecar's `data`
 		// through verbatim. This pins the end-to-end contract: whatever

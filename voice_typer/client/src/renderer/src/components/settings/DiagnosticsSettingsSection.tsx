@@ -20,7 +20,7 @@
 //     backend's authoritative path, never a hardcoded Windows path)
 //   - Copy diagnostics formats a labeled block to the clipboard
 
-import { Copy01Icon } from "@hugeicons/core-free-icons";
+import { Copy01Icon, Folder02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
 import { APP_NAME } from "@/branding";
@@ -32,11 +32,12 @@ import { Button } from "@/components/ui/button";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { getLocale, t, tChoice } from "@/i18n/i18n";
+import { getLocale, t } from "@/i18n/i18n";
+import { formatDiagnosticRelativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
 import { formatDevice } from "@/lib/utils/configDisplay";
 import { resolveActiveModel } from "@/lib/utils/models";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { ModelStatusMap } from "@/types/ipc";
 // VERSION-SOURCE-FIX: import the version directly from package.json so
 // it stays in sync with the single source of truth.
@@ -51,7 +52,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 		<span
 			className={
 				"inline-flex items-center gap-2 " +
-				(connected ? "text-(--text-primary)" : "text-destructive")
+				(connected ? "text-foreground" : "text-destructive")
 			}
 		>
 			{/* the colored dot is purely decorative, the adjacent
@@ -84,7 +85,7 @@ function LiveValue({
 		<span
 			className={cn(
 				"inline-flex items-center gap-2",
-				present ? "text-(--text-primary)" : "text-destructive",
+				present ? "text-foreground" : "text-destructive",
 			)}
 		>
 			<span
@@ -132,25 +133,7 @@ export function formatBytes(bytes: number): string {
  * date (e.g. "Jul 12, 2025") via `Intl.DateTimeFormat`.
  */
 export function formatRelativeTime(iso: string | null): string {
-	if (!iso) return t("about.neverRun");
-	try {
-		const then = new Date(iso).getTime();
-		if (Number.isNaN(then)) return iso;
-		const now = Date.now();
-		const diffMs = now - then;
-		const diffMin = Math.floor(diffMs / 60000);
-		const diffHr = Math.floor(diffMin / 60);
-		const diffDay = Math.floor(diffHr / 24);
-		if (diffMin < 1) return t("about.relativeTime.lessThanMinute");
-		if (diffMin < 60) return tChoice("about.relativeTime.minutesAgo", diffMin);
-		if (diffHr < 24) return tChoice("about.relativeTime.hoursAgo", diffHr);
-		if (diffDay < 7) return tChoice("about.relativeTime.daysAgo", diffDay);
-		return new Intl.DateTimeFormat(getLocale(), {
-			dateStyle: "medium",
-		}).format(new Date(then));
-	} catch {
-		return iso;
-	}
+	return formatDiagnosticRelativeTime(iso);
 }
 
 interface DiagnosticsSettingsSectionProps {
@@ -168,7 +151,7 @@ export const DiagnosticsSettingsSection = memo(
 		// `callRef.current` so its deps stay identity-free, a test mock
 		// handing out a fresh `call` per render must not re-fire the probe.
 		const callRef = useLatestRef(call);
-		const [config, setConfig] = useState<VoiceTyperConfig | null>(null);
+		const [config, setConfig] = useState<LausuConfig | null>(null);
 		// empty string = still probing / unresolved; renders "—" fallback.
 		const [configDir, setConfigDir] = useState<string>("");
 		// null = still probing, true/false = settled.
@@ -202,7 +185,7 @@ export const DiagnosticsSettingsSection = memo(
 				}
 
 				try {
-					const cfg = await callRef.current<VoiceTyperConfig>("get_config");
+					const cfg = await callRef.current<LausuConfig>("get_config");
 					if (!cancelled) setConfig(cfg);
 				} catch (e) {
 					// intentionally leave config as null, diagnostics
@@ -252,7 +235,7 @@ export const DiagnosticsSettingsSection = memo(
 
 		const backendStatus =
 			backendConnected === null ? (
-				<span className="text-(--text-muted)">{t("about.checking")}</span>
+				<span className="text-muted-foreground">{t("about.checking")}</span>
 			) : (
 				<StatusDot connected={backendConnected} />
 			);
@@ -266,7 +249,7 @@ export const DiagnosticsSettingsSection = memo(
 
 		const configDirValue =
 			backendConnected === null ? (
-				<span className="text-(--text-muted)">{t("about.loading")}</span>
+				<span className="text-muted-foreground">{t("about.loading")}</span>
 			) : backendConnected === false ? (
 				t("about.unknown")
 			) : configDir ? (
@@ -316,12 +299,34 @@ export const DiagnosticsSettingsSection = memo(
 			showSnack,
 		]);
 
+		// One-click support action: opens the app data dir in the OS
+		// file manager via the `open_data_folder` IPC (same handler
+		// shape as PrewarmAndUpdates' View-Log button; the opened
+		// window is the success feedback, only failures snack).
+		const handleOpenDataFolder = useCallback(async () => {
+			try {
+				const result = await call<{
+					opened: boolean;
+					path?: string;
+					reason?: string;
+				}>("open_data_folder");
+				if (!result?.opened) {
+					showSnack(t("models.errors.unknown"), "error");
+				}
+			} catch (err) {
+				showSnack(
+					`${t("models.errors.unknown")}${err instanceof Error ? `: ${err.message}` : ""}`,
+					"error",
+				);
+			}
+		}, [call, showSnack]);
 		// Section-level hide-when-empty (Settings search filter). The row
 		// labels resolve once per render and feed this check AND the
 		// per-row gates below (the same strings the rows render).
 		const title = t("about.diagnosticsTitle");
 		const description = t("about.diagnosticsDescription");
 		const copyLabel = t("about.copyDiagnostics");
+		const openDataFolderLabel = t("models.storage.openDataFolder");
 		const appVersionLabel = t("about.appVersion");
 		// Row label for the backend row, distinct from the pre-existing
 		// `backendLabel` status string (Connected/Disconnected) below.
@@ -336,6 +341,7 @@ export const DiagnosticsSettingsSection = memo(
 			isVisible(title, description, title) ||
 			anyRowVisible(isVisible, title, [
 				{ label: copyLabel },
+				{ label: openDataFolderLabel },
 				{ label: appVersionLabel },
 				{ label: backendRowLabel },
 				{ label: configDirectoryLabel },
@@ -352,20 +358,37 @@ export const DiagnosticsSettingsSection = memo(
 				title={title}
 				description={description}
 				action={
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={copyDiagnostics}
-						className="shrink-0 gap-2 text-(--text-muted) hover:text-(--text-primary)"
-					>
-						<HugeiconsIcon
-							icon={Copy01Icon}
-							strokeWidth={2}
-							aria-hidden="true"
-							className="size-4"
-						/>
-						{copyLabel}
-					</Button>
+					<div className="flex shrink-0 flex-wrap items-center gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleOpenDataFolder}
+							className="gap-2 text-muted-foreground hover:text-foreground"
+							aria-label={openDataFolderLabel}
+						>
+							<HugeiconsIcon
+								icon={Folder02Icon}
+								strokeWidth={2}
+								aria-hidden="true"
+								className="size-4"
+							/>
+							{openDataFolderLabel}
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={copyDiagnostics}
+							className="gap-2 text-muted-foreground hover:text-foreground"
+						>
+							<HugeiconsIcon
+								icon={Copy01Icon}
+								strokeWidth={2}
+								aria-hidden="true"
+								className="size-4"
+							/>
+							{copyLabel}
+						</Button>
+					</div>
 				}
 			>
 				{isVisible(appVersionLabel, undefined, title) && (
@@ -414,7 +437,7 @@ export const DiagnosticsSettingsSection = memo(
 							label={loadedViaLabel}
 							value={<LiveValue present>{loadedVia}</LiveValue>}
 						/>
-						<p className="px-3.5 pb-2.5 text-xs text-(--text-muted)">
+						<p className="px-3.5 pb-2.5 text-xs text-muted-foreground">
 							{t("about.loadedViaHint")}
 						</p>
 					</>

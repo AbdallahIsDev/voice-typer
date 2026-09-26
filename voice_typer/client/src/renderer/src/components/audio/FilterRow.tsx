@@ -29,27 +29,27 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 import type { AudioFilterLabels } from "./audioFilterLabels";
 import {
 	type AudioFilterRowDescriptor,
 	audioFilterDescriptorByConfigKey,
 } from "./audioFilterRowDescriptors";
 
-export type AudioFilterSet = <K extends keyof VoiceTyperConfig>(
+export type AudioFilterSet = <K extends keyof LausuConfig>(
 	k: K,
-	v: VoiceTyperConfig[K],
+	v: LausuConfig[K],
 ) => void;
 
 export interface FilterRowProps {
 	descriptor: AudioFilterRowDescriptor;
-	config: VoiceTyperConfig;
+	config: LausuConfig;
 	set: AudioFilterSet;
 	labels: AudioFilterLabels;
 }
 
 function readRowValue(
-	config: VoiceTyperConfig,
+	config: LausuConfig,
 	descriptor: AudioFilterRowDescriptor,
 ): number | boolean | string {
 	const raw = config[descriptor.configKey];
@@ -58,7 +58,7 @@ function readRowValue(
 }
 
 function parentToggleActive(
-	config: VoiceTyperConfig,
+	config: LausuConfig,
 	parentToggle: AudioFilterRowDescriptor["parentToggle"],
 ): boolean {
 	if (!parentToggle) return true;
@@ -86,9 +86,9 @@ export function FilterRow({
 	const aria = labels[descriptor.ariaKey] ?? descriptor.ariaKey;
 	const value = readRowValue(config, descriptor);
 
-	// `descriptor.configKey` is `keyof VoiceTyperConfig` (widened) —
+	// `descriptor.configKey` is `keyof LausuConfig` (widened) —
 	// `set`'s generic K can't be inferred from a non-literal, so we
-	// cast through `never` (assignable to any `VoiceTyperConfig[K]`).
+	// cast through `never` (assignable to any `LausuConfig[K]`).
 	// Call sites that pass a literal configKey still get full type
 	// safety; the registry path is the only one that needs the cast.
 	const write = (v: number | boolean | string): void => {

@@ -1,5 +1,5 @@
 // Route-chunk prefetching (vercel-react-best-practices: bundle-preload).
-// The 9 secondary routes are React.lazy chunks (see PageSwitch.tsx).
+// The 10 secondary routes are React.lazy chunks (see PageSwitch.tsx).
 // Without prefetching, the FIRST navigation to each page waits on a
 // dynamic import before anything renders. This module closes that gap:
 //   1. `prefetchRouteChunks()`, called once from App after mount, on

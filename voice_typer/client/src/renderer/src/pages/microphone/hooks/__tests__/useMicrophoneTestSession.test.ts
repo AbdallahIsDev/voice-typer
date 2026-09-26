@@ -34,7 +34,7 @@ vi.mock("@/i18n/i18n", () => ({
 }));
 
 import { useConsentGateStore } from "@/lib/consentGate";
-import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig, MicrophoneDevice } from "@/types/config";
 // ── Helpers ──────────────────────────────────────────────────────────
 import {
 	_resetMicrophoneTestCache,
@@ -43,9 +43,7 @@ import {
 	useMicrophoneTestSession,
 } from "../useMicrophoneTestSession";
 
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		hotkey: "<f2>",
@@ -82,7 +80,7 @@ function makeConfig(
 		cloud_deepgram_consent: false,
 		voice_biometric_consent: true,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 function makeMicrophones(): MicrophoneDevice[] {

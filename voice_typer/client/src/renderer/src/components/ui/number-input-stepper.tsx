@@ -181,7 +181,7 @@ function NumberInputStepper({
 	const [liveValue, setLiveValue] = useState("");
 
 	return (
-		<div className="group relative overflow-hidden rounded-3xl">
+		<div className="group relative overflow-hidden rounded-lg">
 			<Input
 				type="number"
 				value={value}
@@ -235,8 +235,8 @@ function NumberInputStepper({
 					}}
 					aria-label={t("a11y.increase")}
 					className={cn(
-						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
-						"hover:text-(--text-primary)",
+						"flex h-1/2 items-center justify-center text-muted-foreground transition-colors",
+						"hover:text-foreground",
 						"focus-visible:outline-hidden focus-visible:ring-1focus-visible:ring-ring",
 						// Mirror the previous disabled visual treatment via
 						// aria-disabled (Tailwind 4 ships the ``aria-disabled:``
@@ -264,8 +264,8 @@ function NumberInputStepper({
 					}}
 					aria-label={t("a11y.decrease")}
 					className={cn(
-						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
-						"hover:text-(--text-primary)",
+						"flex h-1/2 items-center justify-center text-muted-foreground transition-colors",
+						"hover:text-foreground",
 						"focus-visible:outline-hidden focus-visible:ring-1focus-visible:ring-ring",
 						"aria-disabled:opacity-50 aria-disabled:cursor-not-allowed",
 					)}

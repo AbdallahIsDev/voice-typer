@@ -159,17 +159,17 @@ describe("themePersist, syncThemeCacheToLocalStorage", () => {
 			{ light: { a: "1" }, dark: { a: "2" } },
 			16,
 		);
-		expect(localStorage.getItem("voice-typer-theme-mode")).toBe("dark");
-		expect(localStorage.getItem("voice-typer-theme-preset")).toBe("nord");
-		expect(localStorage.getItem("voice-typer-text-size")).toBe("16");
-		const raw = localStorage.getItem("voice-typer-custom-theme");
+		expect(localStorage.getItem("lausu-theme-mode")).toBe("dark");
+		expect(localStorage.getItem("lausu-theme-preset")).toBe("nord");
+		expect(localStorage.getItem("lausu-text-size")).toBe("16");
+		const raw = localStorage.getItem("lausu-custom-theme");
 		expect(raw).toBe(JSON.stringify({ light: { a: "1" }, dark: { a: "2" } }));
 	});
 
 	it("removes the custom-theme key when the custom map is null", () => {
-		localStorage.setItem("voice-typer-custom-theme", '{"stale":true}');
+		localStorage.setItem("lausu-custom-theme", '{"stale":true}');
 		syncThemeCacheToLocalStorage("system", "default", null, 14);
-		expect(localStorage.getItem("voice-typer-custom-theme")).toBeNull();
+		expect(localStorage.getItem("lausu-custom-theme")).toBeNull();
 	});
 
 	it("warns (and keeps going) when localStorage is unavailable", () => {

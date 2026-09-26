@@ -35,7 +35,7 @@ export function WelcomeStep({ headingRef }: WelcomeStepProps) {
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.welcomeTitle")}
 			</h2>
-			<p className="text-sm text-(--text-muted)">
+			<p className="text-sm text-muted-foreground">
 				{t("onboarding.welcomeDescription")}
 			</p>
 			<div
@@ -43,7 +43,7 @@ export function WelcomeStep({ headingRef }: WelcomeStepProps) {
 				data-testid="onboarding-language-picker"
 			>
 				<label
-					className="text-xs font-medium text-(--text-muted)"
+					className="text-xs font-medium text-muted-foreground"
 					htmlFor="onboarding-language-select"
 				>
 					{t("settings.appLanguage")}

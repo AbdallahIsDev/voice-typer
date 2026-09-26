@@ -65,14 +65,14 @@ export function AvailableMicrophonesList({
 
 	return (
 		<div className="flex flex-col gap-2">
-			<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted) px-1">
+			<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-1">
 				{t("microphone.availableMicrophones")}
 			</p>
 			<RadioGroup
 				value={value}
 				onValueChange={handleValueChange}
 				disabled={testRunning}
-				className="rounded-lg border border-border/5 bg-(--bg-subtle)"
+				className="rounded-lg border border-border/5 bg-surface-subtle"
 				data-testid="microphone-radio-list"
 			>
 				{/* native <ul>/<li> list semantics around the radio rows, the
@@ -102,13 +102,13 @@ export function AvailableMicrophonesList({
 							<HugeiconsIcon
 								icon={Mic02Icon}
 								strokeWidth={2}
-								className="h-4 w-4 shrink-0 text-(--text-muted)"
+								className="h-4 w-4 shrink-0 text-muted-foreground"
 							/>
 							<div className="flex flex-col flex-1 min-w-0 gap-1">
-								<p className="text-sm font-medium text-(--text-primary)">
+								<p className="text-sm font-medium text-foreground">
 									{t("microphone.systemDefault")}
 								</p>
-								<p className="text-xs text-(--text-muted)">
+								<p className="text-xs text-muted-foreground">
 									{t("microphone.systemDefaultDesc")}
 								</p>
 							</div>

@@ -28,7 +28,7 @@ export interface LinuxWindowButtonsSystemInfo {
 	layout: { side: "left" | "right"; buttons: string[] } | null;
 }
 
-export interface VoiceTyperConfig {
+export interface LausuConfig {
 	schema_version: number;
 
 	hotkey: string;
@@ -237,6 +237,8 @@ export interface VoiceTyperConfig {
 	cloud_deepgram_consent: boolean;
 	voice_biometric_consent: boolean;
 	llm_polish_consent: boolean;
+	// ADR-0023: consent that media URLs are sent to the yt-dlp extractor.
+	media_url_consent: boolean;
 
 	sound_feedback_enabled: boolean;
 

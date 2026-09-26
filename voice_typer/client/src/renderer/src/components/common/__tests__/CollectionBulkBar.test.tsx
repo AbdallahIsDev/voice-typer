@@ -140,7 +140,7 @@ describe("CollectionBulkBar, visual tokens (byte-identical extraction)", () => {
 			"flex w-fit max-w-full flex-wrap items-center gap-2",
 		);
 		expect(bar.className).toContain(
-			"rounded-2xl border border-border/5 bg-(--bg-subtle) px-3 py-2 shadow-lg",
+			"rounded-lg border border-border/5 bg-surface-subtle px-3 py-2 shadow-lg",
 		);
 	});
 
@@ -148,7 +148,7 @@ describe("CollectionBulkBar, visual tokens (byte-identical extraction)", () => {
 		setupBulkBar();
 		const del = screen.getByRole("button", { name: "test.bulkDelete" });
 		expect(del.className).toContain(
-			"text-xs text-(--text-muted) hover:text-destructive hover:border-destructive/40",
+			"text-xs text-muted-foreground hover:text-destructive hover:border-destructive/40",
 		);
 	});
 

@@ -507,6 +507,49 @@ export interface TranscribeOfflineResultEvent {
 	data: { text: string; latency_ms: number };
 }
 
+/**
+ * ADR-0023 media job progress, published per window fraction (0-1).
+ * Pushed by `handlers/media_handlers.py` during chunked transcription.
+ * `phase` distinguishes the download / model-load / transcribe stages;
+ * `eta_seconds` is a measured estimate, `null` until one window lands.
+ */
+export interface MediaTranscribeProgressEvent {
+	type: "media_transcribe_progress";
+	data: {
+		job_id: string;
+		progress: number;
+		phase: "downloading" | "loading_model" | "transcribing";
+		eta_seconds: number | null;
+		duration_seconds: number | null;
+	};
+}
+
+/**
+ * ADR-0023 media job completion, carries the History row id + char count.
+ * `partial` is true when the job was cancelled and the saved text is a
+ * partial transcript.
+ */
+export interface MediaTranscribeCompleteEvent {
+	type: "media_transcribe_complete";
+	data: {
+		job_id: string;
+		/** `null` when the transcript was empty (no History row written). */
+		row_id: number | null;
+		chars: number;
+		partial: boolean;
+	};
+}
+
+/**
+ * ADR-0023 media job failure (E13), pushed by `media_ingest/jobs.py`
+ * when the job thread raises. `code` is the machine-readable media
+ * ingest error code; `message` is the user-safe text.
+ */
+export interface MediaTranscribeErrorEvent {
+	type: "media_transcribe_error";
+	data: { job_id: string; code: string; message: string };
+}
+
 // parity is pinned by `tests/test_event_types_parity.py`
 
 /**
@@ -664,6 +707,9 @@ export type PythonPushEvent =
 	| WorkerCrashedEvent
 	| WorkerUnloadedEvent
 	| TranscribeOfflineResultEvent
+	| MediaTranscribeProgressEvent
+	| MediaTranscribeCompleteEvent
+	| MediaTranscribeErrorEvent
 	// (see the per-interface docstrings above for the emitters + wire
 	// shapes; pinned by tests/test_event_types_parity.py).
 	| AsrBackendReadyEvent

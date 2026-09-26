@@ -27,16 +27,14 @@ import {
 	safeApiKey,
 	useCloudProviders,
 } from "@/hooks/models/useCloudProviders";
-import type { VoiceTyperConfig } from "@/types/config";
+import type { LausuConfig } from "@/types/config";
 
 const callMock = vi.fn();
 const showSnackMock = vi.fn();
 const updateConfigMock = vi.fn().mockResolvedValue(undefined);
 const setConfigMock = vi.fn();
 
-function makeConfig(
-	overrides: Partial<VoiceTyperConfig> = {},
-): VoiceTyperConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		hotkey: "<f2>",
@@ -72,12 +70,12 @@ function makeConfig(
 		cloud_groq_consent: false,
 		cloud_deepgram_consent: false,
 		...overrides,
-	} as VoiceTyperConfig;
+	} as LausuConfig;
 }
 
 function makeHookArgs(
 	apiKeys: Record<string, string>,
-	config: VoiceTyperConfig | null,
+	config: LausuConfig | null,
 ) {
 	return {
 		showSnack: showSnackMock,

@@ -152,6 +152,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		"models",
 		"templates",
 		"vocabulary",
+		"media",
 		// System (pinned bottom group)
 		"settings",
 		"microphone",
