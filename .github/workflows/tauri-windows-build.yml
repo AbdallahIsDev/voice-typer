@@ -127,7 +127,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.12 (dev env)
         uses: actions/setup-python@v7
@@ -147,7 +147,7 @@ jobs:
           targets: ${{ env.RUST_TARGET }}
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -159,7 +159,7 @@ jobs:
 
       # Nuitka ccache: persist compiled C objects between builds.
       - name: Cache Nuitka build artifacts (ccache)
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: C:\Users\runner\AppData\Local\nuitka\cache
           key: tauri-windows-nuitka-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'requirements-lock.txt') }}
@@ -678,21 +678,21 @@ jobs:
           Write-Host "Smoke test PASSED: sidecar --version exited 0 with project name in output."
 
       - name: Upload NSIS installer artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-windows-installer
           path: ${{ steps.artifacts.outputs.nsis_path }}
           if-no-files-found: error
 
       - name: Upload MSI installer artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: Lausu-Tauri-MSI
           path: ${{ steps.artifacts.outputs.msi_path }}
           if-no-files-found: warn
 
       - name: Upload sidecar + native listener
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: Lausu-Tauri-Sidecar-Binaries
           # TX-40: paths use matrix.target so the aarch64 leg (when enabled)
@@ -730,7 +730,7 @@ jobs:
           Get-Content SHA256SUMS.txt
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: Lausu-Tauri-SHA256SUMS
           path: SHA256SUMS.txt
@@ -752,7 +752,7 @@ jobs:
       # TX-24 / C-CI-15: tauri-binaries.json is the fail-closed integrity
       # manifest verified at login; --check aborts on empty/malformed hash.
       - name: Upload updated tauri-binaries.json
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-binaries-manifest-windows
           path: tauri-binaries.json

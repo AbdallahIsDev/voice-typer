@@ -90,7 +90,7 @@ jobs:
       RUST_TARGET: x86_64-unknown-linux-gnu
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@v1
@@ -100,7 +100,7 @@ jobs:
           targets: ${{ env.RUST_TARGET }}
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -270,7 +270,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # exist), so sign=true is a misconfiguration and must fail fast
       - name: Fail fast — sign=true is not supported on Linux
@@ -299,7 +299,7 @@ jobs:
 
       # cache the cargo registry + src-tauri/target
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -593,7 +593,7 @@ jobs:
 
       # the orchestrator (tauri-build.yml::aggregate) downloads the
       - name: Upload .deb artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-linux-installer
           path: |
@@ -602,7 +602,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload .AppImage artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lausu-${{ env.BUILD_ARCH }}.AppImage
           path: |
@@ -612,7 +612,7 @@ jobs:
 
       # previously only .deb + .AppImage were uploaded; .rpm was
       - name: Upload .rpm artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lausu-${{ env.BUILD_ARCH }}.rpm
           path: |
@@ -623,7 +623,7 @@ jobs:
       # C-CI-13: NEW artifact name (adding, not renaming existing). The
       # the worker ships, upload-artifact@v6 picks it up automatically.
       - name: Upload worker (runtime pack) artifact — Linux separate download
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lausu-worker-${{ env.BUILD_ARCH }}
           path: |
@@ -655,7 +655,7 @@ jobs:
 
       - name: Upload build logs (Nuitka + cargo)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lausu-${{ env.BUILD_ARCH }}-build-logs
           path: |
@@ -699,7 +699,7 @@ jobs:
           fi
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: Lausu-Tauri-Linux-SHA256SUMS-${{ env.BUILD_ARCH }}
           path: SHA256SUMS.txt
@@ -723,7 +723,7 @@ jobs:
       # TX-24 / C-CI-15: tauri-binaries.json is the fail-closed integrity
       # manifest verified at login; --check aborts on empty/malformed hash.
       - name: Upload updated tauri-binaries.json
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-binaries-manifest-linux-${{ env.BUILD_ARCH }}
           path: tauri-binaries.json

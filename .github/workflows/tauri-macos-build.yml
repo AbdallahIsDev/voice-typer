@@ -47,7 +47,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -61,7 +61,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -194,7 +194,7 @@ jobs:
           lipo -info src-tauri/resources/native/macos-key-listener-arm64
 
       - name: Upload aarch64 artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: macos-aarch64-binaries
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
@@ -213,7 +213,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -227,7 +227,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -354,7 +354,7 @@ jobs:
           lipo -info src-tauri/resources/native/macos-key-listener-x86_64
 
       - name: Upload x86_64 artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: macos-x86_64-binaries
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
@@ -394,7 +394,7 @@ jobs:
       # available in step if: (the secrets rule above), so gate on this string.
       SIGN_ENABLED: ${{ inputs.sign == true || inputs.sign == 'true' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -408,7 +408,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -443,7 +443,7 @@ jobs:
           cd ../..
 
       - name: Download aarch64 artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: macos-aarch64-binaries
           # S4-CR-31: download into a per-arch subdir to avoid filename
@@ -451,7 +451,7 @@ jobs:
           path: /tmp/macos-aarch64
 
       - name: Download x86_64 artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: macos-x86_64-binaries
           path: /tmp/macos-x86_64
@@ -705,7 +705,7 @@ jobs:
           xcrun stapler validate "$DMG_PATH"
 
       - name: Upload .dmg
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-macos-installer
           path: |
@@ -750,7 +750,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: Lausu-Tauri-MacOS-SHA256SUMS
           path: SHA256SUMS.txt
@@ -772,7 +772,7 @@ jobs:
       # TX-24 / C-CI-15: tauri-binaries.json is the fail-closed integrity
       # manifest verified at login; --check aborts on empty/malformed hash.
       - name: Upload updated tauri-binaries.json
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-binaries-manifest-macos
           path: tauri-binaries.json
