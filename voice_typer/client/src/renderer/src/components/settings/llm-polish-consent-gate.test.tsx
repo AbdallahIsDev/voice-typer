@@ -1,4 +1,3 @@
-import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	act,
 	cleanup,
@@ -6,10 +5,12 @@ import {
 	render,
 	screen,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	hugeiconsCoreMock,
 	hugeiconsReactMock,
@@ -18,7 +19,6 @@ import {
 	snackbarMock,
 	sonnerMock,
 } from "@/__tests__/helpers/stableMocks";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => hugeiconsReactMock());
 vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
@@ -33,9 +33,7 @@ import { useConsentGateStore } from "@/lib/consentGate";
 import type { LausuConfig } from "@/types/config";
 
 /** Minimal valid config (same shape as the Settings test suite's). */
-function makeConfig(
-	overrides: Partial<LausuConfig> = {},
-): LausuConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		llm_polish: false,
 		llm_polish_consent: false,
@@ -57,7 +55,7 @@ describe("LlmPolishingSettingsSection, enabling LLM polish asks for llm_polish_c
 			<LlmPolishingSettingsSection
 				config={config}
 				updateConfig={updateConfig}
-				updateConfigDebounced={() => { }}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);

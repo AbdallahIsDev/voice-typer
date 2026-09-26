@@ -401,9 +401,7 @@ describe("Settings page, PERF-002 batched config writes", () => {
 			// The suggested command must be rendered as code text.
 			await waitFor(() => {
 				expect(
-					screen.getByText(
-						"tccutil reset Accessibility com.Lausu.desktop",
-					),
+					screen.getByText("tccutil reset Accessibility com.Lausu.desktop"),
 				).toBeTruthy();
 			});
 			expect(mockCall).toHaveBeenCalledWith("check_accessibility");

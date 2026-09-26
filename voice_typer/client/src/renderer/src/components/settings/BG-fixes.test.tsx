@@ -17,8 +17,9 @@
  *     a smoke test, the heavy memoization verification lives in the
  *     Settings page's existing test suite (which passes after ).
  */
-import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
@@ -51,9 +52,7 @@ import type { SettingsSectionSharedProps } from "@/components/settings/types";
 import type { LausuConfig } from "@/types/config";
 
 /** Minimal valid config, same shape used elsewhere in the Settings test suite. */
-function makeConfig(
-	overrides: Partial<LausuConfig> = {},
-): LausuConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -198,8 +197,8 @@ describe("BG-16: PrivacySettingsSection Agree-to-All ConfirmDialog uses i18n key
 		renderWithProviders(
 			<PrivacySettingsSection
 				config={config}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -241,8 +240,8 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 		renderWithProviders(
 			<PostProcessingSettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={isVisible}
 			/>,
 		);
@@ -263,8 +262,8 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 		const { container } = renderWithProviders(
 			<PostProcessingSettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={isVisible}
 			/>,
 		);
@@ -284,8 +283,8 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 		renderWithProviders(
 			<PrivacySettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={isVisible}
 			/>,
 		);
@@ -317,8 +316,8 @@ describe("BG-98: LlmPolishingSettingsSection uses i18n key for redacted API key 
 					llm_polish: true,
 					llm_api_key: "<redacted>",
 				})}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -341,8 +340,8 @@ describe("BG-98: LlmPolishingSettingsSection uses i18n key for redacted API key 
 					llm_polish: true,
 					llm_api_key: "",
 				})}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);

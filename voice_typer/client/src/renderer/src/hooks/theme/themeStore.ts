@@ -1,3 +1,4 @@
+import { create } from "zustand";
 import {
 	LS_CUSTOM_THEME,
 	LS_TEXT_SIZE,
@@ -6,7 +7,6 @@ import {
 } from "@/lib/theme-storage-keys";
 import { type CustomThemeData, THEMES } from "@/themes";
 import type { LausuConfig } from "@/types/config";
-import { create } from "zustand";
 
 // duplicated in ``theme-bootstrap.ts``). They now live in
 // ``lib/theme-storage-keys.ts`` (single source of truth) so the

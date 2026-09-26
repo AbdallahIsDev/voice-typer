@@ -6,15 +6,6 @@
 // `resetToDefaults` async handler with the page-level `config` state
 // `onResetClick` to request the dialog.
 
-import { SettingsSection } from "@/components/common/SettingsSection";
-import { Button } from "@/components/ui/button";
-import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePython } from "@/hooks/usePython";
-import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
-import { openExternalUrl } from "@/lib/external-links";
-import type { LausuConfig } from "@/types/config";
-import type { Page } from "@/types/ipc";
 import {
 	ArrowTurnBackwardIcon,
 	Book02Icon,
@@ -26,6 +17,15 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useState } from "react";
+import { SettingsSection } from "@/components/common/SettingsSection";
+import { Button } from "@/components/ui/button";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { usePython } from "@/hooks/usePython";
+import { useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
+import { openExternalUrl } from "@/lib/external-links";
+import type { LausuConfig } from "@/types/config";
+import type { Page } from "@/types/ipc";
 import { anyRowVisible } from "./settingsRowGating";
 import type { IsVisibleFn } from "./types";
 
@@ -201,18 +201,18 @@ export const TroubleshootingSettingsSection = memo(
 					showSnack(
 						result.command
 							? t(
-								"settings.troubleshooting.resetAccessibilityToastWithCommand",
-								{
-									command: result.command,
-								},
-							)
+									"settings.troubleshooting.resetAccessibilityToastWithCommand",
+									{
+										command: result.command,
+									},
+								)
 							: t("settings.troubleshooting.resetAccessibilityToast"),
 						"success",
 					);
 				} else {
 					showSnack(
 						result?.error ||
-						t("settings.troubleshooting.resetAccessibilityFailed"),
+							t("settings.troubleshooting.resetAccessibilityFailed"),
 						"error",
 					);
 				}
@@ -240,8 +240,8 @@ export const TroubleshootingSettingsSection = memo(
 					showSnack(
 						result.command
 							? t("settings.troubleshooting.resetLinuxToastWithCommand", {
-								command: result.command,
-							})
+									command: result.command,
+								})
 							: t("settings.troubleshooting.resetLinuxToast"),
 						"success",
 					);
@@ -285,7 +285,7 @@ export const TroubleshootingSettingsSection = memo(
 							className="gap-2"
 							onClick={() =>
 								void openExternalUrl(
-									"https://github.com/AbdallahIsDev/lausu/blob/main/README.md",
+									"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
 								)
 							}
 							aria-label={t("settings.troubleshooting.openDocsAria")}
@@ -305,7 +305,7 @@ export const TroubleshootingSettingsSection = memo(
 							className="gap-2"
 							onClick={() =>
 								void openExternalUrl(
-									"https://github.com/AbdallahIsDev/lausu/issues",
+									"https://github.com/AbdallahIsDev/voice-typer/issues",
 								)
 							}
 							aria-label={t("settings.troubleshooting.reportBugAria")}

@@ -1,5 +1,5 @@
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { act, cleanup, render } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const renderWithProviders = (ui: React.ReactElement) => {
 	const wrapped = (node: React.ReactElement) => (

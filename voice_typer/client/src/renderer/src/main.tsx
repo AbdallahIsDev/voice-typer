@@ -1,8 +1,8 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 import { installConsoleCapture } from "@/lib/console-capture";
 import { installGlobalErrorHandlers } from "@/lib/globalErrorHandler";
-import React from "react";
-import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { ensureTauriBridgeInstalled } from "./lib/tauri-bridge/ensure";

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-	filterFuzzy,
 	FUZZY_RESULT_LIMIT,
 	FUZZY_THRESHOLD,
+	filterFuzzy,
 	fuzzyContains,
 } from "@/hooks/useFuzzySearch";
 
@@ -59,9 +59,7 @@ describe("filterFuzzy", () => {
 		const first = filterFuzzy(many, "item", (r) => [r.trigger]);
 		const second = filterFuzzy(many, "item", (r) => [r.trigger]);
 		expect(first).toHaveLength(FUZZY_RESULT_LIMIT);
-		expect(second.map((r) => r.trigger)).toEqual(
-			first.map((r) => r.trigger),
-		);
+		expect(second.map((r) => r.trigger)).toEqual(first.map((r) => r.trigger));
 	});
 
 	it("pins the shared tuning contract", () => {

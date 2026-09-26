@@ -1,9 +1,9 @@
+import { toPng } from "html-to-image";
+import { useCallback, useRef } from "react";
 import { t } from "@/i18n/i18n";
 import { compactNumber, formatDuration } from "@/lib/format";
 import type { TodayStats } from "@/types/ipc";
 import type { ShareStats } from "@/types/stats";
-import { toPng } from "html-to-image";
-import { useCallback, useRef } from "react";
 
 const AVG_TYPING_WPM = 40;
 

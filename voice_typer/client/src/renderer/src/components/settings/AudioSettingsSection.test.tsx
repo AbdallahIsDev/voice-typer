@@ -60,8 +60,8 @@ if (
 	Element.prototype.hasPointerCapture = function hasPointerCapture() {
 		return false;
 	};
-	Element.prototype.setPointerCapture = function setPointerCapture() { };
-	Element.prototype.releasePointerCapture = function releasePointerCapture() { };
+	Element.prototype.setPointerCapture = function setPointerCapture() {};
+	Element.prototype.releasePointerCapture = function releasePointerCapture() {};
 }
 
 // Stub InfoTooltip to avoid the Radix Tooltip provider requirement
@@ -83,9 +83,7 @@ vi.mock("@/components/audio/AudioFilterChain", () => ({
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
 import type { LausuConfig } from "@/types/config";
 
-function makeConfig(
-	overrides: Partial<LausuConfig> = {},
-): LausuConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -210,8 +208,8 @@ describe("AudioSettingsSection, 'Test microphone' cross-link row", () => {
 		const { container } = render(
 			<AudioSettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -229,8 +227,8 @@ describe("AudioSettingsSection, 'Test microphone' cross-link row", () => {
 		render(
 			<AudioSettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -248,8 +246,8 @@ describe("AudioSettingsSection, 'Test microphone' cross-link row", () => {
 		render(
 			<AudioSettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -267,8 +265,8 @@ describe("AudioSettingsSection, 'Test microphone' cross-link row", () => {
 		render(
 			<AudioSettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -287,8 +285,8 @@ describe("AudioSettingsSection, 'Test microphone' cross-link row", () => {
 		const { container } = render(
 			<AudioSettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -324,7 +322,7 @@ describe("AudioSettingsSection, Microphone Quality enable-Switch", () => {
 			<AudioSettingsSection
 				config={makeConfig(configOverrides)}
 				updateConfig={updateConfig}
-				updateConfigDebounced={() => { }}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -370,7 +368,7 @@ describe("AudioSettingsSection, Microphone Quality enable-Switch", () => {
 			<AudioSettingsSection
 				config={makeConfig({ audio_preset: "off" })}
 				updateConfig={updateConfig}
-				updateConfigDebounced={() => { }}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -399,8 +397,8 @@ describe("AudioSettingsSection, Microphone Quality enable-Switch", () => {
 		rerender(
 			<AudioSettingsSection
 				config={makeConfig({ audio_preset: "off" })}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -436,7 +434,7 @@ describe("AudioSettingsSection, voice activity filtering toggle", () => {
 			<AudioSettingsSection
 				config={makeConfig(configOverrides)}
 				updateConfig={updateConfig}
-				updateConfigDebounced={() => { }}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);

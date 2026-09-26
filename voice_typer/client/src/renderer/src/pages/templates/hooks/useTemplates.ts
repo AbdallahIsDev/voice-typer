@@ -343,11 +343,10 @@ export function useTemplates({
 	// ── Search + Sort (client-side) ─────────────────────────────────
 	// Fuzzy list comes from the shared hook (exact-substring first, so
 	// typed queries keep their previous order); sorting stays local.
-	const fuzzyTemplates = useFuzzyFilter(
-		templates,
-		searchQuery,
-		(r) => [r.trigger, r.expansion],
-	);
+	const fuzzyTemplates = useFuzzyFilter(templates, searchQuery, (r) => [
+		r.trigger,
+		r.expansion,
+	]);
 	const filteredSortedTemplates = useMemo(() => {
 		return sortTemplateRows(fuzzyTemplates, sortOrder);
 	}, [fuzzyTemplates, sortOrder]);

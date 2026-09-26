@@ -23,6 +23,8 @@
 // removed, `refreshData` is called directly at both former `loadData`
 // call sites (initial mount + manual refresh).
 
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useDebouncedCallback } from "@/hooks/useDebounce";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useLatestRef } from "@/hooks/useLatestRef";
@@ -32,16 +34,14 @@ import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import { resolveActiveModel } from "@/lib/utils/models";
 import type { LausuConfig } from "@/types/config";
 import type { HistoryRecord, ModelStatusMap } from "@/types/ipc";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import {
 	type ActivityChartData,
 	buildActivityBars,
+	type CorrectionStats,
+	type CorrectionUsageSnapshot,
 	computeCorrectionStats,
 	computePeriodStats,
 	computeStreaks,
-	type CorrectionStats,
-	type CorrectionUsageSnapshot,
 	type DashboardData,
 	dateKey,
 	type PeriodStats,
@@ -244,11 +244,9 @@ export function useDashboardData({
 					// computation (a 500-row sample covers weeks of use), but
 					// the "Total Dictations" stat card reflects the actual
 					// row count instead of capping at the sample forever.
-					callRef
-						.current<{ count: number }>("get_history_count")
-						.catch(() => ({
-							count: 0,
-						})),
+					callRef.current<{ count: number }>("get_history_count").catch(() => ({
+						count: 0,
+					})),
 					// Fetch the backend config directory (for the data-path display).
 					// Returns null on failure, the caller falls back to the default path.
 					callRef
@@ -273,9 +271,7 @@ export function useDashboardData({
 					// map on failure → treated as nothing installed
 					// (fail-safe: never advertise a model we can't
 					// verify).
-					callRef
-						.current<ModelStatusMap>("get_model_status")
-						.catch(() => ({})),
+					callRef.current<ModelStatusMap>("get_model_status").catch(() => ({})),
 				]);
 
 			const recs = history ?? [];

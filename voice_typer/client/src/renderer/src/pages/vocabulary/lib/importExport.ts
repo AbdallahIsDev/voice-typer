@@ -75,12 +75,15 @@ function parseCsvVocabulary(text: string): VocabularyEntry[] {
 		header: false,
 		skipEmptyLines: true,
 	});
-	const data = (parsed.data ?? []).filter(
-		(row): row is string[] => Array.isArray(row),
+	const data = (parsed.data ?? []).filter((row): row is string[] =>
+		Array.isArray(row),
 	);
 	let startIdx = 0;
 	const firstCell = data[0]?.[0];
-	if (firstCell !== undefined && firstCell.trim().toLowerCase() === "original") {
+	if (
+		firstCell !== undefined &&
+		firstCell.trim().toLowerCase() === "original"
+	) {
 		startIdx = 1;
 	}
 	const rows: VocabularyEntry[] = [];

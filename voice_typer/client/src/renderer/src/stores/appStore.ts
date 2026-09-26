@@ -1,6 +1,6 @@
+import { create } from "zustand";
 import type { LausuConfig } from "@/types/config";
 import type { RecordingState } from "@/types/ipc";
-import { create } from "zustand";
 
 export type ConnectionStatus =
 	| "connected"

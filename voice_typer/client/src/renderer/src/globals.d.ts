@@ -57,10 +57,7 @@ declare module "papaparse" {
 		header?: boolean;
 		skipEmptyLines?: boolean | "greedy";
 	}
-	export function parse<T>(
-		input: string,
-		config?: ParseConfig,
-	): ParseResult<T>;
+	export function parse<T>(input: string, config?: ParseConfig): ParseResult<T>;
 	const Papa: {
 		parse<T>(input: string, config?: ParseConfig): ParseResult<T>;
 	};

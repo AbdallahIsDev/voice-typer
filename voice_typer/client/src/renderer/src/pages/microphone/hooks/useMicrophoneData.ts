@@ -16,11 +16,6 @@
 // ``selectMicrophoneRef.current`` at call time so it always invokes
 // the latest closure without re-subscribing on every render.
 
-import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePython, usePythonEvent } from "@/hooks/usePython";
-import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
-import type { LausuConfig, MicrophoneDevice } from "@/types/config";
 import {
 	type Dispatch,
 	type RefObject,
@@ -30,6 +25,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
+import { useSnackbar } from "@/hooks/useSnackbar";
+import { t } from "@/i18n/i18n";
+import type { LausuConfig, MicrophoneDevice } from "@/types/config";
 
 // Module-level cache, persists across page navigations so microphone
 // settings render instantly on re-visit instead of showing a loading

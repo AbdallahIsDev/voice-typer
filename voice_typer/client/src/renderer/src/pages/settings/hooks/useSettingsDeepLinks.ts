@@ -16,12 +16,12 @@
 // zeroes the saved privacy-page scroll offset BEFORE the restore effect
 // reads it. The page must call this hook BEFORE `useSettingsSurfaceScroll`.
 
+import { useEffect, useRef, useState } from "react";
 import { useNavigation } from "@/hooks/useNavigation";
 import { scrollToRowWithHighlight } from "@/pages/settings/lib/scrollToRowWithHighlight";
 import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { LausuConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
-import { useEffect, useRef, useState } from "react";
 
 export interface UseSettingsDeepLinksOptions {
 	/** The loaded config (or `null` while loading), gates the scroll effects. */

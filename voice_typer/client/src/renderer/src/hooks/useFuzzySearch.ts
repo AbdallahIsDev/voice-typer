@@ -1,5 +1,5 @@
-import { useMemo } from "react";
 import Fuse from "fuse.js";
+import { useMemo } from "react";
 
 // Shared fuzzy-search source of truth (fuse.js won over match-sorter:
 // threshold + result-limit + deterministic score/refIndex ordering map
@@ -94,11 +94,11 @@ export function useFuzzyFilter<T>(
 	getTexts: (item: T) => string[],
 ): T[] {
 	const textsKey = items;
+	// getTexts is inline at call sites; its identity churn would
+	// defeat the memo, so callers pass stable field readers.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: getTexts intentionally omitted, callers use inline field accessors with stable semantics
 	return useMemo(
 		() => filterFuzzy(textsKey, query, getTexts),
-		// getTexts is inline at call sites; its identity churn would
-		// defeat the memo, so callers pass stable field readers.
-		// biome-ignore lint/correctness/useExhaustiveDependencies: getTexts intentionally omitted, callers use inline field accessors with stable semantics
 		[textsKey, query],
 	);
 }

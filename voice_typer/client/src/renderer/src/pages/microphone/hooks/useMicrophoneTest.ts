@@ -8,6 +8,13 @@
 // ``selectMicrophoneRef`` indirection is removed now that all five
 // callbacks are ``useCallback``-stable in their respective sub-hooks.
 
+import {
+	type Dispatch,
+	type RefObject,
+	type SetStateAction,
+	useCallback,
+	useRef,
+} from "react";
 import { useFilterState } from "@/hooks/useFilterState";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -16,13 +23,6 @@ import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import type { AudioPreset } from "@/lib/utils/audioPresets";
 import type { LausuConfig, MicrophoneDevice } from "@/types/config";
-import {
-	type Dispatch,
-	type RefObject,
-	type SetStateAction,
-	useCallback,
-	useRef,
-} from "react";
 
 import type { TestResultQuality } from "../lib/types";
 import { useMicrophoneLevelMonitor } from "./useMicrophoneLevelMonitor";

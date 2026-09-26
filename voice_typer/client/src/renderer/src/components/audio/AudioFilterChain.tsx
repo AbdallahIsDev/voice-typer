@@ -32,9 +32,9 @@
 // `buildAudioFilterLabels(t)`. The original 935-LOC file is now
 // ~150 LOC.
 
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { getLocaleSnapshot, subscribeLocale, t } from "@/i18n/i18n";
 import type { LausuConfig } from "@/types/config";
-import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { buildAudioFilterLabels } from "./audioFilterLabels";
 import { audioFilterRowDescriptors } from "./audioFilterRowDescriptors";
 import { type AudioFilterSet, FilterRow } from "./FilterRow";

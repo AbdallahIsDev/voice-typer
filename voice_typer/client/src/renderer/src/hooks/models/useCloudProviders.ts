@@ -5,11 +5,11 @@
  *     API key never leaves the Python process (C-DATA-1 offline-app
  */
 
+import { useCallback, useState } from "react";
 import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { formatErrorMessage, getProviderLabel } from "@/lib/utils/models";
 import type { LausuConfig } from "@/types/config";
-import { useCallback, useState } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────
 

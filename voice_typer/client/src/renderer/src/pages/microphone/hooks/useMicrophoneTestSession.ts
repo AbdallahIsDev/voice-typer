@@ -26,6 +26,15 @@
 //   ``selectMicrophone`` closure so the data hook's
 //   ``microphones_changed`` hot-swap handler can invoke it.
 
+import {
+	type Dispatch,
+	type RefObject,
+	type SetStateAction,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import type { PythonCall } from "@/hooks/usePython";
 import { usePythonEvent } from "@/hooks/usePython";
@@ -37,15 +46,6 @@ import {
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import type { LausuConfig, MicrophoneDevice } from "@/types/config";
-import {
-	type Dispatch,
-	type RefObject,
-	type SetStateAction,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
 import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
 import { fetchTestAudioFileDeduped } from "../lib/testAudioTransfer";

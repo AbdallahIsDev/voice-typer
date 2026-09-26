@@ -22,13 +22,13 @@
 //   - `toggling`, the in-flight flag that shows the spinner overlay
 //     inside the mic button.
 
+import { useCallback, useState } from "react";
+import { toast } from "sonner";
 import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import type { LausuConfig } from "@/types/config";
-import { useCallback, useState } from "react";
-import { toast } from "sonner";
 
 export function useDictationToggle(call: PythonCall, cfg: LausuConfig | null) {
 	const [toggling, setToggling] = useState(false);

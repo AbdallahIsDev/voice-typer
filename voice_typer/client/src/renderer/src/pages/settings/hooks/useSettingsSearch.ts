@@ -11,10 +11,10 @@
 // the cross-section groups, and the auto-switch can never disagree.
 
 import { useEffect, useMemo, useRef } from "react";
-import { fuzzyContains } from "@/hooks/useFuzzySearch";
 import { getPrewarmAndUpdatesLabels } from "@/components/settings/PrewarmAndUpdates";
 import type { SettingsSectionPage } from "@/components/settings/settingsSections";
 import { getSectionLabels } from "@/components/settings/settingsTabLabels";
+import { fuzzyContains } from "@/hooks/useFuzzySearch";
 import type { NavigateOptions } from "@/hooks/useNavigation";
 import type { Page } from "@/types/ipc";
 

@@ -57,7 +57,7 @@ describe("Home page", () => {
 		// Keep the backend calls pending so no async state updates fire
 		// during the test (avoids spurious act() warnings). We only need
 		// to verify the initial render is non-empty.
-		mockCall.mockImplementation(() => new Promise(() => { }));
+		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
@@ -71,7 +71,7 @@ describe("Home page", () => {
 	it("shows a spinner while initial data is loading", async () => {
 		// A never-resolving promise keeps `initialLoading` true forever,
 		// so the spinner sections stay mounted.
-		mockCall.mockImplementation(() => new Promise(() => { }));
+		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
@@ -88,7 +88,7 @@ describe("Home page", () => {
 		localStorage.setItem("vt_home_stats_cache", JSON.stringify(stats));
 		// Keep the backend call pending so the effect doesn't overwrite
 		// the cached stats before we assert.
-		mockCall.mockImplementation(() => new Promise(() => { }));
+		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
@@ -121,7 +121,7 @@ describe("Home page", () => {
 			},
 		];
 		localStorage.setItem("vt_home_recent_cache", JSON.stringify(recent));
-		mockCall.mockImplementation(() => new Promise(() => { }));
+		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
@@ -141,7 +141,7 @@ describe("Home page", () => {
 		// stats spinner; we don't need real stats for this test.
 		const stats = { count: 0, chars: 0, word_count: 0, duration: 0 };
 		localStorage.setItem("vt_home_stats_cache", JSON.stringify(stats));
-		mockCall.mockImplementation(() => new Promise(() => { }));
+		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
@@ -177,7 +177,7 @@ describe("Home page", () => {
 		// "No recent activity" message + "View all" navigation link.
 		const stats = { count: 0, chars: 0, word_count: 0, duration: 0 };
 		localStorage.setItem("vt_home_stats_cache", JSON.stringify(stats));
-		mockCall.mockImplementation(() => new Promise(() => { }));
+		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);
 
@@ -207,7 +207,7 @@ describe("Home page", () => {
 		// get_today_stats / get_history so the cached values persist.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MOCK_CFG);
-			return new Promise(() => { });
+			return new Promise(() => {});
 		});
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);
@@ -245,7 +245,7 @@ describe("Home page", () => {
 		localStorage.setItem("vt_home_recent_cache", JSON.stringify(recent));
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MOCK_CFG);
-			return new Promise(() => { });
+			return new Promise(() => {});
 		});
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);
@@ -269,7 +269,7 @@ describe("Home page", () => {
 		// canShareStats to return true.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MOCK_CFG);
-			return new Promise(() => { });
+			return new Promise(() => {});
 		});
 		const { default: Home } = await import("@/pages/Home");
 		render(<TooltipProvider>{<Home />}</TooltipProvider>);

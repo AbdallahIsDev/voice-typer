@@ -1,7 +1,7 @@
+import { useCallback } from "react";
 import type { PythonCall } from "@/hooks/usePython";
 import type { LausuConfig } from "@/types/config";
 import type { Page } from "@/types/ipc/enums";
-import { useCallback } from "react";
 
 /** Shape of the ``call`` function from usePython(). */
 

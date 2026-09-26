@@ -77,7 +77,7 @@ const EXPORT_HEIGHT = 630;
 
 /** Project repo, the shared link for platforms whose URL schemes
  * require a link (Telegram's t.me/share/url needs the `url` param). */
-const GITHUB_REPO = "https://github.com/AbdallahIsDev/lausu";
+const GITHUB_REPO = "https://github.com/AbdallahIsDev/voice-typer";
 
 /** Social share intents. Web intents are text/URL-only, the image is
  * attached via the clipboard fallback (see header comment). */

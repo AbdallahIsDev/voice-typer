@@ -16,11 +16,6 @@
 // (Contributing) spanning the full row so nothing orphans at half
 // width. Each button carries an external-link indicator.
 
-import { ExternalLink } from "@/components/common/ExternalLink";
-import { SettingsSection } from "@/components/common/SettingsSection";
-import { Button } from "@/components/ui/button";
-import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
 import {
 	ArrowUpRight01Icon,
 	Book01Icon,
@@ -33,27 +28,32 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
+import { ExternalLink } from "@/components/common/ExternalLink";
+import { SettingsSection } from "@/components/common/SettingsSection";
+import { Button } from "@/components/ui/button";
+import { t } from "@/i18n/i18n";
+import { cn } from "@/lib/utils";
 import { anyRowVisible } from "./settingsRowGating";
 import type { IsVisibleFn } from "./types";
 
-const GITHUB_REPO = "https://github.com/AbdallahIsDev/lausu";
-const GITHUB_ISSUES = "https://github.com/AbdallahIsDev/lausu/issues";
+const GITHUB_REPO = "https://github.com/AbdallahIsDev/voice-typer";
+const GITHUB_ISSUES = "https://github.com/AbdallahIsDev/voice-typer/issues";
 const SECURITY_URL =
-	"https://github.com/AbdallahIsDev/lausu/blob/main/SECURITY.md";
+	"https://github.com/AbdallahIsDev/voice-typer/blob/main/SECURITY.md";
 const CONTRIBUTING_URL =
-	"https://github.com/AbdallahIsDev/lausu/blob/main/CONTRIBUTING.md";
+	"https://github.com/AbdallahIsDev/voice-typer/blob/main/CONTRIBUTING.md";
 // in-app changelog link so users can see what changed in the
 // installed version without leaving the app to browse the repo. Uses
 // the existing ``about.viewChangelog`` i18n key (already translated to
 // all supported locales). ``CHANGELOG.md`` is the canonical release
 // history at the repo root.
 const CHANGELOG_URL =
-	"https://github.com/AbdallahIsDev/lausu/blob/main/CHANGELOG.md";
+	"https://github.com/AbdallahIsDev/voice-typer/blob/main/CHANGELOG.md";
 // in-app documentation link. README.md is the canonical entry point for
 // user-facing docs in the repo; the /docs folder holds deeper
 // references (FEATURES.md, ADRs, debugging guide).
 const DOCUMENTATION_URL =
-	"https://github.com/AbdallahIsDev/lausu/blob/main/README.md";
+	"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md";
 
 /** Resources & Feedback links, icon per target + external-link chip. */
 const RESOURCE_LINKS = [

@@ -1,7 +1,7 @@
-import { getLocale, setLocale } from "@/i18n/i18n";
 import { act, cleanup, render } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getLocale, setLocale } from "@/i18n/i18n";
 import { BubbleBridgeProvider, useBubbleBridge } from "../useBubbleBridge";
 import { useThemeSync } from "../useThemeSync";
 
@@ -69,7 +69,7 @@ function Harness({ children }: { children?: ReactNode }) {
 	useThemeSync();
 	useEffect(() => {
 		if (!bridge) return;
-		return bridge.on("config", () => { });
+		return bridge.on("config", () => {});
 	}, [bridge]);
 	return <div data-testid="harness">{children}</div>;
 }
@@ -109,7 +109,7 @@ describe("useThemeSync, localeChanged push", () => {
 
 	it("ignores unsupported / garbled payloads (no dir flip, locale unchanged)", () => {
 		renderHarness();
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => { });
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
 		act(() => {
 			for (const cb of mockBubble.listeners.localeChanged ?? []) cb("<script>");

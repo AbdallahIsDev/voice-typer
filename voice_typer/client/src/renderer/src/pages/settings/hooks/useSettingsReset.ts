@@ -10,12 +10,12 @@
 // `resetToDefaults` can be a stable useCallback without re-allocating
 // the list each render.
 
+import { useCallback, useState } from "react";
 import type { usePython } from "@/hooks/usePython";
 import type { ShowSnackOptions, SnackbarType } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import type { LausuConfig } from "@/types/config";
-import { useCallback, useState } from "react";
 
 const CONFIG_PROTECTED_KEYS = [
 	"schema_version",

@@ -1,12 +1,5 @@
 // for text/aria consumers. C-BG-1: no monitor while hidden. See
 
-import { useLatestRef } from "@/hooks/useLatestRef";
-import { usePython, usePythonEvent } from "@/hooks/usePython";
-import {
-	CONSENT_REQUIRED_CODE,
-	VOICE_BIOMETRIC_CONSENT_FIELD,
-} from "@/lib/consent";
-import type { LausuConfig } from "@/types/config";
 import {
 	type Dispatch,
 	type RefObject,
@@ -16,6 +9,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
+import {
+	CONSENT_REQUIRED_CODE,
+	VOICE_BIOMETRIC_CONSENT_FIELD,
+} from "@/lib/consent";
+import type { LausuConfig } from "@/types/config";
 
 const START_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000];
 

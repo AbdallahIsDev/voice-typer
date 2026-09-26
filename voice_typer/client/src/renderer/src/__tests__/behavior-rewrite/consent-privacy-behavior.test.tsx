@@ -349,7 +349,7 @@ describe("About page, updates / help / feedback sections", () => {
 		// Python invariant (test_about_page_has_feedback_links):
 		//   "Report a Bug" in src OR "Report an Issue" in src
 		//   OR "Report a Bug" in en OR "Report an Issue" in en
-		//   "github.com/AbdallahIsDev/lausu/issues" in src
+		//   "github.com/AbdallahIsDev/voice-typer/issues" in src
 		// Behavioral: an anchor with visible text matching
 		// /Report a (Bug|Issue)/ points at the GitHub issues URL.
 		const { ResourcesSettingsSection } = await import(
@@ -369,7 +369,7 @@ describe("About page, updates / help / feedback sections", () => {
 			name: /report a (bug|issue)/i,
 		});
 		const href = feedbackLink.getAttribute("href") ?? "";
-		expect(href).toContain("github.com/AbdallahIsDev/lausu/issues");
+		expect(href).toContain("github.com/AbdallahIsDev/voice-typer/issues");
 	});
 });
 

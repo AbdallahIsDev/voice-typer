@@ -6,6 +6,7 @@
 // implementation, including the per-row search-filter visibility via the
 // `isVisible` prop and the section-level "hide if no items match" check.
 
+import { memo } from "react";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { SegmentedControl } from "@/components/ui/segmented-control";
@@ -22,11 +23,10 @@ import {
 	getLocaleLabel,
 	type Locale,
 	pushLocaleToPythonBackend,
-	setLocale,
 	SUPPORTED_LOCALES,
+	setLocale,
 	useT,
 } from "@/i18n/i18n";
-import { memo } from "react";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
@@ -125,14 +125,14 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 				LAUNCH_AT_LOGIN_INFO,
 				generalSectionTitle,
 			) && (
-					<SettingRow label={LAUNCH_AT_LOGIN_LABEL} info={LAUNCH_AT_LOGIN_INFO}>
-						<Switch
-							checked={config.autostart}
-							onCheckedChange={handleAutostartChange}
-							aria-label={LAUNCH_AT_LOGIN_LABEL}
-						/>
-					</SettingRow>
-				)}
+				<SettingRow label={LAUNCH_AT_LOGIN_LABEL} info={LAUNCH_AT_LOGIN_INFO}>
+					<Switch
+						checked={config.autostart}
+						onCheckedChange={handleAutostartChange}
+						aria-label={LAUNCH_AT_LOGIN_LABEL}
+					/>
+				</SettingRow>
+			)}
 			{/*Fast Startup (prewarm) toggle, defaults ON.
                                 Disabling saves ~6 GB of disk reads at boot for users who
                                 don't want the prewarm process (gamers, low-RAM machines).
@@ -147,14 +147,14 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 				FAST_STARTUP_INFO,
 				generalSectionTitle,
 			) && (
-					<SettingRow label={FAST_STARTUP_LABEL} info={FAST_STARTUP_INFO}>
-						<Switch
-							checked={config.fast_startup ?? true}
-							onCheckedChange={handleFastStartupChange}
-							aria-label={FAST_STARTUP_LABEL}
-						/>
-					</SettingRow>
-				)}
+				<SettingRow label={FAST_STARTUP_LABEL} info={FAST_STARTUP_INFO}>
+					<Switch
+						checked={config.fast_startup ?? true}
+						onCheckedChange={handleFastStartupChange}
+						aria-label={FAST_STARTUP_LABEL}
+					/>
+				</SettingRow>
+			)}
 			{/*App Language selector, distinct from the spoken-language
                                 selector in Post-Processing. This controls the app UI
                                 language via the i18n framework. The choice is persisted to
@@ -165,66 +165,66 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 				APP_LANGUAGE_INFO,
 				generalSectionTitle,
 			) && (
-					<SettingRow label={APP_LANGUAGE_LABEL} info={APP_LANGUAGE_INFO}>
-						<Select
-							value={getLocale()}
-							onValueChange={(v) => {
-								setLocale(v as Locale);
-								// Persist to localStorage so the choice survives restarts
-								try {
-									localStorage.setItem("lausu-ui-locale", v);
-								} catch (e) {
-									// localStorage may be unavailable in some contexts
-									// (SSR, sandboxed renderer, quota exceeded).
-									console.warn(
-										"[renderer:GeneralSettingsSection] setItem locale failed:",
-										e,
-									);
-								}
-								// Delegate tray-locale dispatch to the i18n module's
-								// `pushLocaleToPythonBackend` helper so this component
-								// does not invoke the Python bridge directly
-								// (the PythonBridge type only exposes `call` and
-								// `onEvent`, direct calls bypass the i18n contract
-								// and re-introduce the delegation-boundary violation).
-								try {
-									pushLocaleToPythonBackend(v as Locale);
-								} catch (e) {
-									// IPC may not be available during startup or the
-									// backend may not yet have registered the route.
-									console.warn(
-										"[renderer:GeneralSettingsSection] set_tray_locale IPC failed:",
-										e,
-									);
-								}
-							}}
-						>
-							<SelectTrigger className="w-44" aria-label={APP_LANGUAGE_LABEL}>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{LOCALE_OPTIONS.map((opt) => (
-									<SelectItem key={opt.value} value={opt.value}>
-										<span>{opt.label}</span>
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</SettingRow>
-				)}
+				<SettingRow label={APP_LANGUAGE_LABEL} info={APP_LANGUAGE_INFO}>
+					<Select
+						value={getLocale()}
+						onValueChange={(v) => {
+							setLocale(v as Locale);
+							// Persist to localStorage so the choice survives restarts
+							try {
+								localStorage.setItem("lausu-ui-locale", v);
+							} catch (e) {
+								// localStorage may be unavailable in some contexts
+								// (SSR, sandboxed renderer, quota exceeded).
+								console.warn(
+									"[renderer:GeneralSettingsSection] setItem locale failed:",
+									e,
+								);
+							}
+							// Delegate tray-locale dispatch to the i18n module's
+							// `pushLocaleToPythonBackend` helper so this component
+							// does not invoke the Python bridge directly
+							// (the PythonBridge type only exposes `call` and
+							// `onEvent`, direct calls bypass the i18n contract
+							// and re-introduce the delegation-boundary violation).
+							try {
+								pushLocaleToPythonBackend(v as Locale);
+							} catch (e) {
+								// IPC may not be available during startup or the
+								// backend may not yet have registered the route.
+								console.warn(
+									"[renderer:GeneralSettingsSection] set_tray_locale IPC failed:",
+									e,
+								);
+							}
+						}}
+					>
+						<SelectTrigger className="w-44" aria-label={APP_LANGUAGE_LABEL}>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{LOCALE_OPTIONS.map((opt) => (
+								<SelectItem key={opt.value} value={opt.value}>
+									<span>{opt.label}</span>
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</SettingRow>
+			)}
 			{isVisible(
 				NOTIFICATIONS_LABEL,
 				NOTIFICATIONS_INFO,
 				generalSectionTitle,
 			) && (
-					<SettingRow label={NOTIFICATIONS_LABEL} info={NOTIFICATIONS_INFO}>
-						<Switch
-							checked={config.show_notifications}
-							onCheckedChange={handleNotificationsChange}
-							aria-label={NOTIFICATIONS_LABEL}
-						/>
-					</SettingRow>
-				)}
+				<SettingRow label={NOTIFICATIONS_LABEL} info={NOTIFICATIONS_INFO}>
+					<Switch
+						checked={config.show_notifications}
+						onCheckedChange={handleNotificationsChange}
+						aria-label={NOTIFICATIONS_LABEL}
+					/>
+				</SettingRow>
+			)}
 			{isVisible(TRAY_CLICK_LABEL, TRAY_CLICK_INFO, generalSectionTitle) && (
 				<SettingRow label={TRAY_CLICK_LABEL} info={TRAY_CLICK_INFO}>
 					<SegmentedControl

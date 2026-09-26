@@ -1,4 +1,3 @@
-import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	act,
 	cleanup,
@@ -7,6 +6,7 @@ import {
 	screen,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
@@ -21,7 +21,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: vi.fn() }),
-	usePythonEvent: () => { },
+	usePythonEvent: () => {},
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
@@ -45,9 +45,7 @@ import { LlmPolishingSettingsSection } from "@/components/settings/LlmPolishingS
 import type { SettingsSectionSharedProps } from "@/components/settings/types";
 import type { LausuConfig } from "@/types/config";
 
-function makeConfig(
-	overrides: Partial<LausuConfig> = {},
-): LausuConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		llm_polish: true,
 		llm_polish_consent: true,
@@ -66,8 +64,8 @@ function renderSection(config: LausuConfig) {
 		<TooltipProvider delayDuration={200}>
 			<LlmPolishingSettingsSection
 				config={config}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>
 		</TooltipProvider>,
@@ -102,8 +100,8 @@ describe("LlmPolishingSettingsSection, urlDraft resets on external config change
 				<TooltipProvider delayDuration={200}>
 					<LlmPolishingSettingsSection
 						config={makeConfig({ llm_api_url: "https://reset" })}
-						updateConfig={() => { }}
-						updateConfigDebounced={() => { }}
+						updateConfig={() => {}}
+						updateConfigDebounced={() => {}}
 						isVisible={alwaysVisible}
 					/>
 				</TooltipProvider>,
@@ -114,8 +112,8 @@ describe("LlmPolishingSettingsSection, urlDraft resets on external config change
 
 	it("unfocused: rerenders with the SAME committed value keep the draft untouched", () => {
 		const props = {
-			updateConfig: () => { },
-			updateConfigDebounced: () => { },
+			updateConfig: () => {},
+			updateConfigDebounced: () => {},
 			isVisible: alwaysVisible,
 		};
 		const { rerender } = renderSection(
@@ -140,8 +138,8 @@ describe("LlmPolishingSettingsSection, urlDraft resets on external config change
 
 	it("focused: our own debounced echo landing mid-typing does NOT clobber the draft", () => {
 		const props = {
-			updateConfig: () => { },
-			updateConfigDebounced: () => { },
+			updateConfig: () => {},
+			updateConfigDebounced: () => {},
 			isVisible: alwaysVisible,
 		};
 		const { rerender } = renderSection(makeConfig({ llm_api_url: "" }));

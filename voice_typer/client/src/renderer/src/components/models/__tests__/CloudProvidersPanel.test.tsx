@@ -276,9 +276,7 @@ describe("CloudProvidersPanel, consent progressive disclosure", () => {
 			<CloudProvidersPanel
 				{...baseProps}
 				apiKeys={{}}
-				config={
-					{ ...baseConfig, cloud_openai_consent: false } as LausuConfig
-				}
+				config={{ ...baseConfig, cloud_openai_consent: false } as LausuConfig}
 			/>,
 		);
 		openApiKeyForm();
@@ -290,9 +288,7 @@ describe("CloudProvidersPanel, consent progressive disclosure", () => {
 			<CloudProvidersPanel
 				{...baseProps}
 				apiKeys={{ openai: "sk-test" }}
-				config={
-					{ ...baseConfig, cloud_openai_consent: false } as LausuConfig
-				}
+				config={{ ...baseConfig, cloud_openai_consent: false } as LausuConfig}
 			/>,
 		);
 		openApiKeyForm();
@@ -305,9 +301,7 @@ describe("CloudProvidersPanel, consent progressive disclosure", () => {
 			<CloudProvidersPanel
 				{...baseProps}
 				apiKeys={{}}
-				config={
-					{ ...baseConfig, cloud_openai_consent: true } as LausuConfig
-				}
+				config={{ ...baseConfig, cloud_openai_consent: true } as LausuConfig}
 			/>,
 		);
 		openApiKeyForm();
@@ -321,9 +315,7 @@ describe("CloudProvidersPanel, consent progressive disclosure", () => {
 			<CloudProvidersPanel
 				{...baseProps}
 				apiKeys={{ openai: "sk-test" }}
-				config={
-					{ ...baseConfig, cloud_openai_consent: false } as LausuConfig
-				}
+				config={{ ...baseConfig, cloud_openai_consent: false } as LausuConfig}
 				onConsentChange={onConsentChange}
 			/>,
 		);

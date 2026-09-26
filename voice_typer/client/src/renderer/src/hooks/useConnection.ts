@@ -1,11 +1,11 @@
+import { useCallback, useEffect, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { LausuConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
-import { useCallback, useEffect, useRef } from "react";
-import { useShallow } from "zustand/react/shallow";
 import {
 	applyStatusWithReason,
 	asRecordingState,

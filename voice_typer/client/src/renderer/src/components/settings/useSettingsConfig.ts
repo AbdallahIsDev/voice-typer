@@ -1,10 +1,10 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { LausuConfig } from "@/types/config";
-import { useCallback, useEffect, useRef, useState } from "react";
 
 let _cachedConfig: LausuConfig | null = null;
 

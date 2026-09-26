@@ -12,6 +12,8 @@
 // respectively. This file is now JSX-only: it calls the hook, reads
 // translations, and renders the section.
 
+import { Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
+import { memo } from "react";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
@@ -43,8 +45,6 @@ import {
 	THEMES,
 } from "@/themes";
 import type { LausuConfig } from "@/types/config";
-import { Moon02Icon, Sun03Icon } from "@hugeicons/core-free-icons";
-import { memo } from "react";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import type { SettingsSectionSharedProps } from "./types";
 import {
@@ -389,20 +389,22 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						<button
 							type="button"
 							onClick={handleSetLightMode}
-							className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${customEditorMode === "light"
+							className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+								customEditorMode === "light"
 									? "bg-surface text-foreground shadow-xs"
 									: "text-muted-foreground hover:text-foreground"
-								}`}
+							}`}
 						>
 							{t("settings.appearance.light")}
 						</button>
 						<button
 							type="button"
 							onClick={handleSetDarkMode}
-							className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${customEditorMode === "dark"
+							className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+								customEditorMode === "dark"
 									? "bg-surface text-foreground shadow-xs"
 									: "text-muted-foreground hover:text-foreground"
-								}`}
+							}`}
 						>
 							{t("settings.appearance.dark")}
 						</button>
@@ -530,7 +532,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 											// token for error borders (used by form validation
 											// throughout the app).
 											isHexInvalid &&
-											"border-destructive focus-visible:ring-destructive/30",
+												"border-destructive focus-visible:ring-destructive/30",
 										)}
 										spellCheck={false}
 										aria-label={t("settings.appearance.hexValueAria", {

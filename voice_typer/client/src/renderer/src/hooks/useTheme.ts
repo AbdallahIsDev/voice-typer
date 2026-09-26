@@ -1,10 +1,10 @@
+import { useCallback, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useAppStore } from "@/stores/appStore";
 import type { CustomThemeData } from "@/themes";
 import type { LausuConfig } from "@/types/config";
-import { useCallback, useEffect } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { applyTextScale, applyThemeToDocument } from "./theme/themeApply";
 import { clearActiveBridge, setActiveCall } from "./theme/themeBridge";
 import {

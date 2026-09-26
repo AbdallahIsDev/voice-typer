@@ -1,4 +1,3 @@
-import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	cleanup,
 	fireEvent,
@@ -7,12 +6,13 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-import type { PythonRequest, WindowBridge } from "@/types/ipc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PythonRequest, WindowBridge } from "@/types/ipc";
 
 // no runtime values, so the assertions here are COMPILE-TIME checks
 // bound to runtime `const`s. If a future contributor removes
@@ -91,7 +91,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
-	usePythonEvent: () => () => () => { },
+	usePythonEvent: () => () => () => {},
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
@@ -117,9 +117,7 @@ vi.mock("next-themes", () => ({
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import type { LausuConfig } from "@/types/config";
 
-function makeConfig(
-	overrides: Partial<LausuConfig> = {},
-): LausuConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,
@@ -261,8 +259,8 @@ describe("PrivacySettingsSection export buttons (rewrite of test_settings_has_ex
 		renderWithProviders(
 			<PrivacySettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -295,8 +293,8 @@ describe("PrivacySettingsSection export buttons (rewrite of test_settings_has_ex
 		renderWithProviders(
 			<PrivacySettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);
@@ -325,8 +323,8 @@ describe("PrivacySettingsSection export buttons (rewrite of test_settings_has_ex
 		renderWithProviders(
 			<PrivacySettingsSection
 				config={makeConfig()}
-				updateConfig={() => { }}
-				updateConfigDebounced={() => { }}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
 				isVisible={alwaysVisible}
 			/>,
 		);

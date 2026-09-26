@@ -1,5 +1,5 @@
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const renderWithProviders = (ui: React.ReactElement) => {
 	const wrapped = (node: React.ReactElement) => (
@@ -43,9 +43,7 @@ import { type Locale, setLocale } from "@/i18n/i18n";
 import type { LausuConfig } from "@/types/config";
 
 /** Minimal config that satisfies GeneralSettingsSection's render path. */
-function makeConfig(
-	overrides: Partial<LausuConfig> = {},
-): LausuConfig {
+function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
 	return {
 		schema_version: 1,
 		fast_startup: true,

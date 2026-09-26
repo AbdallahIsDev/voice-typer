@@ -396,7 +396,9 @@ export function formatDuration(seconds: number): string {
  * local ``formatEta`` so the Models bar and the Media page share one
  * implementation (E7: no duplicated helpers).
  */
-export function formatClockDuration(seconds: number | null | undefined): string {
+export function formatClockDuration(
+	seconds: number | null | undefined,
+): string {
 	if (seconds == null || seconds < 0 || !Number.isFinite(seconds)) return "—";
 	const s = Math.floor(seconds % 60);
 	const m = Math.floor((seconds / 60) % 60);

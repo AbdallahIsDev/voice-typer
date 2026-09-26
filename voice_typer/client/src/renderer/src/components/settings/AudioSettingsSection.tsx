@@ -8,6 +8,7 @@
 // status fetch (now done via this section's own `usePython` call so the
 // parent doesn't need to know about it).
 
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
@@ -30,7 +31,6 @@ import {
 	type AudioPreset,
 } from "@/lib/utils/audioPresets";
 import type { LausuConfig } from "@/types/config";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import type { SettingsSectionSharedProps } from "./types";
 
@@ -305,20 +305,20 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 					microphoneQualityInfoSearch,
 					audioSectionTitle,
 				) && (
-						<SettingRow
-							label={microphoneQualityLabel}
-							info={t("settings.audioEnhancement.microphoneQualityInfo")}
-						>
-							<Switch
-								checked={qualityEnabled}
-								onCheckedChange={handleQualityEnabledChange}
-								aria-label={t(
-									"settings.audioEnhancement.microphoneQualityEnableAria",
-								)}
-								data-testid="microphone-quality-switch"
-							/>
-						</SettingRow>
-					)}
+					<SettingRow
+						label={microphoneQualityLabel}
+						info={t("settings.audioEnhancement.microphoneQualityInfo")}
+					>
+						<Switch
+							checked={qualityEnabled}
+							onCheckedChange={handleQualityEnabledChange}
+							aria-label={t(
+								"settings.audioEnhancement.microphoneQualityEnableAria",
+							)}
+							data-testid="microphone-quality-switch"
+						/>
+					</SettingRow>
+				)}
 
 				{/* ── ADR 0007: Quality preset picker (revealed while enabled) ── */}
 				{qualityEnabled &&
@@ -384,21 +384,21 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 					volumeBackendInfoSearch,
 					audioSectionTitle,
 				) && (
-						<SettingRow
-							label={volumeBackendLabel}
-							info={t("settings.audioEnhancement.volumeBackendInfo")}
-						>
-							<span className="text-sm text-muted-foreground tabular-nums">
-								{volumeBackend
-									? volumeBackend.available
-										? volumeBackend.name
-										: t("settings.audioEnhancement.unavailableSuffix", {
+					<SettingRow
+						label={volumeBackendLabel}
+						info={t("settings.audioEnhancement.volumeBackendInfo")}
+					>
+						<span className="text-sm text-muted-foreground tabular-nums">
+							{volumeBackend
+								? volumeBackend.available
+									? volumeBackend.name
+									: t("settings.audioEnhancement.unavailableSuffix", {
 											name: volumeBackend.name,
 										})
-									: t("settings.audioEnhancement.detecting")}
-							</span>
-						</SettingRow>
-					)}
+								: t("settings.audioEnhancement.detecting")}
+						</span>
+					</SettingRow>
+				)}
 
 				{/* ── Auto Duck Volume ── */}
 				{isVisible(
@@ -406,17 +406,17 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 					autoDuckVolumeInfoSearch,
 					audioSectionTitle,
 				) && (
-						<SettingRow
-							label={autoDuckVolumeLabel}
-							info={t("settings.audioEnhancement.autoDuckVolumeInfo")}
-						>
-							<Switch
-								checked={config.volume_duck_enabled ?? true}
-								onCheckedChange={handleAutoDuckChange}
-								aria-label={t("settings.audioEnhancement.autoDuckVolumeAria")}
-							/>
-						</SettingRow>
-					)}
+					<SettingRow
+						label={autoDuckVolumeLabel}
+						info={t("settings.audioEnhancement.autoDuckVolumeInfo")}
+					>
+						<Switch
+							checked={config.volume_duck_enabled ?? true}
+							onCheckedChange={handleAutoDuckChange}
+							aria-label={t("settings.audioEnhancement.autoDuckVolumeAria")}
+						/>
+					</SettingRow>
+				)}
 				{isVisible(duckLevelLabel, duckLevelInfoSearch, audioSectionTitle) && (
 					<SettingRow
 						label={duckLevelLabel}
@@ -460,18 +460,18 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 					testMicrophoneInfo,
 					audioSectionTitle,
 				) && (
-						<SettingRow label={testMicrophoneLabel} info={testMicrophoneInfo}>
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								onClick={handleGoToMicrophone}
-								aria-label={goToMicrophoneLabel}
-							>
-								{goToMicrophoneLabel}
-							</Button>
-						</SettingRow>
-					)}
+					<SettingRow label={testMicrophoneLabel} info={testMicrophoneInfo}>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={handleGoToMicrophone}
+							aria-label={goToMicrophoneLabel}
+						>
+							{goToMicrophoneLabel}
+						</Button>
+					</SettingRow>
+				)}
 			</div>
 		</SettingsSection>
 	);

@@ -366,11 +366,10 @@ export function useVocabulary({
 	// underlying list, search query, category filter, or sort order
 	// changes, not on every keystroke that re-renders the page.
 
-	const fuzzyEntries = useFuzzyFilter(
-		entries,
-		searchQuery,
-		(e) => [e.original, e.correction],
-	);
+	const fuzzyEntries = useFuzzyFilter(entries, searchQuery, (e) => [
+		e.original,
+		e.correction,
+	]);
 	const filteredSorted = useMemo(() => {
 		return sortEntries(fuzzyEntries, sortOrder);
 	}, [fuzzyEntries, sortOrder]);

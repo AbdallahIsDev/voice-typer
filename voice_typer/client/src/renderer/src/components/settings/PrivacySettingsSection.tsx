@@ -8,6 +8,12 @@
 // `get_templates` / `get_config` IPC calls and surface their results
 // without needing the parent to forward `call` or `showSnack` as props.
 
+import {
+	CheckmarkCircle01Icon,
+	InformationCircleIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { memo, type ReactNode, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
@@ -19,20 +25,12 @@ import { useT } from "@/i18n/i18n";
 import type { TranslationKey } from "@/i18n/translation-keys";
 import { cn } from "@/lib/utils";
 import type { LausuConfig } from "@/types/config";
-import {
-	CheckmarkCircle01Icon,
-	InformationCircleIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { memo, type ReactNode, useState } from "react";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
 type BooleanConfigKey = {
-	[K in keyof LausuConfig]-?: LausuConfig[K] extends boolean
-	? K
-	: never;
+	[K in keyof LausuConfig]-?: LausuConfig[K] extends boolean ? K : never;
 }[keyof LausuConfig];
 
 export interface ConsentFieldDescriptor {
