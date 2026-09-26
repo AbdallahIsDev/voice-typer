@@ -96,12 +96,12 @@ def _default_offline_pack_root() -> Path:
     system = platform.system()
     if system == "Windows":
         local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        return Path(local) / "voice-typer" / "runtime-pack"
+        return Path(local) / "lausu" / "runtime-pack"
     if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "voice-typer" / "runtime-pack"
+        return Path.home() / "Library" / "Application Support" / "lausu" / "runtime-pack"
     # Linux / *BSD: respect XDG_DATA_HOME (default ~/.local/share).
     xdg = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    return Path(xdg) / "voice-typer" / "runtime-pack"
+    return Path(xdg) / "lausu" / "runtime-pack"
 
 
 def offline_pack_dir_for_version(version: str, *, root: Path | None = None) -> Path:
@@ -131,11 +131,11 @@ def fallback_offline_pack_root() -> Path | None:
     system = platform.system()
     if system == "Windows":
         roaming = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(roaming) / "voice-typer" / "runtime-pack"
+        return Path(roaming) / "lausu" / "runtime-pack"
     home = Path.home()
     if str(home) in ("", "."):
         return None
-    return home / ".voice-typer" / "runtime-pack"
+    return home / ".lausu" / "runtime-pack"
 
 
 def load_offline_pack_manifest(manifest_path: Path) -> OfflinePackManifest | None:

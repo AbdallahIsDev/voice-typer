@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 
 class StatusResponse(TypedDict):
-    """Response shape of :meth:`VoiceTyperService.get_status`."""
+    """Response shape of :meth:`LausuService.get_status`."""
 
     status: str
     # The tray-tooltip reason for the current state. MUST stay in lockstep
@@ -44,13 +44,13 @@ class StatusResponse(TypedDict):
 
 
 class ForceCancelResult(TypedDict):
-    """Response shape of :meth:`VoiceTyperService.force_cancel_transcription`."""
+    """Response shape of :meth:`LausuService.force_cancel_transcription`."""
 
     success: bool
     message: str
 
 
-class VoiceTyperService(
+class LausuService(
     HistoryMixin,
     ModelMixin,
     OnboardingMixin,
@@ -62,7 +62,7 @@ class VoiceTyperService(
     PrivacyMixin,
     ConfigMutationMixin,
 ):
-    """Service facade over VoiceTyperApp.
+    """Service facade over LausuApp.
 
     This class wraps the app's public methods in a transport-agnostic
     interface.  The IPC server (or any future transport) calls these
@@ -104,6 +104,6 @@ __all__ = [
     "ConfigApplier",
     "ForceCancelResult",
     "StatusResponse",
-    "VoiceTyperService",
+    "LausuService",
     "_MODEL_STATUS_CACHE_TTL_S",
 ]

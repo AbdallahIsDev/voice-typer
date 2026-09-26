@@ -17,7 +17,7 @@ from voice_typer.server.tray_types import AppState
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle (the orchestrator is
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
     # Real class (helpers.py), imported for annotation only. The
     from voice_typer.server.dictation_pipeline.helpers import _AbortWatcher
@@ -33,7 +33,7 @@ class _TranscribeStepMixin:
     """
 
     # Declared here so the standalone mixin type-checks (mypy cannot
-    _app: VoiceTyperApp
+    _app: LausuApp
     _cycle_id: str
     _audio: Any
     _audio_stats: tuple[float, float, float] | None

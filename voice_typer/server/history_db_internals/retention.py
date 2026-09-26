@@ -395,7 +395,7 @@ def schedule_periodic_retention(
             at startup; running it again immediately would duplicate
             that work.
         app : object, optional
-            The ``VoiceTyperApp`` instance. Used to look up
+            The ``LausuApp`` instance. Used to look up
             ``app.config.history_retention_days``,
             ``app.config.history_max_entries``,
             ``app.config.history_retention_count``, and

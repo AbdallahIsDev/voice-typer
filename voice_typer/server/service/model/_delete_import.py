@@ -36,9 +36,8 @@ class DeleteImportMixin:
         import shutil
 
         from voice_typer.server.config import _config_dir
+        from voice_typer.server.model_availability import snapshot_search_dirs
         from voice_typer.server.model_registry import get_model_metadata
-
-        cache_dir = _config_dir() / "huggingface" / "hub"
 
         # Resolve repo_id from MODEL_REGISTRY so all registered
         meta = get_model_metadata(model_name)
@@ -69,8 +68,8 @@ class DeleteImportMixin:
             or (model_name == "qwen" and current_backend == "qwen")
         )
 
-        model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
-        if not model_dir.exists():
+        model_dirs = [d for d in snapshot_search_dirs(_config_dir(), repo_id) if d.exists()]
+        if not model_dirs:
             # The model is NOT on disk. If it's ALSO the configured active
             if is_active:
                 return self._clear_stale_active_model(model_name)
@@ -86,10 +85,11 @@ class DeleteImportMixin:
 
         # ACTIVE-DELETE: the configured model CAN be deleted. Unload the
         if is_active:
-            return self._delete_active_model(model_name, repo_id, model_dir, current_backend)
+            return self._delete_active_model(model_name, repo_id, model_dirs[0], current_backend)
 
         try:
-            shutil.rmtree(model_dir)
+            for model_dir in model_dirs:
+                shutil.rmtree(model_dir)
             log.info(
                 "[SERVICE] Model '%s' deleted (repo=%s)",
                 model_name,
@@ -239,7 +239,12 @@ class DeleteImportMixin:
             }
         updates, replacement = self._reassign_selection_away_from(model_name, context="active-delete")
         try:
-            shutil.rmtree(model_dir)
+            from voice_typer.server.config import _config_dir
+            from voice_typer.server.model_availability import snapshot_search_dirs
+
+            for model_dir in snapshot_search_dirs(_config_dir(), repo_id):
+                if model_dir.exists():
+                    shutil.rmtree(model_dir)
             log.info(
                 "[SERVICE] Model '%s' deleted (repo=%s)",
                 model_name,
@@ -286,10 +291,10 @@ class DeleteImportMixin:
         import os
         import shutil
 
-        from voice_typer.server.config import _config_dir
+        from voice_typer.server.model_availability import shared_hub_dir
         from voice_typer.server.model_registry import MODEL_REGISTRY
 
-        cache_dir = _config_dir() / "huggingface" / "hub"
+        cache_dir = shared_hub_dir()
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         found_models: list[str] = []

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 # Patch-path bindings. Names defined in THIS module are resolved as
+from voice_typer.server._paths import APP_RDNN_ROOT
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.server_platform import autostart as _autostart_mod
 from voice_typer.server.server_platform.platform_flags import is_windows
@@ -315,7 +316,7 @@ def _is_app_autostart_task_registered() -> bool:
 
 def _run_key_name() -> str:
     """PLAT-RUN: Return a deterministic registry value name based on install"""
-    return f"com.voicetyper.autostart_{_autostart_mod._install_hash()}"
+    return f"{APP_RDNN_ROOT}.autostart_{_autostart_mod._install_hash()}"
 
 
 def _validate_runkey_command(value: str) -> bool:
@@ -383,7 +384,7 @@ def _cleanup_stale_runkey_entry(reg_key_name: str) -> None:
 
 def _startup_bat_name() -> str:
     """Return the Startup-folder .bat file name (hash-suffixed)."""
-    return f"com.voicetyper.autostart{_autostart_mod._install_hash_suffix()}.bat"
+    return f"{APP_RDNN_ROOT}.autostart{_autostart_mod._install_hash_suffix()}.bat"
 
 
 def _startup_bat_path() -> Path:
@@ -416,6 +417,6 @@ from ._autostart_windows_task import (  # noqa: E402, F401
     _extract_command_from_task_xml,
 )
 from ._autostart_windows_uninstall import (  # noqa: E402, F401
-    _unregister_all_voicetyper_runkeys,
-    _unregister_all_voicetyper_tasks,
+    _unregister_all_lausu_runkeys,
+    _unregister_all_lausu_tasks,
 )

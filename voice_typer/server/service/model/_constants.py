@@ -1,4 +1,4 @@
-"""VoiceTyperService model-mixin constants (verbatim)."""
+"""LausuService model-mixin constants (verbatim)."""
 
 from __future__ import annotations
 

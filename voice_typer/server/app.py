@@ -1,4 +1,4 @@
-"""VoiceTyperApp composition root: wires mixins, construction order, delegates."""
+"""LausuApp composition root: wires mixins, construction order, delegates."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def _resolve_config_dir():
 from voice_typer.server.logging_setup import _emit_startup_banner, _setup_logging  # noqa: F401, E402
 
 
-class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppConstruction):
+class LausuApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppConstruction):
     """The main application facade."""
 
     # Declared at class level (not only dynamically injected by
@@ -114,7 +114,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         self._shutting_down = False  # True once quit() starts
         # Bool gate: the getattr(self.app, "_shutting_down", False) is True
         if not isinstance(self._shutting_down, bool):
-            raise TypeError(f"VoiceTyperApp._shutting_down must be bool, got {type(self._shutting_down).__name__}")
+            raise TypeError(f"LausuApp._shutting_down must be bool, got {type(self._shutting_down).__name__}")
         # Event version of _shutting_down so executor tasks can check it
         self._shutting_down_event = threading.Event()
         # Incremented by startup_sequence.py on persistent onboarding check
@@ -231,7 +231,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         return self.shutdown._win32_console_handler(ctrl_type)
 
 
-# "Local\\VoiceTyperSingleInstance" and _create_restrictive_security_attributes
+# "Local\\LausuSingleInstance" and _create_restrictive_security_attributes
 from voice_typer.server.single_instance import (  # noqa: E402,F401
     _backend_pid_file,
     _clear_backend_pid_file,

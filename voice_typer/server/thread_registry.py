@@ -19,8 +19,8 @@ _TEST_DRAIN_BUDGET_S = 5.0
 
 
 def _drain_live_thread_registries() -> None:
-    """Tests that construct a real ``VoiceTyperApp`` spawn real daemon
-    ``VoiceTyperApp.__init__``'s now-removed ``_preload_vad_model``
+    """Tests that construct a real ``LausuApp`` spawn real daemon
+    ``LausuApp.__init__``'s now-removed ``_preload_vad_model``
     """
     # Deadline is computed on ``time.perf_counter()`` (NOT
     deadline = time.perf_counter() + _TEST_DRAIN_BUDGET_S

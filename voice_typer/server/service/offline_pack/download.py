@@ -12,6 +12,7 @@ from pathlib import Path
 from types import ModuleType
 
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.retry import delay_for_attempt, sleep_interruptible
 
 from .core import (
     OFFLINE_PACK_RATE_LIMIT_BACKOFF_S,
@@ -45,7 +46,6 @@ def download_offline_pack_with_resume(
     offset, h = _probe_partial_for_resume(dest, chunk_bytes)
     downloaded_bytes = offset
     # Step 2, rate-limited request/stream loop (§8.7 + §8.1 status
-    backoff_iter = iter(OFFLINE_PACK_RATE_LIMIT_BACKOFF_S)
     attempt = 0
     while True:
         attempt += 1
@@ -64,7 +64,7 @@ def download_offline_pack_with_resume(
                     version=version,
                     reset_at=reset_at,
                 ) from exc
-            wait_s = next(backoff_iter, OFFLINE_PACK_RATE_LIMIT_BACKOFF_S[-1])
+            wait_s = delay_for_attempt(OFFLINE_PACK_RATE_LIMIT_BACKOFF_S, attempt - 1)
             if reset_at is not None:
                 wait_s = max(wait_s, reset_at - time.time())
             log.warning(
@@ -73,7 +73,7 @@ def download_offline_pack_with_resume(
                 attempt,
                 wait_s,
             )
-            time.sleep(max(0.0, wait_s))
+            sleep_interruptible(wait_s)
             continue
         status = resp.get("status")
         if status == 416 and offset > 0 and resp.get("content_length") == offset:

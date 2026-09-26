@@ -47,7 +47,7 @@ def _read_ipc_port_from_pid_file() -> int | None:
 
 # Where to write the PID file (under the app's data dir).
 def _config_dir() -> Path:
-    """Return the voice-typer data directory."""
+    """Return the lausu data directory."""
     return _paths.config_dir()
 
 

@@ -93,7 +93,7 @@ def _load_user_corrections(
     if corrections_path:
         path = Path(corrections_path)
     elif config_dir is not None:
-        path = config_dir / "voice-typer-corrections.json"
+        path = config_dir / "lausu-corrections.json"
 
     if path is None or not path.exists():
         return None, {}, [], [], set(), set(), False, []

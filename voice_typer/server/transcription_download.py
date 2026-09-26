@@ -179,9 +179,10 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
     Returns ``False`` when ``huggingface_hub`` is unavailable, the
     """
     from voice_typer.server.config import _config_dir
+    from voice_typer.server.model_availability import snapshot_search_dirs
 
-    repo_dir = _config_dir() / "huggingface" / "hub" / (f"models--{repo_id.replace('/', '--')}")
-    if not repo_dir.is_dir():
+    search_dirs = snapshot_search_dirs(_config_dir(), repo_id)
+    if not any(d.is_dir() for d in search_dirs):
         # Never downloaded (or fully deleted), skip the hf probe.
         return False
     try:
@@ -192,6 +193,7 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
             ALLOW_PATTERNS_WHISPER,
         )
         from voice_typer.server.asr_setup import ensure_hf_env
+        from voice_typer.server.model_availability import app_hub_dir
         from voice_typer.server.security import MODEL_HASHES
 
         if "parakeet" in repo_id:
@@ -201,11 +203,22 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
         revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
         ensure_hf_env()
+        try:
+            snapshot_download(
+                repo_id=repo_id,
+                revision=revision,
+                allow_patterns=allow_patterns,
+                local_files_only=True,
+            )
+            return True
+        except Exception:
+            pass
         snapshot_download(
             repo_id=repo_id,
             revision=revision,
             allow_patterns=allow_patterns,
             local_files_only=True,
+            cache_dir=str(app_hub_dir(_config_dir())),
         )
         return True
     except Exception as exc:

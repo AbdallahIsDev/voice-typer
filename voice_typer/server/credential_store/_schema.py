@@ -9,14 +9,14 @@ log = logging.getLogger("voice_typer.server.credential_store")
 
 _T = TypeVar("_T")
 
-#: The ``keyring`` service name. All Voice Typer secrets live under this
-KEYRING_SERVICE_NAME = "com.voicetyper.keyring"
+#: The ``keyring`` service name. All Lausu secrets live under this
+KEYRING_SERVICE_NAME = "com.Lausu.keyring"
 
 #: Reserved keyring username under which the history at-rest-encryption
 DATA_ENCRYPTION_KEY_USERNAME = "__data_encryption_key__"
 
-#: Prior service names used by Voice Typer. :func:`migrate_secrets_to_keyring`
-_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("app.voicetyper", "voice-typer")
+#: Prior service names used by Lausu. :func:`migrate_secrets_to_keyring`
+_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("app.Lausu", "lausu")
 
 #: Config flag key (in ``config.json``) that gates the legacy-service-name
 _SERVICE_NAME_MIGRATED_FLAG = f"service_name_migrated_{KEYRING_SERVICE_NAME.replace('.', '_')}"

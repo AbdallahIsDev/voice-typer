@@ -221,7 +221,7 @@ def _resolve_hf_cache_dir() -> Path:
     if primary_candidate is None:
         home = os.environ.get("USERPROFILE") if is_windows() else os.environ.get("HOME")
         if home:
-            cache = Path(home) / ".voice-typer" / "huggingface"
+            cache = Path(home) / ".lausu" / "huggingface"
             if cache.is_absolute():
                 try:
                     if cache.exists():
@@ -250,7 +250,7 @@ def _resolve_hf_cache_dir() -> Path:
             finally:
                 winreg.CloseKey(key)
             if profile:
-                return Path(profile) / ".voice-typer" / "huggingface"
+                return Path(profile) / ".lausu" / "huggingface"
         except OSError:
             pass
         except Exception:
@@ -267,7 +267,7 @@ def _resolve_hf_cache_dir() -> Path:
                 os.getuid()  # type: ignore[attr-defined]
             )
             if pw.pw_dir:
-                return Path(pw.pw_dir) / ".voice-typer" / "huggingface"
+                return Path(pw.pw_dir) / ".lausu" / "huggingface"
         except (KeyError, ImportError):
             pass
         except Exception:
@@ -392,11 +392,15 @@ def _active_model_cache_dirs() -> list[Path]:
             target_repo_ids.add("Systran/faster-whisper-tiny")
 
         # Map repo IDs to cache dir paths and filter to existing ones.
+        from voice_typer.server.model_availability import shared_hub_dir
+
+        cache_roots = [shared_hub_dir(), cache_root]
         for repo_id in target_repo_ids:
             cache_dir_name = f"models--{repo_id.replace('/', '--')}"
-            cache_dir = cache_root / cache_dir_name
-            if cache_dir.is_dir():
-                dirs.append(cache_dir)
+            for root in cache_roots:
+                cache_dir = root / cache_dir_name
+                if cache_dir.is_dir() and cache_dir not in dirs:
+                    dirs.append(cache_dir)
     except Exception as e:
         log.debug("[PREWARM] _active_model_cache_dirs failed: %s", e)
     return dirs

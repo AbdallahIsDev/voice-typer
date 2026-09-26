@@ -79,8 +79,8 @@ class AudioPipeline:
     def __init__(self, recorder: Any) -> None:
         # Collaborator back-reference. Typed ``Any`` to avoid a circular
         self._recorder = recorder
-        from ._recorder_split import GrowableRecordingBuffer
         from .recorder import DEFAULT_MAX_BUFFER_CHUNKS
+        from .recording_buffer import GrowableRecordingBuffer
 
         self._buffer: Any = GrowableRecordingBuffer(
             maxlen=DEFAULT_MAX_BUFFER_CHUNKS,

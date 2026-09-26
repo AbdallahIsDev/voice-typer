@@ -117,7 +117,7 @@ class CloudTestHandlersMixin(HandlerBase):
                 "Authorization": f"{auth_scheme} {api_key}",
                 "Accept": "application/json",
                 # ``User-Agent`` helps some providers' WAFs accept the
-                "User-Agent": "voice-typer-cloud-test/1.0",
+                "User-Agent": "lausu-cloud-test/1.0",
             }
             req = Request(url=url, headers=headers, method="GET")
 

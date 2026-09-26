@@ -1,4 +1,4 @@
-"""controller, ``controller._app`` (the VoiceTyperApp), the recorder's
+"""controller, ``controller._app`` (the LausuApp), the recorder's
 Mic-watcher hooks, extracted from ``RecordingController``.
 ``on_active_mic_lost`` / ``on_device_lost`` callbacks that fire when the
 ``RecordingController.__init__`` with NO arguments (it is stateless).

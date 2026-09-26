@@ -28,7 +28,7 @@ from voice_typer.server.platform_utils import is_windows as is_windows
 log = logging.getLogger(__name__)
 
 RECOVERY_FILENAME = "recovery.json"
-_LEGACY_RECOVERY_FILENAME = "voice-typer-recovery.json"
+_LEGACY_RECOVERY_FILENAME = "lausu-recovery.json"
 MAX_RECOVERY_ENTRIES = 10
 
 # Persistence role: ``recovery.json`` is an ACTIVE crash-recovery store

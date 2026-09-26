@@ -617,12 +617,13 @@ class DownloadsMixin:
         try:
             from huggingface_hub import snapshot_download
 
+            from voice_typer.server import model_availability as _ma
             from voice_typer.server.config import _config_dir
 
             # use the registry's repo_id so
             assert model_meta is not None  # narrowed by is_whisper_family
             repo_id = model_meta.repo_id
-            cache_dir = _config_dir() / "huggingface" / "hub"
+            cache_dir = _ma.shared_hub_dir()
 
             # SEC-audit-005: Allowlist of file patterns permitted in downloads
             from voice_typer.server._model_integrity import (
@@ -635,12 +636,21 @@ class DownloadsMixin:
             _push_progress(event_bus, model_name, 5, f"Checking cache for {model_name}...")
             # Try local-only first; if cached, skip the polling.
             try:
-                snapshot_download(
-                    repo_id=repo_id,
-                    revision=_service_revision,
-                    allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
-                    local_files_only=True,
-                )
+                try:
+                    snapshot_download(
+                        repo_id=repo_id,
+                        revision=_service_revision,
+                        allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
+                        local_files_only=True,
+                    )
+                except Exception:
+                    snapshot_download(
+                        repo_id=repo_id,
+                        revision=_service_revision,
+                        allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
+                        local_files_only=True,
+                        cache_dir=str(_ma.app_hub_dir(_config_dir())),
+                    )
                 log.info(
                     "[SERVICE] Model '%s' already cached (repo=%s), skipping download",
                     model_name,
@@ -689,7 +699,6 @@ class DownloadsMixin:
                             # Segmented fast lane owns the big files —
                             ignore_patterns=seg_names or None,
                             resume_download=True,
-                            cache_dir=str(cache_dir),
                             # pause/abort gate: intercepts every ~10 MB
                             tqdm_class=get_download_tqdm_class(),
                         )
@@ -837,7 +846,6 @@ class DownloadsMixin:
                             revision=_service_revision,
                             allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
                             resume_download=True,
-                            cache_dir=str(cache_dir),
                             tqdm_class=get_download_tqdm_class(),
                         )
                     # Self-verify the assembled snapshot by HF's own
@@ -865,7 +873,6 @@ class DownloadsMixin:
                             revision=_service_revision,
                             allow_patterns=SERVICE_ALLOW_PATTERNS_WHISPER,
                             resume_download=True,
-                            cache_dir=str(cache_dir),
                             tqdm_class=get_download_tqdm_class(),
                         )
                 log.info(

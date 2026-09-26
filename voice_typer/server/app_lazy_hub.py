@@ -1,6 +1,6 @@
-"""AppLazyHub, the lazy-@property mixin extracted from VoiceTyperApp.
+"""AppLazyHub, the lazy-@property mixin extracted from LausuApp.
 
-Owns every lazily-constructed subsystem accessor on ``VoiceTyperApp``:
+Owns every lazily-constructed subsystem accessor on ``LausuApp``:
 
 - 3 legacy private-state back-compat delegates (``_busy_event`` / ``_lock`` /
   ``_microphones``) that forward to ``BusynessCoordinator`` /
@@ -12,9 +12,9 @@ Owns every lazily-constructed subsystem accessor on ``VoiceTyperApp``:
   volume-ducker / history-db controllers, the audio-processor proxy, and
   the passive template / vocabulary manager views.
 
-Previously all of this lived on ``VoiceTyperApp`` in ``app.py`` (~640 LOC).
+Previously all of this lived on ``LausuApp`` in ``app.py`` (~640 LOC).
 The behaviour is preserved verbatim, only the class boundary moved.
-``VoiceTyperApp(AppLazyHub)`` inherits every property, so each attribute
+``LausuApp(AppLazyHub)`` inherits every property, so each attribute
 name keeps resolving on instances and every existing monkeypatch seam
 (``app.undo = MagicMock()``, ``app.recorder = ...``, ``app.history_db =
 ...`` via the setters) works unchanged. Heterogeneous accessors stay plain @property pairs; the
@@ -71,7 +71,7 @@ RETRY_TTL_SECONDS: float = 30.0
 class _LazyAudioProcessorProxy:
     """Transparent lazy proxy for ``AudioProcessor``.
 
-    ``VoiceTyperApp.__init__`` used to construct ``AudioProcessor``
+    ``LausuApp.__init__`` used to construct ``AudioProcessor``
     eagerly, which calls ``build_chain(config, sample_rate)``. That in
     turn imports the full ``audio_filters`` package (highpass ->
     ``scipy.signal.butter``, noise_suppressor -> RNNoise, etc.) on
@@ -113,8 +113,8 @@ class _LazyAudioProcessorProxy:
         if real is None:
             app = object.__getattribute__(self, "_app_ref")()
             if app is None:
-                # The owning VoiceTyperApp was garbage-collected —
-                raise AttributeError("_LazyAudioProcessorProxy: owning VoiceTyperApp was garbage-collected")
+                # The owning LausuApp was garbage-collected —
+                raise AttributeError("_LazyAudioProcessorProxy: owning LausuApp was garbage-collected")
             # Deferred import. AudioProcessor pulls in the
             from voice_typer.server.audio_processor import AudioProcessor
 
@@ -269,10 +269,10 @@ class LazyProperty:
 
 
 class AppLazyHub:
-    """Lazy-@property mixin for ``VoiceTyperApp``.
+    """Lazy-@property mixin for ``LausuApp``.
 
     Every property here reads/writes backing attributes that
-    ``VoiceTyperApp.__init__`` (well: its ``_init_*`` builders) declares.
+    ``LausuApp.__init__`` (well: its ``_init_*`` builders) declares.
     The mixin deliberately declares NO ``__init__``, construction order
     and attribute initialization stay entirely in ``app.py``; only the
     accessors live here.

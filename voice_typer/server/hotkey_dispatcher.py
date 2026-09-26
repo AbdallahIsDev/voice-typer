@@ -1,4 +1,4 @@
-"""#2 HotkeyDispatcher, extracted from VoiceTyperApp.
+"""#2 HotkeyDispatcher, extracted from LausuApp.
 
 Owns global hotkey registration: dictation toggle hotkey, ESC cancel
 hotkey, and repaste hotkey. Each hotkey gets its own HotkeyBackend
@@ -6,11 +6,11 @@ instance (Win32 native, pynput, or Wayland), unless an identical spec
 is already tracked in ``_shared_backend_pool``, in which case the
 existing backend is reused (rare; e.g. two roles bound to the same key).
 
-Previously this concern lived in VoiceTyperApp as ~100 LOC across:
+Previously this concern lived in LausuApp as ~100 LOC across:
     _register_hotkey, _register_esc_hotkey, _unregister_esc_hotkey,
     _register_repaste_hotkey, _restart_hotkey
 
-All of those now live here. VoiceTyperApp keeps thin delegate methods
+All of those now live here. LausuApp keeps thin delegate methods
 for back-compat with callers (settings window, tests).
 
 TODO, full per-spec backend pooling (deferred; touches native binary
@@ -103,7 +103,7 @@ def _backend_kind_label(backend) -> str:
 class HotkeyDispatcher:
     """Owns the three global hotkey backends (dictation / ESC / repaste).
 
-    #2 extracted from VoiceTyperApp. The app passes itself
+    #2 extracted from LausuApp. The app passes itself
     (``app``) so HotkeyDispatcher can:
     - Read ``app.config`` (hotkey, recording_mode, esc_cancel_enabled, repaste_hotkey)
     - Call ``app.toggle_dictation`` / ``app._stop_dictation`` /

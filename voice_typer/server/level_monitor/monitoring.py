@@ -291,6 +291,9 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             # Close old stream outside the lock to avoid blocking
         else:
             old_stream = None
+        # Mark this open attempt so a racing switch or stop is detected at commit.
+        _state._monitor_epoch += 1
+        opening_epoch = _state._monitor_epoch
 
     # Close old stream (if any) without holding the lock.
     if old_stream is not None:
@@ -300,82 +303,98 @@ def start_monitoring(mic_id: str | None = None) -> dict:
         except Exception as exc:
             log.debug("[LEVEL-MON] Close old stream: %s", exc)
 
-    # Pre-declare the post-lock locals so a defensive ``return`` from
-    config_snapshot: dict | None = None
-    result: dict | None = None
-    with _state._monitor_lock:
-        # Resolve the requested mic id to a live PortAudio index. Handles
-        device = None
-        if mic_id is not None:
-            try:
-                from voice_typer.server.server_platform import (
-                    resolve_mic_id_to_device_index,
-                )
-
-                device = resolve_mic_id_to_device_index(mic_id)
-            except Exception:
-                log.debug(
-                    "[LEVEL-MON] mic id %r resolution failed; using system default",
-                    mic_id,
-                    exc_info=True,
-                )
-                device = None
-
+    # Resolve + query + open WITHOUT the lock so get_level() polls stay
+    # responsive while a device switch runs through its slow path.
+    device = None
+    if mic_id is not None:
         try:
-            dev_info_raw = sd.query_devices(kind="input") if device is None else sd.query_devices(device)
-            # ``query_devices`` is overloaded to return either a
-            native_rate = (
-                int(dev_info_raw["default_samplerate"]) if isinstance(dev_info_raw, dict) else WHISPER_SAMPLE_RATE
+            from voice_typer.server.server_platform import (
+                resolve_mic_id_to_device_index,
             )
+
+            device = resolve_mic_id_to_device_index(mic_id)
         except Exception:
-            native_rate = WHISPER_SAMPLE_RATE
-
-        _state._monitor_sample_rate = native_rate
-        _state._monitor_level = 0.0
-        _state._monitor_peak = 0.0
-
-        def callback(indata, frames, time_info, status):
-            #  (c-review PERF-03): the PortAudio callback runs
-            try:
-                _state._level_ring_buffer.append((indata.copy(), status))
-            except Exception:
-                # defensive. Don't let a callback error kill the stream.
-                log.debug("[LEVEL-MON] ring buffer append failed", exc_info=True)
-                return
-            if len(_state._level_ring_buffer) >= _state._LEVEL_RING_BUFFER_CAPACITY:
-                # Ring buffer full, worker can't keep up. Drop the
-                _state._dropped_level_chunks += 1
-                # Emit a one-shot WARNING on the first drop of a
-                if not _state._first_drop_warning_emitted:
-                    _state._first_drop_warning_emitted = True
-                    log.warning(
-                        "[LEVEL-MON] ring buffer full, dropped audio chunk "
-                        "(worker thread can't keep up with the PortAudio "
-                        "callback rate; consider disabling RNNoise or "
-                        "reducing the filter chain cost)",
-                    )
-            _state._level_worker_wake_event.set()
-
-        # Scale the block size with the device native sample rate so
-        blocksize = scaled_audio_blocksize(native_rate)
-
-        # Cell for the not-yet-created InputStream: the finished-callback
-        stream_cell: dict[str, object] = {}
-
-        # Pre-declare so the ``except`` below never reads an unbound
-        stream = None
-        try:
-            stream = sd.InputStream(
-                samplerate=native_rate,
-                channels=1,
-                dtype=np.float32,
-                device=device,
-                callback=callback,
-                finished_callback=_make_stream_finished_guard(stream_cell),
-                blocksize=blocksize,
+            log.debug(
+                "[LEVEL-MON] mic id %r resolution failed; using system default",
+                mic_id,
+                exc_info=True,
             )
-            stream.start()
-            stream_cell["stream"] = stream
+            device = None
+
+    try:
+        dev_info_raw = sd.query_devices(kind="input") if device is None else sd.query_devices(device)
+        native_rate = int(dev_info_raw["default_samplerate"]) if isinstance(dev_info_raw, dict) else WHISPER_SAMPLE_RATE
+    except Exception:
+        native_rate = WHISPER_SAMPLE_RATE
+
+    # Scale the block size with the device native sample rate so
+    blocksize = scaled_audio_blocksize(native_rate)
+
+    # Cell for the not-yet-created InputStream: the finished-callback
+    stream_cell: dict[str, object] = {}
+
+    def callback(indata, frames, time_info, status):
+        #  (c-review PERF-03): the PortAudio callback runs
+        try:
+            _state._level_ring_buffer.append((indata.copy(), status))
+        except Exception:
+            # defensive. Don't let a callback error kill the stream.
+            log.debug("[LEVEL-MON] ring buffer append failed", exc_info=True)
+            return
+        if len(_state._level_ring_buffer) >= _state._LEVEL_RING_BUFFER_CAPACITY:
+            # Ring buffer full, worker can't keep up. Drop the
+            _state._dropped_level_chunks += 1
+            # Emit a one-shot WARNING on the first drop of a
+            if not _state._first_drop_warning_emitted:
+                _state._first_drop_warning_emitted = True
+                log.warning(
+                    "[LEVEL-MON] ring buffer full, dropped audio chunk "
+                    "(worker thread can't keep up with the PortAudio "
+                    "callback rate; consider disabling RNNoise or "
+                    "reducing the filter chain cost)",
+                )
+        _state._level_worker_wake_event.set()
+
+    stream = None
+    try:
+        stream = sd.InputStream(
+            samplerate=native_rate,
+            channels=1,
+            dtype=np.float32,
+            device=device,
+            callback=callback,
+            finished_callback=_make_stream_finished_guard(stream_cell),
+            blocksize=blocksize,
+        )
+        stream.start()
+        stream_cell["stream"] = stream
+    except Exception as exc:
+        # Close a partially started stream without the lock.
+        with contextlib.suppress(Exception):
+            if stream is not None:
+                stream.stop()
+                stream.close()
+        with _state._monitor_lock:
+            if _state._monitor_epoch != opening_epoch:
+                return {
+                    "success": _state._monitor_active,
+                    "message": "Monitoring active" if _state._monitor_active else str(exc),
+                    "sample_rate": _state._monitor_sample_rate,
+                }
+        log.warning("[LEVEL-MON] Failed to start monitoring: %s", exc)
+        return {"success": False, "message": str(exc), "sample_rate": native_rate}
+
+    # Commit the opened stream under the lock; a racing switch or stop
+    # bumps the epoch and wins, our stream is closed instead of reviving.
+    with _state._monitor_lock:
+        if _state._monitor_epoch != opening_epoch or _state._monitor_active:
+            raced = True
+            config_snapshot = None
+        else:
+            raced = False
+            _state._monitor_sample_rate = native_rate
+            _state._monitor_level = 0.0
+            _state._monitor_peak = 0.0
             _state._monitor_stream = stream
             _state._monitor_active = True
             _state._monitor_mic_id = mic_id
@@ -383,36 +402,48 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             _state._consecutive_zero_chunks = 0
             # seed the idle-timeout poll timestamp so the worker
             _state._last_get_level_poll_ts = time.monotonic()
-            _ensure_mic_level_worker_running()
-
-            #  (c-review PERF-03): start the dedicated worker
-            from .worker import _ensure_level_worker_running
-
-            _ensure_level_worker_running()
-
-            log.info(
-                "[LEVEL-MON] Monitoring started: mic=%s | sr=%d",
-                mic_id or "default",
-                native_rate,
-            )
-            result = {
-                "success": True,
-                "message": "Monitoring active",
-                "sample_rate": native_rate,
-            }
-            # Snapshot the stashed config INSIDE the lock so the
             config_snapshot = _state._level_processor_config
-        except Exception as exc:
-            log.warning("[LEVEL-MON] Failed to start monitoring: %s", exc)
-            # The stream already started above: close it before clearing
-            with contextlib.suppress(Exception):
-                if stream is not None:
-                    stream.stop()
-                    stream.close()
-            _state._monitor_stream = None
-            _state._monitor_active = False
-            _state._monitor_mic_id = None
-            return {"success": False, "message": str(exc), "sample_rate": native_rate}
+
+    if raced:
+        with contextlib.suppress(Exception):
+            stream.stop()
+            stream.close()
+        with _state._monitor_lock:
+            active = _state._monitor_active
+            committed_rate = _state._monitor_sample_rate
+        if active:
+            return {"success": True, "message": "Already monitoring", "sample_rate": committed_rate}
+        return {"success": False, "message": "Monitoring stopped during open", "sample_rate": committed_rate}
+
+    # A worker-spawn failure after the stream was committed would leave an
+    # active stream with nobody pushing levels: close it and report the failure.
+    try:
+        _ensure_mic_level_worker_running()
+
+        #  (c-review PERF-03): start the dedicated worker
+        from .worker import _ensure_level_worker_running
+
+        _ensure_level_worker_running()
+    except Exception as exc:
+        log.exception("[LEVEL-MON] Level worker start failed after stream open: %s", exc)
+        with contextlib.suppress(Exception):
+            stream.stop()
+            stream.close()
+        with _state._monitor_lock:
+            if _state._monitor_stream is stream:
+                _state._monitor_stream = None
+                _state._monitor_active = False
+        return {
+            "success": False,
+            "message": f"level worker start failed: {exc}",
+            "sample_rate": native_rate,
+        }
+
+    log.info(
+        "[LEVEL-MON] Monitoring started: mic=%s | sr=%d",
+        mic_id or "default",
+        native_rate,
+    )
 
     # Rebuild the level processor at the new native rate. Must happen
     if config_snapshot is not None:
@@ -424,7 +455,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 exc_info=True,
             )
 
-    return result
+    return {"success": True, "message": "Monitoring active", "sample_rate": native_rate}
 
 
 def stop_monitoring() -> dict:
@@ -442,6 +473,9 @@ def stop_monitoring() -> dict:
     already_stopped = False
     stream = None
     with _state._monitor_lock:
+        # Bump on every stop, even a no-op: a stop landing inside a slow
+        # open's window must make that open yield instead of reviving.
+        _state._monitor_epoch += 1
         if not _state._monitor_active:
             #  (c-review PERF-03): monitoring was already
             already_stopped = True
@@ -508,6 +542,7 @@ def _idle_timeout_auto_stop() -> bool:
         _state._monitor_level = 0.0
         _state._monitor_peak = 0.0
         _state._monitor_mic_id = None
+        _state._monitor_epoch += 1
         # Reset BOTH idle-timestamp clocks so the next
         _state._last_get_level_poll_ts = 0.0
         _state._mic_level_last_push_ts = 0.0

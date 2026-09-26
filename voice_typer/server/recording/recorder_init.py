@@ -217,7 +217,7 @@ class RecorderInitMixin:
 
     def _init_xrun_tracking(self) -> None:
         """The threshold callback slot (app wiring) + the recording gate event."""
-        # Item 1: xrun notification callback. Set by VoiceTyperApp
+        # Item 1: xrun notification callback. Set by LausuApp
         self.on_xrun_threshold: Callable[[int], None] | None = None
         self._recording_event = threading.Event()
         # removed dead ``_in_callback`` field, it

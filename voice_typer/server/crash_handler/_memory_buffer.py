@@ -36,7 +36,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
     runs first in production and its in-place mutation is idempotent —
     the filter's own ``redacted_msg`` guard skips a redundant re-scan
     of the same record, but a handler reorder or level change can no
-    longer ship unredacted PII into ``voice-typer-crash-buffer.log``).
+    longer ship unredacted PII into ``lausu-crash-buffer.log``).
     A filter that returns False vetoes the record (dropped, not
     buffered), matching the drop-on-veto contract every stdlib handler
     honours.
@@ -44,7 +44,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
     Fail-closed: if the filter still cannot be attached when a record
     arrives, the record is DROPPED (``handle`` returns False) rather
     than buffered, we lose the crash-buffer tail rather than risk
-    persisting unredacted PII to ``voice-typer-crash-buffer.log`` when
+    persisting unredacted PII to ``lausu-crash-buffer.log`` when
     the VEH callback flushes the buffer.
 
     A WARNING is logged on the FIRST attach failure so operators see
@@ -147,7 +147,7 @@ def install_memory_buffer(config_dir: Path) -> None:
         # O1: the crash-buffer log lives under ``logs/`` alongside
         logs_dir = get_logs_dir(resolved)
         logs_dir.mkdir(parents=True, exist_ok=True)
-        buffer_path = logs_dir / "voice-typer-crash-buffer.log"
+        buffer_path = logs_dir / "lausu-crash-buffer.log"
         target_handler = _SecureTruncatingFileHandler(
             buffer_path,
             maxBytes=1 * 1024 * 1024,  # 1 MiB, small buffer file

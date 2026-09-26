@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 # Patch-path bindings. Sibling submodules are bound as MODULE objects so
+from voice_typer.server._paths import APP_RDNN_ROOT
 from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.server_platform import (
     autostart_linux as _autostart_linux_mod,
@@ -55,7 +56,7 @@ def _is_frozen_autostart_context() -> bool:
     if getattr(sys, "frozen", False):
         return True
     exe_name = os.path.basename(sys.executable or "").lower()
-    if exe_name.startswith("voice-typer-tauri") or exe_name.startswith("python-sidecar"):
+    if exe_name.startswith("lausu-tauri") or exe_name.startswith("python-sidecar"):
         return True
     if getattr(sys, "_nuitka_version", None) is not None:
         return True
@@ -355,8 +356,8 @@ def _install_hash_suffix() -> str:
         return ""
 
 
-# Canonical ``com.voicetyper.*`` reverse-DNS task name with the
-_APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"
+# Canonical ``com.Lausu.*`` reverse-DNS task name with the
+_APP_AUTOSTART_TASK_NAME = f"{APP_RDNN_ROOT}.autostart{_install_hash_suffix()}"
 
 
 def get_autostart_dir() -> Path:

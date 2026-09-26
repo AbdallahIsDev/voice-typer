@@ -132,7 +132,7 @@ def _parse_delay(argv: list[str]) -> float:
 
 
 def launch() -> int:
-    """Universal launcher for Voice Typer.
+    """Universal launcher for Lausu.
 
     Returns a process exit code (0 = success).
     """

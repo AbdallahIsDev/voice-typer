@@ -10,7 +10,7 @@ loop body, and the four worker-lifecycle method bodies
 through ``Recorder._start_audio_worker`` / ``_stop_audio_worker``
 (hybrid wrappers that keep the lock acquisition + stale-worker restore
 logic); the event-worker pair is invoked directly from
-``_recorder_split.start_recording`` / ``stop_recording`` /
+``recording_lifecycle.start_recording`` / ``stop_recording`` /
 ``discard_recording`` under ``recorder._worker_lifecycle_lock``.
 
 Collaborator pattern
@@ -300,7 +300,7 @@ class AudioCallbackDispatcher:
                 worker is already running, returns early.
 
                 Called by ``Recorder._start_audio_worker`` (from
-                ``_recorder_split.start_recording``) AFTER the PortAudio stream is
+                ``recording_lifecycle.start_recording``) AFTER the PortAudio stream is
                 successfully opened and ``_recording_event`` is set
                 (the callback needs the event set before it will push
                 to the ring buffer). The pre-roll filter-chain prepend
@@ -312,7 +312,7 @@ class AudioCallbackDispatcher:
 
                 THREAD-REGISTRY: when a registry was provided to ``__init__``,
                 the worker thread is registered so ``shutdown_all()`` can
-                signal and join it during ``VoiceTyperApp.quit()``. The
+                signal and join it during ``LausuApp.quit()``. The
                 registry entry is removed by :meth:`stop_audio_worker_body`
                 after the join completes (or times out) so a subsequent
                 ``start()`` re-registers cleanly without triggering the
@@ -462,10 +462,10 @@ class AudioCallbackDispatcher:
         """Start the IPC event-worker thread (the historical
                 ``Recorder._start_event_worker`` pure delegator was deleted;
                 this body is invoked directly from
-                ``_recorder_split.start_recording``).
+                ``recording_lifecycle.start_recording``).
 
         The ``_worker_lifecycle_lock`` acquisition lives at the
-                ``_recorder_split`` call site (pinned by
+                ``recording_lifecycle`` call site (pinned by
                 ``tests/test_recorder_worker_lifecycle.py::test_start_event_worker_lock_is_acquired_at_call_site``).
         Idempotent: if the
                 event worker is already running, returns early.
@@ -482,11 +482,11 @@ class AudioCallbackDispatcher:
 
                 THREAD-REGISTRY: when a registry was provided to ``__init__``,
                 the event worker thread is registered so ``shutdown_all()`` can
-                signal and join it during ``VoiceTyperApp.quit()``.
+                signal and join it during ``LausuApp.quit()``.
 
         the entire read-check-create-start sequence is wrapped
                 in ``_worker_lifecycle_lock`` (acquired by the caller at the
-                ``_recorder_split.start_recording`` call site, the same lock
+                ``recording_lifecycle.start_recording`` call site, the same lock
                 used by the audio worker lifecycle) so concurrent
                 ``start()`` / ``stop()`` / ``discard()`` callers cannot race on
                 ``_event_worker_thread``.
@@ -496,7 +496,7 @@ class AudioCallbackDispatcher:
             _EVENT_WORKER_THREAD_NAME,
         )
 
-        # the caller (the ``_recorder_split`` call site) holds
+        # the caller (the ``recording_lifecycle`` call site) holds
         if recorder._event_worker_thread is not None and recorder._event_worker_thread.is_alive():
             return
         recorder._event_stop_event.clear()
@@ -523,11 +523,11 @@ class AudioCallbackDispatcher:
         """Stop the IPC event-worker thread (the historical
                 ``Recorder._stop_event_worker`` pure delegator was deleted;
                 this body is invoked directly from
-                ``_recorder_split.stop_recording`` (drain=True) and
+                ``recording_lifecycle.stop_recording`` (drain=True) and
                 ``discard_recording`` (drain=False)).
 
         The ``_worker_lifecycle_lock`` acquisition lives at the
-                ``_recorder_split`` call sites (pinned by
+                ``recording_lifecycle`` call sites (pinned by
                 ``tests/test_recorder_worker_lifecycle.py::test_stop_event_worker_lock_is_acquired_at_call_sites``);
                 the negative contract (this body must NOT acquire
                 ``self._lock``) is pinned by
@@ -553,7 +553,7 @@ class AudioCallbackDispatcher:
 
         the entire read-check-clear-join-unregister sequence is
                 wrapped in ``_worker_lifecycle_lock`` (acquired by the caller
-                at the ``_recorder_split`` call site) so concurrent
+                at the ``recording_lifecycle`` call site) so concurrent
                 ``stop()`` / ``discard()`` callers cannot both read
                 ``_event_worker_thread is None`` and both return early leaving
                 a fresh worker untracked. This body does NOT acquire
@@ -565,7 +565,7 @@ class AudioCallbackDispatcher:
             _EVENT_WORKER_THREAD_NAME,
         )
 
-        # the caller (the ``_recorder_split`` call site) holds
+        # the caller (the ``recording_lifecycle`` call site) holds
         if recorder._event_worker_thread is None:
             # Still reset the stop event so the next start() is clean.
             recorder._event_stop_event.clear()

@@ -1,4 +1,4 @@
-"""Recording-subsystem init mixin for VoiceTyperApp. Logger: voice_typer.server.app."""
+"""Recording-subsystem init mixin for LausuApp. Logger: voice_typer.server.app."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from voice_typer.server.app_lazy_hub import _RECORDER_MISSING
 
 if TYPE_CHECKING:
     # Type-only import (no runtime cycle): this mixin only ever runs on
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 # name: see module docstring.
 log = logging.getLogger("voice_typer.server.app")
@@ -21,7 +21,7 @@ class AppRecordingInit:
     attributes stay entirely in ``app.py``; only the builders live here.
     """
 
-    def _init_recording(self: VoiceTyperApp) -> None:
+    def _init_recording(self: LausuApp) -> None:
         """``Recorder`` + ``RecordingController`` construction is deferred
         to a background thread. The
         """

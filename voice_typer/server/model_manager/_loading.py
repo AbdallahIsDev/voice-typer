@@ -17,14 +17,14 @@ from voice_typer.server.tray_types import AppState
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle (app.py constructs the
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 log = logging.getLogger("voice_typer.server.model_manager")
 
 
 class LoadingMixin:
     # Members provided by the composed ``ModelManager`` (manager.py):
-    _app: VoiceTyperApp
+    _app: LausuApp
     _registry: AsrBackendRegistry
     _deliberately_unloaded: set[str]
     _model_load_thread: threading.Thread | None
@@ -334,7 +334,7 @@ class LoadingMixin:
                 )
 
     def ensure_active_engine_loaded(self) -> Any | None:
-        """Called from VoiceTyperApp._start_dictation to handle the case"""
+        """Called from LausuApp._start_dictation to handle the case"""
         # busy-flag rejection. The transcribe thread sets the
         try:
             active_name = self._app.config.asr_backend

@@ -2,7 +2,7 @@
 ``voice_typer/server/app.py`` (REF-3).
 
 Re-exported from ``app.py`` so existing callers
-(``VoiceTyperApp._open_config_file``) and tests that monkeypatch
+(``LausuApp._open_config_file``) and tests that monkeypatch
 ``voice_typer.server.app._windows_open_with_default_app`` /
 ``_windows_wait_for_process_exit`` / ``_windows_close_process_handle`` /
 ``_systemroot_notepad_path`` keep working unchanged.

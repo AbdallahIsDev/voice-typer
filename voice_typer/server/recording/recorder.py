@@ -35,7 +35,10 @@ log = logging.getLogger("voice_typer.server.recording")
 # C-ARCH-2: owning-module import keeps recorder.X test-importable.
 from voice_typer.server.recording import _secure_clear_array  # noqa: F401, E402
 
-from . import _recorder_split  # noqa: E402
+from . import (  # noqa: E402
+    recording_lifecycle,
+    recording_snapshot,
+)
 
 # Collaborators (re-exported for tests).
 from .audio_pipeline import AudioPipeline  # noqa: F401, E402, re-exported for tests
@@ -336,7 +339,7 @@ class Recorder(RecorderInitMixin):
 
             _permissions_module.verify_microphone_accessible()
 
-        _recorder_split.start_recording(self)
+        recording_lifecycle.start_recording(self)
 
     def _teardown_stream(self, *, force: bool = False) -> None:
         """Stop + close the PortAudio stream, draining any in-flight callback."""
@@ -427,11 +430,11 @@ class Recorder(RecorderInitMixin):
 
     def stop(self) -> np.ndarray:
         """Stop recording and return the complete audio array."""
-        return _recorder_split.stop_recording(self)
+        return recording_lifecycle.stop_recording(self)
 
     def snapshot(self) -> np.ndarray:
         """Return current recorded audio without clearing the active buffer."""
-        return _recorder_split.take_snapshot(self)
+        return recording_snapshot.take_snapshot(self)
 
     @property
     def current_duration_seconds(self) -> float:
@@ -453,4 +456,4 @@ class Recorder(RecorderInitMixin):
             # Without this guard, a discard() landing between ``start()``'s gate
             if not self._recording_event.is_set() and self._worker_thread is None and self._event_worker_thread is None:
                 return
-            _recorder_split.discard_recording(self)
+            recording_lifecycle.discard_recording(self)

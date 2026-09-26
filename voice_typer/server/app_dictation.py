@@ -1,4 +1,4 @@
-"""Dictation start/stop helpers mixin for VoiceTyperApp. Logger: voice_typer.server.app."""
+"""Dictation start/stop helpers mixin for LausuApp. Logger: voice_typer.server.app."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Settings mutations extracted from ``VoiceTyperApp`` (god-class split).
+"""Settings mutations extracted from ``LausuApp`` (god-class split).
 
 Owns the four settings actions (autostart toggle/set, notifications,
 microphone selection) with behavior preserved verbatim; ``AppAdmin``
@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 
 class SettingsController:
-    """Extracted from ``VoiceTyperApp``. The app passes itself"""
+    """Extracted from ``LausuApp``. The app passes itself"""
 
     def __init__(self, app: Any) -> None:
         self._app = app
@@ -98,7 +98,7 @@ class SettingsController:
                 return
 
             # Re-create with new mic. NOTE: this intentionally does NOT pass
-            # thread_registry (mirrors pre-refactor VoiceTyperApp._select_microphone).
+            # thread_registry (mirrors pre-refactor LausuApp._select_microphone).
             try:
                 app.recorder = Recorder(app.config, audio_processor=app._audio_processor)
             except Exception:

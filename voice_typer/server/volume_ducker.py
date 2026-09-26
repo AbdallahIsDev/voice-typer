@@ -390,7 +390,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
     def set_smart_duck_enabled(self, enabled: bool) -> None:
         """Enable or disable smart-duck at runtime.
 
-        Wired from ``config.volume_duck_smart`` by :class:`VoiceTyperApp`
+        Wired from ``config.volume_duck_smart`` by :class:`LausuApp`
         on startup and whenever the config changes.  Takes effect on the
         next ``duck()`` call, does not affect an in-progress duck.
 
@@ -409,7 +409,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
         """Set the smart-duck monitor polling interval in milliseconds.
 
         Wired from ``config.volume_duck_smart_poll_interval_ms`` by
-        :class:`VoiceTyperApp`.  Takes effect on the next monitor poll.
+        :class:`LausuApp`.  Takes effect on the next monitor poll.
         Clamped to [50, 5000], below 50ms risks starving the audio
         callback on slow backends (macOS osascript); above 5000ms is
         too slow to catch short audio bursts.

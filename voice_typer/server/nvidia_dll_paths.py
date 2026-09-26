@@ -145,10 +145,10 @@ class _NvidiaDllPathManager:
             roots.append(venv_sp)
             log.debug("[CUDA-DLL] Added current venv site-packages: %s", venv_sp)
 
-        # Fallback: the app's own venv at ~/.voice-typer/venv/ may have
+        # Fallback: the app's own venv at ~/.lausu/venv/ may have
         app_venv_sp = os.path.join(
             os.path.expanduser("~"),
-            ".voice-typer",
+            ".lausu",
             "venv",
             "Lib",
             "site-packages",

@@ -202,7 +202,7 @@ def _config_dir() -> Path:
         else:
             return custom_path
 
-    # check for legacy ~/.voice-typer first (migration
+    # check for legacy ~/.lausu first (migration
     legacy = _get_legacy_voice_typer_dir()
     if legacy.exists():
         return legacy

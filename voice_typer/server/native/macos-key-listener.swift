@@ -1,5 +1,5 @@
 // =============================================================================
-// Voice Typer, macOS native key listener
+// Lausu, macOS native key listener
 //
 // Emits line-delimited key events on stdout for the Python parent process to
 // match against the registered hotkey. Modeled on Freestyle's
@@ -68,7 +68,7 @@ private func logDiag(_ message: String) {
 /// Serial queue so stdout writes from multiple event-callback threads are
 /// atomic and never interleave. All event sources fire on the main thread in
 /// our setup, but the queue is cheap insurance.
-private let emitQueue = DispatchQueue(label: "voice-typer.key-listener.emit")
+private let emitQueue = DispatchQueue(label: "lausu.key-listener.emit")
 
 /// Emit a single line (without trailing newline) atomically to stdout.
 /// Safe to call from any thread.

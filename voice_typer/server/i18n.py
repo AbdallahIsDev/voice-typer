@@ -208,9 +208,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "Re-grant microphone access in your OS privacy settings to resume."
     ),
     # The start_failed notification no longer
-    "notify.recording_controller.start_failed": (
-        "Could not start recording.\nCheck logs/voice-typer.log for traceback."
-    ),
+    "notify.recording_controller.start_failed": ("Could not start recording.\nCheck logs/lausu.log for traceback."),
     # start_failed_with_reason: the typed-failure branch of the start
     "notify.recording_controller.start_failed_with_reason": "Could not start recording.\n{reason}",
     "notify.recording_controller.stop_failed": "Could not stop recording.",

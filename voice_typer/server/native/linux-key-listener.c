@@ -1,5 +1,5 @@
 /* =============================================================================
- * Voice Typer. Linux native key listener
+ * Lausu. Linux native key listener
  *
  * Reads keyboard events from /dev/input/event* (evdev) and emits line-delimited
  * events on stdout for the Python parent process to match against the registered

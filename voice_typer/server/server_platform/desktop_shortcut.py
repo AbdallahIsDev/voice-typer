@@ -83,7 +83,7 @@ def _universal_launcher_path() -> Path:
 
 
 # Legacy .lnk filename from builds that predate the APP_NAME-derived
-_LEGACY_LNK_NAME = "Voice Typer.lnk"
+_LEGACY_LNK_NAME = "Lausu.lnk"
 
 
 def _existing_launcher_lnk(directory: Path) -> Path | None:

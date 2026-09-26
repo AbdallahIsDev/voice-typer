@@ -647,7 +647,7 @@ class StreamingTranscriptionSession:
 
         THREAD-REGISTRY: when a registry was provided to ``__init__``,
         the worker thread is registered so ``shutdown_all()`` can
-        signal and join it during ``VoiceTyperApp.quit()``. The
+        signal and join it during ``LausuApp.quit()``. The
         registry entry is removed by ``cancel()`` (after the join, if
         blocking) so a subsequent ``start()`` re-registers cleanly.
         """

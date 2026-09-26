@@ -24,9 +24,6 @@ def _setup_logging():
 
     config_dir = _config_dir()
 
-    # Point huggingface_hub cache under .voice-typer/ instead of ~/.cache/
-    os.environ.setdefault("HF_HOME", str(config_dir / "huggingface"))
-
     debug = os.environ.get("VOICE_TYPER_DEBUG", "").lower() in ("1", "true", "yes")
     quiet = os.environ.get("VOICE_TYPER_QUIET", "").lower() in ("1", "true", "yes")
     port_mode = "--port" in sys.argv
@@ -59,7 +56,7 @@ def _setup_logging():
 
 
 def _emit_startup_banner() -> None:
-    """Called from ``VoiceTyperApp.__init__`` after the ``APP starting``"""
+    """Called from ``LausuApp.__init__`` after the ``APP starting``"""
     global _startup_banner_state
     state = _startup_banner_state
     if state is None:

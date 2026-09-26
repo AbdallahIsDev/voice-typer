@@ -4,7 +4,7 @@ Extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements the
 three macOS autostart primitives:
 
-  - :func:`_enable_autostart_macos`: write ``~/Library/LaunchAgents/com.voicetyper.plist``
+  - :func:`_enable_autostart_macos`: write ``~/Library/LaunchAgents/com.Lausu.plist``
 + ``launchctl load`` (with a 5 s timeout, ).
   - :func:`_disable_autostart_macos`: ``launchctl bootout`` (modern,
     macOS 10.10+) + ``launchctl remove`` (legacy fallback) + delete the
@@ -61,7 +61,7 @@ def _enable_autostart_macos() -> bool:
 
     plist_dir = _autostart_mod.get_autostart_dir()
     plist_dir.mkdir(parents=True, exist_ok=True)
-    plist_path = plist_dir / "com.voicetyper.plist"
+    plist_path = plist_dir / "com.Lausu.plist"
 
     # Packaged (frozen, no-Python) installs: register the app binary
     try:
@@ -110,7 +110,7 @@ def _enable_autostart_macos() -> bool:
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.voicetyper</string>
+    <string>com.Lausu</string>
     <key>ProgramArguments</key>
     <array>
 {program_args_xml}
@@ -224,9 +224,9 @@ def _enable_autostart_macos() -> bool:
 
 
 def _disable_autostart_macos() -> bool:
-    plist_path = _autostart_mod.get_autostart_dir() / "com.voicetyper.plist"
+    plist_path = _autostart_mod.get_autostart_dir() / "com.Lausu.plist"
     # Unload the running job BEFORE deleting the plist, otherwise the
-    label = "com.voicetyper"
+    label = "com.Lausu"
     for args in (
         ["launchctl", "bootout", f"gui/{_os_uid()}/{label}"],
         ["launchctl", "remove", label],
@@ -350,7 +350,7 @@ def _is_autostart_macos() -> bool:
     reports disabled so Settings shows the true state instead of a
     misleading "Autostart: enabled".
     """
-    plist_path = _autostart_mod.get_autostart_dir() / "com.voicetyper.plist"
+    plist_path = _autostart_mod.get_autostart_dir() / "com.Lausu.plist"
     if not plist_path.exists():
         return False
     return _plist_program_arguments_exist(plist_path)

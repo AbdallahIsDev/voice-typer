@@ -8,7 +8,8 @@ import threading
 import time
 import typing
 
-from voice_typer.server import event_bus
+from voice_typer.server import event_bus, worker_pending
+from voice_typer.server.duration import format_duration
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc._helpers import _STDIN_IPC_ENV_VAR
 from voice_typer.server.ipc.rate_limiter import (
@@ -16,7 +17,7 @@ from voice_typer.server.ipc.rate_limiter import (
     _HEARTBEAT_INTERVAL_SECONDS,
     _HEARTBEAT_TIMEOUT_SECONDS,
 )
-from voice_typer.server.ipc.validation import ResponseEnvelope
+from voice_typer.server.ipc.validation import ErrorCodes, ResponseEnvelope, _error_response
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 from voice_typer.server.tray_types import is_tauri_sidecar
 
@@ -36,6 +37,24 @@ def _in_pool_worker(pool) -> bool:
         if workers:
             return False
     return current.name.startswith(_TCP_DISPATCH_POOL_PREFIX)
+
+
+def _validate_transcribe_offline_payload(
+    data: object | None,
+) -> tuple[dict[str, object] | None, tuple[str, str] | None]:
+    """Check the renderer payload; return ``(payload, None)`` or ``(None, (code, message))``."""
+    if not isinstance(data, dict):
+        return None, (ErrorCodes.INVALID_PAYLOAD, "data must be an object")
+    audio_path = data.get("audio_path")
+    if not isinstance(audio_path, str) or not audio_path.strip() or len(audio_path) > 4096:
+        return None, (ErrorCodes.INVALID_FIELD, "'audio_path' must be a non-empty string")
+    sample_rate = data.get("sample_rate")
+    if isinstance(sample_rate, bool) or not isinstance(sample_rate, int) or sample_rate <= 0:
+        return None, (ErrorCodes.INVALID_FIELD, "'sample_rate' must be a positive int")
+    language = data.get("language")
+    if language is not None and not isinstance(language, str):
+        return None, (ErrorCodes.INVALID_FIELD, "'language' must be a string or null")
+    return {"audio_path": audio_path, "sample_rate": sample_rate, "language": language}, None
 
 
 class LifecycleMixin:
@@ -378,12 +397,14 @@ class LifecycleMixin:
         worker transcribes the file and pushes
         ``transcribe_offline_result`` back.
 
-        The slim-core → worker forwarding hop (sidecar WS client +
-        the Rust host's worker spawn) is the remaining runtime-pack split
-        wiring: until it lands, this handler acks the request and the
-        actual transcription cannot complete end-to-end. The ack
-        keeps the renderer's ``call()`` from timing out while the
-        architecture is being completed.
+        Path: validate the payload, refuse when the pack is missing,
+        otherwise forward ``{audio_path, sample_rate, language}`` via
+        ``worker_client`` when the worker is ready. When the worker is
+        not ready yet the request is queued in
+        ``voice_typer/server/worker_pending.py`` and drains when the
+        ready path runs. The ack is immediate (the worker takes
+        seconds, the result arrives via ``transcribe_offline_result``);
+        malformed payloads get an error envelope, never an exception.
 
         Pinned by tests/test_event_types_parity.py.
 
@@ -392,9 +413,7 @@ class LifecycleMixin:
         ``queued: False`` + ``degraded: True`` + ``reason:
         "offline_pack_missing"`` so the renderer surfaces the
         "offline engine unavailable" state instead of queueing
-        silently forever. When the pack IS present, ack with
-        ``queued: True`` as before (the result arrives via
-        ``transcribe_offline_result``).
+        silently forever.
         """
         resp["type"] = "ack"
         # ResponseEnvelope is dict[str, object], so setdefault's static
@@ -411,9 +430,32 @@ class LifecycleMixin:
             resp_data["queued"] = False
             resp_data["degraded"] = True
             resp_data["reason"] = "offline_pack_missing"
-        else:
-            # Minimal ack so the renderer's call() resolves instead of
+            return resp
+        payload, error = _validate_transcribe_offline_payload(data)
+        if error is not None:
+            log.debug("[WORKER] transcribe_offline malformed payload: %s", error[1])
+            return _error_response(resp, error[1], code=error[0])
+        assert payload is not None
+        t0 = time.perf_counter()
+        try:
+            forwarded = worker_pending.try_forward(payload)
+        except Exception:  # noqa: BLE001, IPC handlers must never raise
+            log.exception("[WORKER] transcribe_offline forward raised: queueing")
+            forwarded = False
+        if forwarded:
             resp_data["queued"] = True
+            resp_data["forwarded"] = True
+            log.info("[WORKER] transcribe_offline forwarded%s", format_duration(time.perf_counter() - t0))
+            return resp
+        try:
+            depth = worker_pending.enqueue(payload)
+        except Exception:  # noqa: BLE001, IPC handlers must never raise
+            log.exception("[WORKER] transcribe_offline enqueue raised")
+            return _error_response(resp, "failed to queue offline transcription", code=ErrorCodes.HANDLER_ERROR)
+        resp_data["queued"] = True
+        resp_data["forwarded"] = False
+        resp_data["reason"] = "worker_not_ready"
+        log.info("[WORKER] transcribe_offline queued (worker not ready, depth=%d)", depth)
         return resp
 
     def _handle_check_offline_pack_update(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:

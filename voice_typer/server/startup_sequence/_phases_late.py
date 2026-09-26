@@ -17,7 +17,7 @@ from voice_typer.server.startup_sequence._phases_early import StageResult
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle described in the package
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 # pre-split ``voice_typer.server.startup_sequence`` logger (same
 log = logging.getLogger("voice_typer.server.startup_sequence")
@@ -38,7 +38,7 @@ class LatePhases:
     """Phases 5-8 of the startup sequence (mixin for ``StartupSequence``)."""
 
     # total-startup duration anchor set by ``run`` (C-LOG-2).
-    _app: VoiceTyperApp
+    _app: LausuApp
     _t0: float
 
     def _phase_5_platform_warnings(self) -> StageResult:
@@ -204,7 +204,7 @@ class LatePhases:
 
         # Runtime-pack split (§8.10, §8.16): launch-time offline-pack existence
         def _pack_check_task() -> None:
-            # The concrete VoiceTyperApp exposes several AppProtocol
+            # The concrete LausuApp exposes several AppProtocol
             from voice_typer.server.providers import AppProtocol as _AppProtocol
 
             startup_tasks.check_offline_pack_on_launch(cast(_AppProtocol, app), _shutdown_event)
@@ -216,6 +216,21 @@ class LatePhases:
         )
         pack_thread.start()
         log.debug("[STARTUP] Pack existence check dispatched to fire-and-forget daemon thread (no wait, no timeout)")
+
+        # ADR-0023: extractor freshness is CHECK-ONLY at launch (metadata
+        # probe; installs stay user-initiated).
+        def _extractor_refresh_task() -> None:
+            from voice_typer.server.providers import AppProtocol as _AppProtocol
+
+            startup_tasks.check_media_extractor_refresh(cast(_AppProtocol, app), _shutdown_event)
+
+        extractor_thread = threading.Thread(
+            target=_extractor_refresh_task,
+            name="startup-extractor-refresh",
+            daemon=True,
+        )
+        extractor_thread.start()
+        log.debug("[STARTUP] Extractor refresh check dispatched to fire-and-forget daemon thread (no wait, no timeout)")
 
         # enumeration (below) runs in a bounded parallel pool under a 5s
         log.debug("[STARTUP] Registering hotkey")

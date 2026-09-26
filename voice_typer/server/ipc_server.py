@@ -3,7 +3,7 @@
 
 Reads JSON commands from the WS transport (``--ws``: event_bus →
 sidecar_ws → Tauri host) or stdin (gated dev/test mode), dispatches
-to the VoiceTyperApp instance, and writes JSON responses.
+to the LausuApp instance, and writes JSON responses.
 
 Usage (Tauri sidecar WebSocket)::
 
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from voice_typer.server.providers import AppProtocol
 
     # concrete type for the ``service`` DI parameter (was ``Any``).
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
 # noqa F401 = intentional). Identity: ipc_server.X is ipc.<leaf>.X.
 # pattern-based denylist for IPC get_config (SEC-003).
@@ -119,6 +119,7 @@ from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin  #
 from voice_typer.server.handlers.level_monitor_handlers import (  # noqa: E402
     LevelMonitorHandlersMixin,
 )
+from voice_typer.server.handlers.media_handlers import MediaHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.microphone_handlers import MicrophoneHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.microphone_test_handlers import (  # noqa: E402
     MicrophoneTestHandlersMixin,
@@ -165,6 +166,7 @@ class IPCServer(
     OnboardingHandlersMixin,
     MicrophoneTestHandlersMixin,
     LevelMonitorHandlersMixin,
+    MediaHandlersMixin,
     ModelHandlersMixin,
     SystemHandlersMixin,
     VocabularyAutomationHandlersMixin,
@@ -175,7 +177,7 @@ class IPCServer(
 
     Attributes
     ----------
-    app : VoiceTyperApp
+    app : LausuApp
         The application instance this server wraps.
     """
 
@@ -189,7 +191,7 @@ class IPCServer(
     def __init__(
         self,
         app: "AppProtocol",
-        service: "VoiceTyperService | None" = None,
+        service: "LausuService | None" = None,
     ) -> None:
         # Ordered construction phases. Each private helper owns a
         self._init_app_and_service(app, service)
@@ -204,7 +206,7 @@ class IPCServer(
     def _init_app_and_service(
         self,
         app: "AppProtocol",
-        service: "VoiceTyperService | None",
+        service: "LausuService | None",
     ) -> None:
         """Wire the DI seam: app + service boundary (+ optional cache"""
         self.app = app
@@ -214,10 +216,10 @@ class IPCServer(
             self.service = service
             return
 
-        # wire VoiceTyperService as the service boundary.
-        from voice_typer.server.service import VoiceTyperService
+        # wire LausuService as the service boundary.
+        from voice_typer.server.service import LausuService
 
-        self.service = VoiceTyperService(app)
+        self.service = LausuService(app)
 
     def wire_background_integrations(self) -> None:
         """Wire deferred background integrations (post-start phase)."""

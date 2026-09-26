@@ -173,6 +173,9 @@ class _ConfigSchema:
     # explicit consent that voice recordings (which may
     voice_biometric_consent: bool = False
 
+    # explicit consent that media URLs are sent to the extractor (yt-dlp)
+    media_url_consent: bool = False
+
     # play a short audio cue when recording starts/stops.
     sound_feedback_enabled: bool = True
 

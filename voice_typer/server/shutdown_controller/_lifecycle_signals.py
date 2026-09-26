@@ -1,4 +1,4 @@
-"""instance-method API used by tests and the ``VoiceTyperApp`` wiring.
+"""instance-method API used by tests and the ``LausuApp`` wiring.
 Split verbatim out of the pre-split ``shutdown_controller`` module.
 """
 
@@ -11,7 +11,7 @@ class SignalsMixin:
     # extraction: the bodies of ``quit`` and
 
     def quit(self):
-        """(``controller.quit()``) and the ``VoiceTyperApp`` wiring"""
+        """(``controller.quit()``) and the ``LausuApp`` wiring"""
         from voice_typer.server.shutdown.lifecycle import quit as _quit
 
         _quit(self)
@@ -25,19 +25,19 @@ class SignalsMixin:
         arm_shutdown_watchdog(self, timeout_s)
 
     def _atexit_log(self) -> None:
-        """``atexit.register(self._atexit_log)`` in ``VoiceTyperApp.start()``."""
+        """``atexit.register(self._atexit_log)`` in ``LausuApp.start()``."""
         from voice_typer.server.atexit_safety import atexit_log
 
         atexit_log(self)
 
     def _atexit_cleanup(self) -> None:
-        """(``controller._atexit_cleanup()``) and the ``VoiceTyperApp``"""
+        """(``controller._atexit_cleanup()``) and the ``LausuApp``"""
         from voice_typer.server.atexit_safety import atexit_cleanup
 
         atexit_cleanup(self)
 
     def _install_signal_handlers(self):
-        """``VoiceTyperApp`` wiring (``app.start()`` calls"""
+        """``LausuApp`` wiring (``app.start()`` calls"""
         from voice_typer.server.signal_handlers import install_signal_handlers
 
         install_signal_handlers(self)
@@ -49,7 +49,7 @@ class SignalsMixin:
         signal_watcher_loop(self)
 
     def _install_win32_console_handler(self):
-        """``VoiceTyperApp`` wiring (``app.start()`` calls"""
+        """``LausuApp`` wiring (``app.start()`` calls"""
         from voice_typer.server.signal_handlers import (
             install_win32_console_handler,
         )

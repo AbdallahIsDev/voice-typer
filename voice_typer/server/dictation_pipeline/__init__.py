@@ -51,6 +51,6 @@ class DictationPipeline(
     _StorageStepMixin,
     _PasteStepMixin,
 ):
-    """The pipeline is run on a background thread by VoiceTyperApp."""
+    """The pipeline is run on a background thread by LausuApp."""
 
     pass

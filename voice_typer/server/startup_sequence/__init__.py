@@ -1,5 +1,5 @@
-"""Startup sequence orchestration for VoiceTyperApp.
-Extracted from ``VoiceTyperApp._do_startup`` (~340 lines)
+"""Startup sequence orchestration for LausuApp.
+Extracted from ``LausuApp._do_startup`` (~340 lines)
 re-exported and live at their owning modules. Per C-ARCH-2, tests patch seam names at their OWNING
 ``app._shutting_down`` so a ``quit()`` during startup short-circuits
 (c) Onboarding auto-heal must run before any ``config.save()`` to avoid
@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle described in the module
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 # Explicit re-exports (redundant aliases) so every pre-split attribute
 from voice_typer.server.startup_sequence._maintenance import (
@@ -69,12 +69,12 @@ def _anchor_startup_t0() -> float:
 
 
 class StartupSequence(EarlyPhases, LatePhases):
-    """Orchestrates the multi-phase background startup of VoiceTyperApp.
-    The previous monolithic ``VoiceTyperApp._do_startup`` (~340 lines)
+    """Orchestrates the multi-phase background startup of LausuApp.
+    The previous monolithic ``LausuApp._do_startup`` (~340 lines)
     corresponding phase method (C-LOG-1 / C-LOG-2 / RACE-020).
     """
 
-    def __init__(self, app: VoiceTyperApp) -> None:
+    def __init__(self, app: LausuApp) -> None:
         self._app = app
 
     def run(self) -> None:

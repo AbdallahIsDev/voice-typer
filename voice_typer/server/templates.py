@@ -29,7 +29,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _TEMPLATE_VAR_RE = re.compile(r"\{(today|now|clipboard|username)\}")
 
 TEMPLATES_FILENAME = "templates.json"
-_LEGACY_TEMPLATES_FILENAME = "voice-typer-templates.json"
+_LEGACY_TEMPLATES_FILENAME = "lausu-templates.json"
 
 # SEC-011-style caps for templates to prevent resource
 MAX_TEMPLATES = 1000

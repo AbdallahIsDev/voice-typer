@@ -70,7 +70,7 @@ class _ConfigLifecycleMixin:
     def set_mutation_lock(self, lock: "threading.RLock | None") -> None:
         """Register an in-process mutation lock for ``save()``.
 
-         ``VoiceTyperApp`` owns a ``self._config_mutation_lock =
+         ``LausuApp`` owns a ``self._config_mutation_lock =
          threading.RLock()`` that ``service.apply_config`` and
          ``onboarding_apply`` acquire for the full read-modify-save
          sequence. Calling this method installs the same lock on the
@@ -82,7 +82,7 @@ class _ConfigLifecycleMixin:
 
          The reference is stored as an INSTANCE attribute (shadowing
          the ``ClassVar`` default of ``None``) so each ``Config``
-          instance can have its own lock: multiple ``VoiceTyperApp``
+          instance can have its own lock: multiple ``LausuApp``
          instances in the same process (rare but possible in tests)
          don't share a single global lock.
 

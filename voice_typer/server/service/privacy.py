@@ -42,14 +42,14 @@ class PrivacyMixin(ServiceMixinBase):
     # Glob patterns (rotated logs, crash dumps, mic tests) walked against
     _GDPR_PERSONAL_GLOBS: tuple = (
         "mic-test-*.wav",
-        "voice-typer.log.*",
+        "lausu.log.*",
         "prewarm.log.*",
         "crash_diagnostics.*.txt",
         "python_crash.*.txt",
         # Rotated backups of the renderer-error log. Nothing rotates
         "legacy-renderer-errors.log.*",
-        # voice-typer-diagnostics-*.zip contains PII
-        "voice-typer-diagnostics-*.zip",
+        # lausu-diagnostics-*.zip contains PII
+        "lausu-diagnostics-*.zip",
         # gdpr-export-*.zip contains user full personal data
         "gdpr-export-*.zip",
         # (High): four config-backup file classes ALL contain
@@ -65,7 +65,7 @@ class PrivacyMixin(ServiceMixinBase):
 
     # GDPR Art. 17/20 methods; inventory above is the delete/export set.
 
-    # * ``voice-typer.log`` : runtime log (Python side)
+    # * ``lausu.log`` : runtime log (Python side)
 
     # Private @staticmethod helpers: one GDPR pipeline slice each.
 
@@ -162,7 +162,7 @@ class PrivacyMixin(ServiceMixinBase):
 
     @staticmethod
     def _gdpr_rmtree_rust_logs(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
-        """``<config_dir>/logs/voice-typer.log`` + rotated backups"""
+        """``<config_dir>/logs/lausu.log`` + rotated backups"""
 
         from voice_typer.server.log import get_logs_dir
 

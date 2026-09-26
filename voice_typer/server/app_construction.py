@@ -1,7 +1,7 @@
 """AppConstruction, eager subsystem construction mixin extracted from
-VoiceTyperApp.
+LausuApp.
 
-Owns the eager subsystem-builder slice of ``VoiceTyperApp``, every
+Owns the eager subsystem-builder slice of ``LausuApp``, every
 ``_init_*`` builder EXCEPT the two that are pinned to ``app.py`` source
 by ``tests/test_lock_order_contract.py::TestLockInventory``
 (``_init_hotkeys_and_locks`` owns the ``_config_mutation_lock`` RLock
@@ -12,7 +12,7 @@ declaration) and the recording slice that lives in
     - ``_register_startup_i18n_fallbacks`` (module-level function) —
       English fallbacks for ``error.config_load_failed.*`` /
       ``state.app.starting``, registered at app-INIT time (called from
-      ``VoiceTyperApp.__init__``) so importing the module stays
+      ``LausuApp.__init__``) so importing the module stays
       side-effect-free. Re-exported from ``voice_typer.server.app`` so
       ``hasattr(app_module, "_register_startup_i18n_fallbacks")`` and
       the direct test calls keep working.
@@ -41,9 +41,9 @@ declaration) and the recording slice that lives in
       bubble / wiring, template / vocabulary managers, IPC server slot,
       polisher / cloud engine).
 
-Previously all of this lived on ``VoiceTyperApp`` in ``app.py``. The
+Previously all of this lived on ``LausuApp`` in ``app.py``. The
 behaviour is preserved verbatim, only the class boundary moved.
-``VoiceTyperApp(AppConstruction)`` inherits every method, so
+``LausuApp(AppConstruction)`` inherits every method, so
 instance-level monkeypatching and direct calls keep working unchanged,
 and ``inspect.getsource`` keeps resolving through the MRO. ``__init__``
 (the builder call sequence) and the construction ORDER stay in
@@ -55,7 +55,7 @@ A note on logging (mirrors the convention in ``app_admin.py`` /
 ``logging.getLogger("voice_typer.server.app")`` rather than the
 conventional ``__name__`` so caplog captures in tests (e.g. the
 config-load-failure ``[INIT]`` lines and the startup banner) route to
-the same logger as the original VoiceTyperApp methods.
+the same logger as the original LausuApp methods.
 
 A note on patch paths (C-ARCH-2): the module-top imports below
 (``Config``, ``ThreadRegistry``, ``_crash_handler``, ``APP_NAME``,
@@ -79,7 +79,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Type-only import (no runtime cycle): the construction mixin only
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 from voice_typer.server import crash_handler as _crash_handler, i18n
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
@@ -99,7 +99,7 @@ def _register_startup_i18n_fallbacks() -> None:
     this module (``error.config_load_failed.title`` /
     ``error.config_load_failed.body`` and ``state.app.starting``).
 
-    Called from ``VoiceTyperApp.__init__``: i.e. at app-init time, not
+    Called from ``LausuApp.__init__``: i.e. at app-init time, not
     import time, so importing the module stays side-effect-free. Must
     run BEFORE ``_init_config``: the config-load-failure notification
     raised there resolves ``error.config_load_failed.*``.
@@ -132,7 +132,7 @@ def _register_startup_i18n_fallbacks() -> None:
 
 
 class AppConstruction:
-    """Eager subsystem construction mixin for ``VoiceTyperApp``.
+    """Eager subsystem construction mixin for ``LausuApp``.
 
     Declares NO ``__init__``: the builder call ORDER stays in
     ``app.py`` (construction order is behavior); only the builder
@@ -245,7 +245,7 @@ class AppConstruction:
         self.models: ModelManager = ModelManager(self)
         # the eager ``self.models._ensure_engine("qwen")`` call
 
-    def _init_tray(self: VoiceTyperApp) -> None:
+    def _init_tray(self: LausuApp) -> None:
         """Construct TrayIcon + surface the config-load-failure toast."""
         # ``ClipboardManager`` construction deferred to first
         self._clipboard_backing: Any = None
@@ -265,7 +265,7 @@ class AppConstruction:
             except Exception:
                 log.debug("[INIT] tray.notify for config load failure failed", exc_info=True)
 
-    def _init_controllers(self: VoiceTyperApp) -> None:
+    def _init_controllers(self: LausuApp) -> None:
         """Construct settings/shutdown/lifecycle/config-editor controllers."""
         # Settings side-effects (autostart, notifications,
         from voice_typer.server.settings_controller import SettingsController
@@ -329,7 +329,7 @@ class AppConstruction:
         self._waveform_bubble_backing: Any = None
         self._waveform_wiring_backing: Any = None
         self._last_transcription: str = ""  # For repaste
-        # declare ``_ipc_server`` upfront so VoiceTyperApp
+        # declare ``_ipc_server`` upfront so LausuApp
         self._ipc_server: Any | None = None
         # ``TemplateManager`` and ``VocabularyManager`` construction is
         self._template_manager_backing: Any = None

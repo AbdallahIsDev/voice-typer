@@ -165,12 +165,7 @@ _MAX_DOWNLOAD_ATTEMPTS = 4
 
 
 def ensure_hf_env():
-    """Ensure HF_HOME points to ~/.voice-typer/huggingface/."""
-    from voice_typer.server.config import _config_dir
-
-    hf_home = str(_config_dir() / "huggingface")
-    if os.environ.get("HF_HOME") != hf_home:
-        os.environ["HF_HOME"] = hf_home
+    """Ensure ancillary HF transfer flags (never forces HF_HOME)."""
     # Disable symlink warnings on Windows (Developer Mode not required)
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     # Disable xet transfer protocol, can be extremely slow on some connections
@@ -269,7 +264,7 @@ def _run_parakeet_segmented_phase(
 ) -> None:
     """Fetch the planned big Parakeet files via the segmented engine."""
     from voice_typer.server import segmented_download as segdl
-    from voice_typer.server.config import _config_dir
+    from voice_typer.server.model_availability import shared_hub_dir
 
     try:
         from huggingface_hub.utils import get_token
@@ -287,7 +282,7 @@ def _run_parakeet_segmented_phase(
         model_name="parakeet",
         repo_id=repo_id,
         commit=commit,
-        cache_dir=_config_dir() / "huggingface" / "hub",
+        cache_dir=shared_hub_dir(),
         seg_plan=seg_plan,
         progress_cb=None,
         file_cb=on_file,

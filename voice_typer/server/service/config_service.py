@@ -1,4 +1,4 @@
-"""Config-mutation domain mixin for VoiceTyperService."""
+"""Config-mutation domain mixin for LausuService."""
 
 import contextlib
 import logging

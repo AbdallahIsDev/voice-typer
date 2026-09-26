@@ -10,6 +10,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING
 
+from voice_typer.server import worker_relay as _worker_relay_mod
 from voice_typer.server.sidecar_ws_internals import outbound as _outbound_mod
 
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
@@ -105,6 +106,13 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
                 server._relaunch_ack_event.set()
             continue
         # PIPELINED DISPATCH (2026-08-30 tray-Restart postmortem): the
+        # ADR-0024 Step 2 host relay: `worker_started` is a host→sidecar
+        # signal, not a dispatch command (absent from _COMMAND_REGISTRY,
+        # dispatch would answer unknown_command). Inline like relaunch_ack.
+        # NOTE: see docs/code-notes/worker-port-relay.md#sidecar-ingest
+        if msg.get("type") == _worker_relay_mod.WORKER_STARTED_EVENT:
+            _worker_relay_mod.handle_host_frame(msg)
+            continue
         task = asyncio.create_task(_dispatch_and_respond(msg, request_id, websocket, dispatch))
         dispatch_tasks.add(task)
         task.add_done_callback(dispatch_tasks.discard)

@@ -122,7 +122,7 @@ def _redact_load_warning(warning: object) -> str:
        redactions are idempotent on already-redacted text.
     4. Run through :func:`voice_typer.server._secrets._redact_home_path`
        so filesystem paths containing the user's home directory (e.g.
-       a ``legacy = Path.home() / ".voice-typer"`` migration message)
+       a ``legacy = Path.home() / ".lausu"`` migration message)
        are stripped of the home prefix. ``_redact_home_path`` is a
        NO-OP for paths that don't start with the configured home, so
        innocuous enum strings (e.g. ``"parakeet"``) pass through

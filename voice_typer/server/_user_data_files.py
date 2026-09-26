@@ -2,18 +2,18 @@
 
 # Canonical names as literals (imports deferred to bottom — circular import).
 _RECOVERY_FILENAME: str = "recovery.json"
-_LEGACY_RECOVERY_FILENAME: str = "voice-typer-recovery.json"
+_LEGACY_RECOVERY_FILENAME: str = "lausu-recovery.json"
 
 # Mirrors vocabulary.VOCAB_FILENAME.
 _VOCAB_FILENAME: str = "vocabulary.json"
-_LEGACY_VOCAB_FILENAME: str = "voice-typer-vocabulary.json"
+_LEGACY_VOCAB_FILENAME: str = "lausu-vocabulary.json"
 
 # Mirrors templates.TEMPLATES_FILENAME.
 _TEMPLATES_FILENAME: str = "templates.json"
-_LEGACY_TEMPLATES_FILENAME: str = "voice-typer-templates.json"
+_LEGACY_TEMPLATES_FILENAME: str = "lausu-templates.json"
 
 # Corrections filename, ``text_cleanup.py`` uses the literal
-_CORRECTIONS_FILENAME: str = "voice-typer-corrections.json"
+_CORRECTIONS_FILENAME: str = "lausu-corrections.json"
 
 # Onboarding state files. ``onboarding_status.py`` persists the
 _ONBOARDING_STATUS_MARKER: str = ".onboarding_status.json"
@@ -23,10 +23,10 @@ _ONBOARDING_FAIL_COUNT_MARKER: str = ".onboarding_fail_count"
 _ONBOARDING_PROGRESS_MARKER: str = ".onboarding_progress"
 
 # Personal-data log files. These are not owned by a single Python
-_VOICE_TYPER_LOG: str = "voice-typer.log"
+_VOICE_TYPER_LOG: str = "lausu.log"
 _PREWARM_LOG: str = "prewarm.log"
 _RENDERER_ERRORS_LOG: str = "legacy-renderer-errors.log"
-_RUST_LOG: str = "voice-typer-rust.log"
+_RUST_LOG: str = "lausu-rust.log"
 
 # Prewarm worker status file (O4: consolidated single JSON, canonical
 _PREWARM_STATUS_FILE: str = "prewarm-status.json"

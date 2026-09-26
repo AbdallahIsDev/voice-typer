@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Imported only under TYPE_CHECKING to avoid a circular import at
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 class WaveformBubbleWiring:
     """Owns wiring of the waveform bubble coordinator → IPC push events.
 
-    Extracted from ``VoiceTyperApp``. The app passes itself
+    Extracted from ``LausuApp``. The app passes itself
         (``app``) as a back-reference so ``WaveformBubbleWiring`` can:
 
         - Read ``app._waveform_bubble`` (the ``WaveformBubble`` coordinator
@@ -45,7 +45,7 @@ class WaveformBubbleWiring:
         latest smoothed level from ``update_level``'s low-pass filter).
     """
 
-    def __init__(self, app: VoiceTyperApp | Any) -> None:
+    def __init__(self, app: LausuApp | Any) -> None:
         self._app = app
         # PERF-: dedicated queue + worker thread for bubble level
         self._bubble_level_queue: queue.Queue[dict | None] | None = None
@@ -187,7 +187,7 @@ class WaveformBubbleWiring:
         """Stop the bubble-level-pusher worker thread.
 
         Mirrors the shutdown block that lived in
-        ``VoiceTyperApp._do_cleanup`` (app.py:1469-1480). Idempotent —
+        ``LausuApp._do_cleanup`` (app.py:1469-1480). Idempotent —
         safe to call before ``_wire_waveform_bubble`` has run (in which
         case the worker / queue / stop event are still ``None`` and this
         is a no-op) and safe to call multiple times.

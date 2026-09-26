@@ -45,6 +45,7 @@ from voice_typer.server.cloud._providers.openai import build_multipart_body, bui
 from voice_typer.server.cloud._retry import _cloud_http_error_class, _parse_retry_after
 from voice_typer.server.cloud._transport import _audio_to_wav_bytes, _read_capped
 from voice_typer.server.i18n import DEFAULT_LOCALE
+from voice_typer.server.retry import delay_for_attempt, sleep_interruptible
 
 log = logging.getLogger(__name__)
 
@@ -382,7 +383,7 @@ class CloudEngine:
                         wait,
                     )
                     # Interruptible wait: ``Event.wait`` returns True the
-                    if self._abort_event.wait(timeout=wait):
+                    if sleep_interruptible(wait, abort_event=self._abort_event):
                         log.info(
                             "[CLOUD] %s abort requested, aborting Retry-After wait",
                             provider,
@@ -405,7 +406,7 @@ class CloudEngine:
             except URLError as exc:
                 # URLError that is NOT an HTTPError = transient
                 if attempt < max_retries - 1:
-                    backoff = 0.5 * (2**attempt)  # 0.5s, 1.0s, 2.0s
+                    backoff = delay_for_attempt((0.5, 1.0, 2.0), attempt)
                     log.warning(
                         "[CLOUD] %s attempt %d/%d failed, retrying in %.1fs: %s",
                         provider,
@@ -415,7 +416,7 @@ class CloudEngine:
                         redact_secret(redact_url(str(exc))),
                     )
                     # Interruptible wait (same rationale as the 429 branch
-                    if self._abort_event.wait(timeout=backoff):
+                    if sleep_interruptible(backoff, abort_event=self._abort_event):
                         log.info(
                             "[CLOUD] %s abort requested, aborting backoff wait",
                             provider,
@@ -474,7 +475,7 @@ class CloudEngine:
             allow_loopback_http=True,
         )
 
-        boundary = "----VoiceTyperBoundary7MA4YWxkTrZu0gW"
+        boundary = "----LausuBoundary7MA4YWxkTrZu0gW"
 
         def _build_request() -> Request:
             # Rebuild `body` and `req` INSIDE the retry loop.
@@ -615,7 +616,7 @@ class CloudEngine:
                 req = Request(self.api_url, data=empty_wav, headers=headers, method="POST")
             else:
                 # OpenAI-compatible: send empty multipart body.
-                boundary = "----VoiceTyperTestBoundary"
+                boundary = "----LausuTestBoundary"
                 body = (
                     f"--{boundary}\r\n"
                     'Content-Disposition: form-data; name="model"\r\n\r\n'

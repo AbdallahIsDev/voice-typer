@@ -63,10 +63,51 @@ class StatusHandlersMixin(HandlerBase):
             status = self.service.get_model_status()
             resp["type"] = "model_status"
             resp["data"] = status
+            self._attach_model_storage_summary(status)
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_model_status")
         return resp
+
+    def _attach_model_storage_summary(self, status: object) -> None:
+        """Add the ``_storage`` summary to a ``get_model_status`` payload."""
+        # Storage rides on the existing status command so the Models page
+        # needs no extra round-trip (fewer parity touchpoints than a new
+        # command). Probes are guarded: storage must never break per-model truth.
+        try:
+            from voice_typer.server import _paths
+
+            config_dir = _paths.config_dir()
+            hub = config_dir / "huggingface" / "hub"
+            used = self._dir_size_bytes(str(hub)) if hub.is_dir() else 0
+            if isinstance(status, dict):
+                status["_storage"] = {
+                    "used_bytes": used,
+                    "hub_path": str(hub),
+                    "config_dir": str(config_dir),
+                }
+        except Exception:
+            log.debug("[IPC] get_model_status storage summary skipped", exc_info=True)
+
+    @staticmethod
+    def _dir_size_bytes(root: str) -> int:
+        """Sum regular-file sizes under ``root`` without following symlinks."""
+        import os
+
+        total = 0
+        try:
+            for dirpath, _dirnames, filenames in os.walk(root):
+                for name in filenames:
+                    path = os.path.join(dirpath, name)
+                    if os.path.islink(path):
+                        continue
+                    try:
+                        total += os.path.getsize(path)
+                    except OSError:
+                        continue
+        except OSError:
+            pass
+        return total
 
     def _handle_get_prewarm_status(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_prewarm_status`` IPC command."""
@@ -96,6 +137,89 @@ class StatusHandlersMixin(HandlerBase):
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "run_prewarm")
+        return resp
+
+    def _handle_open_data_folder(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
+        """Handle the ``open_data_folder`` IPC command.
+
+        Opens the app config dir (support case, not the raw hub) in the
+        OS file manager. Mirrors ``_handle_open_prewarm_log``.
+        """
+        import os
+        import subprocess
+
+        from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
+
+        try:
+            from voice_typer.server import _paths
+            from voice_typer.server.config import _is_path_within
+
+            target = _paths.config_dir()
+            resolved = target.resolve()
+            hub = (target / "huggingface" / "hub").resolve()
+            # Fixed target today, but keep the containment tripwire so a
+            # future parameterized folder cannot escape config/hub roots.
+            if not any(_is_path_within(resolved, root) for root in (resolved, hub)):
+                return _error_response(
+                    resp,
+                    "Data folder is outside the allowed roots",
+                    code=ErrorCodes.PATH_NOT_ALLOWED,
+                )
+
+            if not target.exists():
+                resp["type"] = "data_folder"
+                resp["data"] = {
+                    "opened": False,
+                    "path": str(target),
+                    "reason": "not_found",
+                }
+                log.info("[IPC] open_data_folder: folder not found at %s", target)
+                return resp
+
+            # Open with the OS default file manager.
+            if is_windows():
+                os.startfile(str(target))  # type: ignore[attr-defined]
+            elif is_macos():
+                subprocess.Popen(
+                    ["open", str(target)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            elif is_linux():
+                subprocess.Popen(
+                    ["xdg-open", str(target)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                # Unknown platform, try xdg-open as a last resort.
+                subprocess.Popen(
+                    ["xdg-open", str(target)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
+            log.info("[IPC] open_data_folder: opened %s", target)
+            resp["type"] = "data_folder"
+            resp["data"] = {"opened": True, "path": str(target)}
+        except FileNotFoundError as e:
+            log.error("[IPC] open_data_folder: file manager not found: %s", e)
+            return _error_response(
+                resp,
+                "No file manager available to open the folder",
+                code="server.not_found",
+            )
+        except OSError as e:
+            # route through ``_error_response`` for envelope-shape
+            log.error("[IPC] open_data_folder: open failed: %s", e, exc_info=True)
+            return _error_response(
+                resp,
+                "Failed to open folder",
+                code="server.handler_error",
+            )
+        except Exception as exc:
+            # generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "open_data_folder")
         return resp
 
     def _handle_open_prewarm_log(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:

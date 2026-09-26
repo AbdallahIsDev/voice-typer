@@ -28,7 +28,7 @@ def get_host_pid() -> int | None:
 
 
 def _host_process_is_running() -> bool:
-    """Return True if a Voice Typer host process appears to be alive."""
+    """Return True if a Lausu host process appears to be alive."""
     from voice_typer.server.backend_pid import _is_pid_alive
 
     pid = _host_pid
@@ -50,7 +50,7 @@ def _host_process_is_running() -> bool:
 
 
 def _bring_app_to_front_macos() -> bool:
-    """Bring the Voice Typer window to front on macOS via AppleScript."""
+    """Bring the Lausu window to front on macOS via AppleScript."""
     if is_windows():
         return False
     try:
@@ -74,7 +74,7 @@ def _bring_app_to_front_macos() -> bool:
 
 
 def _bring_app_to_front_linux() -> bool:
-    """Bring the Voice Typer window to front on Linux via wmctrl/xdotool."""
+    """Bring the Lausu window to front on Linux via wmctrl/xdotool."""
     if is_windows():
         return False
     for tool_cmd in (
@@ -92,7 +92,7 @@ def _bring_app_to_front_linux() -> bool:
 
 
 def bring_app_to_front() -> bool:
-    """Find an existing Voice Typer window and bring it to front.
+    """Find an existing Lausu window and bring it to front.
 
     Returns True if a window was found and focused, False otherwise.
     """

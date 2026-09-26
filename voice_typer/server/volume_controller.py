@@ -12,17 +12,17 @@ from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS, DEFAUL
 
 if TYPE_CHECKING:
     # TYPE_CHECKING-only import so the back-reference type-checks without
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 log = logging.getLogger(__name__)
 
 
 class VolumeController:
-    """§5.3: extracted from ``VoiceTyperApp``. The app passes itself
-    The VolumeDucker is constructed in ``VoiceTyperApp.__init__`` (NOT
+    """§5.3: extracted from ``LausuApp``. The app passes itself
+    The VolumeDucker is constructed in ``LausuApp.__init__`` (NOT
     """
 
-    def __init__(self, app: VoiceTyperApp | Any) -> None:
+    def __init__(self, app: LausuApp | Any) -> None:
         self._app = app
 
     def _on_volume_crash_restore(self, state: Any) -> None:

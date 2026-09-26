@@ -5,11 +5,13 @@ from __future__ import annotations
 import contextlib
 import logging
 
+from voice_typer.server._paths import APP_IDENTIFIER, APP_RDNN_ROOT
+
 log = logging.getLogger(__name__)
 
 
-def _unregister_all_voicetyper_runkeys() -> list[str]:
-    """Remove ALL Voice Typer HKCU Run-key entries."""
+def _unregister_all_lausu_runkeys() -> list[str]:
+    """Remove ALL Lausu HKCU Run-key entries."""
     try:
         import winreg
     except ImportError:
@@ -33,7 +35,7 @@ def _unregister_all_voicetyper_runkeys() -> list[str]:
             except OSError:
                 # End of enumeration (Windows signals "no more values"
                 break
-            if isinstance(name, str) and name.startswith(("VoiceTyper", "com.voicetyper")):
+            if isinstance(name, str) and name.startswith((APP_IDENTIFIER, APP_RDNN_ROOT)):
                 try:
                     winreg.DeleteValue(key, name)
                     deleted.append(name)
@@ -49,8 +51,8 @@ def _unregister_all_voicetyper_runkeys() -> list[str]:
     return deleted
 
 
-def _unregister_all_voicetyper_tasks() -> list[str]:
-    """Remove ALL Voice Typer Task Scheduler tasks."""
+def _unregister_all_lausu_tasks() -> list[str]:
+    """Remove ALL Lausu Task Scheduler tasks."""
     try:
         from voice_typer.server import task_scheduler
     except Exception as exc:  # pragma: no cover, defensive
@@ -66,7 +68,7 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
     try:
         # PowerShell pipeline: Get-ScheduledTask returns matching tasks,
         ps_cmd = (
-            "Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' "
+            f"Get-ScheduledTask -TaskName '{APP_IDENTIFIER}*','{APP_RDNN_ROOT}*' "
             "-ErrorAction SilentlyContinue | "
             "ForEach-Object { schtasks.exe /Delete /TN $_.TaskName /F; "
             "Write-Output $_.TaskName }"
@@ -91,7 +93,7 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
         if result.returncode == 0:
             for line in (result.stdout or "").splitlines():
                 line = line.strip()
-                if line.startswith(("VoiceTyper", "com.voicetyper")):
+                if line.startswith((APP_IDENTIFIER, APP_RDNN_ROOT)):
                     deleted.append(line)
                     log.info("[UNINSTALL] Removed Task Scheduler task: %s", line)
         else:

@@ -43,7 +43,7 @@ class PynputHotkey(HotkeyBackend):
     GlobalHotKeys → fallback Listener chain. After 5 consecutive
     failures it surfaces a tray notification (via the optional
     ``_tray`` attribute, set by ``HotkeyDispatcher``) telling the user
-    to restart Voice Typer.
+    to restart Lausu.
     """
 
     # watchdog poll interval. 30s is short enough that a dead
@@ -162,7 +162,7 @@ class PynputHotkey(HotkeyBackend):
         After ``_WATCHDOG_MAX_FAILURES`` consecutive failures, surface
         a tray notification (via ``self._tray``, set by
         ``HotkeyDispatcher``) and stop retrying, the user must restart
-        Voice Typer manually.
+        Lausu manually.
         """
         while not self._watchdog_stop_event.is_set():
             # Sleep in small increments so stop() can interrupt promptly.

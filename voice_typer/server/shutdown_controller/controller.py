@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle (``app`` imports
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 from ._cleanup import CleanupMixin
 from ._lifecycle_signals import SignalsMixin
@@ -16,10 +16,10 @@ from ._teardowns import TeardownsMixin
 
 
 class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsMixin):
-    """Owns the shutdown / cleanup lifecycle of ``VoiceTyperApp``.
-    Extracted from ``VoiceTyperApp``. The app passes itself
-     kept on ``VoiceTyperApp``).
-     kept on ``VoiceTyperApp``).
+    """Owns the shutdown / cleanup lifecycle of ``LausuApp``.
+    Extracted from ``LausuApp``. The app passes itself
+     kept on ``LausuApp``).
+     kept on ``LausuApp``).
     """
 
     # the ordered list of every ``_teardown_*`` phase method that
@@ -41,7 +41,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
         "_teardown_event_bus",
     )
 
-    def __init__(self, app: VoiceTyperApp) -> None:
+    def __init__(self, app: LausuApp) -> None:
         self._app = app
         # POSIX signal handlers must be
         self._shutdown_signal_event: threading.Event = threading.Event()

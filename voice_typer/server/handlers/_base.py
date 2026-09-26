@@ -129,10 +129,10 @@ class HandlerMixinBase:
       single ``dict | None`` parameter the narrower
       ``Callable[[dict | None], None]`` would allow, tightening here
       causes pyrefly to flag every mixin as an invalid override;
-    * :class:`VoiceTyperService.get_status` returns a ``StatusResponse``
+    * :class:`LausuService.get_status` returns a ``StatusResponse``
       ``TypedDict``, which is not assignable to the ``dict[str, object]``
       declared on :class:`ServiceProtocol.get_status` (TypedDicts are
-      invariant), so ``VoiceTyperService`` does not structurally satisfy
+      invariant), so ``LausuService`` does not structurally satisfy
       :class:`ServiceProtocol`;
     * ``MagicMock`` fixtures in ``tests/handlers/`` continue to satisfy
       the ``Any`` annotation trivially (no test changes needed), and
@@ -213,7 +213,7 @@ class HandlerBase(HandlerMixinBase):
         exc :
             The exception that triggered the error path. Logged at
             ERROR with ``exc_info=True`` so the full traceback lands
-            in ``voice-typer.log`` for server-side diagnosis, EXCEPT
+            in ``lausu.log`` for server-side diagnosis, EXCEPT
             for :class:`ConsentRequiredError`, which is an expected,
             user-actionable rejection (e.g. voice-biometric consent not
             granted): it is logged at WARNING without a traceback
@@ -259,7 +259,7 @@ class HandlerBase(HandlerMixinBase):
 
         The log message is scrubbed via
         :func:`_scrub_traceback` before it lands in
-        ``voice-typer.log``. That log file persists on disk in the
+        ``lausu.log``. That log file persists on disk in the
         config dir and ships in support bundles, the CLI export
         (``python scripts/diagnostics.py export``) includes a 1 MB
         tail of it, and users also attach the log file itself to bug

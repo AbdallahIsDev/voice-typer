@@ -1,4 +1,4 @@
-"""Voice Typer, centralized logging infrastructure."""
+"""Lausu, centralized logging infrastructure."""
 
 from __future__ import annotations
 

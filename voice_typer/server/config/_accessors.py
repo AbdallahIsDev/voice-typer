@@ -21,8 +21,8 @@ log = logging.getLogger("voice_typer.server.config")
 
 
 def _legacy_voice_typer_dir() -> Path:
-    """canonical ``~/.voice-typer`` path used by the legacy migration"""
-    return Path.home() / ".voice-typer"
+    """canonical ``~/.lausu`` path used by the legacy migration"""
+    return Path.home() / ".lausu"
 
 
 def _prune_kept_backups(directory: Path, *, prefix: str, keep: int) -> None:
@@ -41,7 +41,7 @@ def _prune_kept_backups(directory: Path, *, prefix: str, keep: int) -> None:
 
 
 def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
-    """remove all user-data files / subdirs created by Voice Typer."""
+    """remove all user-data files / subdirs created by Lausu."""
     removed: list[str] = []
     missing: list[str] = []
     errors: list[str] = []
@@ -118,7 +118,7 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
 
     Intended to be called from the uninstaller (Linux ``prerm --purge``,
     Windows NSIS ``deleteAppDataOnUninstall`` hook, macOS ``Uninstall
-    Voice Typer.app`` helper). The function is idempotent, missing
+    Lausu.app`` helper). The function is idempotent, missing
     files / dirs are silently skipped, and NEVER raises: an uninstall
     script must not abort mid-cleanup if a single file is locked (the
     lock holder is typically the dying backend process shutting down
@@ -140,7 +140,7 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
         :func:`voice_typer.server._paths.hf_cache_dir`). The explicit
         HF-cache deletion below is a belt-and-suspenders pass that
         also covers the LEGACY cache path
-        (``~/.voice-typer/huggingface``: see
+        (``~/.lausu/huggingface``: see
         :func:`voice_typer.server._paths.legacy_hf_cache_dir`) used as
         a defensive fallback when ``_config_dir()`` itself raises
         (e.g. the BootTrigger scenario where ``$HOME`` is unset). On

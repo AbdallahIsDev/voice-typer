@@ -10,8 +10,8 @@ if TYPE_CHECKING:
 
 
 class _AppInternalAttributes(Protocol):
-    """Private attribute surface of ``VoiceTyperApp`` (subset).
-    in ``VoiceTyperApp.__init__`` / its construction mixins.
+    """Private attribute surface of ``LausuApp`` (subset).
+    in ``LausuApp.__init__`` / its construction mixins.
     """
 
     _config_mutation_lock: threading.RLock

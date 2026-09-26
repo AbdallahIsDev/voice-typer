@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 import time
@@ -41,43 +42,15 @@ class CorrectionSuggestion:
         }
 
 
-def _levenshtein(a: str, b: str, *, max_distance: int | None = None) -> int:
-    """Compute the Levenshtein edit distance between ``a`` and ``b``."""
-    if a == b:
-        return 0
-    if not a:
-        return len(b)
-    if not b:
-        return len(a)
+def _match_ratio(a: str, b: str) -> float:
+    """Return the difflib similarity ratio between ``a`` and ``b``."""
+    return difflib.SequenceMatcher(None, a, b).ratio()
 
-    # Ensure a is the shorter string (smaller row width).
-    if len(a) > len(b):
-        a, b = b, a
 
-    m, n = len(a), len(b)
-    if max_distance is not None and abs(m - n) > max_distance:
-        # Length difference alone exceeds the bound, can't match.
-        return max_distance + 1
-
-    # Single-row rolling array.
-    previous_row = list(range(m + 1))
-    for j in range(1, n + 1):
-        current_row = [j] + [0] * m
-        b_char = b[j - 1]
-        row_min = current_row[0]
-        for i in range(1, m + 1):
-            insert_cost = current_row[i - 1] + 1
-            delete_cost = previous_row[i] + 1
-            substitute_cost = previous_row[i - 1] + (0 if a[i - 1] == b_char else 1)
-            current_row[i] = min(insert_cost, delete_cost, substitute_cost)
-            if current_row[i] < row_min:
-                row_min = current_row[i]
-        # Bounded-Levenshtein early exit: if every entry in this row
-        if max_distance is not None and row_min > max_distance:
-            return max_distance + 1
-        previous_row = current_row
-
-    return previous_row[m]
+def _ratio_cutoff(word_len: int, candidate_len: int, max_distance: int) -> float:
+    """Minimum ratio accepting a pair as within ``max_distance`` edits."""
+    # Two edits can erase at most max_distance of the longer string.
+    return 1.0 - max_distance / max(word_len, candidate_len)
 
 
 def _collect_vocabulary_words(vm: VocabularyManager) -> set[str]:
@@ -110,7 +83,8 @@ def _collect_vocabulary_words(vm: VocabularyManager) -> set[str]:
 
 
 # Maximum Levenshtein distance we consider a "close match".  2 is
-_MAX_LEVENSHTEIN_DISTANCE = 2
+MAX_LEVENSHTEIN_DISTANCE = 2
+_MAX_LEVENSHTEIN_DISTANCE = MAX_LEVENSHTEIN_DISTANCE
 
 # Sentence-split pattern for the suggestion context field: split
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
@@ -433,7 +407,7 @@ def _find_closest_vocabulary_match(
     if not buckets:
         return None
 
-    best_distance = max_distance + 1
+    best_ratio = -1.0
     best_match: str | None = None
 
     # Iterate length buckets in [word_len - max_distance, word_len + max_distance].
@@ -441,20 +415,22 @@ def _find_closest_vocabulary_match(
         candidates = buckets.get(length)
         if not candidates:
             continue
+        cutoff = _ratio_cutoff(word_len, length, max_distance)
         for candidate in candidates:
-            d = _levenshtein(word, candidate, max_distance=max_distance)
-            if d < best_distance:
-                best_distance = d
+            if candidate == word:
+                # Exact match, can't do better.
+                return candidate
+            ratio = _match_ratio(word, candidate)
+            if ratio >= cutoff and ratio > best_ratio:
+                best_ratio = ratio
                 best_match = candidate
-                if d == 0:
-                    # Exact match, can't do better.
-                    return best_match
 
-    return best_match if best_distance <= max_distance else None
+    return best_match
 
 
 __all__ = [
     "CorrectionSuggestion",
+    "MAX_LEVENSHTEIN_DISTANCE",
     "MAX_PENDING",
     "VocabularyAutomation",
 ]

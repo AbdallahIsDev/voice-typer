@@ -64,7 +64,7 @@ class AppProtocol(Protocol):
         reads it for the ``get_correction_usage`` IPC path and calls
         ``prune_entries`` after a vocabulary save.
 
-        Declared as a read-only property to match ``VoiceTyperApp``'s
+        Declared as a read-only property to match ``LausuApp``'s
         ``@property`` accessor, a settable-attribute declaration makes
         the concrete app fail structural assignability (mypy: "expected
         settable variable, got read-only attribute").
@@ -81,12 +81,12 @@ class AppProtocol(Protocol):
     explicit reference being threaded through every call site.
 
     Widened from ``IPCServer`` to ``IPCServer | None`` to
-    match the runtime, :class:`voice_typer.server.app.VoiceTyperApp`
+    match the runtime, :class:`voice_typer.server.app.LausuApp`
     declares ``_ipc_server: Any | None = None`` (the attr is ``None``
     until :meth:`IPCServer.start` runs ``self.app._ipc_server = self``).
     The pre-fix ``IPCServer`` annotation caused pyrefly to flag
     ``build_ipc_server(app)`` at ``ipc_server.py:2734`` with
-    ``VoiceTyperApp._ipc_server has type Any | None, which is not
+    ``LausuApp._ipc_server has type Any | None, which is not
     consistent with IPCServer in AppProtocol._ipc_server`` because
     read-write attributes cannot change type. ``IPCServer | None``
     matches both the initial ``None`` and the post-``start()`` value.
@@ -122,14 +122,14 @@ class AppProtocol(Protocol):
     the name belongs on the protocol.
 
     Reverted from ``VocabularyAutomation | None`` (the prior
-    tightening) back to ``Any`` because :class:`VoiceTyperApp` does
+    tightening) back to ``Any`` because :class:`LausuApp` does
     NOT declare ``_vocabulary_automation`` as a class attribute, it
     is dynamically injected by
     :meth:`voice_typer.server.dictation_pipeline.DictationPipeline._maybe_init_vocabulary_automation`
     (``self._app._vocabulary_automation = automation``). With the
     narrowed type, pyrefly flagged ``build_ipc_server(app)`` at
     ``ipc_server.py:2734`` with ``Protocol AppProtocol requires
-    attribute _vocabulary_automation`` because VoiceTyperApp's
+    attribute _vocabulary_automation`` because LausuApp's
     structural type doesn't expose it. ``Any`` (the pre-fix state)
     is the correct annotation for a dynamically-injected attr.
     """
@@ -145,10 +145,10 @@ class AppProtocol(Protocol):
     ``_vocabulary_automation`` above.
 
     Reverted from ``WaveformBubbleWiring | None`` (the prior
-    tightening) back to ``Any`` because :class:`VoiceTyperApp` assigns
+    tightening) back to ``Any`` because :class:`LausuApp` assigns
     ``self._waveform_bubble = WaveformBubble()`` (a DIFFERENT class
     than :class:`WaveformBubbleWiring`). With the narrowed type,
-    pyrefly flagged the ``VoiceTyperApp not assignable to
+    pyrefly flagged the ``LausuApp not assignable to
     AppProtocol`` structural check. ``Any`` (the pre-fix state)
     accommodates both ``WaveformBubble`` and ``WaveformBubbleWiring``
     (and ``None``).
@@ -199,7 +199,7 @@ class AppProtocol(Protocol):
                 "_waveform_bubble", None)`` access in
                 :mod:`voice_typer.server.handlers.config_handlers` with a
                 public method on the app. The implementation on
-                :class:`voice_typer.server.app.VoiceTyperApp` preserves the
+                :class:`voice_typer.server.app.LausuApp` preserves the
                 exact behavior of the prior inline block: it reads
                 ``self._waveform_bubble`` (which may be ``None`` before
                 ``_wire_waveform_bubble`` runs) and, if both the bubble and
@@ -360,7 +360,7 @@ def build_ipc_server(app: AppProtocol) -> IPCServer:
     alternate service implementation) live in one place.
 
     Behavior today is identical to ``IPCServer(app)``: a real
-    :class:`VoiceTyperService` is constructed over ``app`` and stored
+    :class:`LausuService` is constructed over ``app`` and stored
     on the returned server as ``server.service``.  Tests that want to
     inject a fake service should call ``IPCServer(app, service=fake)``
     directly rather than this factory, :func:`build_ipc_server` is the
@@ -370,7 +370,7 @@ def build_ipc_server(app: AppProtocol) -> IPCServer:
     ----------
     app :
         Any object satisfying :class:`AppProtocol`.  In production this
-        is a :class:`voice_typer.server.app.VoiceTyperApp`; in tests it
+        is a :class:`voice_typer.server.app.LausuApp`; in tests it
         may be a ``MagicMock`` configured by
         :func:`tests.fixtures.ipc_test_helpers.make_fake_app`.
 
@@ -390,7 +390,7 @@ def build_ipc_server(app: AppProtocol) -> IPCServer:
     fails this check because ``getattr_static`` does not trigger
     ``MagicMock.__getattr__``, so a warning here is informational, not
     a hard failure.  We log a ``WARNING`` listing the missing annotated
-    attributes and continue: production ``VoiceTyperApp`` always
+    attributes and continue: production ``LausuApp`` always
     satisfies the protocol, and tests that pass a ``MagicMock`` are
     still allowed (the warning is a hint for the test author, not a
     gate).  The check is intentionally non-fatal so a Protocol-shape

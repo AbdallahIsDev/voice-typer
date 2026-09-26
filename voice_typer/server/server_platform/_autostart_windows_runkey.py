@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from voice_typer.server._paths import APP_IDENTIFIER, APP_RDNN_ROOT
 from voice_typer.server.server_platform import autostart as _autostart_mod
 
 log = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ def _register_app_autostart_runkey() -> bool:
                 try:
                     name, value, _ = winreg.EnumValue(run_key, i)
                     if (
-                        name.startswith(("VoiceTyper", "com.voicetyper"))
+                        name.startswith((APP_IDENTIFIER, APP_RDNN_ROOT))
                         and name != reg_key_name
                         and isinstance(value, str)
                         and not _aw._validate_runkey_command(value)
@@ -94,7 +95,7 @@ def _unregister_app_autostart_runkey() -> bool:
 
 
 def _is_app_autostart_runkey_registered() -> bool:
-    """True if the HKCU Run key has the VoiceTyper entry AND the command"""
+    """True if the HKCU Run key has the Lausu entry AND the command"""
     from voice_typer.server.server_platform import autostart_windows as _aw
 
     try:

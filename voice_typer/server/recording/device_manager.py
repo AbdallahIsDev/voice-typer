@@ -175,7 +175,7 @@ class DeviceManager:
     def shutdown_mic_watcher(self) -> None:
         """Stop the microphone device-change watcher.
 
-        Called explicitly from ``VoiceTyperApp.quit_app()`` during
+        Called explicitly from ``LausuApp.quit_app()`` during
         shutdown and defensively from ``Recorder.__del__``. Safe to call
         even if the watcher never started (``_mic_watcher`` is None).
         """

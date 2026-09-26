@@ -107,7 +107,7 @@ def _read_raw_json_impl(config_file) -> dict | None:
 _KNOWN_EXTERNAL_CONFIG_KEYS: frozenset[str] = frozenset(
     {
         # credential_store legacy-keyring-service-name cutover flag
-        "service_name_migrated_com_voicetyper_keyring",
+        "service_name_migrated_com_Lausu_keyring",
         # credential_store keyring-unavailable diagnostic flag
         "secrets_migrated_keyring_was_unavailable",
     }

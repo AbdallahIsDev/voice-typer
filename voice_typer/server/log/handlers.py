@@ -1,4 +1,4 @@
-"""Logging filters and handler classes for the Voice Typer log package.
+"""Logging filters and handler classes for the Lausu log package.
 
 Extracted from the original monolithic ``log/__init__.py``. Contains:
 
@@ -141,7 +141,7 @@ class _FlushingStreamHandler(logging.StreamHandler):
     the standard ``logging.StreamHandler`` only flushes on
     ``close()`` (or when its internal buffer fills up).  For an
     interactive terminal session this means startup logs can sit in
-    the buffer for several seconds, making VoiceTyper look like it's
+    the buffer for several seconds, making Lausu look like it's
     hanging silently.  Subclassing and calling ``self.flush()`` after
     every ``emit()`` guarantees each log line is written to the
     terminal immediately.
@@ -217,7 +217,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
     4. Inter-process EMIT safety: ``emit`` holds the same lock file
        across the rollover-check + write so two processes sharing one
        log file (the autostart launcher and the backend it spawns both
-       write ``voice-typer.log`` during the launch overlap) cannot
+       write ``lausu.log`` during the launch overlap) cannot
        interleave bytes mid-line. On Windows the C runtime emulates
        append mode with seek-then-write, so concurrent writers can
        overwrite each other's bytes and leave fragments (a bare tail

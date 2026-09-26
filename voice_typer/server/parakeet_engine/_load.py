@@ -10,7 +10,6 @@ from collections.abc import Callable
 from voice_typer.server.duration import format_duration
 
 from ._constants import (
-    _PARAKERT_ONNX_CACHE_DIR,
     _PARAKERT_ONNX_MODEL_NAME,
     _PARAKERT_ONNX_REPO_ID,
     _PARAKERT_QUANTIZATION,
@@ -108,20 +107,20 @@ class LoadMixin:
     def _is_cached() -> bool:
         """Quick check if the Parakeet ONNX model is in the HF cache."""
         from voice_typer.server.config import _config_dir
+        from voice_typer.server.model_availability import snapshot_search_dirs
 
-        cache_root = _config_dir() / "huggingface" / "hub"
-        model_dir = cache_root / _PARAKERT_ONNX_CACHE_DIR
-        snapshots = model_dir / "snapshots"
-        if not snapshots.is_dir():
-            return False
-        try:
-            for entry in snapshots.iterdir():
-                if not entry.is_dir():
-                    continue
-                if any(entry.glob("*.onnx")):
-                    return True
-        except OSError:
-            log.debug("[PARAKEET] _is_cached snapshot iterdir failed (non-fatal)", exc_info=True)
+        for model_dir in snapshot_search_dirs(_config_dir(), _PARAKERT_ONNX_REPO_ID):
+            snapshots = model_dir / "snapshots"
+            if not snapshots.is_dir():
+                continue
+            try:
+                for entry in snapshots.iterdir():
+                    if not entry.is_dir():
+                        continue
+                    if any(entry.glob("*.onnx")):
+                        return True
+            except OSError:
+                log.debug("[PARAKEET] _is_cached snapshot iterdir failed (non-fatal)", exc_info=True)
         return False
 
     def load(self, progress_callback: Callable[[str], None] | None = None) -> bool:
@@ -163,41 +162,45 @@ class LoadMixin:
 
             # Verify model integrity (hash check), UNCONDITIONALLY on
             from voice_typer.server.config import _config_dir
+            from voice_typer.server.model_availability import snapshot_search_dirs
             from voice_typer.server.security import verify_model_integrity
 
-            cache_root = _config_dir() / "huggingface" / "hub"
-            model_dir = cache_root / _PARAKERT_ONNX_CACHE_DIR
             verified_snapshot: str | None = None
-            if model_dir.is_dir():
-                verified = False
-                verify_exc: Exception | None = None
-                try:
-                    for snapshot in (model_dir / "snapshots").iterdir():
+            model_dir = snapshot_search_dirs(_config_dir(), _PARAKERT_ONNX_REPO_ID)[0]
+            verified = False
+            verify_exc: Exception | None = None
+            try:
+                for candidate in snapshot_search_dirs(_config_dir(), _PARAKERT_ONNX_REPO_ID):
+                    if not candidate.is_dir():
+                        continue
+                    for snapshot in (candidate / "snapshots").iterdir():
                         if snapshot.is_dir() and verify_model_integrity(str(snapshot), _PARAKERT_ONNX_REPO_ID):
                             verified = True
                             verified_snapshot = str(snapshot)
                             break
-                except OSError as exc:
-                    verify_exc = exc
-                if not verified:
-                    log.error(
-                        "[PARAKEET] Model integrity check failed%s for %s at %s. "
-                        "Refusing to load tampered model. To fix: delete it from the Models page.",
-                        f" (OSError: {verify_exc})" if verify_exc else "",
-                        _PARAKERT_ONNX_REPO_ID,
-                        model_dir,
-                    )
-                    if progress_callback:
-                        progress_callback("Model integrity check failed; delete and re-download from the Models page.")
-                    from voice_typer.server.asr_errors import ModelIntegrityError
+                    if verified:
+                        break
+            except OSError as exc:
+                verify_exc = exc
+            if not verified:
+                log.error(
+                    "[PARAKEET] Model integrity check failed%s for %s at %s. "
+                    "Refusing to load tampered model. To fix: delete it from the Models page.",
+                    f" (OSError: {verify_exc})" if verify_exc else "",
+                    _PARAKERT_ONNX_REPO_ID,
+                    model_dir,
+                )
+                if progress_callback:
+                    progress_callback("Model integrity check failed; delete and re-download from the Models page.")
+                from voice_typer.server.asr_errors import ModelIntegrityError
 
-                    raise ModelIntegrityError(
-                        "The cached Parakeet model failed integrity verification. "
-                        "Delete it and download it again from the Models page to recover.",
-                        model_size="parakeet",
-                        backend="parakeet",
-                        repo_id=_PARAKERT_ONNX_REPO_ID,
-                    )
+                raise ModelIntegrityError(
+                    "The cached Parakeet model failed integrity verification. "
+                    "Delete it and download it again from the Models page to recover.",
+                    model_size="parakeet",
+                    backend="parakeet",
+                    repo_id=_PARAKERT_ONNX_REPO_ID,
+                )
 
             # Load ONNX model via onnx_asr.load_model(...), by TYPE
             try:

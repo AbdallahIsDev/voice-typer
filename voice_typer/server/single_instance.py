@@ -232,7 +232,7 @@ def _ensure_single_instance(silent: bool = False):
         run simultaneously, causing each recording to be transcribed and
         pasted N times.)
 
-        SEC-001: Uses "Local\\VoiceTyperSingleInstance" with a restrictive
+        SEC-001: Uses "Local\\LausuSingleInstance" with a restrictive
         DACL (only current user SID) to prevent cross-session mutex attacks.
         The ``VOICE_TYPER_RESTART`` env var is honored as a restart hint
         only, there is no time-limited token file; the old instance must
@@ -251,7 +251,7 @@ def _ensure_windows_single_instance(silent: bool = False):
     Returns the mutex handle (kept alive to hold the lock) on success,
     or exits the process via ``sys.exit(1)`` on duplicate launch.
 
-    The mutex name is ``"Local\\VoiceTyperSingleInstance"`` (SEC-001)
+    The mutex name is ``"Local\\LausuSingleInstance"`` (SEC-001)
     with a restrictive DACL so only the current user SID can open it.
     ``error_already_exists`` (183) from ``CreateMutexW`` is the
     authoritative duplicate signal, we exit immediately, no retry.
@@ -263,7 +263,7 @@ def _ensure_windows_single_instance(silent: bool = False):
     error_access_denied = 5
 
     # SEC-001: Create a SECURITY_ATTRIBUTES with a restrictive DACL that
-    mutex_name = "Local\\VoiceTyperSingleInstance"
+    mutex_name = "Local\\LausuSingleInstance"
 
     # Build a restrictive DACL for the mutex
     sa = _create_restrictive_security_attributes()
@@ -327,10 +327,10 @@ def _ensure_windows_single_instance(silent: bool = False):
             # WAIT_TIMEOUT (or any other result) → genuine duplicate.
         _startup_line(
             "INFO",
-            "[STARTUP] Voice Typer is already running, only one instance is allowed",
+            f"[STARTUP] {APP_NAME} is already running, only one instance is allowed",
         )
         if not silent:
-            msg = "Voice Typer is already running. Only one instance is allowed."
+            msg = f"{APP_NAME} is already running. Only one instance is allowed."
             try:
                 ctypes.windll.user32.MessageBoxW(
                     0,
@@ -347,7 +347,7 @@ def _ensure_windows_single_instance(silent: bool = False):
     elif last_error == error_access_denied:
         # Couldn't even open the mutex; bail safely.
         if not silent and sys.stderr is not None:
-            print("Voice Typer: mutex access denied.", file=sys.stderr)
+            print(f"{APP_NAME}: mutex access denied.", file=sys.stderr)
         sys.exit(1)
     # Mutex acquired, write our PID so the next launch can
     _write_backend_pid_file()
@@ -373,7 +373,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             os.chmod(run_dir, 0o700)
     except OSError:
         if not silent and sys.stderr is not None:
-            print("Voice Typer: cannot create config dir.", file=sys.stderr)
+            print(f"{APP_NAME}: cannot create config dir.", file=sys.stderr)
         sys.exit(1)
 
     lock_path = run_dir / "backend.lock"
@@ -392,7 +392,7 @@ def _ensure_single_instance_posix(silent: bool = False):
         except OSError as exc:
             # ``O_NOFOLLOW`` raises ``ELOOP`` (errno 40) on Linux when
             if not silent and sys.stderr is not None:
-                print(f"Voice Typer: cannot create lock file: {exc}", file=sys.stderr)
+                print(f"{APP_NAME}: cannot create lock file: {exc}", file=sys.stderr)
             sys.exit(1)
 
     def _read_pid_from_lockfile(path):
@@ -444,9 +444,9 @@ def _ensure_single_instance_posix(silent: bool = False):
                     # Another LIVE process holds the flock.
                     pid = _read_pid_from_lockfile(lock_path)
                     if pid is not None:
-                        msg = f"Voice Typer: another instance is already running (pid={pid})."
+                        msg = f"{APP_NAME}: another instance is already running (pid={pid})."
                     else:
-                        msg = "Voice Typer: another instance is already running (lock held)."
+                        msg = f"{APP_NAME}: another instance is already running (lock held)."
                     if not silent and sys.stderr is not None:
                         print(msg, file=sys.stderr)
                     sys.exit(1)
@@ -455,7 +455,7 @@ def _ensure_single_instance_posix(silent: bool = False):
         # Legacy fallback: PID check + unlink + retry. Used when
         pid = _read_pid_from_lockfile(lock_path)
         if pid is not None and _is_pid_alive(pid):
-            msg = f"Voice Typer: another instance is already running (pid={pid})."
+            msg = f"{APP_NAME}: another instance is already running (pid={pid})."
             if not silent and sys.stderr is not None:
                 print(msg, file=sys.stderr)
             sys.exit(1)
@@ -465,7 +465,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             os.unlink(lock_path)
         fd = _try_acquire(lock_path)
         if fd is None:
-            msg = "Voice Typer: another instance is already running."
+            msg = f"{APP_NAME}: another instance is already running."
             if not silent and sys.stderr is not None:
                 print(msg, file=sys.stderr)
             sys.exit(1)
@@ -484,7 +484,7 @@ def _ensure_single_instance_posix(silent: bool = False):
         # Another process holds the flock, exit.
         with contextlib.suppress(OSError):
             os.close(fd)
-        msg = "Voice Typer: another instance is already running (lock held)."
+        msg = f"{APP_NAME}: another instance is already running (lock held)."
         if not silent and sys.stderr is not None:
             print(msg, file=sys.stderr)
         sys.exit(1)

@@ -25,7 +25,7 @@ class AppState(Enum):
 
 
 class TrayController(Protocol):
-    """Protocol that the tray controller (typically VoiceTyperApp) must implement."""
+    """Protocol that the tray controller (typically LausuApp) must implement."""
 
     recording: "RecordingController"
 

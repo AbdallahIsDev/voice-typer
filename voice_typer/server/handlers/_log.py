@@ -49,7 +49,7 @@ compatibility: existing log-scraping tests (``test_logging_format``,
 ``caplog`` assertions, and the dispatcher's outer ``except Exception``
 in ``voice_typer/server/ipc_server.py`` also uses this name, so
 handler-emitted records and dispatcher-emitted records land under the
-same logger in the unified ``voice-typer.log``.
+same logger in the unified ``lausu.log``.
 
 This module is import-safe: it has no side effects beyond defining the
 module-level ``log`` object. It does NOT configure handlers (the app's

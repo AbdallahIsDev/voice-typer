@@ -1,5 +1,5 @@
 /* =============================================================================
- * Voice Typer. Windows native key listener
+ * Lausu. Windows native key listener
  *
  * Emits line-delimited key events on stdout for the Python parent process to
  * match against the registered hotkey. Modeled on Freestyle's

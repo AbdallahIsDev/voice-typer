@@ -7,6 +7,7 @@ import os
 from typing import TYPE_CHECKING
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+from voice_typer.server.retry import run_with_retry
 
 if TYPE_CHECKING:
     import numpy as np
@@ -79,41 +80,43 @@ def _download_with_retry(
     **kwargs,
 ) -> str:
     """Wrap snapshot_download() with exponential backoff retry."""
-    import time as _time
+    # BaseException (cancel) must propagate without retry or logging.
 
-    last_exc: BaseException = RuntimeError("no transcription attempts made")
-    for attempt in range(max_attempts):
-        try:
-            return download_fn(**kwargs)
-        except Exception as exc:
-            last_exc = exc
-            if attempt < max_attempts - 1:
-                delay = delays[attempt] if attempt < len(delays) else delays[-1]
-                log.warning(
-                    "[DOWNLOAD] Download attempt %d/%d failed: %s. Retrying in %.0fs...",
-                    attempt + 1,
-                    max_attempts,
-                    exc,
-                    delay,
-                )
-                _time.sleep(delay)
-            else:
-                # log.exception preserves the traceback; keep max_attempts arg, drop exc.
-                log.exception(
-                    "[DOWNLOAD] All %d download attempts failed.",
-                    max_attempts,
-                )
-    raise last_exc
+    def _on_retry(exc: Exception, attempt: int, delay: float) -> None:
+        log.warning(
+            "[DOWNLOAD] Download attempt %d/%d failed: %s. Retrying in %.0fs...",
+            attempt + 1,
+            max_attempts,
+            exc,
+            delay,
+        )
+
+    def _on_give_up(exc: BaseException, attempts: int) -> None:
+        # log.exception preserves the traceback; keep max_attempts arg, drop exc.
+        log.exception(
+            "[DOWNLOAD] All %d download attempts failed.",
+            attempts,
+        )
+
+    return run_with_retry(
+        lambda: download_fn(**kwargs),
+        max_attempts=max_attempts,
+        delays=delays,
+        on_retry=_on_retry,
+        on_give_up=_on_give_up,
+    )
 
 
 def cleanup_hf_cache_dir(repo_id: str, log_prefix: str = "") -> None:
     """cache cleanup: best-effort delete a tampered HF cache dir."""
     import shutil
 
+    from voice_typer.server.model_availability import shared_hub_dir
+
     try:
         from voice_typer.server.config import _config_dir
 
-        cache_root = _config_dir() / "huggingface" / "hub"
+        roots = [shared_hub_dir(), _config_dir() / "huggingface" / "hub"]
     except Exception as exc:
         log.debug(
             "%s could not resolve config dir for cache cleanup: %s",
@@ -122,25 +125,27 @@ def cleanup_hf_cache_dir(repo_id: str, log_prefix: str = "") -> None:
         )
         return
 
-    model_dir = cache_root / f"models--{repo_id.replace('/', '--')}"
-    if not model_dir.exists():
-        return
     # Compose a tag like "[PARAKEET] " or "" (no leading space when empty).
     tag = f"{log_prefix} " if log_prefix else ""
-    try:
-        shutil.rmtree(model_dir)
-        log.warning(
-            "%sRemoved tampered HF cache directory %s after integrity check failure.",
-            tag,
-            model_dir,
-        )
-    except OSError as exc:
-        log.warning(
-            "%sCould not remove tampered HF cache directory %s: %s. Manual cleanup recommended.",
-            tag,
-            model_dir,
-            exc,
-        )
+    leaf = f"models--{repo_id.replace('/', '--')}"
+    for cache_root in roots:
+        model_dir = cache_root / leaf
+        if not model_dir.exists():
+            continue
+        try:
+            shutil.rmtree(model_dir)
+            log.warning(
+                "%sRemoved tampered HF cache directory %s after integrity check failure.",
+                tag,
+                model_dir,
+            )
+        except OSError as exc:
+            log.warning(
+                "%sCould not remove tampered HF cache directory %s: %s. Manual cleanup recommended.",
+                tag,
+                model_dir,
+                exc,
+            )
 
 
 def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:

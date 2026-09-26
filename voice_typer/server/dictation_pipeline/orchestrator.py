@@ -84,7 +84,7 @@ class _OrchestratorMixin:
         recorded_rms: float,
         cycle_id: str,
     ) -> None:
-        """This is the entry point called from VoiceTyperApp._stop_dictation."""
+        """This is the entry point called from LausuApp._stop_dictation."""
         self._audio = audio
         self._duration = duration
         self._recorded_rms = recorded_rms

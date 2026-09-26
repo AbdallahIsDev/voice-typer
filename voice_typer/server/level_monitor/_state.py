@@ -23,6 +23,10 @@ class _State:
         self._monitor_sample_rate: int = WHISPER_SAMPLE_RATE
         self._monitor_mic_id: str | None = None  # device this stream is on
 
+        # Generation counter bumped on every monitor open/stop transition
+        # so a slow open can detect a racing switch or stop before committing.
+        self._monitor_epoch: int = 0
+
         # Display gain applied to the smoothed RMS before it reaches any
         self._LEVEL_DISPLAY_GAIN: float = 8.0
 

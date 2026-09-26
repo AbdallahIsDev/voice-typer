@@ -30,7 +30,7 @@ def _compute_crash_header() -> bytes:
 
     Returns
     """
-    lines: list[str] = ["=== VOICE-TYPER CRASH DIAGNOSTICS HEADER ==="]
+    lines: list[str] = ["=== lausu CRASH DIAGNOSTICS HEADER ==="]
     try:
         import voice_typer
 

@@ -11,7 +11,6 @@ import os
 import re
 import shutil
 import threading
-import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -20,6 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.retry import (
+    delay_for_attempt,
+    parse_retry_after as _shared_parse_retry_after,
+    sleep_interruptible as _shared_sleep_interruptible,
+)
 
 log = logging.getLogger(__name__)
 
@@ -295,10 +299,8 @@ def _parse_total_from_content_range(content_range: str) -> int | None:
 
 
 def _parse_retry_after(value: str | None) -> float:
-    try:
-        return max(0.0, min(float(value or 0), MAX_RETRY_AFTER_S))
-    except (TypeError, ValueError):
-        return 0.0
+    # Missing/unparsable headers mean no server-directed wait here.
+    return _shared_parse_retry_after(value, default=0.0, cap=MAX_RETRY_AFTER_S)
 
 
 def _is_transient_http(status: int) -> bool:
@@ -321,14 +323,8 @@ def _body_matches_segment(resp: Any, seg: SegmentRange) -> bool:
 
 def _sleep_interruptible(delay_s: float, gate_check: GateCheck | None) -> None:
     """Sleep, but wake promptly for cancel (and park on pause)."""
-    deadline = time.monotonic() + max(0.0, delay_s)
-    while True:
-        if gate_check is not None:
-            gate_check()
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return
-        time.sleep(min(0.2, remaining))
+    # Chunked gate polling lives in the shared helper; same 0.2s cadence.
+    _shared_sleep_interruptible(delay_s, gate_check=gate_check)
 
 
 def _fetch_segment(
@@ -362,8 +358,8 @@ def _fetch_segment(
                 status = _status_of(resp)
                 if _is_transient_http(status):
                     delay = _parse_retry_after(resp.getheader("Retry-After"))
-                    if delay <= 0 and attempt < len(RETRY_BACKOFF_S):
-                        delay = RETRY_BACKOFF_S[attempt]
+                    if delay <= 0:
+                        delay = delay_for_attempt(RETRY_BACKOFF_S, attempt)
                     _sleep_interruptible(delay, gate_check)
                     last_error = SegmentedDownloadError(f"HTTP {status}")
                     continue
@@ -403,11 +399,11 @@ def _fetch_segment(
             if e.errno == errno.ENOSPC:
                 raise  # disk-full is fatal, never retried
             last_error = e
-            _sleep_interruptible(RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)], gate_check)
+            _sleep_interruptible(delay_for_attempt(RETRY_BACKOFF_S, attempt), gate_check)
         except Exception as e:  # noqa: BLE001, transport errors retried uniformly
             # NOTE: ModelDownloadAborted is a BaseException, so it is NOT
             last_error = e
-            _sleep_interruptible(RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)], gate_check)
+            _sleep_interruptible(delay_for_attempt(RETRY_BACKOFF_S, attempt), gate_check)
     raise SegmentedDownloadError(f"segment {seg.index} failed after {SEGMENT_ATTEMPTS} attempts: {last_error}")
 
 

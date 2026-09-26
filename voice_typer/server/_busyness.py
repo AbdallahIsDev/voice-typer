@@ -1,6 +1,6 @@
 """BusynessCoordinator, owns the pipeline's "busy" flag + lock.
 
-Pre-refactor: ``VoiceTyperApp.__init__`` declared three
+Pre-refactor: ``LausuApp.__init__`` declared three
 private attributes consumed by 6 external modules via direct
 ``app._busy_event`` / ``app._lock`` access:
 
@@ -24,7 +24,7 @@ exposes intent-revealing methods: :meth:`is_busy`,
 and a :attr:`lock` property for back-compat with code that still
 wants the raw ``threading.Lock``.
 
-Back-compat: ``VoiceTyperApp._busy_event`` and ``VoiceTyperApp._lock``
+Back-compat: ``LausuApp._busy_event`` and ``LausuApp._lock``
 remain accessible (as read-only properties delegating to this
 coordinator) so consumer files that still read the raw event keep
 working unchanged. The dictation-flow WRITES are fully migrated:
@@ -77,7 +77,7 @@ class BusynessCoordinator:
     def adopt_event(self, event: threading.Event) -> None:
         """Rebind the underlying event to ``event``.
 
-        Used by the ``VoiceTyperApp._busy_event`` back-compat setter so
+        Used by the ``LausuApp._busy_event`` back-compat setter so
         test/monkeypatch code that assigns a fresh ``threading.Event``
         to ``app._busy_event`` keeps the coordinator's state machine
         (``is_busy`` / ``set_busy`` / ``set_idle`` / ``wait_idle``)
@@ -146,7 +146,7 @@ class BusynessCoordinator:
 
         Exposed so non-migrated consumer files that read
         ``app._busy_event`` directly (e.g. via the back-compat
-        ``VoiceTyperApp._busy_event`` property) get the same primitive
+        ``LausuApp._busy_event`` property) get the same primitive
         the new coordinator owns, no copy, no proxy. New code should
         prefer :meth:`is_busy` / :meth:`set_busy` / :meth:`set_idle`.
         """

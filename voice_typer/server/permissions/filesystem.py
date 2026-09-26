@@ -119,7 +119,7 @@ def _find_linux_install_script():
         # Dev mode: voice_typer/server/permissions/__init__.py →
         Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "linux" / "install_permissions.py",
         # Installed package (deb/rpm)
-        Path("/usr/share/voice-typer/scripts/install_permissions.py"),
+        Path("/usr/share/lausu/scripts/install_permissions.py"),
         # PyInstaller bundle
         Path(sys.executable).resolve().parent / "scripts" / "linux" / "install_permissions.py",
     ]

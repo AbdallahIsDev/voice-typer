@@ -15,7 +15,21 @@ DEFAULT_LLM_API_URL: str = "https://api.openai.com/v1/chat/completions"
 DEFAULT_LLM_MODEL: str = "gpt-4o-mini"
 
 # Machine-readable application slug used for config-dir names, keyring
-APP_SLUG: str = "voice-typer"
+APP_SLUG: str = "lausu"
+
+# Machine-readable product identity: the reverse-DNS root that names every
+# OS-visible artifact (HKCU Run key, scheduled-task URI, Startup .bat,
+# polkit action namespace, macOS LaunchAgents, credential-store service).
+# Deliberately INDEPENDENT of ``branding.APP_NAME``: renaming the display
+# brand must never silently rename the entries an existing install left
+# behind, or the legacy sweeps stop recognizing them (AGENTS.md C-BRAND-1
+# exempts internal OS/API identifiers from the branding constant).
+APP_RDNN_ROOT: str = "com.Lausu"
+
+# PascalCase token inside the OS-visible names (``Lausu_<hash>`` Run key,
+# ``LausuAutostart<hash>`` task, ``Lausu*.bat``), derived so the two
+# identity tokens can never drift apart.
+APP_IDENTIFIER: str = APP_RDNN_ROOT.rsplit(".", 1)[-1]
 
 # duplicated in ``autostart_launcher.py`` (``IPC_PORT = 9876``),
 IPC_PORT: int = 9876
@@ -62,13 +76,16 @@ def _resolve_config_dir() -> Callable[[], Path]:
         # Touch the cache through the holder so ``_cached`` is populated
         resolver()
         cached = resolver._cached
-        return cached
+        if cached is not None:
+            return cached
+        # Defensive: the holder guarantees ``_cached`` after ``__call__``.
+        raise RuntimeError("config-dir resolver did not initialize")
     # A test fixture rebound the module attribute to a plain callable
     return resolver
 
 
 def config_dir() -> Path:
-    """The canonical voice-typer data directory."""
+    """The canonical lausu data directory."""
     return _resolve_config_dir()()
 
 
@@ -101,7 +118,7 @@ def venv_pythonw() -> Path:
 
 def legacy_hf_cache_dir() -> Path:
     """Used as a defensive last-resort fallback in"""
-    return Path.home() / ".voice-typer" / "huggingface"
+    return Path.home() / ".lausu" / "huggingface"
 
 
 def hf_cache_dir() -> Path:

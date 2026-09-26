@@ -6,6 +6,8 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from voice_typer.server.branding import APP_NAME
+
 from .base import HotkeyBackend, log
 from .pynput_backend import PynputHotkey
 
@@ -28,7 +30,7 @@ class WaylandHotkey(HotkeyBackend):
         xdg = os.environ.get("XDG_RUNTIME_DIR")
         if xdg:
             suffix = WaylandHotkey._sanitize_role(role)
-            filename = f"voice-typer-hotkey-{suffix}.sock" if suffix else "voice-typer-hotkey.sock"
+            filename = f"lausu-hotkey-{suffix}.sock" if suffix else "lausu-hotkey.sock"
             return os.path.join(xdg, filename)
         return None
 
@@ -150,7 +152,7 @@ class WaylandHotkey(HotkeyBackend):
         if socket_path is None:
             # (shouldn't happen in practice, but be defensive).
             return
-        title = "Voice Typer. Wayland Hotkey Idle"
+        title = f"{APP_NAME}. Wayland Hotkey Idle"
         message = (
             "Wayland hotkey backend active but no external tool is "
             f"sending commands. Install linux-key-listener, or send "

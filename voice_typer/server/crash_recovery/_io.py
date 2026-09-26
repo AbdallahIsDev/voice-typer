@@ -15,7 +15,7 @@ from voice_typer.server.security.file_io import _QUARANTINE_SUFFIX_SEQ
 
 # Canonical constants. Defined HERE (the persistence-concern module) and
 RECOVERY_FILENAME = "recovery.json"
-_LEGACY_RECOVERY_FILENAME = "voice-typer-recovery.json"
+_LEGACY_RECOVERY_FILENAME = "lausu-recovery.json"
 MAX_RECOVERY_ENTRIES = 10
 
 # Persistence role: ``recovery.json`` is an ACTIVE crash-recovery store
@@ -31,7 +31,7 @@ class _RecoveryIO:
     """Mixin: disk load/quarantine/save for :class:`CrashRecovery`."""
 
     def _load(self) -> None:
-        """during ``VoiceTyperApp.__init__``. In production,"""
+        """during ``LausuApp.__init__``. In production,"""
         # Fast-path guard (no lock). If already loaded, return
         if self._loaded:
             return

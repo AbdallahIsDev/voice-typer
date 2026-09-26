@@ -9,6 +9,7 @@ from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin
 from voice_typer.server.handlers.level_monitor_handlers import (
     LevelMonitorHandlersMixin,
 )
+from voice_typer.server.handlers.media_handlers import MediaHandlersMixin
 from voice_typer.server.handlers.microphone_handlers import MicrophoneHandlersMixin
 from voice_typer.server.handlers.microphone_test_handlers import (
     MicrophoneTestHandlersMixin,
@@ -37,6 +38,7 @@ __all__ = [
     "OnboardingHandlersMixin",
     "MicrophoneTestHandlersMixin",
     "LevelMonitorHandlersMixin",
+    "MediaHandlersMixin",
     "ModelHandlersMixin",
     "SystemHandlersMixin",
     "VocabularyAutomationHandlersMixin",

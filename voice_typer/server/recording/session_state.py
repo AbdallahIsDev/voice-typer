@@ -50,7 +50,7 @@ This module consumes the owning submodules directly (C-ARCH-2):
 buffer's resize guard compares against the LIVE ``maxlen`` of
 ``recorder._ring_buffer`` (not a module constant), so any producer
 that sizes the ring (``recorder_init``'s default-capacity deque, the
-start-path reassignment in :mod:`._recorder_split`, or the restart
+start-path reassignment in :mod:`.recording_lifecycle`, or the restart
 path below) is respected. Tests that need to stub the secure-clear
 path patch the OWNING module:
 ``monkeypatch.setattr("voice_typer.server.recording.buffer._secure_clear_array", ...)``

@@ -1,6 +1,6 @@
 """Silero VAD wrapper for waveform visualizer noise gating.
 
-T021: Provides a lazy-loaded Voice Activity Detection (VAD) module that
+Provides a lazy-loaded Voice Activity Detection (VAD) module that
 filters out silence/noise from the waveform visualizer so it only
 updates when the user is actually speaking.  Without VAD, the visualizer
 reacts to any ambient noise, which is misleading.
@@ -21,15 +21,18 @@ fails, ``_load_model`` logs an ERROR and returns ``(None, None)`` so VAD
 degrades to the RMS energy fallback (already handled by callers). No
 network call is ever made, the offline guarantee (C-DATA-1) is preserved.
 
-CRITICAL, hidden-state threading (companion §2.2):
-    ``onnxruntime.InferenceSession`` is **stateless**. The Silero v4
-    ONNX export takes ``(input, state, sr)`` as inputs and returns
-    ``(output, stateN)``: the caller must hold the LSTM hidden-state
-    buffer (shape ``(2, 1, 128)`` float32) and thread it through every
-    ``compute_vad_prob`` call, re-zeroing it on ``reset_states()``,
-    ``unload()``, and first load. If the state is not threaded
-    correctly, VAD probabilities become garbage after the first
-    512-sample window.
+CRITICAL, streaming-state threading (ADR 0005):
+    ``onnxruntime.InferenceSession`` is **stateless**. The bundled
+    Silero ONNX export takes ``(input, state, sr)`` and returns
+    ``(output, stateN)``, and the official streaming contract requires
+    each ``input`` to be a rolling context (64 samples at 16 kHz, 32
+    at 8 kHz) prepended to the new 512/256-sample window (576/288
+    samples total). The caller must thread BOTH the LSTM hidden-state
+    buffer (shape ``(2, 1, 128)`` float32) and the context (trailing
+    samples of the previous window) through every ``compute_vad_prob``
+    call, re-zeroing both on ``reset_states()``, ``unload()``, and
+    first load. Bare-window inference materially under-reports speech
+    probabilities.
 """
 
 from __future__ import annotations
@@ -55,6 +58,10 @@ _VAD_LOAD_FAILED_EVERY_N: int = 225  # every ~14s at 16 Hz
 # hoisted to module level so every ``compute_vad_prob`` call avoids
 _EXPECTED_SAMPLES: dict[int, int] = {16000: 512, 8000: 256}
 
+# Rolling-context sizes (official streaming contract): every ONNX input is
+# context + window = 576/288 samples, never a bare window.
+_CONTEXT_SAMPLES: dict[int, int] = {16000: 64, 8000: 32}
+
 # Silero VAD probability threshold, values above this are considered speech.
 VAD_THRESHOLD = 0.5
 
@@ -64,7 +71,7 @@ _VAD_EARLY_EXIT_PROB: float = 0.95
 # Path to the bundled Silero VAD ONNX model (next to this file).
 _VAD_MODEL_PATH = Path(__file__).resolve().parent / "silero_vad.onnx"
 
-# Silero v4 LSTM hidden-state shape: see the module docstring's
+# Silero LSTM hidden-state shape: see the module docstring's
 _VAD_STATE_SHAPE: tuple[int, int, int] = (2, 1, 128)
 
 # Lazy-loaded ORT session reference. Stays ``None`` until ``_load_model``
@@ -73,7 +80,11 @@ _model = None
 #: The LSTM hidden-state buffer threaded across ``compute_vad_prob``
 _state = None  # initialized lazily in _load_model to avoid eager numpy use
 
-# ORT I/O names discovered at load time. Silero v4 ONNX uses non-default
+#: Rolling context (trailing samples of the previous window) prepended to
+#: every ONNX input. ``None`` = stream not started / just reset.
+_context = None
+
+# ORT I/O names discovered at load time. Silero's ONNX export uses non-default
 _input_name: str | None = None
 _state_name: str | None = None
 _sr_name: str | None = None
@@ -120,7 +131,7 @@ def _load_model():
         routing VAD to GPU adds GPU→CPU upload latency per 512-sample
         window and breaks the existing latency budget.
     """
-    global _model, _state, _input_name, _state_name, _sr_name, _output_name, _state_out_name
+    global _model, _state, _context, _input_name, _state_name, _sr_name, _output_name, _state_out_name
     if _model is not None:
         return _model, (_input_name, _state_name, _sr_name, _output_name, _state_out_name)
 
@@ -160,7 +171,7 @@ def _load_model():
             sess_options=session_options,
             providers=["CPUExecutionProvider"],
         )
-        # Discover I/O names (Silero v4 ONNX uses non-default names).
+        # Discover I/O names (Silero's ONNX export uses non-default names).
         inputs = {i.name: i for i in session.get_inputs()}
         outputs = {o.name: o for o in session.get_outputs()}
         _input_name = "input" if "input" in inputs else next(iter(inputs))
@@ -171,6 +182,7 @@ def _load_model():
         _model = session
         # Initialize the LSTM hidden state to zeros on first load —
         _state = np.zeros(_VAD_STATE_SHAPE, dtype=np.float32)
+        _context = None
         # DEBUG only: the one-time INFO line is emitted by ``preload()``
         log.debug("[VAD] Silero VAD model loaded from local ONNX")
         return _model, (_input_name, _state_name, _sr_name, _output_name, _state_out_name)
@@ -207,13 +219,22 @@ def _reflect_pad_to(chunk: np.ndarray, expected: int) -> np.ndarray:
 
 
 def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
-    """Run one ORT forward pass and thread the LSTM hidden state."""
-    global _state
+    """Run one ORT forward pass and thread the hidden state + context."""
+    global _state, _context
     # ``_load_model`` sets these names before returning a non-None
     assert _input_name is not None
     assert _state_name is not None
-    # Silero v4 ONNX expects shape (1, N), batch dim of 1.
-    audio_batched = np.asarray(audio_1d, dtype=np.float32).reshape(1, -1)
+    context_size = _CONTEXT_SAMPLES.get(sr, 64)
+    if _context is None or _context.shape[0] != context_size:
+        # First call after load/reset, or a sample-rate switch: restart the
+        # stream with a zero context and a clean LSTM state (a state threaded
+        # across rates is garbage), matching the official wrappers.
+        _context = np.zeros(context_size, dtype=np.float32)
+        _state = np.zeros(_VAD_STATE_SHAPE, dtype=np.float32)
+    window = np.asarray(audio_1d, dtype=np.float32)
+    # Silero streaming contract: input = context + window (576/288 samples),
+    # batch dim of 1.
+    audio_batched = np.concatenate([_context, window]).reshape(1, -1)
     feed: dict[str, np.ndarray] = {
         _input_name: audio_batched,
         _state_name: _state,
@@ -223,8 +244,10 @@ def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
     out = _model.run(None, feed)
     # out[0] = output (shape (1, 1) for a single-window batch).
     prob = float(np.asarray(out[0]).reshape(-1)[0])
-    # Thread the new hidden state forward, this is the critical step.
+    # Thread the new hidden state + trailing context forward, the two
+    # critical steps for a stateless ORT session.
     _state = np.asarray(out[1], dtype=np.float32)
+    _context = audio_batched[0, -context_size:].copy()
     return prob
 
 
@@ -332,19 +355,23 @@ def unload() -> None:
 
 
 def reset_states() -> None:
-    """Reset the Silero VAD LSTM hidden state."""
-    global _state
+    """Reset the Silero VAD LSTM hidden state + rolling context."""
+    global _state, _context
     if _model is None:
         # No active session, leave ``_state`` as ``None`` so the next
         _state = None
+        _context = None
         return
     _state = np.zeros(_VAD_STATE_SHAPE, dtype=np.float32)
+    # ``None`` = no context yet; lazily re-zeroed at the next inference,
+    # sized by that call's sample rate.
+    _context = None
 
 
 def reset():
     """Reset the cached model + hidden state (for testing or re-loading)."""
-    global _model
+    global _model, _state, _context
     _model = None
     # ``reset_states()`` checks ``_model``: we just set it to None, so
-    global _state
     _state = None
+    _context = None

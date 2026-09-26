@@ -1,4 +1,4 @@
-"""Undo/repaste helpers for VoiceTyperApp."""
+"""Undo/repaste helpers for LausuApp."""
 
 from __future__ import annotations
 

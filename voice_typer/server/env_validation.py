@@ -138,8 +138,8 @@ def _validate_env_vars() -> None:
         if os.environ.pop(_sensitive_name, None) is not None:
             log.warning(
                 "[ENV] Sensitive env var %s was set in the parent shell, "
-                "Voice Typer does not read it from env (cloud keys come from "
-                "the keyring; the HF token is never used by Voice Typer "
+                "Lausu does not read it from env (cloud keys come from "
+                "the keyring; the HF token is never used by Lausu "
                 "itself). Discarding to prevent it from leaking into child "
                 "processes (e.g. huggingface_hub model downloads).",
                 _sensitive_name,

@@ -1,4 +1,4 @@
-"""Config editor launcher (extracted from VoiceTyperApp._open_config_file).
+"""Config editor launcher (extracted from LausuApp._open_config_file).
 
  SEC-audit-011: opens ``config.json`` in the
 user's default editor and holds ``_config_mutation_lock`` for the full
@@ -193,7 +193,7 @@ _PLATFORM_LAUNCHERS: dict[str, Callable[[Any], None]] = {
 class ConfigEditorLauncher:
     """Open the config file in the user's editor, holding the mutation lock.
 
-    Extracted verbatim from ``VoiceTyperApp._open_config_file`` so the
+    Extracted verbatim from ``LausuApp._open_config_file`` so the
     behavior (subprocess calls, error handling, file locking, reload) is
     identical. The app delegates to ``launch(config_path)``.
 

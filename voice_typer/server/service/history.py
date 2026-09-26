@@ -1,4 +1,4 @@
-"""History domain mixin for VoiceTyperService."""
+"""History domain mixin for LausuService."""
 
 import logging
 

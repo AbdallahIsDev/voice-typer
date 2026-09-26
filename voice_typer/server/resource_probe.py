@@ -240,7 +240,14 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
         config_dir = _config_dir()
         drives_to_check.append(config_dir)
         drives_to_check.append(pathlib.Path.home())
-        # Add the drive where the model cache lives (HF_HOME)
+        # Add the drives where the model caches live (shared + app-local)
+        try:
+            from voice_typer.server.model_availability import app_hub_dir, shared_hub_dir
+
+            drives_to_check.append(shared_hub_dir())
+            drives_to_check.append(app_hub_dir(config_dir))
+        except Exception:
+            _log.debug("[RESOURCE] hub-dir probe failed (non-fatal)", exc_info=True)
         hf_home = os.environ.get("HF_HOME")
         if hf_home:
             drives_to_check.append(pathlib.Path(hf_home))
@@ -276,8 +283,10 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
     for path in drives_to_check:
         try:
             drive_info = os.statvfs(path) if hasattr(os, "statvfs") else None
-        except OSError:
+        except Exception:
             # Per-path best-effort: one unreadable drive must not abort
+            # the probe (narrower `except OSError` let non-pathlike
+            # entries escape as TypeError on POSIX).
             _log.debug(
                 "[RESOURCE] statvfs failed for %s (non-fatal)",
                 path,

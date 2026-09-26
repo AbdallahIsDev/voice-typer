@@ -82,7 +82,7 @@ class StreamLifecycle:
     ) -> tuple[Any, int, Exception | None]:
         """Open an ``sd.InputStream`` for each candidate device (a
         ``StreamLifecycle`` method invoked directly by
-        ``_recorder_split.start_recording``; the historical
+        ``recording_lifecycle.start_recording``; the historical
         ``Recorder._open_stream_for_candidates`` pure delegator was removed).
 
         Try opening an :class:`sd.InputStream` for each candidate device
@@ -202,7 +202,7 @@ class StreamLifecycle:
     ) -> tuple[Any, int, bool, Exception | None]:
         """Last-resort fallback over every available input device (a
         ``StreamLifecycle`` method invoked directly by
-        ``_recorder_split.start_recording``; the historical
+        ``recording_lifecycle.start_recording``; the historical
         ``Recorder._open_stream_fallback`` pure delegator was removed).
 
         Try every available input device not already in ``candidates``
@@ -301,7 +301,7 @@ class StreamLifecycle:
     def build_audio_callback(self, recorder: Any) -> Any:
         """Construct the PortAudio callback closure for this session (a
         ``StreamLifecycle`` method invoked directly by
-        ``_recorder_split.start_recording``; the historical
+        ``recording_lifecycle.start_recording``; the historical
         ``Recorder._build_audio_callback`` pure delegator was removed).
 
                 Construct the PortAudio callback closure for this session.

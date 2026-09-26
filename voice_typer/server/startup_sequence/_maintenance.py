@@ -48,7 +48,7 @@ _BACKUP_FILE_GLOBS: tuple[str, ...] = (
     "config.json.pre-migration-v*.bak",
     "config.json.v*.bak",
     "config.json.bak.failed-migration-*",
-    "voice-typer-recovery.json.corrupt.*",
+    "lausu-recovery.json.corrupt.*",
     "recovery.json.corrupt.*",
 )
 

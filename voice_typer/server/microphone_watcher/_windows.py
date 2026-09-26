@@ -110,7 +110,7 @@ class _WindowsMixin:
 
         self._wnd_proc_ref = WNDPROC(_wnd_proc)
         wnd_proc_ref = self._wnd_proc_ref
-        class_name = "VoiceTyperMicWatcherWnd"
+        class_name = "LausuMicWatcherWnd"
         h_instance = kernel32.GetModuleHandleW(None)
 
         wc = WNDCLASSEXW()
@@ -132,7 +132,7 @@ class _WindowsMixin:
             hwnd = user32.CreateWindowExW(
                 ws_ex_toolwindow,
                 class_name,
-                "VoiceTyper Mic Watcher",
+                "Lausu Mic Watcher",
                 0,
                 0,
                 0,

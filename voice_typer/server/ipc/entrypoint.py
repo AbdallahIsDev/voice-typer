@@ -21,15 +21,16 @@ from types import FrameType
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
     from voice_typer.server.ipc_server import IPCServer
 
 # Re-exported by ``ipc_server.py`` so existing
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.ipc._helpers import log
 from voice_typer.server.tray_types import is_tauri_sidecar
 
 
-def _ws_startup_thread_main(app: VoiceTyperApp) -> None:
+def _ws_startup_thread_main(app: LausuApp) -> None:
     """Run ``app.start()`` on the ws-mode startup daemon thread, fail-fast.
 
     The ws (Tauri sidecar) branch of :func:`main` launches the full
@@ -224,13 +225,13 @@ def parse_ipc_args() -> tuple[int | None, bool]:
         import importlib.metadata
 
         try:
-            _pkg_version = importlib.metadata.version("voice-typer")
+            _pkg_version = importlib.metadata.version("lausu")
         except Exception:
             _pkg_version = "1.0.0"
 
     parser = argparse.ArgumentParser(
         prog="voice_typer.server.ipc_server",
-        description="Voice Typer IPC server (spawned by the Tauri host)",
+        description=f"{APP_NAME} IPC server (spawned by the Tauri host)",
         add_help=False,  # we add --help manually to avoid conflict with app
     )
     parser.add_argument(
@@ -290,7 +291,7 @@ def parse_ipc_args() -> tuple[int | None, bool]:
 
 
 def main() -> None:
-    """Create a ``VoiceTyperApp``, wrap it in an ``IPCServer``, and block.
+    """Create a ``LausuApp``, wrap it in an ``IPCServer``, and block.
 
     Designed as the subprocess entry point for the Tauri host::
 
@@ -433,8 +434,8 @@ def main() -> None:
     sys.exit(EXIT_BAD_ARGS)
 
 
-def _construct_app_with_diagnostics() -> VoiceTyperApp:
-    """The SINGLE ``VoiceTyperApp()`` construction site.
+def _construct_app_with_diagnostics() -> LausuApp:
+    """The SINGLE ``LausuApp()`` construction site.
 
     Called from exactly two launch-order branches (``main``'s default
     build-then-serve path and the early server-started ws-startup
@@ -445,7 +446,7 @@ def _construct_app_with_diagnostics() -> VoiceTyperApp:
     before any heavy import.
 
     Failure semantics (identical for both callers): log the full
-    ``[FATAL] VoiceTyperApp() construction failed`` traceback, write
+    ``[FATAL] LausuApp() construction failed`` traceback, write
     the ``construction`` startup diagnostic (the io.StringIO →
     traceback → _redact_text → _secure_atomic_write → /tmp-fallback
     pattern encapsulated in ``ipc_diagnostics`` so the
@@ -454,12 +455,12 @@ def _construct_app_with_diagnostics() -> VoiceTyperApp:
     semantics (``sys.exit`` on the main path, ``os._exit`` on the
     daemon thread).
     """
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
     try:
-        return VoiceTyperApp()
+        return LausuApp()
     except BaseException:
-        log.exception("[FATAL] VoiceTyperApp() construction failed")
+        log.exception("[FATAL] LausuApp() construction failed")
         try:
             from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
 
@@ -477,7 +478,7 @@ def _ws_startup_thread_main_early(server: IPCServer, mutex_handle) -> None:
     """Early server-started variant of the ws-startup thread body.
 
     Runs where :func:`_ws_startup_thread_main` runs (the ws-sidecar
-    startup daemon thread) but OWNS the ``VoiceTyperApp()`` construction
+    startup daemon thread) but OWNS the ``LausuApp()`` construction
     as well: in the early launch order ``main`` binds the WS listener
     (and emits ``server_started``) first, so the heavy construction —
     all builders, migration, and per-boot sweeps, proceeds here,
@@ -487,7 +488,7 @@ def _ws_startup_thread_main_early(server: IPCServer, mutex_handle) -> None:
 
     Sequence (order matters):
 
-    1. Construct ``VoiceTyperApp()`` (the deferred heavy work).
+    1. Construct ``LausuApp()`` (the deferred heavy work).
     2. Late-bind the real app into the pre-bound server: swap in the
        app, rebuild the service over it (the service constructed over
        the deferred placeholder was never used, every pre-bind
@@ -501,7 +502,7 @@ def _ws_startup_thread_main_early(server: IPCServer, mutex_handle) -> None:
        fail-fast wrapper) for ``app.start()``.
 
     Failure semantics mirror the main-path construction handler: a
-    crash logs the SAME ``[FATAL] VoiceTyperApp() construction failed``
+    crash logs the SAME ``[FATAL] LausuApp() construction failed``
     line, routes through ``write_startup_diagnostic("construction")``
     (identical phase label), and terminates the process with
     ``EXIT_CRASH``: via ``os._exit`` (this is a daemon thread;
@@ -524,9 +525,9 @@ def _ws_startup_thread_main_early(server: IPCServer, mutex_handle) -> None:
     # Late-bind the constructed app into the pre-bound server.
     app._mutex_handle = mutex_handle
     server.app = app
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    server.service = VoiceTyperService(app)
+    server.service = LausuService(app)
     server.start()
     server._early_bind_app_ready = True
     from voice_typer.server import sidecar_ws

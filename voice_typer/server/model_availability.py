@@ -21,9 +21,30 @@ def _snapshot_dir_name(repo_id: str) -> str:
     return f"models--{repo_id.replace('/', '--')}"
 
 
+def shared_hub_dir() -> Path:
+    """Shared HuggingFace hub dir (library-resolved, honoring env)."""
+    try:
+        from huggingface_hub import constants as _hf_constants
+
+        return Path(_hf_constants.HF_HUB_CACHE)
+    except Exception:
+        return Path.home() / ".cache" / "huggingface" / "hub"
+
+
+def app_hub_dir(config_dir: Path | str) -> Path:
+    """Legacy app-local hub dir (read-only fallback, never written)."""
+    return Path(config_dir) / "huggingface" / "hub"
+
+
+def snapshot_search_dirs(config_dir: Path | str, repo_id: str) -> list[Path]:
+    """Snapshot dirs to search, shared first then app-local fallback."""
+    leaf = _snapshot_dir_name(repo_id)
+    return [shared_hub_dir() / leaf, app_hub_dir(config_dir) / leaf]
+
+
 def snapshot_dir(config_dir: Path | str, repo_id: str) -> Path:
     """Canonical HF snapshot dir every consumer resolves identically."""
-    return Path(config_dir) / "huggingface" / "hub" / _snapshot_dir_name(repo_id)
+    return app_hub_dir(config_dir) / _snapshot_dir_name(repo_id)
 
 
 # Stored per key: (verdict, fingerprint, monotonic timestamp).
@@ -87,7 +108,7 @@ def is_available(
 ) -> bool:
     """Authoritative "is this repo fully on disk?" verdict."""
     cfg = Path(config_dir)
-    watch = [snapshot_dir(cfg, repo_id)]
+    watch = snapshot_search_dirs(cfg, repo_id)
     for extra in extra_watch_dirs or []:
         watch.append(Path(extra))
     key = (repo_id, str(cfg), tuple(str(d) for d in watch))

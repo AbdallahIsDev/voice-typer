@@ -242,7 +242,11 @@ def _hash_one_file(cache: dict[str, Any], repo_id: str, file_path: Path, relpath
 
 
 def hash_file_cached(repo_id: str, file_path: Path, relpath: str) -> str:
-    """Hash one file, reusing + updating the on-disk integrity cache."""
+    """Hash one file, reusing + updating the on-disk integrity cache.
+
+    Reporting-only helper for the failure-details path; it must never
+    gate a load decision (the verdict path always re-hashes bytes).
+    """
     cache = _load_integrity_cache()
     digest, dirty = _hash_one_file(cache, repo_id, file_path, relpath)
     if dirty:
@@ -309,10 +313,31 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     cache_dirty = False
 
     def _hash_with_cache(file_path: Path, relpath: str) -> str:
-        """Return the SHA-256 of file_path, using the cache when possible."""
+        # Verdict always reads bytes: mtime/size and the cache are
+        # forgeable, so a hit never decides pass/fail. Fresh digests
+        # still refresh the cache for the reporting-only details path.
         nonlocal cache_dirty
-        digest, dirty = _hash_one_file(cache, repo_id, file_path, relpath)
-        if dirty:
+        try:
+            st = file_path.stat()
+            mtime_ns = st.st_mtime_ns
+            size = st.st_size
+        except OSError:
+            return _security_pkg().compute_file_sha256(file_path)
+        digest = _security_pkg().compute_file_sha256(file_path)
+        repos = cache.setdefault("repos", {})
+        repo_entries = repos.setdefault(repo_id, {})
+        entry = repo_entries.get(relpath)
+        if (
+            not isinstance(entry, dict)
+            or entry.get("mtime_ns") != mtime_ns
+            or entry.get("size") != size
+            or entry.get("sha256") != digest
+        ):
+            repo_entries[relpath] = {
+                "mtime_ns": mtime_ns,
+                "size": size,
+                "sha256": digest,
+            }
             cache_dirty = True
             with _integrity_cache_lock:
                 _save_integrity_cache(cache)

@@ -106,7 +106,7 @@ def _public_config_field_names() -> frozenset[str]:
 # Env-var NAMES are public (documented in docs, ADRs, source code, and
 _PUBLIC_ENV_VAR_NAMES: frozenset[str] = frozenset(
     {
-        # Voice Typer config / runtime
+        # Lausu config / runtime
         "VOICE_TYPER_CONFIG_DIR",
         _IPC_TOKEN_ENV_VAR,  # imported from _paths to avoid bare literal
         "VOICE_TYPER_NATIVE_DIR",
@@ -441,7 +441,7 @@ def _redact_home_path(path: str | os.PathLike[str]) -> str:
     filesystem paths embedded in the diagnostic bundle
         (``sentinel_path``, ``pid_file_path``, ``bundle_path``) leak the
         OS username via the home-directory prefix
-        (e.g. ``/Users/alice/.voice-typer/…`` on macOS,
+        (e.g. ``/Users/alice/.lausu/…`` on macOS,
         ``C:\\Users\\alice\\…`` on Windows, ``/home/alice/…`` on Linux).
         Replacing the home prefix with ``~`` preserves the path structure
         (so support engineers can still see "this is under the config
@@ -557,9 +557,9 @@ def _redact_home_path_in_text(text: str) -> str:
     when the *entire* input string is a single filesystem path under the
     home dir (it checks ``s.startswith(home)``).  Log messages, by
     contrast, embed paths inside larger sentences (e.g.
-    ``"Opening log file: /home/alice/.voice-typer/foo.log"``), so the
+    ``"Opening log file: /home/alice/.lausu/foo.log"``), so the
     whole-string check returns the input unchanged and the OS username
-    leaks to ``voice-typer.log``.
+    leaks to ``lausu.log``.
 
     This helper scans *text* for substrings that start with the home
     directory followed by a path separator and applies
@@ -810,7 +810,7 @@ def redact_pii(text: str) -> str:
         (via :func:`voice_typer.server._secrets.redact_url`)
 
     The home-path redaction runs FIRST (mirroring :func:`_redact_text`)
-    so a bare path like ``/home/alice/.voice-typer/foo.log`` is
+    so a bare path like ``/home/alice/.lausu/foo.log`` is
     sanitised before any of the pattern substitutions see it. This
     closes a PII leak in the cloud-LLM call path (``llm_polish.py``),
     the hallucination filter, the config sanitizer, and the diagnostic

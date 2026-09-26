@@ -54,16 +54,16 @@ LOG_SUBDIR = "logs"
 
 # Legacy pre-O1 log files that once lived directly in the config dir.
 _LEGACY_LOG_NAMES: tuple[str, ...] = (
-    "voice-typer.log",
+    "lausu.log",
     "prewarm.log",
     "worker.log",
     "startup-error.log",
-    "voice-typer-crash-buffer.log",
+    "lausu-crash-buffer.log",
 )
 _LEGACY_LOG_GLOBS: tuple[str, ...] = (
-    "voice-typer.log.*",  # legacy main-process rotations
+    "lausu.log.*",  # legacy main-process rotations
     "prewarm.log.*",  # legacy prewarm rotations
-    "voice-typer-prewarm.log.*",  # legacy prewarm rotations (file no longer created)
+    "lausu-prewarm.log.*",  # legacy prewarm rotations (file no longer created)
 )
 
 
@@ -123,16 +123,16 @@ def _sweep_stale_logs(config_dir: Path) -> None:
         never mid-session.
 
     Runs at the TOP of :func:`setup_logging`: BEFORE the rotating file
-     handler opens ``voice-typer.log``, so the active file itself can be
+     handler opens ``lausu.log``, so the active file itself can be
     deleted when stale/oversized and a fresh one is created for the new
     session ("cleans everything up and starts fresh").
 
     Scope: every regular file in ``logs/`` EXCEPT the inter-process
     truncation lock files (``*.lock``), they must persist across setups
     so the next process can acquire the flock. This covers Python-owned
-    logs (``voice-typer.log``, ``worker.log``, ``prewarm.log``,
-    ``startup-error.log``, ``voice-typer-crash-buffer.log``) AND the
-    host-owned logs (``voice-typer-rust.log`` + rotations, plus any
+    logs (``lausu.log``, ``worker.log``, ``prewarm.log``,
+    ``startup-error.log``, ``lausu-crash-buffer.log``) AND the
+    host-owned logs (``lausu-rust.log`` + rotations, plus any
     legacy host log files still on disk). Files locked by another live
     process (e.g. the Rust host's logs in dev mode, where the host
     started first) fail the unlink, skipped silently; their owner
@@ -199,11 +199,11 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
 
     Routing table:
 
-    - ``"main"`` (default) and any unrecognised value → ``voice-typer.log``
+    - ``"main"`` (default) and any unrecognised value → ``lausu.log``
     - ``"prewarm"`` → ``prewarm.log``
     - ``"worker"`` → ``worker.log`` (the runtime-pack WebSocket worker
       spawned by the Tauri host; without this case it would fall
-      through to ``voice-typer.log`` and race the slim-core sidecar's
+      through to ``lausu.log`` and race the slim-core sidecar's
       rotation, the same race that motivated the ``prewarm`` case).
 
     Parameters
@@ -222,7 +222,7 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     Returns
     -------
     Path
-        ``<config_dir>/logs/voice-typer.log`` / ``<config_dir>/logs/prewarm.log`` /
+        ``<config_dir>/logs/lausu.log`` / ``<config_dir>/logs/prewarm.log`` /
         ``<config_dir>/logs/worker.log``.  The path may not yet exist on disk —
         callers should check ``.exists()`` before opening.
     """
@@ -237,7 +237,7 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     if process_name == "worker":
         # Single-file policy: the runtime-pack WebSocket worker
         return logs_dir / "worker.log"
-    return logs_dir / "voice-typer.log"
+    return logs_dir / "lausu.log"
 
 
 def _json_logging_enabled() -> bool:
@@ -416,7 +416,7 @@ def setup_logging(
     port_mode: bool = False,
     process_name: str = "main",
 ) -> str:
-    """Configure Voice Typer logging, rotating file + optional coloured console.
+    """Configure Lausu logging, rotating file + optional coloured console.
 
     Call this **once** at process startup, before any subsystem logs.
     It is safe to call multiple times (subsequent calls are idempotent).
@@ -444,14 +444,14 @@ def setup_logging(
     process_name:
         Routes the rotating file handler to a per-process file so
         concurrent processes don't race on the same file.  ``"main"``
-        (default) → ``voice-typer.log``; ``"prewarm"`` → ``prewarm.log``;
+        (default) → ``lausu.log``; ``"prewarm"`` → ``prewarm.log``;
         ``"worker"`` → ``worker.log``.  The runtime-pack worker
         (``voice_typer/worker/__main__.py``) passes ``"worker"`` so it
         doesn't share a file descriptor with the slim-core sidecar
-        (both writing to ``voice-typer.log`` would race on the
+        (both writing to ``lausu.log`` would race on the
         ``_SecureTruncatingFileHandler``'s in-place truncation
         rotation).  An unrecognised value falls back to
-        ``voice-typer.log``.
+        ``lausu.log``.
 
     Returns
     -------

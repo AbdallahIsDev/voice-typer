@@ -19,7 +19,7 @@ class ServiceMixinBase:
       ``_onboarding``, None)`` defensive reads in ``onboarding.py``
     """
 
-    # Provided at runtime by VoiceTyperService.__init__ via
+    # Provided at runtime by LausuService.__init__ via
     _app: AppProtocol
     _config_applier: ConfigApplier
     _download_cancel_lock: threading.Lock

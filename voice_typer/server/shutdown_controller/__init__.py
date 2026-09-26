@@ -1,6 +1,6 @@
-"""god-class decomposition: ShutdownController, extracted from VoiceTyperApp.
+"""god-class decomposition: ShutdownController, extracted from LausuApp.
 
-Owns the entire shutdown / cleanup lifecycle of ``VoiceTyperApp``:
+Owns the entire shutdown / cleanup lifecycle of ``LausuApp``:
 
     - ``_do_cleanup``: the shared, idempotent cleanup body invoked by
       ``quit()``, ``restart_app()``, and ``_atexit_cleanup()``. 30+
@@ -20,9 +20,9 @@ Owns the entire shutdown / cleanup lifecycle of ``VoiceTyperApp``:
       when the console window closes, and triggers ``quit()`` on
       Ctrl+C / logoff / shutdown.
 
-Previously all of this lived on ``VoiceTyperApp`` as ~480 LOC across 7
+Previously all of this lived on ``LausuApp`` as ~480 LOC across 7
 methods. The behaviour is preserved verbatim, only the class boundary
-moved. ``VoiceTyperApp`` keeps thin delegate methods (``app.quit()``,
+moved. ``LausuApp`` keeps thin delegate methods (``app.quit()``,
 ``app._do_cleanup()``, ``app._atexit_cleanup()``, etc.) for back-compat
 with callers (``app.start()`` registers the atexit handlers, tray menu
 callbacks invoke ``quit_app`` which calls ``quit``, tests call
@@ -42,13 +42,13 @@ than being captured at import time.
 
 A note on the delegate indirection for ``_do_cleanup``: ``quit`` and
 ``_atexit_cleanup`` deliberately call ``self._app._do_cleanup()``
-(the delegate on ``VoiceTyperApp``) rather than ``self._do_cleanup()``
+(the delegate on ``LausuApp``) rather than ``self._do_cleanup()``
 (the body on ``ShutdownController`` itself). This is so test spies
 that ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still intercept
 the call: see ``tests/test_app_cleanup.py::TestQuitAppUsesSharedCleanup::
 test_quit_calls_do_cleanup`` and
 ``TestAtexitCleanupSafetyNet::test_atexit_cleanup_never_raises``.
-``restart_app`` (which stays on ``VoiceTyperApp``) also calls
+``restart_app`` (which stays on ``LausuApp``) also calls
 ``self._do_cleanup()`` (the delegate) for the same reason.
 
 Package layout (this module is the compatibility facade):

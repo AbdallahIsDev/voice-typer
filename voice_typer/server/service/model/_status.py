@@ -34,18 +34,14 @@ class StatusMixin:
         status: dict[str, object] = {}
 
         # Whisper models. Check ALL models from the registry, using
-        from voice_typer.server.model_registry import MODEL_REGISTRY, get_model_metadata
-
-        cache_dir = os.path.join(str(_config_dir()), "huggingface", "hub")
-        # Stat the cache_dir ROOT once (hoisted above the per-model checks).
-        cache_dir_exists = os.path.isdir(cache_dir)
         # PARTIAL-DOWNLOAD HONESTY: the completeness answer comes from the
         from voice_typer.server import model_availability
+        from voice_typer.server.model_registry import MODEL_REGISTRY, get_model_metadata
 
         for meta in MODEL_REGISTRY.values():
             if meta.backend not in ("whisper", "distil-whisper"):
                 continue
-            downloaded = cache_dir_exists and model_availability.is_available(meta.repo_id, _config_dir())
+            downloaded = model_availability.is_available(meta.repo_id, _config_dir())
             status[meta.name] = {
                 "downloaded": downloaded,
             }
@@ -55,7 +51,7 @@ class StatusMixin:
         qwen_meta = get_model_metadata("qwen")
         if qwen_meta is not None:
             # The loader's own local-only snapshot probe (honest answer
-            qwen_in_cache = cache_dir_exists and model_availability.is_available(qwen_meta.repo_id, _config_dir())
+            qwen_in_cache = model_availability.is_available(qwen_meta.repo_id, _config_dir())
         else:
             qwen_in_cache = False
         status["qwen"] = {
@@ -68,9 +64,7 @@ class StatusMixin:
         parakeet_path = getattr(config, "parakeet_model_path", None)
         parakeet_meta = get_model_metadata("parakeet")
         if parakeet_meta is not None:
-            parakeet_in_cache = cache_dir_exists and model_availability.is_available(
-                parakeet_meta.repo_id, _config_dir()
-            )
+            parakeet_in_cache = model_availability.is_available(parakeet_meta.repo_id, _config_dir())
         else:
             parakeet_in_cache = False
         status["parakeet"] = {

@@ -428,9 +428,10 @@ def stop_test_recording() -> dict:
     with _state._monitor_lock:
         was_active = _state._test_mode
         sr = _state._monitor_sample_rate
-        # Snapshot the three test-chunk buffers:
-        raw_chunks = list(_state._test_raw_chunks)
-        filtered_chunks = list(_state._test_filtered_chunks)
+        # Snapshot COPIES: the handed-off deques are zeroed in place by the
+        # background secure-clear below, so downstream reads need owned data.
+        raw_chunks = [np.array(c, copy=True) for c in _state._test_raw_chunks]
+        filtered_chunks = [np.array(c, copy=True) for c in _state._test_filtered_chunks]
         filters = dict(_state._test_filters)
         # Dead ``list(_test_peak_history)`` expression removed
         rms_hist = list(_state._test_rms_history)

@@ -18,7 +18,7 @@ AsrBackendName = Literal["whisper", "qwen", "parakeet"]
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle (app.py constructs the
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 log = logging.getLogger("voice_typer.server.model_manager")
 
@@ -34,7 +34,7 @@ def _backend_for_model_size(model_size: str) -> AsrBackendName:
 
 class ChangeMixin:
     # Members provided by the composed ``ModelManager`` (manager.py):
-    _app: VoiceTyperApp
+    _app: LausuApp
     _registry: AsrBackendRegistry
     _model_change_lock: threading.RLock
     _pending_model_change: str | None

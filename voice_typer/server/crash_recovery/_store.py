@@ -142,7 +142,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         startup daemon thread) is the PRIMARY load site for recovery
         entries. ``_load()`` was moved here from ``__init__`` so the
         synchronous disk read happens on the background thread rather
-        than blocking the main thread during ``VoiceTyperApp.__init__``.
+        than blocking the main thread during ``LausuApp.__init__``.
         The ``_loaded`` guard in ``_load()`` makes this a no-op if the
         entries were already loaded (e.g. by an earlier read-accessor
         lazy-load call).

@@ -5,12 +5,14 @@ from __future__ import annotations
 import logging
 import sys
 
+from voice_typer.server.branding import APP_NAME
+
 # Module-level logger. Same name as ``ipc_server.log`` so diagnostic
 _log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> None:
-    """``VoiceTyperApp()`` construction-failure block)."""
+    """``LausuApp()`` construction-failure block)."""
     import io
     import os
     import tempfile
@@ -26,7 +28,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
     buf = io.StringIO()
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     if phase == "construction":
-        buf.write(f"Voice Typer startup failed at {timestamp}\n")
+        buf.write(f"{APP_NAME} startup failed at {timestamp}\n")
         buf.write(f"sys.executable: {sys.executable}\n")
         # redact secret-bearing argv entries before dumping.
         redacted_argv = [redact_for_export(str(arg)) for arg in sys.argv]
@@ -66,7 +68,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         try:
             # the /tmp fallback must be (a) PII-redacted
             redacted_payload = redact_for_export(buf.getvalue())
-            tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
+            tmp = Path(tempfile.gettempdir()) / "lausu-startup-error.log"
             # ``os.O_NOFOLLOW`` is POSIX-only (absent on Windows). Use
             fd = os.open(
                 str(tmp),

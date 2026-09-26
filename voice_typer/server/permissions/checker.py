@@ -224,7 +224,7 @@ def request_microphone_permission_result(
             error = None
             instructions = (
                 "Open System Settings -> Privacy & Security -> Microphone and "
-                "enable Voice Typer. The consent dialog should appear automatically."
+                f"enable {_p.APP_NAME}. The consent dialog should appear automatically."
             )
         elif _p.is_linux():
             platform_name = "linux"

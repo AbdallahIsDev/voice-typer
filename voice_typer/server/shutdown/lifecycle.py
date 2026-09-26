@@ -69,7 +69,7 @@ def arm_shutdown_watchdog(
     controller: ShutdownController,
     timeout_s: float,
 ) -> None:
-    """Used by ``quit()`` (and ``restart_app()`` on the ``VoiceTyperApp``"""
+    """Used by ``quit()`` (and ``restart_app()`` on the ``LausuApp``"""
 
     cancel_event = threading.Event()
 

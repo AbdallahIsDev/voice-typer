@@ -6,6 +6,7 @@ import unicodedata
 from typing import cast
 
 from voice_typer.server import event_bus
+from voice_typer.server._paths import APP_RDNN_ROOT
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
@@ -29,7 +30,7 @@ def _has_control_chars(value) -> bool:
 def _enumerate_polkit_actions() -> list[str]:
     """Enumerate polkit actions for the app namespace via ``pkaction``.
 
-    The canonical action is ``com.voicetyper.install-permissions`` (defined in
+    The canonical action is ``com.Lausu.install-permissions`` (defined in
     scripts/linux/install_permissions.py); the filter below matches that namespace.
     Tolerant of missing/timeout/non-zero pkaction (warn + empty list).
     """
@@ -50,7 +51,9 @@ def _enumerate_polkit_actions() -> list[str]:
             result.returncode,
         )
         return []
-    return sorted({line.strip() for line in result.stdout.splitlines() if "voicetyper" in line.strip().lower()})
+    root = APP_RDNN_ROOT.lower()
+    matched = {line.strip() for line in result.stdout.splitlines() if root in line.strip().lower()}
+    return sorted(matched)
 
 
 def _polkit_check_authorization(action_id: str) -> str:
@@ -427,6 +430,7 @@ class SystemHandlersMixin(HandlerBase):
             )
             if error:
                 return error
+            assert validated is not None
             paused = validated["paused"]
             # update the canonical ownership state.
             from voice_typer.server.keyboard_ownership import keyboard_ownership

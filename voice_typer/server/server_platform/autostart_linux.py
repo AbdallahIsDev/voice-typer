@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 def _enable_autostart_linux() -> bool:
     autostart_dir = _autostart_mod.get_autostart_dir()
     autostart_dir.mkdir(parents=True, exist_ok=True)
-    desktop_path = autostart_dir / "voice-typer.desktop"
+    desktop_path = autostart_dir / "lausu.desktop"
 
     # _autostart_command() returns each space-containing argument already
     exec_field = _autostart_mod._autostart_command()
@@ -26,7 +26,7 @@ Type=Application
 Name={APP_NAME}
 Comment=Background voice-to-text utility
 Exec={exec_field}
-Icon=voice-typer
+Icon=lausu
 Hidden=false
 Terminal=false
 NoDisplay=true
@@ -41,7 +41,7 @@ NoDisplay=true
 
 
 def _disable_autostart_linux() -> bool:
-    desktop_path = _autostart_mod.get_autostart_dir() / "voice-typer.desktop"
+    desktop_path = _autostart_mod.get_autostart_dir() / "lausu.desktop"
     if desktop_path.exists():
         desktop_path.unlink()
     log.info("[CONFIG] Autostart disabled (Linux)")
@@ -113,7 +113,7 @@ def _desktop_exec_path_exists(desktop_path: Path) -> bool:
 
 def _is_autostart_linux() -> bool:
     """True if the .desktop entry exists AND its ``Exec=`` program"""
-    desktop_path = _autostart_mod.get_autostart_dir() / "voice-typer.desktop"
+    desktop_path = _autostart_mod.get_autostart_dir() / "lausu.desktop"
     if not desktop_path.exists():
         return False
     return _desktop_exec_path_exists(desktop_path)

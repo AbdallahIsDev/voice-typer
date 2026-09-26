@@ -101,7 +101,7 @@ class _SaveWorker:
 
         THREAD-REGISTRY: when a registry was provided to ``__init__``,
         the worker thread is registered so ``shutdown_all()`` can join
-        it during ``VoiceTyperApp.quit()``. We register with
+        it during ``LausuApp.quit()``. We register with
         ``stop_event=None`` because the existing ``shutdown()`` method
         handles the actual stop via the ``_stopped`` boolean + None
         sentinel on the queue. The registry's ``shutdown_all()`` just

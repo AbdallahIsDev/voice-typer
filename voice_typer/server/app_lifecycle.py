@@ -1,6 +1,6 @@
-"""Restart / quit / relaunch-ack lifecycle for VoiceTyperApp.
+"""Restart / quit / relaunch-ack lifecycle for LausuApp.
 
-Keeps thin delegates on VoiceTyperApp for tray/IPC/tests. Logger name is
+Keeps thin delegates on LausuApp for tray/IPC/tests. Logger name is
 ``voice_typer.server.app`` (caplog). Call sites use live module attrs so
 PERF-005: relaunch_ack wait short-circuits when no IPC server attached.
 """
@@ -71,7 +71,7 @@ class LifecycleController:
         sidecar WebSocket, then exits the current instance via the clean
         """
         app = self._app
-        # re-entry guard (mirror the delegate on VoiceTyperApp
+        # re-entry guard (mirror the delegate on LausuApp
         if app._shutting_down_event.is_set():
             log.debug("[RESTART] ignoring duplicate restart_app call (already shutting down)")
             return

@@ -7,6 +7,7 @@ import os
 import re
 from typing import Any
 
+from voice_typer.server._paths import APP_SLUG
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 
 log = logging.getLogger(__name__)
@@ -160,8 +161,7 @@ class WinVolumeBackend(VolumeBackend):
                 # Substring match covers: voice_typer.exe (dev mode
                 if (
                     "voice_typer" in proc_name
-                    or "voice-typer" in proc_name
-                    or "voicetyper" in proc_name
+                    or APP_SLUG in proc_name
                     or proc_name in ("python", "python3", "pythonw", "pythonw.exe")
                     or re.match(r"^python\d+(\.\d+)*(\.exe)?$", proc_name)
                 ):

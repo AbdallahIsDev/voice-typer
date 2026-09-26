@@ -30,11 +30,11 @@ def _a11y_regrant_message(bundle_id: str | None) -> str:
 
     if bundle_id:
         return (
-            "Voice Typer was updated. Accessibility permission may "
+            f"{APP_NAME} was updated. Accessibility permission may "
             f"need to be re-granted. Run: {tccutil_reset_command_str('Accessibility', bundle_id)}"
         )
     return (
-        "Voice Typer was updated. Accessibility permission may "
+        f"{APP_NAME} was updated. Accessibility permission may "
         "need to be re-granted. Open System Settings "
         "-> Privacy & Security -> Accessibility to re-grant."
     )
@@ -237,12 +237,52 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
         return {"checked": False, "reason": "error"}
 
 
+def check_media_extractor_refresh(app: AppProtocol, shutdown_event: threading.Event | None = None) -> dict:
+    """Launch-time CHECK-ONLY freshness probe for the media extractor (ADR-0023).
+
+    Compares the installed yt-dlp / solver versions against the published
+    ``media-extractor.json`` manifest and persists the result. It NEVER
+    downloads or installs anything: the offline pack stays the heavy
+    software boundary and the user-initiated update path owns installs.
+    Runs fire-and-forget on a daemon thread; best-effort, never raises.
+    """
+    _ = app  # state is advisory metadata, nothing on the app is mutated
+    try:
+        if shutdown_event is not None and shutdown_event.is_set():
+            return {"checked": False, "reason": "shutdown"}
+        from voice_typer.server.media_ingest import mini_update as _mini_update
+
+        state = _mini_update.check_refresh()
+        if state.update_available:
+            log.info(
+                "[MEDIA] extractor refresh available: yt-dlp %s -> %s, solver %s -> %s (check-only; user-installed)",
+                state.backend_version,
+                state.remote_backend_version,
+                state.solver_version,
+                state.remote_solver_version,
+            )
+        else:
+            log.info(
+                "[MEDIA] extractor freshness check complete (yt-dlp=%s solver=%s, no update)",
+                state.backend_version,
+                state.solver_version,
+            )
+        return {
+            "checked": True,
+            "update_available": state.update_available,
+            "checked_at": state.checked_at,
+        }
+    except Exception:  # noqa: BLE001
+        log.debug("[MEDIA] launch-time extractor refresh check failed (best-effort)", exc_info=True)
+        return {"checked": False, "reason": "error"}
+
+
 def ensure_desktop_shortcut(app: AppProtocol) -> None:
     """Create the Desktop + Start Menu shortcuts on first run."""
     if not is_windows():
         return
     desktop = Path.home() / "Desktop"
-    legacy_bat = desktop / "Voice Typer.bat"
+    legacy_bat = desktop / "Lausu.bat"
 
     # 1. Migrate: remove the legacy backend-only .bat so the broken
     try:
@@ -589,7 +629,7 @@ def reset_onboarding_complete(
         canonical :func:`voice_typer.server.config._config_dir`).
         Used by tests to point at a tmp_path.
     app:
-        Optional :class:`voice_typer.server.app.VoiceTyperApp` instance.
+        Optional :class:`voice_typer.server.app.LausuApp` instance.
         When provided, the ``onboarding_completed`` flag is mutated on
         the live ``app.config`` object and persisted via
         ``app.config.save_strict()``: which acquires the config-mutation

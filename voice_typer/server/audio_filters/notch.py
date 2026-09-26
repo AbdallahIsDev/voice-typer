@@ -40,7 +40,7 @@ class NotchFilter(AudioFilter):
         """Auto-detect mains frequency. Returns 60.0 (Americas default).
 
         A future enhancement could check locale/timezone to pick 50 vs 60.
-        For now, default to 60 (most Voice Typer users are in the Americas).
+        For now, default to 60 (most Lausu users are in the Americas).
         Users in EU/Asia can set the frequency explicitly.
         """
         return 60.0

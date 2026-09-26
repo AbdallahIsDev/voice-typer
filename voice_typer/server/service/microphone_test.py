@@ -1,4 +1,4 @@
-"""Microphone-test / level-monitor domain mixin for VoiceTyperService."""
+"""Microphone-test / level-monitor domain mixin for LausuService."""
 
 import contextlib
 import logging

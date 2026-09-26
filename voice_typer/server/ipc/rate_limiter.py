@@ -74,6 +74,9 @@ COMMAND_COSTS: dict[str, int] = {
     "import_model": 20,
     "delete_model": 50,  # was 10, model delete spawns subprocess + fs writes
     "transcribe_offline": 10,  # forwards audio to worker for ASR inference
+    "media_transcribe_start": 10,  # ADR-0023: spawns a background ingest job
+    "media_transcribe_cancel": 1,  # ADR-0023: cooperative cancel flag
+    "media_transcribe_status": 1,  # ADR-0023: job snapshot read
     "check_offline_pack_update": 1,  # auto-update pack check, rare, network-bound
     "restart_app": 100,  # was 10, full process restart
     "quit_app": 100,  # was 5, full process teardown
@@ -133,6 +136,7 @@ COMMAND_COSTS: dict[str, int] = {
     "onboarding_skip": 1,
     "onboarding_start": 1,
     "open_prewarm_log": 1,  # RESTORED 2026-08-14 (About-page Cache Status card. See plan §6.3); launches OS editor
+    "open_data_folder": 1,  # Models storage card + Diagnostics button; launches OS file manager
     "run_prewarm": 10,  # RESTORED 2026-08-14 (§6.3 addendum 2nd half); warm pass reads ~200 MB
     "relaunch_ack": 1,
     "repaste_last": 1,

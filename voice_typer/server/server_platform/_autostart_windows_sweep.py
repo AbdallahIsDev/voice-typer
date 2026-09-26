@@ -8,6 +8,7 @@ import os
 import shlex
 from pathlib import Path
 
+from voice_typer.server._paths import APP_IDENTIFIER
 from voice_typer.server.server_platform import autostart as _autostart_mod
 
 log = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ def _entry_targets_this_install(value: str) -> bool:
 
 
 def _sweep_legacy_runkeys() -> list[str]:
-    """Remove legacy ``VoiceTyper*`` HKCU Run-key values for this install."""
+    """Remove legacy ``Lausu*`` HKCU Run-key values for this install."""
     from voice_typer.server.server_platform import autostart_windows as _aw
 
     try:
@@ -70,7 +71,7 @@ def _sweep_legacy_runkeys() -> list[str]:
                 break
             if (
                 isinstance(name, str)
-                and name.startswith("VoiceTyper")
+                and name.startswith(APP_IDENTIFIER)
                 and name != current_name
                 and isinstance(value, str)
                 and _entry_targets_this_install(value)
@@ -95,7 +96,7 @@ def _sweep_legacy_runkeys() -> list[str]:
 
 
 def _sweep_legacy_tasks() -> list[str] | None:
-    """Remove legacy ``VoiceTyperAutostart*`` scheduled tasks for this install."""
+    """Remove legacy ``LausuAutostart*`` scheduled tasks for this install."""
     from voice_typer.server.server_platform import autostart_windows as _aw
 
     if not _aw.is_windows():
@@ -112,7 +113,7 @@ def _sweep_legacy_tasks() -> list[str] | None:
     deleted: list[str] = []
     try:
         ps_cmd = (
-            "Get-ScheduledTask -TaskName 'VoiceTyperAutostart*' "
+            f"Get-ScheduledTask -TaskName '{APP_IDENTIFIER}Autostart*' "
             "-ErrorAction SilentlyContinue | "
             "ForEach-Object { Write-Output $_.TaskName }"
         )
@@ -141,7 +142,7 @@ def _sweep_legacy_tasks() -> list[str] | None:
             return None
         for line in (result.stdout or "").splitlines():
             name = line.strip()
-            if not name.startswith("VoiceTyperAutostart") or name == current_name:
+            if not name.startswith(f"{APP_IDENTIFIER}Autostart") or name == current_name:
                 continue
             rc, xml = task_scheduler._schtasks(["/Query", "/TN", name, "/XML"])
             if rc != 0:
@@ -164,7 +165,7 @@ def _sweep_legacy_tasks() -> list[str] | None:
 
 
 def _sweep_legacy_startup_bats() -> list[str]:
-    """Remove legacy ``VoiceTyper*.bat`` Startup-folder files for this install."""
+    """Remove legacy ``Lausu*.bat`` Startup-folder files for this install."""
     from voice_typer.server.server_platform import autostart_windows as _aw
 
     if not _aw.is_windows():
@@ -177,7 +178,7 @@ def _sweep_legacy_startup_bats() -> list[str]:
     if not autostart_dir.is_dir():
         return []
     deleted: list[str] = []
-    for bat_path in autostart_dir.glob("VoiceTyper*.bat"):
+    for bat_path in autostart_dir.glob(f"{APP_IDENTIFIER}*.bat"):
         if bat_path.name == current_name:
             continue
         try:

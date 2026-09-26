@@ -17,7 +17,7 @@ from voice_typer.server.text_cleanup import configure_corrections
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle described in the package
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
 # pre-split ``voice_typer.server.startup_sequence`` logger (same
 log = logging.getLogger("voice_typer.server.startup_sequence")
@@ -82,8 +82,8 @@ class StageResult:
 class EarlyPhases:
     """Phases 1-4 of the startup sequence (mixin for ``StartupSequence``)."""
 
-    # Back-reference to the owning ``VoiceTyperApp`` (assigned by
-    _app: VoiceTyperApp
+    # Back-reference to the owning ``LausuApp`` (assigned by
+    _app: LausuApp
 
     def _phase_1_init_and_vad_preload(self) -> StageResult:
         """Anchor the startup duration + preload Silero VAD."""
@@ -147,7 +147,7 @@ class EarlyPhases:
             crash_summary = _crash_handler.report_pending_crash(_startup_config_dir)
             if crash_summary:
                 if _previous_session_abnormal:
-                    # Log at WARNING so it appears prominently in voice-typer.log
+                    # Log at WARNING so it appears prominently in lausu.log
                     log.warning("[STARTUP] Previous session crashed! See log lines above for full diagnostics.")
                     # Genuine unexpected termination (no clean shutdown
                     _crash_body = (

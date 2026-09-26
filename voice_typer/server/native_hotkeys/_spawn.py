@@ -39,14 +39,14 @@ def _resolve_canonical_logs_dir() -> Path | None:
 
 
 def _legacy_home_logs_dir() -> Path | None:
-    """Return the pre-canonical ``~/.voice-typer/logs`` dir, or ``None``."""
+    """Return the pre-canonical ``~/.lausu/logs`` dir, or ``None``."""
     try:
         home = Path.home()
     except (RuntimeError, OSError):
         return None
     if not str(home) or str(home) == ".":
         return None
-    return home / ".voice-typer" / "logs"
+    return home / ".lausu" / "logs"
 
 
 def _sweep_legacy_per_pid_logs(keep: Path | None = None) -> None:

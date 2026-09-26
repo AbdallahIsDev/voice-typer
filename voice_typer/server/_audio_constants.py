@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
+
+# PERF-COLDSTART: `audio_filters` imports WHISPER_SAMPLE_RATE from here during
+# package import, so numpy must stay lazy (tests/test_audio_filters_lazy_imports.py).
+np = lazy_module("numpy")
 
 # Whisper models are trained on 16 kHz mono input. Every audio path
 WHISPER_SAMPLE_RATE: int = 16000

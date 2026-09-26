@@ -177,6 +177,8 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "cloud_groq_consent": (bool, _bool_validator),
     "cloud_deepgram_consent": (bool, _bool_validator),
     "voice_biometric_consent": (bool, _bool_validator),
+    # ADR-0023: consent to send media URLs to the yt-dlp extractor.
+    "media_url_consent": (bool, _bool_validator),
     # sound feedback toggle.
     "sound_feedback_enabled": (bool, _bool_validator),
     # Volume multiplier for the renderer's sound-feedback cues

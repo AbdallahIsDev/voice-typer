@@ -1,4 +1,4 @@
-"""Logging formatters for the Voice Typer logging framework."""
+"""Logging formatters for the Lausu logging framework."""
 
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ _TOPIC_COLOR: dict[str, str] = {
 _TOPIC_KEYWORDS: dict[str, list[str]] = {
     "PARAKEET": ["parakeet", "loading model", "model loaded", "loaded successfully"],
     "STARTUP": [
-        "voice typer starting",
+        "Lausu starting",
         "startup",
         "tray icon created",
         "tray event loop",
@@ -295,7 +295,7 @@ class _ColorFormatter(logging.Formatter):
 
 
 class _FileFormatter(logging.Formatter):
-    """Clean plain-text formatter for the ``voice-typer.log`` file.
+    """Clean plain-text formatter for the ``lausu.log`` file.
 
     The file always contains clean, plain text without any ANSI escape
     codes.  If you need coloured log output, use the terminal stderr

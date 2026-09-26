@@ -1,7 +1,7 @@
 """Tauri binary discovery, integrity verification and spawn.
 
 The Tauri path is the production launcher shape post-cutover: locate
-the native ``voice-typer-tauri`` binary at a well-known install path
+the native ``lausu-tauri`` binary at a well-known install path
 (or the ``VT_TAURI_BINARY`` env override), verify it against
 ``tauri-binaries.json`` (fail closed), then spawn it directly.
 """
@@ -44,17 +44,17 @@ def _client_dir_exists() -> bool:
 # Well-known install paths per OS, in DISCOVERY ORDER. Tokens:
 _TAURI_LAUNCHER_INSTALL_PATHS: dict[str, tuple[str, ...]] = {
     "windows": (
-        r"%LOCALAPPDATA%\Programs\{APP}\voice-typer-tauri.exe",
-        r"%PROGRAMFILES%\{APP}\voice-typer-tauri.exe",
+        r"%LOCALAPPDATA%\Programs\{APP}\lausu-tauri.exe",
+        r"%PROGRAMFILES%\{APP}\lausu-tauri.exe",
     ),
     "macos": (
-        "/Applications/{APP}.app/Contents/MacOS/voice-typer-tauri",
-        "{HOME}/Applications/{APP}.app/Contents/MacOS/voice-typer-tauri",
+        "/Applications/{APP}.app/Contents/MacOS/lausu-tauri",
+        "{HOME}/Applications/{APP}.app/Contents/MacOS/lausu-tauri",
     ),
     "linux": (
-        "/usr/bin/voice-typer-tauri",
-        "/usr/local/bin/voice-typer-tauri",
-        "{HOME}/.local/bin/voice-typer-tauri",
+        "/usr/bin/lausu-tauri",
+        "/usr/local/bin/lausu-tauri",
+        "{HOME}/.local/bin/lausu-tauri",
     ),
 }
 
@@ -80,10 +80,10 @@ def _expand_tauri_install_template(template: str) -> Path | None:
 
 
 def _tauri_binary() -> str | None:
-    """Return the path to the installed Voice Typer Tauri binary, or ``None``.
+    """Return the path to the installed Lausu Tauri binary, or ``None``.
 
     The Tauri cutover ships a native binary (built from
-    ``src-tauri/Cargo.toml`` → ``voice-typer-tauri``). This helper
+    ``src-tauri/Cargo.toml`` → ``lausu-tauri``). This helper
     locates that binary so the autostart launcher can spawn it directly
     at login; without it, autostart-at-login would silently break.
 
@@ -143,7 +143,7 @@ def _is_tauri_mode() -> bool:
       is set in the env (explicit opt-in by the Tauri Rust host before
       spawning the Python sidecar, or by the autostart registration
       when registering the launcher entry under a Tauri install), OR
-    - the basename of ``sys.executable`` contains ``voice-typer-tauri``
+    - the basename of ``sys.executable`` contains ``lausu-tauri``
       (we are already running inside the Tauri sidecar process), OR
     - a Tauri binary is found at a known install path.
     """
@@ -155,7 +155,7 @@ def _is_tauri_mode() -> bool:
         return True
     # also detect Tauri mode from sys.executable basename —
     exe_basename = os.path.basename(sys.executable).lower()
-    if "voice-typer-tauri" in exe_basename:
+    if "lausu-tauri" in exe_basename:
         return True
     # Tauri binary exists → Tauri mode.
     return _pkg._tauri_binary() is not None
@@ -179,7 +179,7 @@ def _tauri_manifest_path() -> Path | None:
     3. ``Path(__file__)`` parents chain (dev checkout: the canonical
        committed ``<repo-root>/tauri-binaries.json``, mirrors
        ``tests/test_tauri_binaries_manifest.py``).
-    4. ``~/.voice-typer/tauri-binaries.json`` installed copy, if ever
+    4. ``~/.lausu/tauri-binaries.json`` installed copy, if ever
        shipped.
 
     Returns ``None`` only after all miss; the caller
@@ -355,7 +355,7 @@ def verify_tauri_binary_or_skip(path: str | Path) -> bool:
 
 
 def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | None:
-    """Spawn the Tauri host binary (``voice-typer-tauri``) with ``VT_START_HIDDEN`` if *hidden*.
+    """Spawn the Tauri host binary (``lausu-tauri``) with ``VT_START_HIDDEN`` if *hidden*.
 
         The Tauri app's ``tauri-plugin-single-instance`` plugin (declared
         in ``src-tauri/tauri.conf.json``) handles the focus / fresh-start
@@ -395,7 +395,7 @@ def launch_tauri_frontend_standalone(binary: str, *, port: int, token: str) -> i
     """Spawn the Tauri host in STANDALONE adopted mode.
 
     Called from the backend's standalone-mode startup
-    (``ipc/entrypoint.py``): the user ran ``voice-typer`` from a
+    (``ipc/entrypoint.py``): the user ran ``lausu`` from a
     terminal, the backend picked a port + generated a token, and the
     frontend host must connect to US instead of spawning its own
     backend. The adopt contract is the env trio the launcher exports:

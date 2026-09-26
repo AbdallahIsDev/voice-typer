@@ -168,9 +168,11 @@ Offline-pack integrity (push, published by ``service/offline_pack.py``):
 Worker process lifecycle (push, published by the slim-core supervisor
 once the worker process spawns / crashes / unloads):
 
-* ``worker_started``: payload ``{pid:int, version:str}``. Worker
-  spawned + WS handshake done (prewarm NOT done yet, see
-  ``offline_pack_ready``).
+* ``worker_started``: payload ``{pid:int, version:str, port?:int}``.
+  Worker spawned + WS handshake done (prewarm NOT done yet, see
+  ``offline_pack_ready``). ``port`` is the host-relayed worker WS port
+  (ADR-0024 Step 2, always present on host-relayed frames, additive:
+  ``pid``/``version``-only readers keep working).
 * ``worker_crashed``: payload ``{pid:int, exit_code:int}``. Worker
   process exited non-zero (or killed by a signal); supervisor
   restarts with exponential backoff.

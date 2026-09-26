@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 VOCAB_FILENAME = "vocabulary.json"
-_LEGACY_VOCAB_FILENAME = "voice-typer-vocabulary.json"
+_LEGACY_VOCAB_FILENAME = "lausu-vocabulary.json"
 # single source of truth for the bundled corrections file path.
 BUNDLED_CORRECTIONS_PATH = Path(__file__).parent / "corrections.json"
 
@@ -244,9 +244,10 @@ class VocabularyManager:
 
     def _save_user(self) -> None:
         """Save only user vocabulary data (not bundled) to the user file."""
-        import time as _time
+        from voice_typer.server.retry import delay_for_attempt, sleep_interruptible
 
         max_retries = 3
+        save_delays = (0.05, 0.10)
         # track the final failure so we can raise after the
         final_exc: Exception | None = None
         for attempt in range(max_retries):
@@ -261,7 +262,7 @@ class VocabularyManager:
             except PermissionError as exc:
                 final_exc = exc
                 if attempt < max_retries - 1:
-                    backoff = 0.05 * (2**attempt)  # 50ms, 100ms, 200ms
+                    backoff = delay_for_attempt(save_delays, attempt)
                     log.warning(
                         "[VOCAB] PermissionError on save (attempt %d/%d), retrying in %.0fms: %s",
                         attempt + 1,
@@ -269,7 +270,7 @@ class VocabularyManager:
                         backoff * 1000,
                         exc,
                     )
-                    _time.sleep(backoff)
+                    sleep_interruptible(backoff)
                 else:
                     log.exception(
                         "[VOCAB] Failed to save user vocabulary after %d attempts: %s",
