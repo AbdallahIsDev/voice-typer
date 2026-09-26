@@ -52,7 +52,7 @@ def _parse_args(argv=None):
         type=str,
         default=None,
         metavar="PATH",
-        help="Use a custom config directory instead of ~/.voice-typer/",
+        help="Use a custom config directory instead of ~/.lausu/",
     )
     return parser.parse_args(argv)
 

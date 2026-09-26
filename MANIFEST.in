@@ -13,7 +13,7 @@ recursive-include voice_typer/server *.py
 
 # WR-19: include voice_typer/server/native/ data files (binaries.json +
 # linux-key-listener, linux-key-listener.c, macos-key-listener.swift,
-# windows-key-listener.c). Without these, `pip install voice-typer` from
+# windows-key-listener.c). Without these, `pip install lausu` from
 # sdist leaves native_hotkeys/binary_path.py and spec_parser.py unable
 # to locate or compile the listener at runtime.
 recursive-include voice_typer/server/native *
@@ -26,9 +26,9 @@ recursive-include voice_typer/server/native *
 # Phase 1a (companion §2.3.1): include the bundled Silero VAD ONNX
 # model, the new ORT backend's primary model file, loaded by
 # voice_typer/server/vad.py via onnxruntime.InferenceSession. Without
-# this, `pip install voice-typer` from sdist leaves VAD raising
+# this, `pip install lausu` from sdist leaves VAD raising
 # FileNotFoundError at first dictation. (Frozen builds via
-# voice-typer.spec and the build_sidecar_*.sh Nuitka invocations
+# lausu.spec and the build_sidecar_*.sh Nuitka invocations
 # must also include this file: see companion §2.3.1 for the full
 # packaging checklist; those edits are out of this slice's scope.)
 include voice_typer/server/silero_vad.onnx
@@ -39,7 +39,7 @@ include voice_typer/server/silero_vad.onnx
 # voice_typer/server/audio_filters/gtcrn_backend.py via
 # onnxruntime.InferenceSession for the "gtcrn" noise-suppression method
 # (selected by the noisy_room preset). Without this, `pip install
-# voice-typer` from sdist leaves the suppressor degrading to RNNoise
+# lausu` from sdist leaves the suppressor degrading to RNNoise
 # with an is_degraded warning. Zero network egress, the model ships
 # beside silero_vad.onnx and the frozen bundle's
 # --include-package-data=voice_typer.server picks it up (C-CI-9).
@@ -54,7 +54,7 @@ include voice_typer/server/gtcrn_simple.onnx
 # All three JSON files are read by voice_typer/server/ modules at
 # runtime (config_validators._load_reserved_data, security.verify_model_integrity,
 # text_cleanup.configure_corrections) and must be present in both the
-# sdist and the PyInstaller bundle (see scripts/build/voice-typer.spec).
+# sdist and the PyInstaller bundle (see scripts/build/lausu.spec).
 include voice_typer/server/corrections.json
 include voice_typer/server/hotkey_reserved.json
 include voice_typer/server/model_hashes.json

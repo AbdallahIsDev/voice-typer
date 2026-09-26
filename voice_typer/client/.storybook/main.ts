@@ -1,13 +1,13 @@
 // This file has been automatically migrated to valid ESM format by Storybook.
 
+import type { StorybookConfig } from "@storybook/react-vite";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { StorybookConfig } from "@storybook/react-vite";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Storybook 9 configuration for the voice-typer predecessor renderer.
+// Storybook 9 configuration for the lausu predecessor renderer.
 //
 // Note: `@storybook/addon-essentials` was merged into the `storybook`
 // core package in v9 (controls, actions, docs, viewport, highlight all

@@ -17,7 +17,7 @@ def __getattr__(name: str) -> Any:
         try:
             from importlib.metadata import version
 
-            v: str = version("voice-typer")
+            v: str = version("lausu")
         except Exception:
             # Package not installed (e.g. running from source checkout)
             # or importlib.metadata unavailable on this Python build.

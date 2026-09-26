@@ -62,7 +62,9 @@ function variantSvg(raw, chip, glyph) {
 		`<rect width="256" height="256" rx="48" fill="${chip}"/>`,
 	);
 	out = setGlyphFill(out, glyph);
-	if (!out.includes(`<rect width="256" height="256" rx="48" fill="${chip}"/>`)) {
+	if (
+		!out.includes(`<rect width="256" height="256" rx="48" fill="${chip}"/>`)
+	) {
 		throw new Error(
 			`variantSvg: chip fill not applied (${chip}), logo.svg's <rect> drifted; ` +
 				"update the rect regex",
@@ -97,7 +99,8 @@ function setGlyphFill(svg, fill) {
 /** The glyph <path> `d` from the canonical logo.svg. */
 function glyphPath(svg) {
 	const m = svg.match(/<path[^>]*\sd="([^"]+)"/);
-	if (!m) throw new Error("logo.svg: glyph <path> not found, cannot derive icons");
+	if (!m)
+		throw new Error("logo.svg: glyph <path> not found, cannot derive icons");
 	return m[1];
 }
 
@@ -167,7 +170,9 @@ function pngChunk(type, payload) {
  *  the zlib stream (pixels) is byte-identical — asserted below via an
  *  inflate comparison that throws on any pixel change. */
 function normalizePngContainer(filePath) {
-	const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+	const PNG_MAGIC = Buffer.from([
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+	]);
 	const data = readFileSync(filePath);
 	if (!data.subarray(0, 8).equals(PNG_MAGIC)) {
 		throw new Error(`normalizePngContainer: not a PNG file: ${filePath}`);
@@ -181,11 +186,14 @@ function normalizePngContainer(filePath) {
 		const type = data.subarray(off + 4, off + 8).toString("latin1");
 		const payload = data.subarray(off + 8, off + 8 + length);
 		if (off + 12 + length > data.length) {
-			throw new Error(`normalizePngContainer: truncated ${type} chunk in ${filePath}`);
+			throw new Error(
+				`normalizePngContainer: truncated ${type} chunk in ${filePath}`,
+			);
 		}
 		if (type === "IHDR") ihdr = Buffer.from(payload);
 		else if (type === "IDAT") idatParts.push(Buffer.from(payload));
-		else if (type !== "pHYs" && type !== "IEND") others.push({ type, payload: Buffer.from(payload) });
+		else if (type !== "pHYs" && type !== "IEND")
+			others.push({ type, payload: Buffer.from(payload) });
 		off += 12 + length;
 	}
 	if (ihdr === null || idatParts.length === 0) {
@@ -259,7 +267,7 @@ async function generateIcons(svg, label, suffix) {
 async function generateIco(pngPath, icoPath) {
 	const { execSync } = await import("node:child_process");
 	//previously this hardcoded a venv python path as the
-	// FIRST candidate (``~/.voice-typer/venv/Scripts/python.exe``) —
+	// FIRST candidate (``~/.lausu/venv/Scripts/python.exe``) —
 	// a path that almost never exists on a developer's machine (it
 	// only exists inside an installed app's bundled venv, not in a
 	// source checkout).  The order is now:
@@ -277,8 +285,8 @@ async function generateIco(pngPath, icoPath) {
 			: resolve(projectRoot, ".venv", "bin", "python");
 	const legacyAppVenvPython =
 		process.platform === "win32"
-			? resolve(os.homedir(), ".voice-typer", "venv", "Scripts", "python.exe")
-			: resolve(os.homedir(), ".voice-typer", "venv", "bin", "python3");
+			? resolve(os.homedir(), ".lausu", "venv", "Scripts", "python.exe")
+			: resolve(os.homedir(), ".lausu", "venv", "bin", "python3");
 	const candidates = [
 		projectVenvPython,
 		"python3",
@@ -380,13 +388,18 @@ async function generateTauriTrayIcons(tauriIconsDir) {
 	// fails loud instead of silently shipping uncolored states.)
 	const trayIconSize = 32;
 	for (const [stateName, color] of Object.entries(trayStateColors)) {
-		const coloredSvg = setGlyphFill(traySvg, `rgb(${color.r}, ${color.g}, ${color.b})`);
+		const coloredSvg = setGlyphFill(
+			traySvg,
+			`rgb(${color.r}, ${color.g}, ${color.b})`,
+		);
 		await sharp(Buffer.from(coloredSvg))
 			.resize(trayIconSize, trayIconSize)
 			.png()
 			.toFile(resolve(tauriTrayDir, `${stateName}.png`));
 	}
-	console.log("Created src-tauri/icons/tray/{idle,recording,transcribing,error}.png");
+	console.log(
+		"Created src-tauri/icons/tray/{idle,recording,transcribing,error}.png",
+	);
 
 	// macOS template icon (white glyph + alpha). The Rust host calls
 	// `.icon_as_template(true)` on macOS (gated by
@@ -411,7 +424,9 @@ async function generateTauriTrayIcons(tauriIconsDir) {
 		.resize(trayIconSize, trayIconSize)
 		.png()
 		.toFile(resolve(tauriTrayDir, "tray-mic-template.png"));
-	console.log("Created src-tauri/icons/tray/tray-mic-template.png (macOS template source)");
+	console.log(
+		"Created src-tauri/icons/tray/tray-mic-template.png (macOS template source)",
+	);
 }
 
 async function main() {
@@ -522,20 +537,33 @@ async function main() {
 	// (`src-tauri/theme-icons/icon-dark-512.png`, written below)
 	// following the OS theme (both currently identical).
 	mkdirSync(tauriIconsDir, { recursive: true });
-	await sharp(Buffer.from(lightSvg)).resize(32, 32).png()
+	await sharp(Buffer.from(lightSvg))
+		.resize(32, 32)
+		.png()
 		.toFile(resolve(tauriIconsDir, "32x32.png"));
-	await sharp(Buffer.from(lightSvg)).resize(128, 128).png()
+	await sharp(Buffer.from(lightSvg))
+		.resize(128, 128)
+		.png()
 		.toFile(resolve(tauriIconsDir, "128x128.png"));
-	await sharp(Buffer.from(lightSvg)).resize(256, 256).png()
+	await sharp(Buffer.from(lightSvg))
+		.resize(256, 256)
+		.png()
 		.toFile(resolve(tauriIconsDir, "128x128@2x.png"));
-	await sharp(Buffer.from(lightSvg)).resize(512, 512).png()
+	await sharp(Buffer.from(lightSvg))
+		.resize(512, 512)
+		.png()
 		.toFile(resolve(tauriIconsDir, "icon.png"));
 	// Canonicalize the four host icons to the (IHDR, IDAT, IEND)
 	// layout `tauri icon` emits (see normalizePngContainer): sharp
 	// adds pHYs + split IDATs, which would otherwise re-dirty these
 	// committed files on every build and break the icon-container
 	// guard tests.
-	for (const name of ["32x32.png", "128x128.png", "128x128@2x.png", "icon.png"]) {
+	for (const name of [
+		"32x32.png",
+		"128x128.png",
+		"128x128@2x.png",
+		"icon.png",
+	]) {
 		normalizePngContainer(resolve(tauriIconsDir, name));
 	}
 	console.log("Created src-tauri/icons/{32x32,128x128,128x128@2x,icon}.png");
@@ -547,7 +575,9 @@ async function main() {
 	// everything under `icons/` except the `bundle.icon` keep-set.
 	const themeIconsDir = resolve(projectRoot, "src-tauri", "theme-icons");
 	mkdirSync(themeIconsDir, { recursive: true });
-	await sharp(Buffer.from(darkSvg)).resize(512, 512).png()
+	await sharp(Buffer.from(darkSvg))
+		.resize(512, 512)
+		.png()
 		.toFile(resolve(themeIconsDir, "icon-dark-512.png"));
 	console.log("Created src-tauri/theme-icons/icon-dark-512.png");
 

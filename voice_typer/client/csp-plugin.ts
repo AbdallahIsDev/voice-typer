@@ -162,7 +162,7 @@ export function pickProdCsp(filePath: string): string {
  * Virtual-module IDs for the externalized locale-bootstrap script.
  *
  * WHY: index.html and bubble.html each ship an inline `<script>` that
- * reads `localStorage["voice-typer-ui-locale"]` and sets
+ * reads `localStorage["lausu-ui-locale"]` and sets
  * `document.documentElement.lang` (and, for bubble.html, `.dir`) BEFORE
  * React mounts, so screen readers announce first-paint content in the
  * correct language. The strict production CSP (`script-src 'self'`)
@@ -190,21 +190,21 @@ export function pickProdCsp(filePath: string): string {
  * In dev, the inline script is left in place, `CSP_DEV` allows
  * `'unsafe-inline'` for script-src so it runs as-is.
  */
-const LOCALE_VIRTUAL_ID_MAIN = "virtual:voice-typer-locale-bootstrap-main";
-const LOCALE_VIRTUAL_ID_BUBBLE = "virtual:voice-typer-locale-bootstrap-bubble";
+const LOCALE_VIRTUAL_ID_MAIN = "virtual:lausu-locale-bootstrap-main";
+const LOCALE_VIRTUAL_ID_BUBBLE = "virtual:lausu-locale-bootstrap-bubble";
 const LOCALE_RESOLVED_MAIN = `\0${LOCALE_VIRTUAL_ID_MAIN}`;
 const LOCALE_RESOLVED_BUBBLE = `\0${LOCALE_VIRTUAL_ID_BUBBLE}`;
 
 /**
  * Match the inline locale-detection `<script>` block in index.html /
- * bubble.html. The block is identified by the `voice-typer-ui-locale`
+ * bubble.html. The block is identified by the `lausu-ui-locale`
  * localStorage key (which is unique to this script in the HTML) inside
  * a bare `<script>` tag (no `src`, no `type`, so we don't accidentally
  * match the `<script type="module">` blocks that Vite processes
  * separately). Non-greedy capture so we stop at the first `</script>`.
  */
 const INLINE_LOCALE_SCRIPT_RE =
-	/<script>([\s\S]*?voice-typer-ui-locale[\s\S]*?)<\/script>/;
+	/<script>([\s\S]*?lausu-ui-locale[\s\S]*?)<\/script>/;
 
 /**
  * Vite plugin that rewrites the CSP meta tag in index.html / bubble.html
@@ -221,7 +221,7 @@ export function cspEmissionPlugin(): Plugin {
 	// builds of index.html + bubble.html don't clobber each other.
 	const extractedLocaleCode = new Map<string, string>();
 	return {
-		name: "voice-typer:csp-emission",
+		name: "lausu:csp-emission",
 		// Run in both serve and build so dev gets the permissive CSP and prod
 		// gets the strict CSP.
 		apply: () => true,

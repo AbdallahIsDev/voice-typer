@@ -1,4 +1,4 @@
-# Pre-commit hooks for Voice Typer
+# Pre-commit hooks for Lausu
 #
 # Hook installation architecture (XS-34):
 #   Husky is the SOLE installer of git hooks. `npm install` in

@@ -25,7 +25,7 @@ environments = [
 ]
 
 [project]
-name = "voice-typer"
+name = "lausu"
 version = "1.0.0"
 description = "Background voice-to-text utility with system tray"
 requires-python = ">=3.10"
@@ -99,6 +99,23 @@ dependencies = [
     # The `>=1.10` floor matches the first release with the `sosfiltfilt`
     # `padtype='even'` fix we use in noise_suppressor.py.
     "scipy>=1.10,<2.0",
+    # ADR-0023: PyAV is imported directly by media_ingest/decoder.py (local
+    # + remote HTTP(S) decode to 16 kHz mono PCM). It was previously only a
+    # transitive dep of faster-whisper; the direct import must be declared.
+    # The <19 cap guards against PyAV's FFmpeg-major upgrade waves.
+    "av>=17,<19",
+    # ADR-0023: yt-dlp is the URL resolver/downloader for media ingest
+    # (~1000 sites). The >=2026.8.19 floor is the current release at
+    # adoption time; post-2025.11.12 YouTube support REQUIRES an external
+    # JS runtime (Deno preferred), wired via runtime.py + yt-dlp-ejs.
+    # No upper cap: extractor freshness is the product requirement
+    # (media_ingest/mini_update.py tracks remote freshness).
+    "yt-dlp>=2026.8.19",
+    # ADR-0023: yt-dlp-ejs provides the EJS solver scripts yt-dlp uses to
+    # satisfy YouTube's JS challenges on the external runtime. Wheels bundle
+    # meriyah (ISC) + astring (MIT), attribution lives in
+    # docs/THIRD_PARTY_NOTICES.md. Zero runtime deps of its own.
+    "yt-dlp-ejs>=0.8.0",
     # pyperclip is the cross-platform clipboard bridge used by
     # clipboard.py on Linux/BSD (Win/Mac use native ctypes calls instead).
     # The <2.0 cap guards against the upstream maintainer's announced 2.x
@@ -199,7 +216,7 @@ dependencies = [
     "huggingface_hub>=1.24.0,<2.0",
     # Volume ducking on Windows, pycaw wraps the Win32
     # IAudioSessionManager2 COM interface (used by WinVolumeBackend to
-    # duck other apps' audio while Voice Typer is dictating).
+    # duck other apps' audio while Lausu is dictating).
     # Lazy-imported in WinVolumeBackend, safe on other platforms.
     #
     # `<20240407` upper bound caps at the next yearly release
@@ -252,7 +269,7 @@ dependencies = [
     # NEW-XPLAT-004: pystray on macOS uses Cocoa (AppKit) via pyobjc.
     # Without pyobjc-framework-Cocoa installed, pystray.Icon() raises
     # ImportError at runtime and the tray silently fails.  Adding the
-    # explicit dep here so a fresh ``pip install voice-typer`` on
+    # explicit dep here so a fresh ``pip install lausu`` on
     # macOS gets a working tray out of the box.
     "pyobjc-framework-Cocoa>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
     "pyobjc-framework-Cocoa>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
@@ -268,7 +285,7 @@ dependencies = [
     # silently falls back to PermissionState.UNKNOWN, the user is never
     # told accessibility permission is missing until the native hotkey
     # listener fails at runtime. Adding the explicit dep makes the probe
-    # actually work on a fresh `pip install voice-typer[macos]`.
+    # actually work on a fresh `pip install lausu[macos]`.
     "pyobjc-framework-ApplicationServices>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
     "pyobjc-framework-ApplicationServices>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # ADR 0007: RNNoise is now a default dependency (was optional).
@@ -317,7 +334,7 @@ Issues = "https://github.com/AbdallahIsDev/voice-typer/issues"
 Changelog = "https://github.com/AbdallahIsDev/voice-typer/blob/main/CHANGELOG.md"
 
 [project.scripts]
-voice-typer = "voice_typer.server.ipc_server:main"
+lausu = "voice_typer.server.ipc_server:main"
 
 [project.optional-dependencies]
 # include modern test deps so CI is brittle-free.
@@ -357,7 +374,7 @@ test = [
     # passes ``-n auto`` explicitly (see .github/workflows/build.yml).
     "pytest-xdist>=3.5,<4",
 ]
-# PyInstaller spec file lives at scripts/build/voice-typer.spec
+# PyInstaller spec file lives at scripts/build/lausu.spec
 # but the tool itself wasn't declared. Make it an optional extra so
 # `pip install .[build]` produces a buildable environment.
 build = [

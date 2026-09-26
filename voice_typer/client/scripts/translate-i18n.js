@@ -83,7 +83,7 @@ const arMore = {
 	"about.privacyDescription": "كيف يتم التعامل مع صوتك وبياناتك.",
 	"about.audioProcessingTitle": "معالجة الصوت.",
 	"about.audioProcessingDesc":
-		"يقوم Voice Typer بمعالجة جميع البيانات الصوتية محليًا على جهازك. لا يغادر أي صوت جهازك إلا إذا قمت بتكوين خادم ASR سحابي بشكل صريح (OpenAI/Groq/Deepgram).",
+		"يقوم Lausu بمعالجة جميع البيانات الصوتية محليًا على جهازك. لا يغادر أي صوت جهازك إلا إذا قمت بتكوين خادم ASR سحابي بشكل صريح (OpenAI/Groq/Deepgram).",
 	"about.modelWeightsTitle": "أوزان النموذج.",
 	"about.modelWeightsDesc":
 		"يتم تنزيل أوزان نموذج ASR (مثل Whisper small.en، ~466 MB) من HuggingFace عند الاستخدام الأول. يكشف هذا التنزيل عنوان IP الخاص بك لـ HuggingFace (طرف ثالث أمريكي).",
@@ -92,13 +92,13 @@ const arMore = {
 		"إذا قمت بتكوين مفتاح API لـ OpenAI/Groq/Deepgram، يتم إرسال الصوت إلى هذا المزود للنسخ. تنطبق سياسة خصوصية المزود على الصوت المرسل.",
 	"about.voiceBiometricsTitle": "القياسات الحيوية الصوتية.",
 	"about.voiceBiometricsDesc":
-		"قد تعتبر تسجيلاتك الصوتية بيانات بيومترية بموجب BIPA إلينوي والمادة 9 من اللائحة العامة لحماية البيانات. لا يقوم Voice Typer بتخزين الصوت الخام بعد اكتمال النسخ, فقط النص المنسوخ يتم الاحتفاظ به في قاعدة البيانات المحلية.",
+		"قد تعتبر تسجيلاتك الصوتية بيانات بيومترية بموجب BIPA إلينوي والمادة 9 من اللائحة العامة لحماية البيانات. لا يقوم Lausu بتخزين الصوت الخام بعد اكتمال النسخ, فقط النص المنسوخ يتم الاحتفاظ به في قاعدة البيانات المحلية.",
 	"about.localDataTitle": "البيانات المحلية.",
 	"about.localDataDesc":
 		"يتم تخزين الإعدادات والمفردات والقوالب والسجل في دليل ملف تعريف المستخدم الخاص بك ({configDir}). لا يتم إرسال أي تتبع أو تحليلات أو تقارير أعطال إلى أي مكان.",
 	"about.fullPrivacyPolicy": "سياسة الخصوصية الكاملة",
 	"about.updatesTitle": "التحديثات",
-	"about.updatesDescription": "تحقق من وجود إصدارات أحدث من Voice Typer.",
+	"about.updatesDescription": "تحقق من وجود إصدارات أحدث من Lausu.",
 	"about.installedVersion": "الإصدار المثبت",
 	"about.latestRelease": "أحدث إصدار",
 	"about.versionValue": "v{version}",
@@ -163,7 +163,7 @@ const arMore = {
 	"about.relativeTime.hoursAgo": "منذ {count} ساعة",
 	"about.relativeTime.daysAgo": "منذ {count} يوم",
 	"about.creditsTitle": "الاعتمادات والتراخيص",
-	"about.creditsDescription": "Voice Typer مبني على أكتاف العمالقة.",
+	"about.creditsDescription": "Lausu مبني على أكتاف العمالقة.",
 	"about.creditsAuthorsLabel": "المؤلفون",
 	"about.creditsAuthorsValue": "AbdallahIsDev والمساهمون",
 	"about.creditsFontsLabel": "الخطوط",
@@ -179,7 +179,7 @@ const arMore = {
 	"settings.hotkey": "المفتاح السريع",
 	"settings.hotkeyDescription": "اختصار لوحة المفاتيح لبدء/إيقاف الإملاء",
 	"settings.autostart": "بدء التشغيل مع تسجيل الدخول",
-	"settings.autostartDescription": "تشغيل Voice Typer عند تسجيل الدخول",
+	"settings.autostartDescription": "تشغيل Lausu عند تسجيل الدخول",
 	"settings.pasteOnStop": "لصق عند التوقف",
 	"settings.pasteOnStopDescription": "لصق النص المنسوخ تلقائياً بعد التسجيل",
 	"settings.showNotifications": "إظهار الإشعارات",
@@ -276,13 +276,13 @@ const arMore = {
 	"settings.presetEmail": "بريد إلكتروني",
 	"settings.presetCode": "كود",
 	"settings.appLanguage": "لغة التطبيق",
-	"settings.appLanguageDescription": "اختر لغة واجهة Voice Typer.",
+	"settings.appLanguageDescription": "اختر لغة واجهة Lausu.",
 	"settings.transcriptionLanguage": "لغة النسخ",
 	"settings.transcriptionLanguageDescription":
 		"الكشف التلقائي عن اللغة المنطوقة، أو اختر واحدة لدقة أفضل.",
 	"settings.launchAtLogin": "التشغيل عند تسجيل الدخول",
 	"settings.launchAtLoginDescription":
-		"بدء Voice Typer تلقائياً عند تسجيل الدخول إلى Windows.",
+		"بدء Lausu تلقائياً عند تسجيل الدخول إلى Windows.",
 	"settings.fastStartup": "بدء سريع (تشغيل مسبق)",
 	"settings.fastStartupDescription":
 		"تسخين ذاكرة التخزين المؤقت لنظام الملفات عند بدء التشغيل بحيث يتم تحميل نموذج الكلام في ثوانٍ بدلاً من 30+ ثانية. قم بتعطيله إذا كنت بحاجة إلى مساحة القرص/الذاكرة لتطبيقات أخرى. يمكنك التسخين عند الطلب من صفحة حول.",
@@ -291,9 +291,9 @@ const arMore = {
 		"عرض إشعار سطح المكتب عند اكتمال النسخ أو حدوث خطأ.",
 	"settings.trayClick": "نقر علبة النظام",
 	"settings.trayClickDescription":
-		"ماذا يحدث عند النقر يساراً على أيقونة Voice Typer في علبة النظام.",
+		"ماذا يحدث عند النقر يساراً على أيقونة Lausu في علبة النظام.",
 	"settings.generalDescription":
-		"تكوين كيفية بدء Voice Typer، وسلوكه عند تسجيل الدخول، وتفاعله مع نظامك.",
+		"تكوين كيفية بدء Lausu، وسلوكه عند تسجيل الدخول، وتفاعله مع نظامك.",
 
 	// settings.overlay
 	"settings.overlay": "تراكب",
@@ -364,7 +364,7 @@ const arMore = {
 	"settings.bubblePositionBottom": "أسفل المنتصف",
 	"settings.bubbleBehaviorShowOnRecord": "الإظهار عند التسجيل",
 	"settings.bubbleBehaviorAlwaysVisible": "ظاهر دائمًا",
-	"settings.description": "ضبط Voice Typer حسب تفضيلاتك.",
+	"settings.description": "ضبط Lausu حسب تفضيلاتك.",
 	"settings.loading": "جاري تحميل الإعدادات…",
 	"settings.saving": "جاري الحفظ…",
 	"settings.autoSave": "حفظ تلقائي",
@@ -792,7 +792,7 @@ const arMore = {
 		"يسمح بتنزيل أوزان نموذج Whisper من huggingface.co.",
 	"settings.privacy.voiceBiometricLabel": "معالجة البيانات الصوتية البيومترية",
 	"settings.privacy.voiceBiometricInfoSearch":
-		"يسمح لـ Voice Typer بمعالجة تسجيلاتك الصوتية محلياً.",
+		"يسمح لـ Lausu بمعالجة تسجيلاتك الصوتية محلياً.",
 	"settings.privacy.openaiCloudAsrLabel": "OpenAI ASR سحابي",
 	"settings.privacy.openaiCloudAsrInfoSearch":
 		"يسمح بإرسال التسجيلات الصوتية إلى OpenAI Whisper API.",
@@ -810,7 +810,7 @@ const arMore = {
 	"settings.privacy.exportAllDataInfoSearch":
 		"تنزيل قوالبك وإعداداتك الكاملة كملفات JSON.",
 	"settings.privacy.consentBannerDesc":
-		"يقوم Voice Typer بمعالجة الصوت والنص والبيانات الوصفية محلياً بشكل افتراضي.",
+		"يقوم Lausu بمعالجة الصوت والنص والبيانات الوصفية محلياً بشكل افتراضي.",
 	"settings.privacy.huggingFaceItem":
 		"HuggingFace: تنزيل أوزان نموذج Whisper (يكشف عنوان IP الخاص بك لطرف ثالث أمريكي؛ الصوت لا يغادر جهازك أبداً).",
 	"settings.privacy.cloudAsrItem":
@@ -833,7 +833,7 @@ const arMore = {
 	"settings.privacy.voiceBiometricProcessing":
 		"معالجة البيانات الصوتية البيومترية",
 	"settings.privacy.voiceBiometricProcessingInfo":
-		"يسمح لـ Voice Typer بمعالجة تسجيلاتك الصوتية محلياً للنسخ.",
+		"يسمح لـ Lausu بمعالجة تسجيلاتك الصوتية محلياً للنسخ.",
 	"settings.privacy.voiceBiometricProcessingAria":
 		"موافقة معالجة البيانات الصوتية البيومترية",
 	"settings.privacy.openaiCloudAsr": "OpenAI ASR سحابي",

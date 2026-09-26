@@ -1,4 +1,4 @@
-# Voice Typer, top-level convenience Makefile.
+# Lausu, top-level convenience Makefile.
 #
 # This is a thin wrapper around the existing uv / pytest / npm commands
 # documented in CONTRIBUTING.md and AGENTS.md. It exists so a new
