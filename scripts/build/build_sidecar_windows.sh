@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka sidecar build (Windows x86_64 + aarch64)
+# Lausu. Nuitka sidecar build (Windows x86_64 + aarch64)
 # ADR-0020 §4.2. Nuitka freeze of voice_typer/server/ipc_server.py into
 # python-sidecar-<triple>.exe, using python-build-standalone as the base
 # interpreter.
@@ -28,7 +28,7 @@
 #     RELATIVE to the dist folder, absolute dests are silently ignored)
 #   - --include-dll=<SITE>/ctranslate2/lib/ctranslate2.dll
 #   - --windows-disable-console
-#   - --onefile-tempdir-spec={CACHE_DIR}/voice-typer/onefile-tmp
+#   - --onefile-tempdir-spec={CACHE_DIR}/lausu/onefile-tmp
 #
 # IMPORTANT: Nuitka does NOT auto-collect Intel MKL / OpenMP runtimes. If
 # libiomp5md.dll / mkl_*.dll / libgomp-*.dll are missing from the build env,
@@ -178,11 +178,18 @@ NUITKA_ARGS=(
     --include-package=ctranslate2
     --include-package=voice_typer
     --include-package=websockets
+    # ADR-0023 packaging: media ingest lazily imports yt_dlp / yt_dlp_ejs /
+    # av (decoder.py, downloader.py, subtitles.py, mini_update.py).
+    # av wheels bundle FFmpeg DLLs.
+    --include-package=yt_dlp
+    --include-package=yt_dlp_ejs
+    --include-package=av
+    --include-package-data=yt_dlp
     --include-package-data=voice_typer.server
     --include-data-dir="$CT2_DATA_DIR_SRC=$CT2_DATA_DIR_DEST"
     --include-dll="$CT2_DLL"
     --windows-disable-console
-    --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp"
+    --onefile-tempdir-spec="{CACHE_DIR}/lausu/onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$SIDECAR_DIR"
     "$PROJECT_ROOT/voice_typer/server/ipc_server.py"

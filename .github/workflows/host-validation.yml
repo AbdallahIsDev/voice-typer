@@ -290,7 +290,7 @@ jobs:
           mkdir -p host-validation/evidence
           python3 - <<'PY' | tee host-validation/evidence/s1-cr-146.txt
           import re, tomllib
-          tpl = open("src-tauri/voice-typer.desktop.template").read()
+          tpl = open("src-tauri/lausu.desktop.template").read()
           m = re.search(r"^StartupWMClass=(.+)$", tpl, re.M)
           wm = m.group(1).strip() if m else "<missing>"
           cargo = tomllib.load(open("src-tauri/Cargo.toml", "rb"))

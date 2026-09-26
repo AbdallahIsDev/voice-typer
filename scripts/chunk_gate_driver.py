@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path("/home/z/my-project/voice-typer")
+REPO = Path("/home/z/my-project/lausu")
 OUT = Path("/tmp/chunk_gate")
 PY = str(REPO / ".venv/bin/python")
 

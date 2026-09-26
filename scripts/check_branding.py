@@ -76,14 +76,14 @@ SKIP_DIRS = frozenset(
 # per-locale (e.g. hi.json carries a translated brand), a deliberate
 # i18n design exercised by the setLocale-propagation tests. These files
 # are therefore exempt from the hardcoded-name scan, which would
-# otherwise flag the `"name": "Voice Typer"` fallback spellings. The
+# otherwise flag the `"name": "Lausu"` fallback spellings. The
 # main-process locale files (`main/i18n/locales/*.json`) are NOT exempt:
 # they must use the `{appName}` placeholder.
 RENDERER_TRANSLATIONS_PREFIX = "voice_typer/client/src/renderer/src/i18n/translations"
 
 # ── Substring-in-literal scan scope (all client non-test .ts/.tsx) ──
 # The brand embedded INSIDE a longer string literal, e.g.
-# `tf("bubble.blockedIndicatorAria", "Voice Typer blocked indicator")` —
+# `tf("bubble.blockedIndicatorAria", "Lausu blocked indicator")` —
 # is the class of violation that shipped the hardcoded bubble aria
 # fallbacks: the standalone quoted-literal pattern below cannot see it
 # (the brand is followed by more text, not a closing quote).
@@ -111,12 +111,12 @@ _TEST_FILE_SUFFIXES = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
 # tauri.conf.json is read by Tauri BEFORE the app boots, at that point
 # no JS / Python / Rust code runs, so the branding constant (APP_NAME)
 # is NOT yet available. This file therefore LEGITIMATELY requires a
-# literal "Voice Typer" string in its `productName` and `title` fields
+# literal "Lausu" string in its `productName` and `title` fields
 # (Tauri uses productName for the bundle name + window titles).
 #
 # This is a narrow, documented exception to C-BRAND-1, it applies ONLY
 # to the `productName` and `title` keys in this file. Every other
-# literal "Voice Typer" reference (descriptions, paths,
+# literal "Lausu" reference (descriptions, paths,
 # identifier fields, comments) is still flagged. Adding a new build-
 # config file to this allowlist requires updating the audit trail in
 # worklog.md citing the field that legitimately needs the literal.
@@ -197,8 +197,8 @@ def _is_build_config_literal(rel_str: str, line: str) -> bool:
     yet available at config-parse time. This is the documented
     "build-config literal" exception to C-BRAND-1.
 
-    Matches both JSON (``"productName": "Voice Typer"``) and YAML
-    (``productName: Voice Typer`` or ``productName: "Voice Typer"``)
+    Matches both JSON (``"productName": "Lausu"``) and YAML
+    (``productName: Lausu`` or ``productName: "Lausu"``)
     forms. The optional surrounding quotes on the value handle both
     styles; the optional surrounding quotes on the key handle the JSON
     form (YAML keys are unquoted but the regex still matches because
@@ -213,7 +213,7 @@ def _is_build_config_literal(rel_str: str, line: str) -> bool:
     for key in _BUILD_CONFIG_LITERAL_KEYS:
         # Allow optional quotes around the key (JSON form) and around
         # the value (JSON or quoted-YAML form). The unquoted YAML form
-        # (``productName: Voice Typer``) is also matched because the
+        # (``productName: Lausu``) is also matched because the
         # closing quote / end-of-line both satisfy the optional quote.
         pattern = rf'["\']?{re.escape(key)}["\']?\s*:\s*["\']?{re.escape(APP_NAME)}["\']?'
         if re.search(pattern, line):
@@ -234,7 +234,7 @@ def _is_workflow_build_artifact(rel_str: str, line: str) -> bool:
 
     The pattern is anchored to the current ``APP_NAME`` value so a
     future rename keeps working (the artifact filenames are kept in
-    lockstep with ``productName``). Every OTHER ``Voice Typer``
+    lockstep with ``productName``). Every OTHER ``Lausu``
     reference in a workflow (toast titles, signtool descriptions,
     env values) is still flagged.
     """
@@ -328,7 +328,7 @@ def _read_rust_app_name() -> str | None:
     """Read ``APP_NAME`` from ``src-tauri/src/branding.rs``.
 
     the Rust host mirrors the Python ``branding.py::APP_NAME``
-        constant as ``pub const APP_NAME: &str = "Voice Typer";``. Return
+        constant as ``pub const APP_NAME: &str = "Lausu";``. Return
         the string literal value (or None if the file/constant is missing)
         so the cross-language parity check can compare it against the
         Python canonical value.
@@ -339,7 +339,7 @@ def _read_rust_app_name() -> str | None:
         rust_text = RUST_BRANDING_FILE.read_text(encoding="utf-8")
     except Exception:
         return None
-    # Match `pub const APP_NAME: &str = "Voice Typer";`
+    # Match `pub const APP_NAME: &str = "Lausu";`
     # (allow optional `pub(crate)` visibility + any whitespace).
     m = re.search(
         r'pub(?:\(crate\))?\s+const\s+APP_NAME\s*:\s*&str\s*=\s*"([^"]+)"',

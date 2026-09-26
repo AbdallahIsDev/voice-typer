@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka worker build (macOS x86_64 + aarch64)
+# Lausu. Nuitka worker build (macOS x86_64 + aarch64)
 #
 # Plan-runtime-pack-split §4.4 / §11.5, builds the runtime-pack worker exe
-# (voice-typer-worker-<triple>), the heavy-ML process that owns
+# (lausu-worker-<triple>), the heavy-ML process that owns
 # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
 # fallback) + numpy/scipy/av/pyrnnoise + the bundled silero_vad.onnx.
 # The slim-core sidecar connects to this worker via a localhost WebSocket
 # (master plan §7) and offloads all heavy inference to it.
 #
 # Output:
-#   src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
-#   src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
+#   src-tauri/bin/lausu-worker-x86_64-apple-darwin
+#   src-tauri/bin/lausu-worker-aarch64-apple-darwin
 #
 # Mirrors build_sidecar_macos.sh + build_prewarm_macos.sh: same Nuitka
 # toolchain, same python-build-standalone interpreter, same
@@ -106,7 +106,7 @@ case "$ARCH" in
 esac
 
 TRIPLE="${ARCH}-apple-darwin"
-OUTPUT_NAME="voice-typer-worker-${TRIPLE}"
+OUTPUT_NAME="lausu-worker-${TRIPLE}"
 OUTPUT_PATH="$WORKER_DIR/$OUTPUT_NAME"
 
 echo "[build_worker_macos] ARCH=$ARCH TRIPLE=$TRIPLE"
@@ -187,10 +187,10 @@ NUITKA_ARGS=(
     --include-package=websockets
     --include-package-data=voice_typer.server
     --macos-create-bundle
-    --macos-app-name=VoiceTyperWorker
-    --macos-signed-app-name=com.voicetyper.worker
+    --macos-app-name=LausuWorker
+    --macos-signed-app-name=com.Lausu.worker
     --macos-app-mode=background
-    --onefile-tempdir-spec="$HOME/Library/Application Support/voice-typer/worker-onefile-tmp"
+    --onefile-tempdir-spec="$HOME/Library/Application Support/lausu/worker-onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$WORKER_DIR"
     "$PROJECT_ROOT/voice_typer/worker/__main__.py"

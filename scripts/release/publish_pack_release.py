@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 # ── Defaults ────────────────────────────────────────────────────────────
 
-DEFAULT_REPO = "AbdallahIsDev/voice-typer"
+DEFAULT_REPO = "AbdallahIsDev/lausu"
 DEFAULT_GH_CLI = "gh"
 
 # Make ``scripts.build.artifact_names`` (the canonical §11.9 naming
@@ -51,13 +51,13 @@ from scripts.build import artifact_names  # noqa: E402
 # second copy of the naming scheme. The publisher does NOT enforce the
 # names, it uploads whatever paths the caller passes.
 ASSET_NAME_BUILDERS = {
-    # (app_version, triple) -> "voice-typer-slim-core-<app_version>-<triple>[.exe]"
+    # (app_version, triple) -> "lausu-slim-core-<app_version>-<triple>[.exe]"
     "slim_core": artifact_names.slim_core_installer_name,
-    # (pack_version, triple) -> "voice-typer-runtime-pack-<pack_version>-<triple>.zip"
+    # (pack_version, triple) -> "lausu-runtime-pack-<pack_version>-<triple>.zip"
     "runtime_pack": artifact_names.runtime_pack_name,
     # () -> "pack-manifest.json" (NOT versioned)
     "pack_manifest": artifact_names.pack_manifest_name,
-    # (app_version, triple) -> "voice-typer-full-offline-<app_version>-<triple>[.exe]"
+    # (app_version, triple) -> "lausu-full-offline-<app_version>-<triple>[.exe]"
     "full_offline": artifact_names.full_offline_installer_name,
 }
 
@@ -227,7 +227,7 @@ def _api_request(
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
     req.add_header("Content-Type", content_type)
-    req.add_header("User-Agent", "voice-typer-release-publisher")
+    req.add_header("User-Agent", "lausu-release-publisher")
     try:
         with urllib.request.urlopen(req, timeout=300) as resp:
             return resp.getcode(), resp.read()
@@ -621,25 +621,25 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--slim-core-windows",
         type=Path,
         default=None,
-        help="Path to the Windows slim-core installer (voice-typer-slim-core-<version>-<triple>.exe)",
+        help="Path to the Windows slim-core installer (lausu-slim-core-<version>-<triple>.exe)",
     )
     parser.add_argument(
         "--slim-core-macos",
         type=Path,
         default=None,
-        help="Path to the macOS slim-core installer (voice-typer-slim-core-<version>-<triple>)",
+        help="Path to the macOS slim-core installer (lausu-slim-core-<version>-<triple>)",
     )
     parser.add_argument(
         "--slim-core-linux",
         type=Path,
         default=None,
-        help="Path to the Linux slim-core installer (voice-typer-slim-core-<version>-<triple>)",
+        help="Path to the Linux slim-core installer (lausu-slim-core-<version>-<triple>)",
     )
     parser.add_argument(
         "--pack-onefile",
         type=Path,
         default=None,
-        help="Path to the runtime-pack zip (voice-typer-runtime-pack-<pack-version>-<triple>.zip)",
+        help="Path to the runtime-pack zip (lausu-runtime-pack-<pack-version>-<triple>.zip)",
     )
     parser.add_argument(
         "--pack-manifest",

@@ -154,7 +154,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer: VAD Benchmark")
+    print("Lausu: VAD Benchmark")
     print("=" * 72)
     for r in results:
         print()

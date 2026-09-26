@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Native key-listener build (Windows)
+# Lausu. Native key-listener build (Windows)
 # ADR-0020 §6.4. Windows uses compile_native.ps1 (PowerShell) under the hood.
 # This script is a thin bash wrapper that invokes the PowerShell script from
 # Git Bash / MSYS2 / WSL, then copies the compiled binary into

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka prewarm build (Linux x86_64 + aarch64)
+# Lausu. Nuitka prewarm build (Linux x86_64 + aarch64)
 # ADR-0020 §5. Prewarm is frozen the SAME Nuitka way as the sidecar, into
 # prewarm-<triple>. Prewarm is a BUNDLE RESOURCE (not externalBin):
-# launched by the systemd user timer (~/.config/systemd/user/voice-typer-prewarm.timer)
+# launched by the systemd user timer (~/.config/systemd/user/lausu-prewarm.timer)
 # via resolve_prewarm_exe(), NOT by Tauri as a managed child.
 #
 # Output:
@@ -160,7 +160,7 @@ NUITKA_ARGS=(
     --include-package=websockets
     --include-package-data=voice_typer.server
     --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR"
-    --onefile-tempdir-spec="$HOME/.cache/voice-typer/prewarm-onefile-tmp"
+    --onefile-tempdir-spec="$HOME/.cache/lausu/prewarm-onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$RESOURCES_DIR"
     "$PROJECT_ROOT/voice_typer/server/prewarm/__main__.py"

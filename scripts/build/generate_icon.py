@@ -52,7 +52,7 @@ def make_mic_icon(size=64):
 
 
 def main():
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "voice-typer.ico"
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "lausu.ico"
     img = make_mic_icon()
     img.save(out, format="ICO", sizes=[(64, 64)])
     print(f"Saved {out}")

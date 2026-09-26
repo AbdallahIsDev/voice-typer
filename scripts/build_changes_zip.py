@@ -6,7 +6,7 @@ import subprocess
 import zipfile
 from pathlib import Path
 
-REPO = Path("/home/z/my-project/voice-typer")
+REPO = Path("/home/z/my-project/lausu")
 os.chdir(REPO)
 
 # 1. Tracked modified+deleted files (vs HEAD)

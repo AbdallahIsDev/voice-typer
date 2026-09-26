@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Benchmark harness for Voice Typer transcription latency.
+"""Benchmark harness for Lausu transcription latency.
 
 Measures:
 1. Full transcription latency: time from audio input to complete text
@@ -335,7 +335,7 @@ def bench_transcription(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Voice Typer transcription benchmark")
+    parser = argparse.ArgumentParser(description="Lausu transcription benchmark")
     parser.add_argument("--model", default="small.en", help="Model size (tiny.en, small.en, medium.en)")
     parser.add_argument("--device", default="cpu", help="Device (cpu, cuda)")
     parser.add_argument(
@@ -371,7 +371,7 @@ def main() -> int:
             json.dump({"model_load": load_stats}, sys.stdout, indent=2)
             sys.stdout.write("\n")
             return 0
-        print("=== Voice Typer Model Load Benchmark ===")
+        print("=== Lausu Model Load Benchmark ===")
         print(f"Model: {args.model}  Device: {args.device}")
         print(f"  Load time: {load_stats['load_seconds']:.3f}s")
         if load_stats["delta_rss_mb"] is not None:
@@ -392,7 +392,7 @@ def main() -> int:
         sys.stdout.write("\n")
         return 0
 
-    print("=== Voice Typer Benchmark ===")
+    print("=== Lausu Benchmark ===")
     print(f"Model: {stats['model']}")
     print(f"Device: {stats['device']}")
     print(f"Iterations: {stats['iterations']}")

@@ -119,9 +119,9 @@ ICO_ICON: str = "icons/icon.ico"
 LINUX_SCRIPTS_FILES: tuple[str, ...] = (
     "install_permissions.py",
     "uninstall_permissions.py",
-    "99-voice-typer.rules",
-    "00-voice-typer-capslock.conf",
-    "voice-typer.polkit",
+    "99-lausu.rules",
+    "00-lausu-capslock.conf",
+    "lausu.polkit",
 )
 
 # The macOS bundle icon, validated by ``--check-icons``. Also a REAL
@@ -206,12 +206,21 @@ WINDOWS_TRIPLES: set[str] = {
     "aarch64-pc-windows-msvc",
 }
 
+# Extra local-dev triple: THIS machine builds with the GNU toolchain
+# (stable-x86_64-pc-windows-gnu, no MSVC; C-TDEV-1), so a local
+# `cargo check`/`tauri dev` resolves externalBin against
+# x86_64-pc-windows-gnu. Stubs for it are generated too; release CI
+# builds msvc targets and simply never consumes this stub.
+LOCAL_DEV_TRIPLES: list[str] = [
+    "x86_64-pc-windows-gnu",
+]
+
 # externalBin base name. Tauri appends -<triple>[.exe]
 SIDECAR_BASENAME = "python-sidecar"
 
 # externalBin base name for the ML worker exe (Phase 2a, runtime-pack split,
 # plan-runtime-pack-split §4.4). Same triple set as the sidecar.
-WORKER_BASENAME = "voice-typer-worker"
+WORKER_BASENAME = "lausu-worker"
 
 # bundle.resources, native hotkey binaries
 NATIVE_RESOURCES: list[tuple[str, str]] = [
@@ -620,11 +629,40 @@ def _write_stub_file_if_needed(path: Path, platform: str, kind: str) -> None:
 
 
 # ─── Path registry ────────────────────────────────────────────────────────
+# Every ``bundle.externalBin`` stub kind, in emission order: (kind, basename).
+_EXTERNAL_BIN_STUBS: tuple[tuple[str, str], ...] = (
+    ("sidecar", SIDECAR_BASENAME),
+    ("worker", WORKER_BASENAME),
+)
+
+
+def _local_dev_stub_specs() -> list[tuple[Path, str, str]]:
+    """``(path, platform, kind)`` for the :data:`LOCAL_DEV_TRIPLES` mirrors.
+
+    The ONE documented exception to "every generated stub is declared by
+    ``tauri.conf.json``": a local ``cargo tauri dev`` / ``cargo check`` on the
+    GNU toolchain resolves ``bundle.externalBin`` against the host triple
+    (C-TDEV-1), release CI builds msvc targets and never bundles them.
+    ``tests/tauri/test_config_script_drift.py`` exempts exactly this set and
+    still fails on any other undeclared stub.
+    """
+    return [
+        (SRC_TAURI / "bin" / f"{basename}-{triple}.exe", "windows", kind)
+        for triple in LOCAL_DEV_TRIPLES
+        for kind, basename in _EXTERNAL_BIN_STUBS
+    ]
+
+
+def _local_dev_stub_paths() -> list[Path]:
+    """Paths only, for drift-test / mirror consumers."""
+    return [path for path, _, _ in _local_dev_stub_specs()]
+
+
 def _all_stub_specs() -> list[tuple[Path, str, str]]:
     """``(path, platform, kind)`` for every stub this script owns.
 
     ``platform`` is ``"windows"`` or ``"unix"`` and ``kind`` is
-    ``"sidecar"`` / ``"native"`` / ``"prewarm"``: the same values
+    ``"sidecar"`` / ``"worker"`` / ``"native"``: the same values
     ``generate`` passes, so ``--check`` can byte-compare each file
     against the canonical stub it SHOULD contain. Icons are
     intentionally NOT included, they are committed real files, not
@@ -634,9 +672,9 @@ def _all_stub_specs() -> list[tuple[Path, str, str]]:
     for triple in SIDECAR_TRIPLES:
         ext = ".exe" if triple in WINDOWS_TRIPLES else ""
         platform = "windows" if triple in WINDOWS_TRIPLES else "unix"
-        specs.append((SRC_TAURI / "bin" / f"{SIDECAR_BASENAME}-{triple}{ext}", platform, "sidecar"))
-        # Worker exe stubs (externalBin, parallel to the sidecar).
-        specs.append((SRC_TAURI / "bin" / f"{WORKER_BASENAME}-{triple}{ext}", platform, "worker"))
+        for kind, basename in _EXTERNAL_BIN_STUBS:
+            specs.append((SRC_TAURI / "bin" / f"{basename}-{triple}{ext}", platform, kind))
+    specs.extend(_local_dev_stub_specs())
     for rel, platform in NATIVE_RESOURCES:
         specs.append((SRC_TAURI / rel, platform, "native"))
     return specs
@@ -692,19 +730,22 @@ def generate() -> list[Path]:
     # 0. Linux permission scripts (bundle.resources; FV-94).
     created.extend(_sync_linux_scripts())
 
-    # 1. Sidecar binaries (externalBin. Tauri resolves per-arch at build time).
+    # 1. Sidecar + worker binaries (externalBin. Tauri resolves per-arch at build time).
     bin_dir = SRC_TAURI / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     for triple in SIDECAR_TRIPLES:
         ext = ".exe" if triple in WINDOWS_TRIPLES else ""
         platform = "windows" if triple in WINDOWS_TRIPLES else "unix"
-        # Preserve a REAL sidecar a CI step / developer already built at
-        # this path, never clobber it with a placeholder stub.
-        _write_stub_file_if_needed(bin_dir / f"{SIDECAR_BASENAME}-{triple}{ext}", platform, "sidecar")
-        created.append(bin_dir / f"{SIDECAR_BASENAME}-{triple}{ext}")
-        # Worker exe stubs (externalBin, parallel to the sidecar).
-        _write_stub_file_if_needed(bin_dir / f"{WORKER_BASENAME}-{triple}{ext}", platform, "worker")
-        created.append(bin_dir / f"{WORKER_BASENAME}-{triple}{ext}")
+        # Preserve a REAL binary a CI step / developer already built at this
+        # path, never clobber it with a placeholder stub.
+        for kind, basename in _EXTERNAL_BIN_STUBS:
+            path = bin_dir / f"{basename}-{triple}{ext}"
+            _write_stub_file_if_needed(path, platform, kind)
+            created.append(path)
+    for path, platform, kind in _local_dev_stub_specs():
+        # GNU-toolchain mirrors (C-TDEV-1); same never-clobber rule.
+        _write_stub_file_if_needed(path, platform, kind)
+        created.append(path)
 
     # 2. Native hotkey resources.
     native_dir = SRC_TAURI / "resources" / "native"
@@ -909,6 +950,7 @@ def _print_summary(created: list[Path]) -> None:
     print(f"  Sidecar binaries:  {len(SIDECAR_TRIPLES)}")
     print(f"  Worker binaries:   {len(SIDECAR_TRIPLES)}")
     print(f"  Native resources:  {len(NATIVE_RESOURCES)}")
+    print(f"  Local-dev mirrors: {len(_local_dev_stub_paths())}")
     print(f"  Total:             {len(created)}")
     print()
     print("[gen_tauri_icons_stub] WARNING: stubs are NOT real binaries, they print")

@@ -1,6 +1,6 @@
 # Dev Container
 
-Voice Typer includes a dev container configuration for VS Code Remote - Containers and GitHub Codespaces. This provides a fully reproducible development environment without needing to install Python, Node.js, or system dependencies locally.
+Lausu includes a dev container configuration for VS Code Remote - Containers and GitHub Codespaces. This provides a fully reproducible development environment without needing to install Python, Node.js, or system dependencies locally.
 
 ## Quick Start
 

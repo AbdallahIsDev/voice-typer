@@ -33,7 +33,7 @@ from pathlib import Path
 def flatten_keys(obj: dict, prefix: str = "") -> set[str]:
     """Recursively collect all dot-separated keys from a nested dict.
 
-    e.g. ``{"app": {"name": "Voice Typer", "version": 1}}`` →
+    e.g. ``{"app": {"name": "Lausu", "version": 1}}`` →
     ``{"app.name", "app.version"}``.
 
     Non-dict values (strings, numbers, booleans, nulls) all produce a

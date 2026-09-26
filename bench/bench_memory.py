@@ -322,7 +322,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer: Memory Footprint Benchmark")
+    print("Lausu: Memory Footprint Benchmark")
     print("=" * 72)
 
     ci = results["cold_import"]

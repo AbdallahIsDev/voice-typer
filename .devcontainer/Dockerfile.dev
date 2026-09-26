@@ -1,4 +1,4 @@
-# BUILD-N17: Reproducible dev environment for Voice Typer.
+# BUILD-N17: Reproducible dev environment for Lausu.
 # Based on the official Python 3.12 slim image; layers Node 24 for
 # the Tauri client. Keeps the final image small by cleaning apt
 # caches and pip caches at the end.

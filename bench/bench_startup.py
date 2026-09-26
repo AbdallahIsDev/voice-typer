@@ -380,7 +380,7 @@ def main() -> int:
             sys.stdout.write("\n")
             return 0
         print("=" * 60)
-        print("Voice Typer: Model Size Benchmark")
+        print("Lausu: Model Size Benchmark")
         print("=" * 60)
         print("\n## Model Sizes on Disk\n")
         print(f"{'Model':<15} {'Size (MB)':<12} {'Status'}")
@@ -417,7 +417,7 @@ def main() -> int:
     # returning 0.
 
     print("=" * 60)
-    print("Voice Typer: Worker Startup & Model Size Benchmark")
+    print("Lausu: Worker Startup & Model Size Benchmark")
     print("=" * 60)
 
     # Model sizes

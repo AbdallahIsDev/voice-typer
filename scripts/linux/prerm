@@ -1,12 +1,12 @@
 #!/bin/bash
-# Voice Typer. Debian prerm script
+# Lausu. Debian prerm script
 #
-# Runs as root during `apt remove voice-typer`. Removes the udev rule and
+# Runs as root during `apt remove lausu`. Removes the udev rule and
 # XKB config installed by postinst. Does NOT remove the user from the
 # input group (other apps may rely on it: see uninstall_permissions.py).
 #
 # Also removes the per-user autostart .desktop entry
-# (~/.config/autostart/voice-typer.desktop) so the launcher does not
+# (~/.config/autostart/lausu.desktop) so the launcher does not
 # respawn the app on next login after uninstall.
 
 set -e
@@ -18,35 +18,35 @@ case "$1" in
         # v2 .deb, legacy .deb, AppImage, manual install).
         UNINSTALL_SCRIPT=""
         for candidate in \
-            "/usr/share/voice-typer/scripts/uninstall_permissions.py" \
-            "/usr/lib/voice-typer/scripts/uninstall_permissions.py" \
-            "/usr/lib/voice-typer/resources/scripts/uninstall_permissions.py" \
-            "/usr/lib/voice-typer/resources/scripts/linux/uninstall_permissions.py" \
-            "/usr/lib/voice-typer/resources/linux-scripts/uninstall_permissions.py"; do
+            "/usr/share/lausu/scripts/uninstall_permissions.py" \
+            "/usr/lib/lausu/scripts/uninstall_permissions.py" \
+            "/usr/lib/lausu/resources/scripts/uninstall_permissions.py" \
+            "/usr/lib/lausu/resources/scripts/linux/uninstall_permissions.py" \
+            "/usr/lib/lausu/resources/linux-scripts/uninstall_permissions.py"; do
             if [ -f "$candidate" ]; then
                 UNINSTALL_SCRIPT="$candidate"
                 break
             fi
         done
         if [ -n "$UNINSTALL_SCRIPT" ]; then
-            echo "[voice-typer] Removing keyboard permissions (using $UNINSTALL_SCRIPT)..."
+            echo "[lausu] Removing keyboard permissions (using $UNINSTALL_SCRIPT)..."
             python3 "$UNINSTALL_SCRIPT" || true
         else
-            echo "[voice-typer] uninstall_permissions.py not found, skipping keyboard-permission cleanup"
+            echo "[lausu] uninstall_permissions.py not found, skipping keyboard-permission cleanup"
         fi
 
-        # Terminate any running voice-typer processes BEFORE removing the
+        # Terminate any running lausu processes BEFORE removing the
         # autostart .desktop / prewarm systemd unit files. If the app is
         # still running during file removal, it may re-create the files
         # (the prewarm scheduler periodically re-arms its systemd timer)
         # which would leave a stale launcher pointing at the now-deleted
         # binary on next login. We:
         #   1. Read each user's backend PID lockfile
-        #      (~/.local/share/voice-typer/backend.pid, written by
+        #      (~/.local/share/lausu/backend.pid, written by
         #      single_instance.py) and send a targeted SIGTERM so the
         #      app can run its shutdown teardown (flush history DB,
         #      release the audio device, clear the PID file).
-        #   2. pkill -TERM -x voice-typer-tauri, catches the Tauri
+        #   2. pkill -TERM -x lausu-tauri, catches the Tauri
         #      host binary even if the backend PID file is missing
         #      (e.g. crashed hard and never wrote it).
         #   3. pkill -TERM -f 'python-sidecar': catches the frozen
@@ -59,7 +59,7 @@ case "$1" in
             while IFS=: read -r _ _ uid _ _ home_dir _; do
                 [ -n "$home_dir" ] || continue
                 [ "$uid" -ge 1000 ] 2>/dev/null || continue
-                local pid_file="$home_dir/.local/share/voice-typer/backend.pid"
+                local pid_file="$home_dir/.local/share/lausu/backend.pid"
                 if [ -f "$pid_file" ]; then
                     local pid
                     pid="$(cat "$pid_file" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -69,8 +69,8 @@ case "$1" in
                 fi
             done < <(getent passwd 2>/dev/null || true)
             # /root may also have a backend.pid (rare, but possible if the
-            # user ever ran voice-typer via sudo -E).
-            local root_pid_file="/root/.local/share/voice-typer/backend.pid"
+            # user ever ran lausu via sudo -E).
+            local root_pid_file="/root/.local/share/lausu/backend.pid"
             if [ -f "$root_pid_file" ]; then
                 local root_pid
                 root_pid="$(cat "$root_pid_file" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -78,10 +78,10 @@ case "$1" in
                     kill -TERM "$root_pid" 2>/dev/null || true
                 fi
             fi
-            # Catch-all for any voice-typer-tauri / python-sidecar processes
+            # Catch-all for any lausu-tauri / python-sidecar processes
             # that the targeted PID lookup missed (stale lockfile, hard
             # crash, manually-launched dev instance, etc.).
-            pkill -TERM -x voice-typer-tauri 2>/dev/null || true
+            pkill -TERM -x lausu-tauri 2>/dev/null || true
             pkill -TERM -f 'python-sidecar' 2>/dev/null || true
             sleep 1
         }
@@ -90,23 +90,23 @@ case "$1" in
 
         # Remove the per-user autostart .desktop entry for every non-system
         # user. The .desktop file is created by autostart_launcher.py and
-        # would otherwise respawn Voice Typer on next login after uninstall.
+        # would otherwise respawn Lausu on next login after uninstall.
         # /root is handled explicitly (rare, but possible if the user ever
-        # ran voice-typer via sudo -E).
+        # ran lausu via sudo -E).
         remove_autostart_for_home() {
             local home_dir="$1"
             [ -d "$home_dir" ] || return 0
             local autostart_dir="$home_dir/.config/autostart"
             if [ -d "$autostart_dir" ]; then
-                find "$autostart_dir" -maxdepth 1 -name "voice-typer.desktop" -delete 2>/dev/null || true
+                find "$autostart_dir" -maxdepth 1 -name "lausu.desktop" -delete 2>/dev/null || true
             fi
         }
 
         # Prewarm systemd user-unit cleanup.
         # The prewarm scheduler (voice_typer/server/prewarm_scheduler_posix.py)
         # registers a SEPARATE systemd user timer + service at
-        # ~/.config/systemd/user/voice-typer-prewarm.{timer,service} with
-        # unit names `voice-typer-prewarm.timer` / `voice-typer-prewarm.service`.
+        # ~/.config/systemd/user/lausu-prewarm.{timer,service} with
+        # unit names `lausu-prewarm.timer` / `lausu-prewarm.service`.
         # These are distinct from the autostart .desktop entry above. Without
         # this cleanup, systemd --user keeps trying to launch the (now-deleted)
         # frozen prewarm binary at every login → journal spam + failed-unit
@@ -125,10 +125,10 @@ case "$1" in
             # active systemd user session or systemd is unavailable.
             if [ -n "$user_name" ] && [ "$user_name" != "root" ]; then
                 systemctl --user --machine="${user_name}@.host" disable --now \
-                    voice-typer-prewarm.timer voice-typer-prewarm.service 2>/dev/null || true
+                    lausu-prewarm.timer lausu-prewarm.service 2>/dev/null || true
             fi
-            rm -f "$unit_dir/voice-typer-prewarm.service" \
-                  "$unit_dir/voice-typer-prewarm.timer"
+            rm -f "$unit_dir/lausu-prewarm.service" \
+                  "$unit_dir/lausu-prewarm.timer"
         }
 
         while IFS=: read -r _ _ uid _ _ home_dir _; do

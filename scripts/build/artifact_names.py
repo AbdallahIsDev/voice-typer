@@ -27,14 +27,14 @@ WINDOWS_TRIPLES: frozenset[str] = frozenset({"x86_64-pc-windows-msvc", "aarch64-
 # C-CI-13: never rename these; new §11.9 names are additive only.
 EXISTING_PROTECTED_NAMES: tuple[str, ...] = (
     "tauri-windows-installer",
-    "VoiceTyper-Tauri-MSI",
-    "VoiceTyper-Tauri-Sidecar-Binaries",
-    "VoiceTyper-Tauri-SHA256SUMS",
+    "Lausu-Tauri-MSI",
+    "Lausu-Tauri-Sidecar-Binaries",
+    "Lausu-Tauri-SHA256SUMS",
     "tauri-binaries-manifest-windows",
     "python-sidecar-x86_64-pc-windows-msvc.exe",
     "python-sidecar-aarch64-pc-windows-msvc.exe",
-    "voice-typer-worker-x86_64-pc-windows-msvc.exe",
-    "voice-typer-worker-aarch64-pc-windows-msvc.exe",
+    "lausu-worker-x86_64-pc-windows-msvc.exe",
+    "lausu-worker-aarch64-pc-windows-msvc.exe",
     "windows-key-listener.exe",
 )
 
@@ -67,21 +67,21 @@ def _exe_suffix(triple: str) -> str:
 
 
 def slim_core_installer_name(app_version: str, triple: str) -> str:
-    """§11.9 slim-core installer name: ``voice-typer-slim-core-<v>-<triple>[.exe]``."""
+    """§11.9 slim-core installer name: ``lausu-slim-core-<v>-<triple>[.exe]``."""
     _check_app_version(app_version)
     _check_triple(triple)
-    return f"voice-typer-slim-core-{app_version}-{triple}{_exe_suffix(triple)}"
+    return f"lausu-slim-core-{app_version}-{triple}{_exe_suffix(triple)}"
 
 
 def runtime_pack_name(pack_version: str, triple: str) -> str:
-    """§11.9 runtime-pack zip name: ``voice-typer-runtime-pack-<n>-<triple>.zip``.
+    """§11.9 runtime-pack zip name: ``lausu-runtime-pack-<n>-<triple>.zip``.
 
     The zip is the platform-agnostic container, every platform ships a
     ``.zip`` (the pack's internal layout differs, not the container).
     """
     _check_pack_version(pack_version)
     _check_triple(triple)
-    return f"voice-typer-runtime-pack-{pack_version}-{triple}.zip"
+    return f"lausu-runtime-pack-{pack_version}-{triple}.zip"
 
 
 def pack_manifest_name() -> str:
@@ -98,7 +98,7 @@ def full_offline_installer_name(app_version: str, triple: str) -> str:
     """
     _check_app_version(app_version)
     _check_triple(triple)
-    return f"voice-typer-full-offline-{app_version}-{triple}{_exe_suffix(triple)}"
+    return f"lausu-full-offline-{app_version}-{triple}{_exe_suffix(triple)}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:

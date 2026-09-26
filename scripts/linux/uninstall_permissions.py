@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Voice Typer. Linux keyboard permission uninstaller.
+"""Lausu. Linux keyboard permission uninstaller.
 
 Thin wrapper around ``install_permissions.py --uninstall``. Kept as a
 separate script so package managers can reference it directly in prerm
 scripts without passing arguments.
 
 Called by:
-- Debian ``prerm`` (as root, during ``apt remove voice-typer``)
-- RPM ``%preun`` (as root, during ``dnf remove voice-typer``)
+- Debian ``prerm`` (as root, during ``apt remove lausu``)
+- RPM ``%preun`` (as root, during ``dnf remove lausu``)
 
 (): this script now also handles an optional ``--purge``
 flag (or ``VOICE_TYPER_PURGE=1`` env var) that removes the per-user
-Voice Typer data directory (HuggingFace model cache, venv, history DB,
+Lausu data directory (HuggingFace model cache, venv, history DB,
 logs) BEFORE delegating to the system-level uninstaller. The purge is
 OFF by default so users who reinstall keep their models; pass it
 explicitly to reclaim disk:
@@ -23,7 +23,7 @@ explicitly to reclaim disk:
     sudo uninstall_permissions.py --purge
 
     # Same, via env var (useful with apt/dnf which can't pass argv):
-    sudo VOICE_TYPER_PURGE=1 apt remove voice-typer
+    sudo VOICE_TYPER_PURGE=1 apt remove lausu
 
 The purge runs BEFORE the ``os.execv`` delegation because
 ``os.execv`` replaces the current process image, anything after it
@@ -52,7 +52,7 @@ from pathlib import Path
 # The purge is also activated by the VOICE_TYPER_PURGE=1 env var so
 # package-manager-driven uninstalls (apt remove / dnf remove) can opt
 # into a purge without modifying the prerm script. The user would set
-# the env var via ``sudo VOICE_TYPER_PURGE=1 apt remove voice-typer``
+# the env var via ``sudo VOICE_TYPER_PURGE=1 apt remove lausu``
 # (apt's prerm inherits the env from the sudo session). Both the flag
 # and the env var are OFF by default so the default uninstall
 # preserves user data (users who reinstall keep their models).
@@ -65,9 +65,9 @@ if "--purge" in sys.argv:
 
 
 def _purge_user_data_for(username: str, data_dir: Path) -> None:
-    """Remove the per-user Voice Typer data dir for ``username``.
+    """Remove the per-user Lausu data dir for ``username``.
 
-    (): Voice Typer stores ALL user data (HuggingFace
+    (): Lausu stores ALL user data (HuggingFace
         model cache, venv, history DB, logs, crash-recovery snapshots,
         single-instance lockfiles) inside ``<config_dir>``. The purge
         removes each known subpath individually (NOT a blanket
@@ -83,7 +83,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
         Best-effort: logs warnings on failure but does not raise.
     """
     print(
-        f"[voice-typer-permissions] --purge: removing user data for '{username}' at {data_dir}",
+        f"[lausu-permissions] --purge: removing user data for '{username}' at {data_dir}",
         file=sys.stderr,
     )
     # The subpaths list covers a SUBSET of the canonical user-data
@@ -107,7 +107,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
         "history.db-wal",  # legacy SQLite WAL
         "history.db-shm",  # legacy SQLite SHM
         "recovery.json",  # crash-recovery snapshot (canonical name)
-        "voice-typer-recovery.json",  # legacy crash-recovery snapshot
+        "lausu-recovery.json",  # legacy crash-recovery snapshot
         "backend.lock",  # single-instance POSIX lockfile
         "backend.pid",  # backend PID file (Windows + POSIX)
         "autostart.log",  # macOS LaunchAgent autostart log
@@ -136,16 +136,16 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
             )
             if result.returncode != 0:
                 print(
-                    f"[voice-typer-permissions] WARNING: --purge: failed to remove {target}: {result.stderr.strip()}",
+                    f"[lausu-permissions] WARNING: --purge: failed to remove {target}: {result.stderr.strip()}",
                     file=sys.stderr,
                 )
         except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
             print(
-                f"[voice-typer-permissions] WARNING: --purge: failed to remove {target}: {exc}",
+                f"[lausu-permissions] WARNING: --purge: failed to remove {target}: {exc}",
                 file=sys.stderr,
             )
     # Try to remove the now-empty data dir itself (best-effort; will
-    # fail if there are non-Voice-Typer files inside, which is fine —
+    # fail if there are non-lausu files inside, which is fine —
     # we only created the listed subpaths).
     try:
         result = subprocess.run(
@@ -164,27 +164,27 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
                 remaining = list(data_dir.iterdir())
                 if remaining:
                     print(
-                        f"[voice-typer-permissions] --purge: {data_dir} still "
+                        f"[lausu-permissions] --purge: {data_dir} still "
                         f"contains {len(remaining)} items not created by "
-                        "Voice Typer, left in place",
+                        "Lausu, left in place",
                         file=sys.stderr,
                     )
             except OSError:
                 pass
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         print(
-            f"[voice-typer-permissions] WARNING: --purge: failed to rmdir {data_dir}: {exc}",
+            f"[lausu-permissions] WARNING: --purge: failed to rmdir {data_dir}: {exc}",
             file=sys.stderr,
         )
 
 
 def _purge_user_data() -> None:
-    """Remove the per-user Voice Typer data directory.
+    """Remove the per-user Lausu data directory.
 
     (): resolves the users whose data dir should be
         purged. When invoked via sudo, ``SUDO_USER`` identifies the user.
         When invoked directly as root (e.g. during prerm), ``SUDO_USER`` is
-        unset and we scan ``/home/*`` for any user with a Voice Typer data
+        unset and we scan ``/home/*`` for any user with a Lausu data
         dir. Best-effort: errors are logged to stderr but do NOT abort the
         uninstall.
     """
@@ -197,22 +197,22 @@ def _purge_user_data() -> None:
             pwent = pwd.getpwnam(sudo_user)
         except KeyError:
             print(
-                f"[voice-typer-permissions] WARNING: SUDO_USER '{sudo_user}' not found, skipping user-data purge",
+                f"[lausu-permissions] WARNING: SUDO_USER '{sudo_user}' not found, skipping user-data purge",
                 file=sys.stderr,
             )
             return
         home = Path(pwent.pw_dir)
         # Check both XDG default and legacy path (config_dir() checks both).
-        xdg_path = home / ".local" / "share" / "voice-typer"
-        legacy_path = home / ".voice-typer"
+        xdg_path = home / ".local" / "share" / "lausu"
+        legacy_path = home / ".lausu"
         for candidate in (xdg_path, legacy_path):
             if candidate.is_dir():
                 _purge_user_data_for(sudo_user, candidate)
         return
 
-    # No SUDO_USER, scan /home for any user with a Voice Typer data dir.
+    # No SUDO_USER, scan /home for any user with a Lausu data dir.
     # This is the prerm codepath (apt/dnf run prerm as root with no
-    # SUDO_USER). Best-effort: if no user has a Voice Typer data dir, the
+    # SUDO_USER). Best-effort: if no user has a Lausu data dir, the
     # purge is a no-op (the system-level uninstall still runs).
     home_root = Path("/home")
     if not home_root.is_dir():
@@ -220,11 +220,11 @@ def _purge_user_data() -> None:
     for home in home_root.iterdir():
         if not home.is_dir():
             continue
-        # Check both the XDG default and the legacy ~/.voice-typer path
+        # Check both the XDG default and the legacy ~/.lausu path
         # (the config_dir() resolver checks both: see
         # voice_typer/server/config.py).
-        xdg_path = home / ".local" / "share" / "voice-typer"
-        legacy_path = home / ".voice-typer"
+        xdg_path = home / ".local" / "share" / "lausu"
+        legacy_path = home / ".lausu"
         for candidate in (xdg_path, legacy_path):
             if candidate.is_dir():
                 _purge_user_data_for(home.name, candidate)
@@ -237,7 +237,7 @@ if _purge_requested:
 # Delegate to install_permissions.py --uninstall
 installer_path = Path(__file__).resolve().parent / "install_permissions.py"
 if not installer_path.is_file():
-    print("[voice-typer-permissions] ERROR: install_permissions.py not found", file=sys.stderr)
+    print("[lausu-permissions] ERROR: install_permissions.py not found", file=sys.stderr)
     sys.exit(1)
 
 # Use exec to replace this process, cleaner than subprocess for a wrapper.

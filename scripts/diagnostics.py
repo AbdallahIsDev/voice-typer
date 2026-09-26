@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Consolidated diagnostic script for Voice Typer.
+"""Consolidated diagnostic script for Lausu.
 
 Previously 5 separate scripts in scripts/diagnostics/.
 Consolidated into a single entry point with subcommands.
@@ -125,8 +125,8 @@ def _unique_zip_name(name: str, taken: set[str]) -> str:
     """Return ``name``, suffixed when a previously collected log already claimed it.
 
     Defensive only: with the current runtime log set the only reachable
-    collision is the legacy root ``<config>/voice-typer.log`` against the
-    current Python log ``<config>/logs/voice-typer.log`` (same basename,
+    collision is the legacy root ``<config>/lausu.log`` against the
+    current Python log ``<config>/logs/lausu.log`` (same basename,
     different directories). Collection is directory-driven, so an
     unexpected file must never silently overwrite another file's
     contents in a support bundle (the whole point of the bundle is that
@@ -147,10 +147,10 @@ def _collect_logs_into(config_dir: Path, dest_dir: Path) -> list[str]:
     Directory-driven (review.md MO-108): every regular file under
     ``<config_dir>/logs/`` except the inter-process ``*.lock`` files,
     each shipped under its **on-disk basename** (no rename), plus a
-    legacy pre-migration ``<config_dir>/voice-typer.log`` when it still
+    legacy pre-migration ``<config_dir>/lausu.log`` when it still
     exists. On-disk names are already distinct after the Rust host
-    rename (Python current: ``logs/voice-typer.log``; Rust host:
-    ``logs/voice-typer-rust.log``, ``init.rs:149``), so the pre-rename
+    rename (Python current: ``logs/lausu.log``; Rust host:
+    ``logs/lausu-rust.log``, ``init.rs:149``), so the pre-rename
     ``rust-`` zip alias is gone — a support bundle now labels every file
     the same way the runtime does. :func:`_unique_zip_name` remains as
     the never-overwrite backstop for the legacy-root vs current-Python
@@ -167,11 +167,11 @@ def _collect_logs_into(config_dir: Path, dest_dir: Path) -> list[str]:
     """
     collected: list[str] = []
     taken: set[str] = set()
-    legacy_python_log = config_dir / "voice-typer.log"
+    legacy_python_log = config_dir / "lausu.log"
     if legacy_python_log.is_file():
-        _collect_log_tail(legacy_python_log, dest_dir, "voice-typer.log")
-        collected.append("voice-typer.log")
-        taken.add("voice-typer.log")
+        _collect_log_tail(legacy_python_log, dest_dir, "lausu.log")
+        collected.append("lausu.log")
+        taken.add("lausu.log")
     logs_dir = config_dir / "logs"
     if logs_dir.is_dir():
         for entry in sorted(logs_dir.iterdir()):
@@ -189,11 +189,11 @@ def export_diagnostics() -> str:
 
     Collects:
       - every log file under ``<config_dir>/logs/`` (Python current log
-        ``voice-typer.log`` + rotations, Rust host ``voice-typer-rust.log``,
+        ``lausu.log`` + rotations, Rust host ``lausu-rust.log``,
         the ``sidecar.log`` child tee, ``worker.log``, native listener
         logs, crash buffer, …, whatever the runtime actually wrote),
         each shipped under its on-disk basename and tailed to 1 MiB;
-        plus a legacy pre-migration ``<config_dir>/voice-typer.log``
+        plus a legacy pre-migration ``<config_dir>/lausu.log``
         when it still exists
       - config.json (with API keys redacted)
       - System info (OS, GPU, CUDA version, Python version)
@@ -217,7 +217,7 @@ def export_diagnostics() -> str:
     from zipfile import ZIP_DEFLATED, ZipFile
 
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    zip_filename = f"voice-typer-diagnostics-{timestamp}.zip"
+    zip_filename = f"lausu-diagnostics-{timestamp}.zip"
 
     # Find the config directory
     try:
@@ -225,7 +225,7 @@ def export_diagnostics() -> str:
 
         config_dir = _config_dir()
     except Exception:
-        config_dir = Path(os.path.expanduser("~")) / ".voice-typer"
+        config_dir = Path(os.path.expanduser("~")) / ".lausu"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
@@ -302,7 +302,7 @@ def export_diagnostics() -> str:
         try:
             from importlib.metadata import version as get_version
 
-            sys_info["app_version"] = get_version("voice-typer")
+            sys_info["app_version"] = get_version("lausu")
         except Exception:
             sys_info["app_version"] = "unknown"
 
@@ -346,7 +346,7 @@ def export_diagnostics() -> str:
                 (tmpdir_path / "config_redacted.json").write_text(f"Error reading config: {exc}", encoding="utf-8")
 
         # 3. Log files: EVERY log in ``<config_dir>/logs/`` (plus a legacy
-        # root-level ``voice-typer.log`` for pre-migration profiles).
+        # root-level ``lausu.log`` for pre-migration profiles).
         #
         # Directory-driven on purpose (see review.md MO-108): the three
         # log-coverage lists (the Python sweep in ``log/setup.py``, the
@@ -354,8 +354,8 @@ def export_diagnostics() -> str:
         # target in ``commands/system_cmds/dialogs.rs``) are all
         # DIRECTORY-scoped, so any new log file is automatically rotated
         # and visible in the log folder. A hardcoded name list HERE was
-        # the odd one out: it collected only ``voice-typer.log*`` and
-        # therefore silently dropped ``voice-typer-rust.log`` (the Rust
+        # the odd one out: it collected only ``lausu.log*`` and
+        # therefore silently dropped ``lausu-rust.log`` (the Rust
         # host's log — the glob never matched it), the MO-104
         # ``sidecar.log`` child tee, ``worker.log``, ``startup-error.log``,
         # the crash buffer and ``native-*.log``. Reading the directory

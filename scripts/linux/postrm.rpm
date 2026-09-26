@@ -1,7 +1,7 @@
 #!/bin/bash
-# Voice Typer. RPM %postun script
+# Lausu. RPM %postun script
 #
-# Runs as root after `dnf remove voice-typer`. RPM passes $1 as the
+# Runs as root after `dnf remove lausu`. RPM passes $1 as the
 # number of packages of this name that will remain installed after the
 # operation: $1 = 0 means full uninstall, $1 = 1 means upgrade.
 #
@@ -17,7 +17,7 @@
 # on remove" convention, this script does NOT remove user data on
 # upgrade ($1 = 1) but DOES remove it on full uninstall ($1 = 0).
 # Users who want to keep their data across a `dnf remove` +
-# re-install cycle must back up `~/.local/share/voice-typer/` first.
+# re-install cycle must back up `~/.local/share/lausu/` first.
 #
 # Tauri v2 note: the bundle config uses the v2 long-form keys
 # `postInstallScript` and `preRemoveScript` (WITH the 'Script' suffix;
@@ -32,9 +32,9 @@
 set -e
 
 VOICE_TYPER_DATA_DIRS=(
-    ".local/share/voice-typer"
-    ".config/voice-typer"
-    ".voice-typer"
+    ".local/share/lausu"
+    ".config/lausu"
+    ".lausu"
 )
 
 remove_user_data_for_home() {
@@ -43,7 +43,7 @@ remove_user_data_for_home() {
     for sub in "${VOICE_TYPER_DATA_DIRS[@]}"; do
         local target="$home_dir/$sub"
         if [ -d "$target" ]; then
-            echo "[voice-typer] uninstall: removing $target"
+            echo "[lausu] uninstall: removing $target"
             rm -rf "$target" 2>/dev/null || true
         fi
     done
@@ -53,7 +53,7 @@ remove_user_data_for_home() {
 if [ "$1" = "0" ]; then
     # Remove the system-level manifest directory (already removed by
     # prerm.rpm, but defensive).
-    rm -rf /var/lib/voice-typer 2>/dev/null || true
+    rm -rf /var/lib/lausu 2>/dev/null || true
 
     # Remove per-user data for every non-system user.
     while IFS=: read -r _ _ uid _ _ home_dir _; do

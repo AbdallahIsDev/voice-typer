@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Unified Nuitka sidecar freeze wrapper (ADR-0020 §4 + Phase 1)
+# Lausu. Unified Nuitka sidecar freeze wrapper (ADR-0020 §4 + Phase 1)
 #
 # This is the platform-agnostic entry point for freezing the Python sidecar
 # (`voice_typer.server.ipc_server`) into a Nuitka `--onefile` binary at:
@@ -60,7 +60,7 @@
 #   docs/adr/0020-desktop-runtime-migration-analysis.md   §4 (Nuitka freeze spec)
 #   docs/migration/{windows,macos,linux}-validation-runbook.md   Phase 0 gates
 #   scripts/build/build_tauri_all.sh                       Full build orchestrator
-#   scripts/build/voice-typer.spec                         PyInstaller fallback (ADR §4.5)
+#   scripts/build/lausu.spec                         PyInstaller fallback (ADR §4.5)
 # =============================================================================
 set -euo pipefail
 

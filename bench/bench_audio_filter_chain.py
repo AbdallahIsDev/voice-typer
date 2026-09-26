@@ -305,7 +305,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer: Audio Filter Chain Benchmark")
+    print("Lausu: Audio Filter Chain Benchmark")
     print("=" * 72)
     for r in results:
         print()

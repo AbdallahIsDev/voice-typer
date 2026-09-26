@@ -419,7 +419,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer: IPC Subsystem Benchmark")
+    print("Lausu: IPC Subsystem Benchmark")
     print("=" * 72)
 
     hs = results["auth_handshake"]

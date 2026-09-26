@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka prewarm build (Windows x86_64 + aarch64)
+# Lausu. Nuitka prewarm build (Windows x86_64 + aarch64)
 # ADR-0020 §5. Prewarm is frozen the SAME Nuitka way as the sidecar, into
 # prewarm-<triple>.exe. Prewarm is a BUNDLE RESOURCE (not externalBin):
 # launched by the Windows Task Scheduler (LogonTrigger) via
@@ -184,7 +184,7 @@ echo "[build_prewarm_windows] Running Nuitka..."
     --include-package=websockets \
     --include-package-data=voice_typer.server \
     --windows-disable-console \
-    --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" \
+    --onefile-tempdir-spec="{CACHE_DIR}/lausu/prewarm-onefile-tmp" \
     --output-filename="$OUTPUT_NAME" \
     --output-dir="$RESOURCES_DIR" \
     "$PROJECT_ROOT/voice_typer/server/prewarm/__main__.py"

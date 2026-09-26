@@ -83,7 +83,7 @@ LFS_POINTER_MAGIC = b"version https://git-lfs.github.com/spec/v1"
 HTTP_TIMEOUT = 30.0
 HTTP_RETRIES = 3
 HTTP_BACKOFF = 1.5  # seconds, multiplied by attempt index
-USER_AGENT = "voice-typer-populate-hashes/1.0"
+USER_AGENT = "lausu-populate-hashes/1.0"
 
 # Skip repos whose ``revision`` is not a HuggingFace commit SHA.  Currently
 # only ``qwen`` (a local model with ``revision == "local"``) is skipped.

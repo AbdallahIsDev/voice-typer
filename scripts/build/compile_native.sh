@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Native key-listener binary build script
+# Lausu. Native key-listener binary build script
 #
 # Compiles the three native key-listener binaries for the current platform:
 #   - macOS:   voice_typer/server/native/macos-key-listener   (Swift)

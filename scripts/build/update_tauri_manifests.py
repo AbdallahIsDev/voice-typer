@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Update the Tauri host binary SHA-256 manifest after a cargo build.
 
-The Tauri cutover ships a native host binary (``voice-typer-tauri``,
+The Tauri cutover ships a native host binary (``lausu-tauri``,
 built from ``src-tauri/Cargo.toml``) that the autostart launcher spawns
 at login. ``tauri-binaries.json`` is the integrity manifest the launcher
 verifies against (fail-closed), so production builds MUST record the
@@ -35,8 +35,8 @@ darwin triples into the single ``macos`` key (universal Mach-O binary);
 Binary discovery
 ----------------
 
-- Linux:    ``<target-dir>/<triple>/release/voice-typer-tauri``
-- Windows:  ``<target-dir>/<triple>/release/voice-typer-tauri.exe``
+- Linux:    ``<target-dir>/<triple>/release/lausu-tauri``
+- Windows:  ``<target-dir>/<triple>/release/lausu-tauri.exe``
 - macOS:    the inner executable of the unique
   ``<target-dir>/<triple>/release/bundle/macos/*.app/Contents/MacOS/``
   bundle (productName = APP_NAME). Requires exactly one matching
@@ -80,7 +80,7 @@ log = logging.getLogger("update_tauri_manifests")
 # The Cargo binary name. MUST stay in lockstep with the ``package.name``
 # in src-tauri/Cargo.toml (drift-pinned by
 # tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames).
-_BINARY_NAME = "voice-typer-tauri"
+_BINARY_NAME = "lausu-tauri"
 
 # Rust target triple → tauri-binaries.json per-arch sha256 key. The SAME
 # mapping as tests/tauri/test_config_script_drift.py::TRIPLE_TO_MANIFEST_KEY
@@ -119,7 +119,7 @@ def _sha256_of(path: Path) -> str:
 
 
 def discover_binary(target_dir: Path, triple: str) -> Path | None:
-    """Locate the cargo-built ``voice-typer-tauri`` for ``triple``.
+    """Locate the cargo-built ``lausu-tauri`` for ``triple``.
 
     Returns ``None`` when the binary does not exist on disk (dev
     checkout, or this leg hasn't built it), and raises ``ValueError`` on
@@ -256,7 +256,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="update_tauri_manifests.py",
         description=(
-            "Record the SHA-256 of the built voice-typer-tauri binary into "
+            "Record the SHA-256 of the built lausu-tauri binary into "
             "tauri-binaries.json, and/or enforce the manifest's integrity."
         ),
     )

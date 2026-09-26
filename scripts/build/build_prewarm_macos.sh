@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka prewarm build (macOS x86_64 + aarch64)
+# Lausu. Nuitka prewarm build (macOS x86_64 + aarch64)
 # ADR-0020 §5. Prewarm is frozen the SAME Nuitka way as the sidecar, into
 # prewarm-<triple>. Prewarm is a BUNDLE RESOURCE (not externalBin):
-# launched by the macOS LaunchAgent (~/Library/LaunchAgents/com.voicetyper.prewarm.plist)
+# launched by the macOS LaunchAgent (~/Library/LaunchAgents/com.Lausu.prewarm.plist)
 # via resolve_prewarm_exe(), NOT by Tauri as a managed child.
 #
 # Codesign (S5-CR-56): Nuitka's `--macos-signed-app-name` only sets the
@@ -167,10 +167,10 @@ NUITKA_ARGS=(
     --include-package-data=voice_typer.server
     --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR"
     --macos-create-bundle
-    --macos-app-name=VoiceTyperPrewarm
-    --macos-signed-app-name=com.voicetyper.prewarm
+    --macos-app-name=LausuPrewarm
+    --macos-signed-app-name=com.Lausu.prewarm
     --macos-app-mode=background
-    --onefile-tempdir-spec="$HOME/Library/Application Support/voice-typer/prewarm-onefile-tmp"
+    --onefile-tempdir-spec="$HOME/Library/Application Support/lausu/prewarm-onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$RESOURCES_DIR"
     "$PROJECT_ROOT/voice_typer/server/prewarm/__main__.py"

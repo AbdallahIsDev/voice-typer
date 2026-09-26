@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Torch-free bundle assertion (plan-runtime-pack-split §11.3)
+# Lausu. Torch-free bundle assertion (plan-runtime-pack-split §11.3)
 #
 # Hard-fails the CI build if the freshly-built Nuitka onefile binary contains
 # any torch import sites or the silero_vad.jit JIT model. This is the

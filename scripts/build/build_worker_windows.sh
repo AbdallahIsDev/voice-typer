@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka worker build (Windows x86_64 + aarch64)
+# Lausu. Nuitka worker build (Windows x86_64 + aarch64)
 #
 # Plan-runtime-pack-split §4.4 / §11.5, builds the runtime-pack worker exe
-# (voice-typer-worker-<triple>.exe), the heavy-ML process that owns
+# (lausu-worker-<triple>.exe), the heavy-ML process that owns
 # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
 # fallback) + numpy/scipy/av/pyrnnoise + the bundled silero_vad.onnx.
 # The slim-core sidecar connects to this worker via a localhost WebSocket
 # (master plan §7) and offloads all heavy inference to it.
 #
 # Output:
-#   src-tauri/bin/voice-typer-worker-x86_64-pc-windows-msvc.exe
-#   src-tauri/bin/voice-typer-worker-aarch64-pc-windows-msvc.exe  (future)
+#   src-tauri/bin/lausu-worker-x86_64-pc-windows-msvc.exe
+#   src-tauri/bin/lausu-worker-aarch64-pc-windows-msvc.exe  (future)
 #
 # This script mirrors build_prewarm_windows.sh + build_sidecar_windows.sh
 # (same Nuitka toolchain, same python-build-standalone interpreter, same
@@ -49,7 +49,7 @@
 #     the CI smoke-test step depends on this behavior.
 #   - --onefile-tempdir-spec (C-CI-9), pinned per-worker extraction dir
 #     so stale extracts are cleanable and don't collide with the sidecar's.
-#   - Output binary name: voice-typer-worker-<triple>.exe (C-CI-13) —
+#   - Output binary name: lausu-worker-<triple>.exe (C-CI-13) —
 #     do NOT rename; tests/tauri/mig18 test_externalbin_wiring.py greps
 #     the default externalBin binary names.
 # =============================================================================
@@ -116,7 +116,7 @@ esac
 
 TRIPLE="${ARCH}-pc-windows-msvc"
 EXE_SUFFIX=".exe"
-OUTPUT_NAME="voice-typer-worker-${TRIPLE}${EXE_SUFFIX}"
+OUTPUT_NAME="lausu-worker-${TRIPLE}${EXE_SUFFIX}"
 OUTPUT_PATH="$WORKER_DIR/$OUTPUT_NAME"
 
 echo "[build_worker_windows] ARCH=$ARCH TRIPLE=$TRIPLE"
@@ -216,7 +216,7 @@ NUITKA_ARGS=(
     --include-package=websockets
     --include-package-data=voice_typer.server
     --windows-console-mode=disable
-    --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/worker-onefile-tmp"
+    --onefile-tempdir-spec="{CACHE_DIR}/lausu/worker-onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$WORKER_DIR"
     "$PROJECT_ROOT/voice_typer/worker/__main__.py"

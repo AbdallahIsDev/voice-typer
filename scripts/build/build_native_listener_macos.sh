@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Native key-listener build (macOS)
+# Lausu. Native key-listener build (macOS)
 # ADR-0020 §6.4, macOS uses compile_native.sh which invokes swiftc on
 # voice_typer/server/native/macos-key-listener.swift. This wrapper invokes
 # compile_native.sh (detecting macOS) and copies the compiled binary into

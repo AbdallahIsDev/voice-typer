@@ -119,7 +119,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer: Streaming Text Assembler Benchmark")
+    print("Lausu: Streaming Text Assembler Benchmark")
     print("=" * 72)
     print()
     print(f"  Total words       : {result['total_words']}")

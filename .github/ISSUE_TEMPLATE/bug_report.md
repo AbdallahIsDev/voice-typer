@@ -26,7 +26,7 @@ What actually happened.
 
 ## Environment
 
-- **Voice Typer version:** (run `python -m voice_typer --version`)
+- **Lausu version:** (run `python -m voice_typer --version`)
 - **OS:** (e.g. Windows 11 23H2, macOS 14, Ubuntu 24.04)
 - **Python version:** (if running from source)
 - **Node version:** (if running from source)
@@ -41,10 +41,10 @@ in the app's About/Diagnostics page, or check the per-platform location:
 
 | Platform | Python host log | Rust / Tauri host log |
 |---|---|---|
-| Windows (new installs) | `%APPDATA%\voice-typer\voice-typer.log` | `%APPDATA%\voice-typer\logs\voice-typer.log` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer\voice-typer.log` (legacy path, honored if exists) | `%USERPROFILE%\.voice-typer\logs\voice-typer.log` |
-| macOS | `~/Library/Application Support/voice-typer/voice-typer.log` | `~/Library/Application Support/voice-typer/logs/voice-typer.log` |
-| Linux | `$XDG_DATA_HOME/voice-typer/voice-typer.log` (falls back to `~/.local/share/voice-typer/voice-typer.log`) | `$XDG_DATA_HOME/voice-typer/logs/voice-typer.log` |
+| Windows (new installs) | `%APPDATA%\lausu\lausu.log` | `%APPDATA%\lausu\logs\lausu.log` |
+| Windows (existing users) | `%USERPROFILE%\.lausu\lausu.log` (legacy path, honored if exists) | `%USERPROFILE%\.lausu\logs\lausu.log` |
+| macOS | `~/Library/Application Support/lausu/lausu.log` | `~/Library/Application Support/lausu/logs/lausu.log` |
+| Linux | `$XDG_DATA_HOME/lausu/lausu.log` (falls back to `~/.local/share/lausu/lausu.log`) | `$XDG_DATA_HOME/lausu/logs/lausu.log` |
 
 See `docs/home-directory.md` §"Log File Paths" for the canonical reference.
 
@@ -61,22 +61,22 @@ python scripts/diagnostics.py export
 ```
 
 This produces a timestamped zip file under the working directory
-(`voice-typer-diagnostics-<UTC timestamp>.zip`). Attach it to this
+(`lausu-diagnostics-<UTC timestamp>.zip`). Attach it to this
 issue (drag-and-drop onto the GitHub editor).
 
 **The bundle contains:**
 
 - `system_info.json` — OS, Python version, architecture, GPU / CUDA
-  info (via `onnxruntime` providers/device + version), `voice-typer` app version.
-- `config_redacted.json` — your `~/.voice-typer/config.json` with
+  info (via `onnxruntime` providers/device + version), `lausu` app version.
+- `config_redacted.json` — your `~/.lausu/config.json` with
   secret fields redacted (API keys, cloud credentials, etc., via the
   canonical `_SECRET_CONFIG_FIELDS` frozenset from
   `voice_typer/server/ipc_server.py`).
-- `voice-typer.log` — the Python host log (last 1 MiB if larger).
+- `lausu.log` — the Python host log (last 1 MiB if larger).
   When a legacy pre-migration root file and the current
-  `logs/voice-typer.log` are both present, the current log ships as
-  `voice-typer.log-2`.
-- `voice-typer-rust.log[.N]` — the Rust / Tauri host log (+ any
+  `logs/lausu.log` are both present, the current log ships as
+  `lausu.log-2`.
+- `lausu-rust.log[.N]` — the Rust / Tauri host log (+ any
   rotated variants) from `<config_dir>/logs/`, under its on-disk name.
 - `model_info.json` — which ASR models are currently downloaded.
 
@@ -100,7 +100,7 @@ can reproduce it quickly:
 - **Last user action:** what did you do immediately before the crash?
   (e.g. "pressed the dictation hotkey", "clicked the tray menu →
   Settings", "switched ASR backend to Qwen".)
-- **Last IPC command visible in the log:** open `voice-typer.log` and
+- **Last IPC command visible in the log:** open `lausu.log` and
   copy the last `ipc.command=` line (or the last 20 log lines if no
   IPC command is visible).
 - **Crash diagnostics file:** if a `crash_diagnostics.<PID>.txt` file

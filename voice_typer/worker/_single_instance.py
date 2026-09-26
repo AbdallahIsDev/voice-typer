@@ -13,8 +13,8 @@ log = logging.getLogger("voice_typer.worker")
 # sidecar's ``backend.lock`` so the two processes can run side-by-side
 # (master plan §7.1 "1-host ↔ 2-processes pattern"). Lives in the
 # canonical app config dir so it's resolved per-platform (Windows:
-# ``%APPDATA%/voice-typer``, macOS: ``~/Library/Application
-# Support/voice-typer``, Linux: ``$XDG_DATA_HOME/voice-typer`` —
+# ``%APPDATA%/lausu``, macOS: ``~/Library/Application
+# Support/lausu``, Linux: ``$XDG_DATA_HOME/lausu`` —
 # resolved via :func:`voice_typer.server.config._config_dir`).
 _WORKER_LOCK_NAME = "worker.lock"
 

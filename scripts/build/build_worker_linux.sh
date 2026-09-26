@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka worker build (Linux x86_64 + aarch64)
+# Lausu. Nuitka worker build (Linux x86_64 + aarch64)
 #
 # Plan-runtime-pack-split §4.4 / §11.5, builds the runtime-pack worker exe
-# (voice-typer-worker-<triple>), the heavy-ML process that owns
+# (lausu-worker-<triple>), the heavy-ML process that owns
 # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
 # fallback) + numpy/scipy/av/pyrnnoise + the bundled silero_vad.onnx.
 # The slim-core sidecar connects to this worker via a localhost WebSocket
 # (master plan §7) and offloads all heavy inference to it.
 #
 # Output:
-#   src-tauri/bin/voice-typer-worker-x86_64-unknown-linux-gnu
-#   src-tauri/bin/voice-typer-worker-aarch64-unknown-linux-gnu
+#   src-tauri/bin/lausu-worker-x86_64-unknown-linux-gnu
+#   src-tauri/bin/lausu-worker-aarch64-unknown-linux-gnu
 #
 # Mirrors build_sidecar_linux.sh + build_prewarm_linux.sh: same Nuitka
 # toolchain, same python-build-standalone interpreter, same
@@ -217,11 +217,11 @@ fi
 # ─── Determine onefile tempdir spec ─────────────────────────────────────────
 # Per-worker extraction dir so stale extracts are cleanable and don't collide
 # with the sidecar's or the prewarm's (C-CI-9, onefile-tempdir-spec stays).
-ONEFILE_TEMPDIR="${XDG_CACHE_HOME:-$HOME/.cache}/voice-typer/worker-onefile-tmp"
+ONEFILE_TEMPDIR="${XDG_CACHE_HOME:-$HOME/.cache}/lausu/worker-onefile-tmp"
 
 # ─── Build output paths ─────────────────────────────────────────────────────
 OUTPUT_DIR="$PROJECT_ROOT/src-tauri/bin"
-OUTPUT_BIN="$OUTPUT_DIR/voice-typer-worker-$TRIPLE"
+OUTPUT_BIN="$OUTPUT_DIR/lausu-worker-$TRIPLE"
 BUILD_LOG="$OUTPUT_DIR/.build-worker-$TRIPLE.log"
 mkdir -p "$OUTPUT_DIR"
 
@@ -270,7 +270,7 @@ NUITKA_ARGS=(
     --include-package-data=voice_typer.server
     --onefile-tempdir-spec="$ONEFILE_TEMPDIR"
     --output-dir="$OUTPUT_DIR"
-    --output-filename="voice-typer-worker-$TRIPLE"
+    --output-filename="lausu-worker-$TRIPLE"
     voice_typer/worker/__main__.py
 )
 # Optional ctranslate2 DLL/so inclusion, only if the install exists.

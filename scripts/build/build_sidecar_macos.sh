@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka sidecar build (macOS x86_64 + aarch64)
+# Lausu. Nuitka sidecar build (macOS x86_64 + aarch64)
 # ADR-0020 §4.3. Nuitka freeze of voice_typer/server/ipc_server.py into
 # python-sidecar-<triple>, using python-build-standalone as the base
 # interpreter.
@@ -25,8 +25,8 @@
 #   - --include-package=voice_typer --include-package=websockets
 #   - --include-data-dir=<SITE>/ctranslate2/lib=<SITE>/ctranslate2/lib
 #   - --include-data-dir=<SITE>/ctranslate2/libs=<SITE>/ctranslate2/libs
-#   - --macos-create-bundle --macos-app-name=VoiceTyperSidecar
-#   - --macos-signed-app-name=com.voicetyper.sidecar
+#   - --macos-create-bundle --macos-app-name=LausuSidecar
+#   - --macos-signed-app-name=com.Lausu.sidecar
 #   - --macos-app-mode=background   (LSUIElement=true, no Dock icon)
 #
 # Codesign (S5-CR-56): Nuitka's `--macos-signed-app-name` only sets the
@@ -154,13 +154,19 @@ NUITKA_ARGS=(
     --include-package=ctranslate2
     --include-package=voice_typer
     --include-package=websockets
+    # ADR-0023 packaging: media ingest lazily imports yt_dlp / yt_dlp_ejs /
+    # av (decoder.py, downloader.py, subtitles.py, mini_update.py).
+    --include-package=yt_dlp
+    --include-package=yt_dlp_ejs
+    --include-package=av
+    --include-package-data=yt_dlp
     --include-package-data=voice_typer.server
     --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR"
     --macos-create-bundle
-    --macos-app-name=VoiceTyperSidecar
-    --macos-signed-app-name=com.voicetyper.sidecar
+    --macos-app-name=LausuSidecar
+    --macos-signed-app-name=com.Lausu.sidecar
     --macos-app-mode=background
-    --onefile-tempdir-spec="$HOME/Library/Application Support/voice-typer/onefile-tmp"
+    --onefile-tempdir-spec="$HOME/Library/Application Support/lausu/onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$SIDECAR_DIR"
     "$PROJECT_ROOT/voice_typer/server/ipc_server.py"

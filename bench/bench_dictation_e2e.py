@@ -233,7 +233,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer: Dictation End-to-End Text-Path Benchmark")
+    print("Lausu: Dictation End-to-End Text-Path Benchmark")
     print("=" * 72)
     tp = results["text_pipeline"]
     print(f"\n## Text Pipeline ({tp['iterations']} iterations × {tp['transcripts_per_iteration']} transcripts)")

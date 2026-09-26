@@ -13,7 +13,7 @@ import subprocess
 import zipfile
 from pathlib import Path
 
-REPO = Path("/home/z/my-project/voice-typer")
+REPO = Path("/home/z/my-project/lausu")
 OUT = Path("/home/z/my-project/download/changes.zip")
 
 # Get changed files from git

@@ -1,6 +1,6 @@
 # PYREFLY-001: stub for the `AppKit` framework (pyobjc-framework-Cocoa,
 # macOS only). Pystray uses AppKit's `NSStatusBar` / `NSStatusItem` to
-# render the tray icon on macOS. Voice-typer itself does not import
+# render the tray icon on macOS. lausu itself does not import
 # AppKit directly, but pyrefly follows the transitive imports through
 # pystray's backend selection.
 #

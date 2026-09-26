@@ -46,7 +46,7 @@ OUTPUT = Path(__file__).resolve().parents[2] / "CI-errors.md"
 _ILLEGAL_XML_RE = re.compile("[^\u0009\u000a\u000d\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 
 # A traceback frame line, e.g.:
-#   File "/home/runner/work/voice-typer/voice-typer/tests/test_x.py", line 123, in test_y
+#   File "/home/runner/work/lausu/lausu/tests/test_x.py", line 123, in test_y
 #   File "C:\...\tests\test_x.py", line 123, in test_y
 #   E   AssertionError: boom
 _FRAME_RE = re.compile(r'^\s*(?:E\s+)?File "([^"]+)", line (\d+)', re.MULTILINE)
@@ -98,8 +98,8 @@ def _location_and_error(text: str) -> tuple[str, str, str]:
     for match in _FRAME_RE.finditer(text):
         path, lineno = match.group(1), match.group(2)
         norm = path.replace("\\", "/")
-        repo_idx = norm.find("voice-typer/")
-        short = norm[repo_idx + len("voice-typer/") :] if repo_idx != -1 else norm
+        repo_idx = norm.find("lausu/")
+        short = norm[repo_idx + len("lausu/") :] if repo_idx != -1 else norm
         if short.startswith(("tests/", "voice_typer/")):
             location = f"{short}:{lineno}"
     if location == "(unknown location)":

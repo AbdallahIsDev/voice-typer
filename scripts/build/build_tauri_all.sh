@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Tauri all-platforms build orchestrator (ADR-0020 Phase 1)
+# Lausu. Tauri all-platforms build orchestrator (ADR-0020 Phase 1)
 #
 # This is the local-developer equivalent of `.github/workflows/tauri-build.yml`.
 # It dispatches to the per-platform build scripts in this directory:

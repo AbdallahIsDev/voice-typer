@@ -221,7 +221,7 @@ jobs:
       # failed the build — pure security theatre. Accepted findings MUST
       - name: pip-audit (fail on findings; weekly sweep handled separately)
         run: |
-          # always contains `voice-typer` itself (a local install, never on
+          # always contains `lausu` itself (a local install, never on
           pip-audit --strict --require-hashes -r requirements-lock.txt
 
   # workflow — GITHUB_TOKEN pushes never create a new run, so no loop).
@@ -301,7 +301,7 @@ jobs:
 
   # Product-namespace drift check: the repo-wide reverse-DNS guard
   product-namespace-drift:
-    name: Product namespaces use com.voicetyper.*
+    name: Product namespaces use com.Lausu.*
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
@@ -517,7 +517,7 @@ jobs:
       - name: Upload renderer artifact
         uses: actions/upload-artifact@v6
         with:
-          name: voice-typer-renderer-dist
+          name: lausu-renderer-dist
           path: voice_typer/client/out/renderer/
 
   # build-native matrix job. Compiles each native key-listener

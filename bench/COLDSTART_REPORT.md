@@ -1,9 +1,9 @@
-# Voice Typer: Cold-Start Optimization Report
+# Lausu: Cold-Start Optimization Report
 
 **Task ID:** 9
 **Date:** 2026-07-02
 **Scope:** Benchmark and optimize the Python backend cold-start time (the
-latency from launching `voice-typer` / `python -m voice_typer.server` to the
+latency from launching `lausu` / `python -m voice_typer.server` to the
 tray icon being ready to paint).
 
 ---
@@ -261,7 +261,7 @@ clean `git stash` of this task's changes.
 ## 6. Recommendations for further work
 
 1. **Lazy `__version__` in `voice_typer/__init__.py` (highest ROI).**
-   The `importlib.metadata.version("voice-typer")` call at package import
+   The `importlib.metadata.version("lausu")` call at package import
    time costs **~53 ms cum**: the single biggest remaining chunk on the
    tray path (57% of the post-optimization 67 ms cumulative). Make
    `__version__` a lazy attribute via PEP 562 `__getattr__`:

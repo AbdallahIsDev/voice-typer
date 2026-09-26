@@ -83,7 +83,7 @@ def run() -> int:
         # the debug level for every ``voice_typer.*`` logger.
         os.environ["VOICE_TYPER_DEBUG"] = "1"
 
-    # C-LOG-1: configure the canonical Voice Typer logging (file +
+    # C-LOG-1: configure the canonical Lausu logging (file +
     # terminal formatters from ``voice_typer/server/log/formatters.py``)
     # so every ``log.*`` call follows ``YYYY-MM-DD  HH:MM:SS  LEVEL  msg``
     # (file) / ``HH:MM:SS  LEVEL  msg`` (terminal). The worker is a
@@ -94,7 +94,7 @@ def run() -> int:
     # crash-handler install, none of which the worker needs (the
     # slim-core sidecar owns those concerns; the worker is a child).
     # ``process_name="worker"`` routes the worker to its OWN file (``worker.log``)
-    # via :func:`voice_typer.server.log.get_log_file_path`: avoids the rotation race with ``voice-typer.log``.
+    # via :func:`voice_typer.server.log.get_log_file_path`: avoids the rotation race with ``lausu.log``.
     from voice_typer.server.config import _config_dir as _resolve_config_dir
     from voice_typer.server.log import (
         get_log_file_path as _get_log_file_path,
@@ -196,13 +196,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     import importlib.metadata
 
     try:
-        _pkg_version = importlib.metadata.version("voice-typer")
+        _pkg_version = importlib.metadata.version("lausu")
     except Exception:
         _pkg_version = "1.0.0"
 
     parser = argparse.ArgumentParser(
         prog="voice_typer.worker",
-        description="Voice Typer runtime-pack worker (offline transcription engine).",
+        description="Lausu runtime-pack worker (offline transcription engine).",
         add_help=False,
     )
     parser.add_argument(

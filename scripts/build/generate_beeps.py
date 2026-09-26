@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate two distinct short WAV data-URL beeps for the Voice Typer
+"""Generate two distinct short WAV data-URL beeps for the Lausu
 sound-manager fallback path.
 
 This script exists because the two fallback constants

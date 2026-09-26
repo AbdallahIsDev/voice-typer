@@ -192,7 +192,7 @@ if errorlevel 1 exit /b %errorlevel%
 cl.exe /O2 /nologo /D_WIN32_WINNT=$win32Winnt `"$SourceFile`" /link user32.lib /nologo /out:`"$OutputExe`"
 exit /b %errorlevel%
 "@
-    $batchFile = Join-Path $env:TEMP "voice-typer_compile_native_$(Get-Random).bat"
+    $batchFile = Join-Path $env:TEMP "lausu_compile_native_$(Get-Random).bat"
     Set-Content -Path $batchFile -Value $batchContent -Encoding ASCII
     try {
         & cmd /c $batchFile

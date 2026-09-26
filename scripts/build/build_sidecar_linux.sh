@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer. Nuitka Linux sidecar build (Phase 0-L, ADR-0020 §4.4)
+# Lausu. Nuitka Linux sidecar build (Phase 0-L, ADR-0020 §4.4)
 #
 # Builds the frozen Python sidecar (`python-sidecar-<triple>`) for Linux,
 # for both x86_64-unknown-linux-gnu and aarch64-unknown-linux-gnu.
@@ -30,7 +30,7 @@
 #     so the resulting binary runs on Ubuntu 22.04+ / Debian 12+ / Fedora 36+.
 #   - --include-package=faster_whisper + ctranslate2 + websockets + voice_typer.
 #   - --include-data-dir for $SITE/ctranslate2/{lib,libs} (libiomp5.so, libgomp.so).
-#   - --onefile-tempdir-spec pinned to $XDG_CACHE_HOME/voice-typer/onefile-tmp
+#   - --onefile-tempdir-spec pinned to $XDG_CACHE_HOME/lausu/onefile-tmp
 #     so the onefile extraction is deterministic + cleanable.
 #   - --enable-plugin=numpy for hidden numpy imports used by faster-whisper.
 #
@@ -205,7 +205,7 @@ fi
 
 # ─── Determine onefile tempdir spec ─────────────────────────────────────────
 # ADR-0020 §4.4: pin the onefile extraction dir so stale extracts are cleanable.
-ONEFILE_TEMPDIR="${XDG_CACHE_HOME:-$HOME/.cache}/voice-typer/onefile-tmp"
+ONEFILE_TEMPDIR="${XDG_CACHE_HOME:-$HOME/.cache}/lausu/onefile-tmp"
 
 # ─── Build output paths ─────────────────────────────────────────────────────
 OUTPUT_DIR="$PROJECT_ROOT/src-tauri/bin"
@@ -235,7 +235,7 @@ NUITKA_ENV=(
 #   --include-package=voice_typer   --include-package=websockets
 #   --include-data-dir=$SITE/ctranslate2/lib=$SITE/ctranslate2/lib   (always present)
 #   --include-data-dir=$SITE/ctranslate2/libs=$SITE/ctranslate2/libs (optional, guarded)
-#   --onefile-tempdir-spec=$XDG_CACHE_HOME/voice-typer/onefile-tmp
+#   --onefile-tempdir-spec=$XDG_CACHE_HOME/lausu/onefile-tmp
 #   --output-filename=python-sidecar-<triple>
 #   voice_typer/server/ipc_server.py
 #
@@ -269,6 +269,12 @@ NUITKA_ARGS=(
     --include-package=ctranslate2
     --include-package=voice_typer
     --include-package=websockets
+    # ADR-0023 packaging: media ingest lazily imports yt_dlp / yt_dlp_ejs /
+    # av (decoder.py, downloader.py, subtitles.py, mini_update.py).
+    --include-package=yt_dlp
+    --include-package=yt_dlp_ejs
+    --include-package=av
+    --include-package-data=yt_dlp
     --include-package-data=voice_typer.server
     --include-package=numpy
     --include-data-dir="$SITE/ctranslate2/lib=$SITE/ctranslate2/lib"

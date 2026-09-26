@@ -1,4 +1,4 @@
-# Agent Skills (bundled for Voice Typer)
+# Agent Skills (bundled for Lausu)
 
 This directory contains 18 agent skills pre-bundled from the open agent skills ecosystem (skills.sh). They are checked into the repo so the cloud AI agent has them out of the box — no `npx skills add` needed.
 
