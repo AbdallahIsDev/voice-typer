@@ -1,9 +1,9 @@
 # Permissions per OS
 
-Consolidated reference for the OS-level permissions Voice Typer needs on
+Consolidated reference for the OS-level permissions Lausu needs on
 each platform. The matrix in [`PLATFORM_STATUS.md`](PLATFORM_STATUS.md)
 covers the feature × OS surface; this doc focuses specifically on the
-**permissions a user must grant** before Voice Typer can use the global
+**permissions a user must grant** before Lausu can use the global
 hotkey, the microphone, and the clipboard-paste path on each OS.
 
 > **TL;DR:** Windows needs **no special permission** for the
@@ -25,16 +25,16 @@ detect the global hotkey. `CGEvent.tapCreate` requires the
 **Accessibility** permission (System Settings → Privacy & Security →
 Accessibility).
 
-- **First launch**: Voice Typer detects the missing grant via the
+- **First launch**: Lausu detects the missing grant via the
   zero-command onboarding flow (ADR-0008 Gap 2). The native binary
   probes `AXIsProcessTrusted()` on startup; if it returns `false`,
-  Voice Typer shows a tray notification with a deep-link to
+  Lausu shows a tray notification with a deep-link to
   `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`
-  and a 60 s retry timer. The moment the user toggles Voice Typer on in
+  and a 60 s retry timer. The moment the user toggles Lausu on in
   the Accessibility list, the retry succeeds and the native backend
   auto-restarts: no app restart required.
 - **After macOS updates**: macOS updates sometimes invalidate the
-  Accessibility grant for previously-trusted apps. The next Voice Typer
+  Accessibility grant for previously-trusted apps. The next Lausu
   launch will re-detect the missing grant and re-fire the onboarding
   notification automatically.
 - **Code signing**: the compiled binary is ad-hoc code-signed by
@@ -45,22 +45,22 @@ Accessibility).
 
 ### Microphone permission (required for audio capture)
 
-Voice Typer uses `sounddevice` / PortAudio's CoreAudio backend to
+Lausu uses `sounddevice` / PortAudio's CoreAudio backend to
 capture microphone audio. macOS requires the **Microphone** permission
 (System Settings → Privacy & Security → Microphone) for any process
 that opens an audio input device.
 
-- **First launch**: the first time Voice Typer tries to open the
-  microphone, macOS shows the standard "Voice Typer wants to access
+- **First launch**: the first time Lausu tries to open the
+  microphone, macOS shows the standard "Lausu wants to access
   the microphone" dialog. The user must click **Allow**.
-- **If the user clicked Don't Allow**: Voice Typer cannot reopen the
+- **If the user clicked Don't Allow**: Lausu cannot reopen the
   microphone: the user must go to System Settings → Privacy & Security
-  → Microphone and toggle Voice Typer on manually. Voice Typer shows a
+  → Microphone and toggle Lausu on manually. Lausu shows a
   tray notification with a deep-link when it detects a permission
   failure.
 - **TCC.db reset** (advanced): if the permission is in a broken state
   (e.g. after a macOS major-version upgrade), reset it via
-  `tccutil reset Microphone com.voicetyper.desktop` (substitute the
+  `tccutil reset Microphone com.Lausu.desktop` (substitute the
   actual bundle ID).
 
 ### No special permission for clipboard paste
@@ -83,20 +83,20 @@ mode `0660`, so only members of the `input` group can read them.
 - **`.deb` / `.rpm` install**: the package's `postinst` /
   `postinst.rpm` script automatically adds the installing user to the
   `input` group via `usermod -aG input $USER` and installs the udev
-  rule `99-voice-typer.rules` (which sets `GROUP="input"` on the
+  rule `99-lausu.rules` (which sets `GROUP="input"` on the
   event device nodes). After install, **log out and log back in once**
   so the new group membership takes effect, there is no other manual
   step.
 - **AppImage install**: AppImage cannot install udev rules or modify
   group membership without root. The first launch shows a `pkexec` GUI
-  prompt (backed by the `voice-typer.polkit` policy) asking for the
-  user's sudo password once. Voice Typer itself never prompts for or
+  prompt (backed by the `lausu.polkit` policy) asking for the
+  user's sudo password once. Lausu itself never prompts for or
   stores the password.
 - **Manual setup** (if you're running from source without a package):
   ```bash
   sudo usermod -aG input $USER
   # log out and back in
-  sudo cp voice_typer/server/native/99-voice-typer.rules /etc/udev/rules.d/
+  sudo cp voice_typer/server/native/99-lausu.rules /etc/udev/rules.d/
   sudo udevadm control --reload-rules
   sudo udevadm trigger
   ```
@@ -107,7 +107,7 @@ The native evdev backend is **read-only**, it cannot suppress the
 hotkey press from reaching the foreground app the way the Windows
 `WH_KEYBOARD_LL` hook or the macOS `CGEvent` tap can. If your hotkey is
 `Caps Lock` (the default on Linux), the OS will toggle caps state every
-time you trigger Voice Typer, which is undesirable.
+time you trigger Lausu, which is undesirable.
 
 The mitigation is to neutralize Caps Lock at the OS level so the key
 still fires the evdev listener but doesn't toggle anything:
@@ -146,13 +146,13 @@ macOS / Windows. Microphone access is governed by:
 - **ALSA direct** (rare, only when PulseAudio / PipeWire are absent):
   requires membership in the `audio` group, same as PulseAudio.
 
-If Voice Typer reports "no microphone found", check:
+If Lausu reports "no microphone found", check:
 
 1. `pactl list sources short` (PulseAudio) or `pw-cli list-objects`
    (PipeWire): the source must be listed.
 2. `groups $USER` must include `audio` (or the equivalent ACL grant).
 3. On PipeWire + WirePlumber + a portal-enabled desktop, the portal
-   prompt may have been dismissed: re-launch Voice Typer to re-trigger
+   prompt may have been dismissed: re-launch Lausu to re-trigger
    it.
 
 ### No special permission for clipboard paste
@@ -188,13 +188,13 @@ as an auto-start entry (handled by the installer) or launched manually.
 Windows does not have a system-level "Microphone" permission toggle for
 desktop (Win32) apps the way it does for UWP apps. The first time a
 Win32 process opens the default audio capture endpoint via WASAPI /
-DirectSound, Windows may show a one-time "Voice Typer wants to use your
+DirectSound, Windows may show a one-time "Lausu wants to use your
 microphone" toast notification (Windows 10 1903+), but the access is
 granted automatically: there is no Settings toggle to deny.
 
 If the user has globally disabled microphone access via Settings →
 Privacy → Microphone → "Allow apps to access your microphone" (which
-affects Win32 apps too on Win10 1903+), Voice Typer will fail to open
+affects Win32 apps too on Win10 1903+), Lausu will fail to open
 the device with `E_ACCESSDENIED`. The mitigation is to re-enable that
 global toggle.
 
@@ -212,9 +212,9 @@ apps.
 Not a permission: but a recommended ergonomic setup. The default
 hotkey on Windows is `Caps Lock`. The native `WH_KEYBOARD_LL` binary
 suppresses the keydown event so the OS doesn't toggle caps state while
-Voice Typer is running, but when Voice Typer isn't running, Caps Lock
+Lausu is running, but when Lausu isn't running, Caps Lock
 still toggles normally. To neutralize Caps Lock permanently (so it
-never toggles caps state, even when Voice Typer isn't running):
+never toggles caps state, even when Lausu isn't running):
 
 - **PowerToys Keyboard Manager** (recommended): remap Caps Lock to
   "Disable": survives OS updates and is per-user (no admin needed).
@@ -233,13 +233,13 @@ never toggles caps state, even when Voice Typer isn't running):
 After granting the permissions above, verify with:
 
 - **macOS**: open System Settings → Privacy & Security and confirm
-  Voice Typer is listed (and toggled ON) under both Accessibility and
+  Lausu is listed (and toggled ON) under both Accessibility and
   Microphone. Then trigger the global hotkey, if it works, the
   Accessibility grant landed. Then start a dictation, if the recording
   indicator lights up, the Microphone grant landed.
 - **Linux**: `groups` should list `input` (and `audio` if you needed
   it). `ls -l /dev/input/event*` should show `crw-rw---- root input`.
-  Press Caps Lock outside Voice Typer, if the caps state doesn't
+  Press Caps Lock outside Lausu, if the caps state doesn't
   toggle, the neutralization landed.
 - **Windows**: no verification step is needed, if the installer
   completed successfully, the hotkey works on next login.

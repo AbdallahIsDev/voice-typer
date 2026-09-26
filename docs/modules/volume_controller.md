@@ -4,7 +4,7 @@
 
 ## Responsibility
 
-The `VolumeController` owns the system-volume side effects of the dictation lifecycle. It was extracted from `VoiceTyperApp` during the RW-9 god-class decomposition (§5.3).
+The `VolumeController` owns the system-volume side effects of the dictation lifecycle. It was extracted from `LausuApp` during the RW-9 god-class decomposition (§5.3).
 
 It is responsible for:
 
@@ -12,7 +12,7 @@ It is responsible for:
 - Restoring system volume at the end of dictation (or on quit/restart with `fade_ms=0` for an instant restore)
 - Surfacing a tray notification when the `VolumeDucker` discovers a stale `duck_crash_recovery.json` on startup (the previous session crashed while ducked)
 
-The controller is stateless: all state lives on the `VolumeDucker` (constructed in `VoiceTyperApp.__init__`, NOT here, because it owns hardware-backend lifecycle and crash-recovery file state). The controller holds a back-reference `self._app` to read `app.config.*` and to drive `app._volume_ducker.*` / `app.tray.notify(...)`.
+The controller is stateless: all state lives on the `VolumeDucker` (constructed in `LausuApp.__init__`, NOT here, because it owns hardware-backend lifecycle and crash-recovery file state). The controller holds a back-reference `self._app` to read `app.config.*` and to drive `app._volume_ducker.*` / `app.tray.notify(...)`.
 
 ## Entry Points
 
@@ -22,4 +22,4 @@ The controller is stateless: all state lives on the `VolumeDucker` (constructed 
 
 ## IPC Surface
 
-None. The `VolumeController` is not directly exposed over IPC. It is invoked internally by `RecordingController._start_dictation` → `app._duck_volume()`, by `VoiceTyperApp._do_cleanup` → `self._restore_volume(fade_ms=0)`, and by `VoiceTyperApp.restart_app` → `self._restore_volume(fade_ms=0)`. The crash-restore callback is wired in `VoiceTyperApp.__init__` (the `VolumeDucker` constructor accepts the callback and invokes it on a stale-duck discovery).
+None. The `VolumeController` is not directly exposed over IPC. It is invoked internally by `RecordingController._start_dictation` → `app._duck_volume()`, by `LausuApp._do_cleanup` → `self._restore_volume(fade_ms=0)`, and by `LausuApp.restart_app` → `self._restore_volume(fade_ms=0)`. The crash-restore callback is wired in `LausuApp.__init__` (the `VolumeDucker` constructor accepts the callback and invokes it on a stale-duck discovery).

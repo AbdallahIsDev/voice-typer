@@ -49,7 +49,7 @@ brew install uv
 
 # Clone + enter the repo
 git clone https://github.com/AbdallahIsDev/voice-typer.git
-cd voice-typer
+cd lausu
 
 # Python venv + deps
 uv venv
@@ -310,7 +310,7 @@ ls -la target/universal-apple-darwin/release/bundle/dmg/
 ls -la target/universal-apple-darwin/release/bundle/macos/
 ```
 
-**Expected output**: `cargo tauri build` compiles the Rust host (~10-15 min for universal), bundles the sidecar + prewarm + native listener into the `.app`, and produces a `.dmg` at `target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg`.
+**Expected output**: `cargo tauri build` compiles the Rust host (~10-15 min for universal), bundles the sidecar + prewarm + native listener into the `.app`, and produces a `.dmg` at `target/universal-apple-darwin/release/bundle/dmg/Lausu_1.0.0_universal.dmg`.
 
 **Pass criteria**: The `.app` and `.dmg` both exist. The `.app/Contents/Resources/` directory contains `prewarm-aarch64-apple-darwin`, `prewarm-x86_64-apple-darwin`, and `macos-key-listener`. The `.app/Contents/MacOS/` (or `Contents/Resources/`) contains the sidecar binary for the host arch.
 
@@ -324,23 +324,23 @@ This is the first of the 9-point Phase 0-M validation gate. Install the built `.
 
 ```bash
 # Install: mount the DMG and drag the .app to /Applications.
-open "target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
-# In Finder: drag "Voice Typer.app" to /Applications.
+open "target/universal-apple-darwin/release/bundle/dmg/Lausu_1.0.0_universal.dmg"
+# In Finder: drag "Lausu.app" to /Applications.
 # OR script it:
-#   hdiutil attach "target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
-#   cp -R "/Volumes/Voice Typer 1.0.0-universal/Voice Typer.app" /Applications/
-#   hdiutil detach "/Volumes/Voice Typer 1.0.0-universal"
+#   hdiutil attach "target/universal-apple-darwin/release/bundle/dmg/Lausu_1.0.0_universal.dmg"
+#   cp -R "/Volumes/Lausu 1.0.0-universal/Lausu.app" /Applications/
+#   hdiutil detach "/Volumes/Lausu 1.0.0-universal"
 
 # First launch: macOS will prompt for Accessibility + Microphone permission
 # (TCC). Grant both: see Apple Silicon specific notes below for details.
-open "/Applications/Voice Typer.app"
+open "/Applications/Lausu.app"
 
 # Verify the sidecar binary spawned via externalBin (gate point 1).
 pgrep -lf python-sidecar
 # Expected: a line with "python-sidecar-<arch>-apple-darwin" matching the host arch.
 
 # Tail the Tauri log to verify the sidecar emitted server_started.
-tail -f "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log"
+tail -f "$HOME/Library/Application Support/lausu/logs/lausu.log"
 # Expected lines within 5 seconds of launch:
 #   [SIDECAR] spawning externalBin: python-sidecar-aarch64-apple-darwin
 #   [SIDECAR] server_started port=NNNN
@@ -352,9 +352,9 @@ tail -f "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log"
 
 **Common failures**:
 - `error: sidecar binary not found` → the host-arch `python-sidecar-<arch>-apple-darwin` is missing from `src-tauri/bin/`. Run §1 for the missing arch.
-- `error: permission denied` → the .app was quarantined by Gatekeeper. Run `xattr -dr com.apple.quarantine "/Applications/Voice Typer.app"` for local dev (or sign + notarize per §7).
+- `error: permission denied` → the .app was quarantined by Gatekeeper. Run `xattr -dr com.apple.quarantine "/Applications/Lausu.app"` for local dev (or sign + notarize per §7).
 - `error: macOS blocked the app from opening` → the app is unsigned; right-click → Open → confirm, OR sign + notarize per §7.
-- `macOS prompt: "Voice Typer" would like to control this computer using accessibility features` → grant Accessibility permission in System Settings → Privacy & Security → Accessibility. Required for `enigo` + `macos-key-listener` (see §6.4, §6.8 below).
+- `macOS prompt: "Lausu" would like to control this computer using accessibility features` → grant Accessibility permission in System Settings → Privacy & Security → Accessibility. Required for `enigo` + `macos-key-listener` (see §6.4, §6.8 below).
 
 ---
 
@@ -374,10 +374,10 @@ Gate point 1 (Sidecar spawn via externalBin) was verified in Step 5 above. The r
 
 ```bash
 # The .app was installed in Step 5. If not already running, launch it:
-open "/Applications/Voice Typer.app"
+open "/Applications/Lausu.app"
 
 # Tail the Tauri log
-tail -f "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log"
+tail -f "$HOME/Library/Application Support/lausu/logs/lausu.log"
 
 # Expected line within 5 seconds of launch:
 # [SIDECAR] server_started port=NNNN
@@ -457,7 +457,7 @@ asyncio.run(t())
 
 **Pass criteria**: Short text (<300 chars) is injected via `enigo.text()` directly (uses `CGEventCreateKeyboardEvent` + `CGEventKeyboardSetUnicodeString` on macOS). Long text is copied to the clipboard via `tauri-plugin-clipboard-manager`, then `Cmd+V` is sent via `enigo`, then the previous clipboard contents are restored.
 
-**Required permission**: Accessibility permission for "Voice Typer" in System Settings → Privacy & Security → Accessibility. Without this, `enigo` cannot synthesize keystrokes (CGEvent API requires it). The app should prompt on first launch; if it doesn't, manually add `/Applications/Voice Typer.app` to the Accessibility list.
+**Required permission**: Accessibility permission for "Lausu" in System Settings → Privacy & Security → Accessibility. Without this, `enigo` cannot synthesize keystrokes (CGEvent API requires it). The app should prompt on first launch; if it doesn't, manually add `/Applications/Lausu.app` to the Accessibility list.
 
 ---
 
@@ -472,26 +472,26 @@ macOS 11+ requires `UNUserNotificationCenter` authorization for in-app notificat
 # 1. Open Settings → General
 # 2. Toggle "Notifications" on
 # 3. The app should request notification authorization on first enable:
-#    System prompt: "Voice Typer Would Like to Send You Notifications"
+#    System prompt: "Lausu Would Like to Send You Notifications"
 # 4. Click "Allow"
 # 5. Trigger a notification (e.g., start dictation → stop → "Dictation complete")
 ```
 
-**Pass criteria**: A macOS notification banner appears in the top-right corner with the Voice Typer icon + the notification text. The notification also appears in Notification Center.
+**Pass criteria**: A macOS notification banner appears in the top-right corner with the Lausu icon + the notification text. The notification also appears in Notification Center.
 
 **Required Info.plist keys** (verified in the built `.app/Contents/Info.plist`):
-- `NSUserNotificationsUsageDescription`: a human-readable description of why Voice Typer needs notifications.
+- `NSUserNotificationsUsageDescription`: a human-readable description of why Lausu needs notifications.
 - `NSMicrophoneUsageDescription`: required for `sounddevice` to access the mic.
 
 ```bash
 # Verify Info.plist contains the required keys
-plutil -p "/Applications/Voice Typer.app/Contents/Info.plist" | grep -E "NSMicrophone|NSUserNotif"
+plutil -p "/Applications/Lausu.app/Contents/Info.plist" | grep -E "NSMicrophone|NSUserNotif"
 # Expected:
-#   "NSMicrophoneUsageDescription" => "Voice Typer needs microphone access for dictation."
-#   "NSUserNotificationsUsageDescription" => "Voice Typer posts notifications for dictation events."
+#   "NSMicrophoneUsageDescription" => "Lausu needs microphone access for dictation."
+#   "NSUserNotificationsUsageDescription" => "Lausu posts notifications for dictation events."
 ```
 
-If the keys are missing, the sidecar `Info.plist` (set via `--macos-signed-app-name=com.voicetyper.sidecar` in the Nuitka command) must be merged with the host's `Info.plist` at bundle time. The host `Info.plist` is the canonical one for the `.app` bundle.
+If the keys are missing, the sidecar `Info.plist` (set via `--macos-signed-app-name=com.Lausu.sidecar` in the Nuitka command) must be merged with the host's `Info.plist` at bundle time. The host `Info.plist` is the canonical one for the `.app` bundle.
 
 ---
 
@@ -509,7 +509,7 @@ pgrep -lf python-sidecar
 # Expected: no output (no sidecar process running)
 
 # Check the Tauri log
-tail -20 "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log"
+tail -20 "$HOME/Library/Application Support/lausu/logs/lausu.log"
 # Expected lines:
 #   [SHUTDOWN] sending {"type":"shutdown"}
 #   [SHUTDOWN] sidecar exited cleanly in 0.3s
@@ -545,16 +545,16 @@ pgrep -lf python-sidecar
 # 3. Sign out (Apple menu → Log Out) and sign back in
 
 # Verify the LaunchAgent was registered
-ls -la "$HOME/Library/LaunchAgents/com.voicetyper.prewarm.plist"
-plutil -p "$HOME/Library/LaunchAgents/com.voicetyper.prewarm.plist"
+ls -la "$HOME/Library/LaunchAgents/com.Lausu.prewarm.plist"
+plutil -p "$HOME/Library/LaunchAgents/com.Lausu.prewarm.plist"
 
 # Verify the LaunchAgent ran
-launchctl list | grep voicetyper
+launchctl list | grep Lausu
 # Expected: a line like:
-#   -  0  com.voicetyper.prewarm
+#   -  0  com.Lausu.prewarm
 
 # Verify the prewarm log
-cat "$HOME/Library/Application Support/voice-typer/logs/prewarm.log" | tail -10
+cat "$HOME/Library/Application Support/lausu/logs/prewarm.log" | tail -10
 # Expected (post-2026-08-13 ONNX migration: torch + transformers
 #           warm-imports are retired; the worker now warms
 #           onnxruntime + ctranslate2 + numpy/scipy only):
@@ -568,7 +568,7 @@ cat "$HOME/Library/Application Support/voice-typer/logs/prewarm.log" | tail -10
 #  and "warming transformers" lines; those are no longer emitted.)
 ```
 
-**Pass criteria**: `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` exists with `RunAtLoad=true` and `ProgramArguments` pointing at `<resourceDir>/prewarm-<triple>` (the frozen Nuitka binary). The prewarm log shows a successful run on login. The `resolve_prewarm_exe()` resolver in `voice_typer/server/prewarm_resolver.py` returns the frozen binary path (not the dev fallback).
+**Pass criteria**: `~/Library/LaunchAgents/com.Lausu.prewarm.plist` exists with `RunAtLoad=true` and `ProgramArguments` pointing at `<resourceDir>/prewarm-<triple>` (the frozen Nuitka binary). The prewarm log shows a successful run on login. The `resolve_prewarm_exe()` resolver in `voice_typer/server/prewarm_resolver.py` returns the frozen binary path (not the dev fallback).
 
 **Verify the resolver picks the right arch**:
 
@@ -621,7 +621,7 @@ pgrep -lf macos-key-listener
 
 **Pass criteria**: Pressing F8 starts recording (the bubble appears with "Listening…"). Pressing F8 again stops recording and pastes the transcription. The native `macos-key-listener` process is visible in Activity Monitor while the app is running.
 
-**Accessibility permission** (ADR-0008 Gap 2): the sidecar + native listener need Accessibility permission to synthesize keystrokes. On first launch the app should prompt; if not, manually add `Voice Typer.app` in System Settings → Privacy & Security → Accessibility.
+**Accessibility permission** (ADR-0008 Gap 2): the sidecar + native listener need Accessibility permission to synthesize keystrokes. On first launch the app should prompt; if not, manually add `Lausu.app` in System Settings → Privacy & Security → Accessibility.
 
 ```bash
 # Verify the binary is signed (ad-hoc OK for dev, Developer ID for distribution)
@@ -639,33 +639,33 @@ codesign -dv src-tauri/resources/native/macos-key-listener
 
 **VALIDATE ON MACOS HOST**
 
-Per ADR-0020 §12, the Tauri host uses `tauri-plugin-single-instance` to enforce that only one Voice Typer process is running at a time. A second launch must NOT spawn a second sidecar, instead, the second instance forwards its argv to the first (typically focusing the existing main window) and exits immediately.
+Per ADR-0020 §12, the Tauri host uses `tauri-plugin-single-instance` to enforce that only one Lausu process is running at a time. A second launch must NOT spawn a second sidecar, instead, the second instance forwards its argv to the first (typically focusing the existing main window) and exits immediately.
 
 ```bash
 # 1. Launch the app for the first time:
-open "/Applications/Voice Typer.app"
+open "/Applications/Lausu.app"
 sleep 3
 
 # 2. Verify exactly ONE main process + ONE sidecar process are running:
-pgrep -lf "Voice Typer.app/Contents/MacOS/Voice Typer" | wc -l
+pgrep -lf "Lausu.app/Contents/MacOS/Lausu" | wc -l
 # Expected: 1
 
 pgrep -lf python-sidecar | wc -l
 # Expected: 1
 
 # 3. Launch the app a second time:
-open "/Applications/Voice Typer.app"
+open "/Applications/Lausu.app"
 sleep 2
 
 # 4. Verify still ONE process + ONE sidecar (NOT two):
-pgrep -lf "Voice Typer.app/Contents/MacOS/Voice Typer" | wc -l
+pgrep -lf "Lausu.app/Contents/MacOS/Lausu" | wc -l
 # Expected: 1   (the second launch forwarded to the first instance and exited)
 
 pgrep -lf python-sidecar | wc -l
 # Expected: 1
 
 # 5. Verify the second launch was logged as a single-instance rejection:
-tail -20 "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log" | grep -i "single.instance\|already.running\|second.instance"
+tail -20 "$HOME/Library/Application Support/lausu/logs/lausu.log" | grep -i "single.instance\|already.running\|second.instance"
 # Expected: a line like "[SINGLE_INSTANCE] second instance rejected, focusing main window"
 ```
 
@@ -691,12 +691,12 @@ The MIG-1.1+1.2 wave adds new Rust commands (`export_history`, `export_vocabular
 # 1. Ensure at least one transcription exists in History (run §6.2 first).
 # 2. Open Settings → History → click "Export…"
 # 3. The tauri-plugin-dialog save dialog appears.
-# 4. Choose a path (e.g., ~/Desktop/voice-typer-history.json).
+# 4. Choose a path (e.g., ~/Desktop/lausu-history.json).
 # 5. Click "Save".
 
 # Verify the file exists + is valid JSON:
-test -f ~/Desktop/voice-typer-history.json
-python3 -c "import json; data=json.load(open('$HOME/Desktop/voice-typer-history.json')); print(f'OK: {len(data)} entries')"
+test -f ~/Desktop/lausu-history.json
+python3 -c "import json; data=json.load(open('$HOME/Desktop/lausu-history.json')); print(f'OK: {len(data)} entries')"
 ```
 
 **Pass criteria**: The save dialog appears, the file is written, the file is valid JSON containing the history entries. If the user cancels the save dialog, no file is written and no error is logged.
@@ -707,11 +707,11 @@ python3 -c "import json; data=json.load(open('$HOME/Desktop/voice-typer-history.
 # In the running app:
 # 1. Add a custom word to the vocabulary (Settings → Vocabulary → Add).
 # 2. Click "Export…"
-# 3. Choose a path (e.g., ~/Desktop/voice-typer-vocab.json).
+# 3. Choose a path (e.g., ~/Desktop/lausu-vocab.json).
 # 4. Click "Save".
 
-test -f ~/Desktop/voice-typer-vocab.json
-python3 -c "import json; data=json.load(open('$HOME/Desktop/voice-typer-vocab.json')); print(f'OK: {len(data)} words')"
+test -f ~/Desktop/lausu-vocab.json
+python3 -c "import json; data=json.load(open('$HOME/Desktop/lausu-vocab.json')); print(f'OK: {len(data)} words')"
 ```
 
 **Pass criteria**: Same as `export_history` Save dialog → file written → valid JSON.
@@ -724,7 +724,7 @@ The bubble window is declared in `tauri.conf.json` (label `"bubble"`, 240×80, `
 # 1. Start dictation (press the hotkey, default F8 or Fn).
 # 2. The bubble window appears near the cursor.
 # 3. Verify the bubble window is visible + alwaysOnTop:
-osascript -e 'tell application "System Events" to count (windows of (every process whose name contains "Voice Typer"))'
+osascript -e 'tell application "System Events" to count (windows of (every process whose name contains "Lausu"))'
 # Expected: at least 2 (main + bubble) while dictating
 
 # 4. Drag the bubble: verify bubble_set_draggable + bubble_move_by work:
@@ -735,7 +735,7 @@ osascript -e 'tell application "System Events" to count (windows of (every proce
 # 6. The bubble hides (bubble_hide_complete).
 
 # 7. Verify in the Tauri log:
-tail -20 "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log" | grep -i bubble
+tail -20 "$HOME/Library/Application Support/lausu/logs/lausu.log" | grep -i bubble
 # Expected lines:
 #   [BUBBLE] show (pos=NNN,NNN)
 #   [BUBBLE] signal_ready
@@ -785,7 +785,7 @@ Verify:
 ```bash
 codesign -dv --verbose=4 src-tauri/bin/python-sidecar-aarch64-apple-darwin
 # Expected:
-#   Identifier=VoiceTyperSidecar
+#   Identifier=LausuSidecar
 #   TeamIdentifier=<TEAM_ID>
 #   Authority=Developer ID Application: Your Name (TEAM_ID)
 #   ...
@@ -802,21 +802,21 @@ cd src-tauri
 cargo tauri build --target universal-apple-darwin
 
 # The .app is at:
-#   target/universal-apple-darwin/release/bundle/macos/Voice Typer.app
-APP_PATH="target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
+#   target/universal-apple-darwin/release/bundle/macos/Lausu.app
+APP_PATH="target/universal-apple-darwin/release/bundle/macos/Lausu.app"
 
 # Verify the .app is signed (Tauri v2 calls codesign automatically when
 # tauri.conf.json bundle.macOS.signingIdentity is set; if not, sign manually:
 # codesign --force --deep --options runtime --sign "$MAC_SIGNING_IDENTITY" "$APP_PATH")
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-# Expected: "Voice Typer.app: valid on disk"
+# Expected: "Lausu.app: valid on disk"
 ```
 
 ### 7.4 Notarize the .app
 
 ```bash
 # Submit to Apple's notarization service. This typically takes 2-10 minutes.
-ZIP_PATH="/tmp/VoiceTyper.zip"
+ZIP_PATH="/tmp/Lausu.zip"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 xcrun notarytool submit "$ZIP_PATH" \
   --apple-id "$APPLE_ID" \
@@ -844,7 +844,7 @@ xcrun stapler validate "$APP_PATH"
 
 ```bash
 # Tauri's bundler produces the .dmg from the stapled .app
-DMG_PATH="target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
+DMG_PATH="target/universal-apple-darwin/release/bundle/dmg/Lausu_1.0.0_universal.dmg"
 
 # Sign the .dmg
 codesign --force --sign "$MAC_SIGNING_IDENTITY" "$DMG_PATH"
@@ -866,7 +866,7 @@ xcrun stapler validate "$DMG_PATH"
 ### 7.7 Hardened runtime + entitlements
 
 The `.app`'s `Info.plist` must declare:
-- `CFBundleIdentifier`: `com.voicetyper.desktop` (matches `tauri.conf.json` identifier)
+- `CFBundleIdentifier`: `com.Lausu.desktop` (matches `tauri.conf.json` identifier)
 - `LSMinimumSystemVersion`: `13.0`
 - `LSUIElement`: `false` (the main app shows in the Dock)
 - `NSMicrophoneUsageDescription`: required for `sounddevice` mic access
@@ -888,46 +888,46 @@ Per ADR-0020 §Reversibility: macOS Tauri cutover is independently revertible. T
 
 ```bash
 # 1. Uninstall the Tauri .app
-sudo rm -rf "/Applications/Voice Typer.app"
+sudo rm -rf "/Applications/Lausu.app"
 
 # 2. Remove the LaunchAgent (if registered)
-launchctl unload "$HOME/Library/LaunchAgents/com.voicetyper.prewarm.plist" 2>/dev/null || true
-rm -f "$HOME/Library/LaunchAgents/com.voicetyper.prewarm.plist"
+launchctl unload "$HOME/Library/LaunchAgents/com.Lausu.prewarm.plist" 2>/dev/null || true
+rm -f "$HOME/Library/LaunchAgents/com.Lausu.prewarm.plist"
 
-# 3. The user data at ~/Library/Application Support/voice-typer/ stays intact
+# 3. The user data at ~/Library/Application Support/lausu/ stays intact
 #    (it's shared with the predecessor fallback). Confirm:
-ls -la "$HOME/Library/Application Support/voice-typer/"
+ls -la "$HOME/Library/Application Support/lausu/"
 # Expected: config.json, models/, history.db, logs/, etc.
 
 # 4. Reinstall the previous-host build from the prior release DMG.
 #    (See the legacy builder config for the previous-host .dmg path.)
 ```
 
-**Pass criteria**: After uninstall, `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` is gone, `~/Library/Application Support/voice-typer/` is intact, and the predecessor build launches with the same config + history + models.
+**Pass criteria**: After uninstall, `~/Library/LaunchAgents/com.Lausu.prewarm.plist` is gone, `~/Library/Application Support/lausu/` is intact, and the predecessor build launches with the same config + history + models.
 
 ---
 
 ## Step 8.5: Autostart LaunchAgent orphan-on-uninstall (packaging gap, low severity)
 
-**Context.** At runtime, `voice_typer/server/server_platform/autostart_macos.py:_enable_autostart_macos` writes a per-user LaunchAgent plist at `~/Library/LaunchAgents/com.voicetyper.plist` (chmod 0o600, `launchctl load`'d). When the user uninstalls the app by dragging the `.app` bundle from `/Applications` to the Trash: the standard macOS uninstall flow, there is no uninstall hook to remove that plist (the `dmg:` format that the predecessor packaging toolchain uses for macOS does NOT support `afterRemove` / `uninstallerHooks`). The plist is therefore orphaned: on next login `launchd` tries to spawn the (now-deleted) Python interpreter listed in the plist's `ProgramArguments`, fails silently, and logs to `~/Library/Logs/voice-typer-autostart.log`.
+**Context.** At runtime, `voice_typer/server/server_platform/autostart_macos.py:_enable_autostart_macos` writes a per-user LaunchAgent plist at `~/Library/LaunchAgents/com.Lausu.plist` (chmod 0o600, `launchctl load`'d). When the user uninstalls the app by dragging the `.app` bundle from `/Applications` to the Trash: the standard macOS uninstall flow, there is no uninstall hook to remove that plist (the `dmg:` format that the predecessor packaging toolchain uses for macOS does NOT support `afterRemove` / `uninstallerHooks`). The plist is therefore orphaned: on next login `launchd` tries to spawn the (now-deleted) Python interpreter listed in the plist's `ProgramArguments`, fails silently, and logs to `~/Library/Logs/lausu-autostart.log`.
 
 **Cross-platform comparison** (kept in the legacy builder config as 1-2 line summaries; full context here):
 
 | Platform | Autostart mechanism | Uninstall cleanup status |
 |----------|---------------------|--------------------------|
-| Windows (NSIS) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.voicetyper.autostart_<hash>` + Scheduled Task `com.voicetyper.autostart<hash>` (pre-rename bare forms: `VoiceTyper_<hash>` Run key + `VoiceTyperAutostart<hash>` task; prewarm task `com.voicetyper.prewarm` / legacy `VoiceTyperPrewarm`) | **HANDLED**, `scripts/windows/uninstaller.nsh` (wired via `nsis.include` in the legacy builder config) enumerates + deletes every `VoiceTyper*` / `com.voicetyper*` Run key + scheduled task (incl. the prewarm task under both names). Belt-and-suspenders sweep via `scripts/windows/uninstall.bat` → `uninstall_permissions.py` → `_unregister_all_voicetyper_runkeys` / `_unregister_all_voicetyper_tasks`. |
-| Linux (deb/rpm) | `~/.config/autostart/voice-typer.desktop` | **HANDLED**, `scripts/linux/prerm` (line 38-57) and `scripts/linux/prerm.rpm` (line 40-58) remove the `.desktop` entry for every non-system user on uninstall (`$1 = 0`), not on upgrade (`$1 = 1`). |
-| macOS (dmg) | `~/Library/LaunchAgents/com.voicetyper.plist` | **GAP** (low severity, S5-CR-83), the `dmg:` format has no uninstall hook. The Python runtime DOES clean up its own LaunchAgent when the user explicitly disables autostart in Settings → General (see `_disable_autostart_macos`); the orphan scenario only occurs when the user uninstalls WITHOUT first disabling autostart. |
+| Windows (NSIS) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.Lausu.autostart_<hash>` + Scheduled Task `com.Lausu.autostart<hash>` (pre-rename bare forms: `Lausu_<hash>` Run key + `LausuAutostart<hash>` task; prewarm task `com.Lausu.prewarm` / legacy `LausuPrewarm`) | **HANDLED**, `scripts/windows/uninstaller.nsh` (wired via `nsis.include` in the legacy builder config) enumerates + deletes every `Lausu*` / `com.Lausu*` Run key + scheduled task (incl. the prewarm task under both names). Belt-and-suspenders sweep via `scripts/windows/uninstall.bat` → `uninstall_permissions.py` → `_unregister_all_lausu_runkeys` / `_unregister_all_lausu_tasks`. |
+| Linux (deb/rpm) | `~/.config/autostart/lausu.desktop` | **HANDLED**, `scripts/linux/prerm` (line 38-57) and `scripts/linux/prerm.rpm` (line 40-58) remove the `.desktop` entry for every non-system user on uninstall (`$1 = 0`), not on upgrade (`$1 = 1`). |
+| macOS (dmg) | `~/Library/LaunchAgents/com.Lausu.plist` | **GAP** (low severity, S5-CR-83), the `dmg:` format has no uninstall hook. The Python runtime DOES clean up its own LaunchAgent when the user explicitly disables autostart in Settings → General (see `_disable_autostart_macos`); the orphan scenario only occurs when the user uninstalls WITHOUT first disabling autostart. |
 
 **Fix path (deferred).** Ship a `voice_typer/client/build/uninstall-autostart.command` script alongside the `.app` bundle (via `mac.extraResources`) that:
 
-1. `launchctl bootout gui/$(id -u)/com.voicetyper` (modern)
-2. `launchctl remove com.voicetyper` (legacy fallback)
-3. `rm -f ~/Library/LaunchAgents/com.voicetyper.plist`
+1. `launchctl bootout gui/$(id -u)/com.Lausu` (modern)
+2. `launchctl remove com.Lausu` (legacy fallback)
+3. `rm -f ~/Library/LaunchAgents/com.Lausu.plist`
 
 Lighter-weight alternative: document the cleanup in the README / macOS install guide and surface a "Disable autostart before uninstalling" notice in the Settings → General panel. Either way, add a regression test for the Tauri bundle resources asserting the `extraResources` entry for the `.command` script is present (once the script is added).
 
-**Why the gap is low severity.** The orphan LaunchAgent fails silently, `launchd` logs the spawn failure to `~/Library/Logs/voice-typer-autostart.log` and moves on; it does NOT block login or spawn crash loops. The user is not visibly impacted. The plist is a single 1 KB file that a future reinstall (which re-writes it via `_enable_autostart_macos`) silently overwrites. The Python runtime's `_disable_autostart_macos` is the user-facing "off switch" and works correctly independent of this packaging gap.
+**Why the gap is low severity.** The orphan LaunchAgent fails silently, `launchd` logs the spawn failure to `~/Library/Logs/lausu-autostart.log` and moves on; it does NOT block login or spawn crash loops. The user is not visibly impacted. The plist is a single 1 KB file that a future reinstall (which re-writes it via `_enable_autostart_macos`) silently overwrites. The Python runtime's `_disable_autostart_macos` is the user-facing "off switch" and works correctly independent of this packaging gap.
 
 **Tracking.** S5-CR-83 (sub-agent 12) documented this gap; the Windows + Linux sides were closed by S2-CR-69 (sub-agent 8), `scripts/windows/uninstaller.nsh` + `scripts/linux/prerm` But the macOS side remains open pending the `.command` script. See the `mac:` section comment in the legacy builder config for the per-file pointer.
 
@@ -960,13 +960,13 @@ codesign -dv src-tauri/bin/python-sidecar-aarch64-apple-darwin
 codesign -dv src-tauri/bin/python-sidecar-x86_64-apple-darwin
 
 # Capture notarization info
-xcrun stapler validate "target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
-xcrun stapler validate "target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
+xcrun stapler validate "target/universal-apple-darwin/release/bundle/macos/Lausu.app"
+xcrun stapler validate "target/universal-apple-darwin/release/bundle/dmg/Lausu_1.0.0_universal.dmg"
 
 # Capture file sizes
 du -h src-tauri/bin/python-sidecar-{aarch64,x86_64}-apple-darwin
 du -h src-tauri/resources/prewarm-{aarch64,x86_64}-apple-darwin
-du -h "target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
+du -h "target/universal-apple-darwin/release/bundle/dmg/Lausu_1.0.0_universal.dmg"
 
 # Save results to a Phase 0-M report file
 mkdir -p docs/migration/reports
@@ -1005,7 +1005,7 @@ echo "Wrote $REPORT"
 | §6.3 | `enigo` paste (gate point 4) | Short text via `enigo.text()`; long text via clipboard + `Cmd+V`; Accessibility permission granted |
 | §6.4 | `tauri-plugin-notification` (gate point 5) | macOS notification banner appears; `Info.plist` has `NSUserNotificationsUsageDescription` + `NSMicrophoneUsageDescription` |
 | §6.5 | Cooperative shutdown (gate point 6) | Sidecar exits within 2s of window close; `kill_children` backstop verified on hung sidecar |
-| §6.6 | Prewarm LaunchAgent (gate point 7) | `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` registered with `RunAtLoad=true`; `resolve_prewarm_exe()` returns frozen binary path |
+| §6.6 | Prewarm LaunchAgent (gate point 7) | `~/Library/LaunchAgents/com.Lausu.prewarm.plist` registered with `RunAtLoad=true`; `resolve_prewarm_exe()` returns frozen binary path |
 | §6.7 | Native `macos-key-listener` toggle (gate point 8) | F8 starts/stops dictation; Accessibility permission granted; binary signed |
 | §6.8 | Single-instance (gate point 9) | Second launch forwards to first; only 1 main + 1 sidecar process |
 | §6.9 | New Rust commands (export_history, export_vocabulary, bubble_*) | All 8 new commands dispatch + log correctly; bubble appears + hides; exports write valid JSON |
@@ -1033,9 +1033,9 @@ echo "Wrote $REPORT"
 - **`cargo tauri build --target universal-apple-darwin`** builds a universal `.app` bundle that runs natively on both arches. The Rust host is universal, but the Python sidecar binary inside is selected per-arch by Tauri at runtime from the `bundle.externalBin` list (Tauri appends the host triple to the base name `bin/python-sidecar`).
 - **CTranslate2 aarch64 wheels are CPU-only** (no CUDA on macOS). Verify with `otool -L $SITE/ctranslate2/lib/libctranslate2.dylib` that every `@rpath` dependency resolves. Apple Silicon wheels ship `libctranslate2.dylib` + `libiomp5.dylib` (OpenMP): no CUDA, no cuBLAS.
 - **`pyobjc` framework bridges**: Nuitka's `--include-package=pyobjc` does not always pick up the framework sub-packages (`pyobjc-framework-Cocoa`, `pyobjc-framework-CoreAudio`, etc.). If the sidecar crashes on launch with `ImportError: pyobjc-...`, add explicit `--include-package=pyobjc-framework-Cocoa` flags to the Nuitka command in `build_sidecar_macos.sh`. The build scripts already include `pyobjc-framework-Cocoa` + `pyobjc-framework-CoreAudio` defensively.
-- **Accessibility permission (TCC)**: `enigo` + the native `macos-key-listener` both require Accessibility permission. The app should prompt on first launch via `AXIsProcessTrustedWithOptions`; if it doesn't, manually add `/Applications/Voice Typer.app` in System Settings → Privacy & Security → Accessibility. ADR-0008 Gap 2 covers the onboarding flow for this. **Important: in dev mode (`cargo tauri dev`), the terminal that spawned the binary (Terminal.app / iTerm / VS Code) ALSO needs Accessibility permission. The permission does NOT transfer to the binary alone.**
+- **Accessibility permission (TCC)**: `enigo` + the native `macos-key-listener` both require Accessibility permission. The app should prompt on first launch via `AXIsProcessTrustedWithOptions`; if it doesn't, manually add `/Applications/Lausu.app` in System Settings → Privacy & Security → Accessibility. ADR-0008 Gap 2 covers the onboarding flow for this. **Important: in dev mode (`cargo tauri dev`), the terminal that spawned the binary (Terminal.app / iTerm / VS Code) ALSO needs Accessibility permission. The permission does NOT transfer to the binary alone.**
 - **Microphone permission (TCC)**: `sounddevice` requires microphone permission. The `Info.plist` must declare `NSMicrophoneUsageDescription`; on first mic open the system prompts the user. Denied mic → sidecar logs `[AUDIO] microphone permission denied` and the WS connection stays open (no crash), but dictation silently fails.
 - **Notification permission (TCC, macOS 11+)**: `tauri-plugin-notification` requires `UNUserNotificationCenter.requestAuthorization(...)` to be called on first launch. Without it, notifications silently no-op. The Tauri host should call this once on startup (or on first `notification:allow-notify` invoke). The `Info.plist` must declare `NSUserNotificationsUsageDescription`. Verified in §6.4.
-- **`--onefile` temp-dir on macOS**: Nuitka `--onefile` extracts to `$TMPDIR/onefile_*` on every launch. The build script pins it to `$HOME/Library/Application Support/voice-typer/onefile-tmp` via `--onefile-tempdir-spec` so stale extracts don't accumulate in `$TMPDIR`. The LaunchAgent's prewarm binary uses a separate `prewarm-tmp` dir to avoid contention.
+- **`--onefile` temp-dir on macOS**: Nuitka `--onefile` extracts to `$TMPDIR/onefile_*` on every launch. The build script pins it to `$HOME/Library/Application Support/lausu/onefile-tmp` via `--onefile-tempdir-spec` so stale extracts don't accumulate in `$TMPDIR`. The LaunchAgent's prewarm binary uses a separate `prewarm-tmp` dir to avoid contention.
 - **`LSUIElement=true` for the sidecar**: The Nuitka `--macos-app-mode=background` flag sets `LSUIElement=true` in the sidecar's bundle `Info.plist` The sidecar runs with no Dock icon, no menu bar item. This is the macOS equivalent of Windows `--windows-disable-console`. The main `.app` (the Tauri host) keeps `LSUIElement=false` so it shows in the Dock normally.
 - **`_target_triple()` returns `aarch64-apple-darwin` (NOT `arm64-apple-darwin`)**: ADR-0020 §4.1 explicitly lists `aarch64-apple-darwin` as the macOS Apple Silicon target triple. The Rust toolchain + Tauri's externalBin mechanism use `aarch64-`, not `arm64-`. The `prewarm_resolver._target_triple()` function in `voice_typer/server/prewarm_resolver.py` correctly returns `aarch64-apple-darwin` on Apple Silicon (line 90: `arch = "aarch64" if machine == "arm64" else "x86_64"`). The original ADR §5 code snippet had a bug returning `arm64-apple-darwin` The implementation is correct, the ADR snippet is not. The `tests/tauri/test_prewarm_resolver.py::test_target_triple_apple_silicon_returns_aarch64` test guards against regression.

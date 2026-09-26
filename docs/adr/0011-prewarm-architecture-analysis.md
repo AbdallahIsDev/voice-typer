@@ -1,4 +1,4 @@
-# ADR 0011: Voice Typer, Prewarm & Autostart Architecture
+# ADR 0011: Lausu, Prewarm & Autostart Architecture
 
 ## Status
 
@@ -187,7 +187,7 @@ Register BOTH a boot trigger and a logon trigger on every platform. The boot tri
 
 | Platform | Boot Trigger | Logon/Fast-Startup Trigger | Sentinel Mechanism |
 |----------|-------------|---------------------------|-------------------|
-| Windows | `<BootTrigger>` in Task Scheduler XML | `<LogonTrigger>` in Task Scheduler XML | `~/.voice-typer/.prewarm-sentinel` (boot timestamp) |
+| Windows | `<BootTrigger>` in Task Scheduler XML | `<LogonTrigger>` in Task Scheduler XML | `~/.lausu/.prewarm-sentinel` (boot timestamp) |
 | macOS | LaunchAgent with `RunAtLoad=true` fires at login; for boot, use a system LaunchDaemon with `StartOnMount` or a `systemd`-equivalent | LaunchAgent `RunAtLoad=true` (covers all logins) | Same sentinel file |
 | Linux | systemd user timer with `OnBootSec=10s` | systemd user timer with `OnUnitActiveSec` is NOT used; instead, the `OnBootSec` timer fires once after boot | Same sentinel file |
 
@@ -230,7 +230,7 @@ def _resolve_hf_cache_dir() -> Path:
         home = os.environ.get("USERPROFILE") or str(Path.home())
     else:
         home = os.environ.get("HOME") or str(Path.home())
-    cache = Path(home) / ".voice-typer" / "huggingface"
+    cache = Path(home) / ".lausu" / "huggingface"
     if cache.exists():
         return cache
 
@@ -247,7 +247,7 @@ def _resolve_hf_cache_dir() -> Path:
             )
             profile = winreg.QueryValueEx(key, "USERPROFILE")[0]
             winreg.CloseKey(key)
-            return Path(profile) / ".voice-typer" / "huggingface"
+            return Path(profile) / ".lausu" / "huggingface"
         except OSError:
             pass
 
@@ -258,7 +258,7 @@ def _resolve_hf_cache_dir() -> Path:
             import os as _os
 
             pw = pwd.getpwuid(_os.getuid())
-            return Path(pw.pw_dir) / ".voice-typer" / "huggingface"
+            return Path(pw.pw_dir) / ".lausu" / "huggingface"
         except (KeyError, ImportError):
             pass
 
@@ -425,7 +425,7 @@ def _cache_ratio(path: Path, samples: int = 20) -> float:
 ```python
 # New handler: get_prewarm_status
 def _handle_get_prewarm_status(app, data):
-    sentinel = Path.home() / ".voice-typer" / ".prewarm-sentinel"
+    sentinel = Path.home() / ".lausu" / ".prewarm-sentinel"
     if not sentinel.exists():
         return {"last_run": None, "elapsed_s": None, "cache_ratio": 0.0, "cache_label": "unknown"}
 
@@ -557,7 +557,7 @@ def is_prewarm_running() -> bool:
     startup. If the PID file exists and the process is alive, prewarm
     is running.
     """
-    pid_file = Path.home() / ".voice-typer" / ".prewarm.pid"
+    pid_file = Path.home() / ".lausu" / ".prewarm.pid"
     if not pid_file.exists():
         return False
     try:
@@ -617,7 +617,7 @@ def wait_for_prewarm(timeout_s: float = 60.0) -> bool:
 def _write_pid_file() -> None:
     """Write the current PID to the prewarm PID file."""
     try:
-        pid_file = Path.home() / ".voice-typer" / ".prewarm.pid"
+        pid_file = Path.home() / ".lausu" / ".prewarm.pid"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text(str(os.getpid()))
     except OSError:
@@ -627,7 +627,7 @@ def _write_pid_file() -> None:
 def _remove_pid_file() -> None:
     """Remove the prewarm PID file on exit."""
     try:
-        pid_file = Path.home() / ".voice-typer" / ".prewarm.pid"
+        pid_file = Path.home() / ".lausu" / ".prewarm.pid"
         pid_file.unlink(missing_ok=True)
     except OSError:
         pass

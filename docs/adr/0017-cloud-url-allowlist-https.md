@@ -10,7 +10,7 @@ Accepted: implemented in `voice_typer/server/_secrets.py`.
 
 ## Context
 
-Voice Typer allows users to configure custom API endpoints for cloud transcription and LLM polishing via the `cloud_api_url` and `llm_api_url` config fields. These fields can be set through the Settings UI (IPC `set_config`) or by directly editing `config.json`.
+Lausu allows users to configure custom API endpoints for cloud transcription and LLM polishing via the `cloud_api_url` and `llm_api_url` config fields. These fields can be set through the Settings UI (IPC `set_config`) or by directly editing `config.json`.
 
 **Threat model (SEC-002 endpoint-swap):** An attacker who gains write access to the user's config file (or exploits a vulnerability in `set_config`) can change the API endpoint to an attacker-controlled server. All subsequent transcription requests and API keys would be sent to the attacker. This is a high-impact attack:
 - API keys (OpenAI, Groq, Deepgram, etc.) would be exfiltrated to the attacker.
@@ -75,7 +75,7 @@ When validation fails, the function raises `ValueError` with a descriptive messa
 - **New provider onboarding:** When a new cloud provider is added, its hostname must be added to `_DEFAULT_ALLOWED_HOSTS`. This is a one-line change in `_secrets.py`, but forgetting it causes the integration to fail at runtime.
 
 ### Risks
-- **Allowlist bypass via proxy:** An attacker who controls a host in the allowlist (e.g., a compromised Deepgram subdomain) can intercept traffic. This is a risk inherent to any host-based allowlist and is outside Voice Typer's control.
+- **Allowlist bypass via proxy:** An attacker who controls a host in the allowlist (e.g., a compromised Deepgram subdomain) can intercept traffic. This is a risk inherent to any host-based allowlist and is outside Lausu's control.
 - **False sense of security:** The URL allowlist prevents endpoint-swap attacks but does not prevent an attacker from reading the user's config file directly (where API keys are stored). That is addressed by SEC-007 (file permissions) and SEC-003 (IPC redaction).
 
 ## References

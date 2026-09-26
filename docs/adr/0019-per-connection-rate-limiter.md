@@ -17,7 +17,7 @@ context below is historical.
 
 ## Context
 
-Voice Typer's IPC server accepts a single persistent TCP connection from the predecessor frontend. Over this connection, the frontend sends JSON-lines commands and the backend responds with JSON-lines responses and push events.
+Lausu's IPC server accepts a single persistent TCP connection from the predecessor frontend. Over this connection, the frontend sends JSON-lines commands and the backend responds with JSON-lines responses and push events.
 
 **The problem:** A crash-looping or buggy predecessor client can flood the IPC socket with thousands of malformed messages per second. Without rate limiting, this flood can:
 
@@ -34,7 +34,7 @@ Voice Typer's IPC server accepts a single persistent TCP connection from the pre
 
 **Alternatives considered:**
 
-1. **Global rate limiter (single counter for all connections).** A global counter is simple but unfair. A misbehaving client can consume the entire budget, starving other clients. Since Voice Typer only has one client, this is less of a concern, but a per-connection limiter is more architecturally correct.
+1. **Global rate limiter (single counter for all connections).** A global counter is simple but unfair. A misbehaving client can consume the entire budget, starving other clients. Since Lausu only has one client, this is less of a concern, but a per-connection limiter is more architecturally correct.
 
 2. **Token-bucket algorithm.** A token bucket (fixed rate + burst) is the standard approach for network rate limiting. The sliding-window deque approach achieves the same behavior with simpler implementation.
 
@@ -201,7 +201,7 @@ not serialize dispatch.
 
 ### More difficult
 - **No client-side backoff (yet):** The predecessor main process's `sendToPython()` does not currently implement backoff on "rate limit exceeded" responses. If the client hits the limit, the user sees IPC timeouts rather than graceful fallback. This is acceptable because hitting the limit indicates a bug in the client that should be fixed, not a normal operational condition.
-- **Per-process budget (post-CR-11):** a single misbehaving connection consumes the budget for ALL connections in the same server process. Acceptable because Voice Typer has exactly one client per process; if a future multi-client mode is added, the limiter would need to move back to per-connection (with a separate cross-connection aggregate cap to prevent the reconnect-reset bypass that CR-11 fixed).
+- **Per-process budget (post-CR-11):** a single misbehaving connection consumes the budget for ALL connections in the same server process. Acceptable because Lausu has exactly one client per process; if a future multi-client mode is added, the limiter would need to move back to per-connection (with a separate cross-connection aggregate cap to prevent the reconnect-reset bypass that CR-11 fixed).
 
 ### Risks
 - **Limits too generous:** 60 msg/s sustained is high for normal operation but within reach of a busy renderer with multiple reactive subscriptions. If a future feature adds a high-frequency IPC call (e.g., real-time waveform at 30 Hz), the sustained rate may need to be tuned. The constants are trivially adjustable.

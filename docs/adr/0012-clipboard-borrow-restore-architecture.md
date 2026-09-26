@@ -93,7 +93,7 @@ On macOS and Linux, `_is_safe_paste_target()` returns `True` immediately: no che
 
 ### 2.9 The transcription pipeline runs on a background thread
 
-`dictation_pipeline.py:60` (docstring): "The pipeline is run on a background thread by VoiceTyperApp." `copy()` and `paste()` are called inline from this thread (lines 628, 669). The `finally` block at lines 211–265 zeros the audio buffer, resets the watchdog, and clears `_transcription_thread`. **Blocking the pipeline thread delays cleanup.**
+`dictation_pipeline.py:60` (docstring): "The pipeline is run on a background thread by LausuApp." `copy()` and `paste()` are called inline from this thread (lines 628, 669). The `finally` block at lines 211–265 zeros the audio buffer, resets the watchdog, and clears `_transcription_thread`. **Blocking the pipeline thread delays cleanup.**
 
 ### 2.10 Config changes flow through `config_handlers.py` → `service.apply_config()`
 
@@ -693,22 +693,22 @@ def paste(
 ) -> bool:
     """Send a paste keystroke into the focused window.
 
-    If a snapshot is provided, a delayed restore is ALWAYS scheduled on
-    a daemon thread (DP3): even when the keystroke is later skipped
-    (pynput missing, rate-limited, paste disabled, unsafe target). This
-    guarantees the clipboard borrow is always paired with a restore
-    (DP1/DP2), so the user's original clipboard is never orphaned.
+       If a snapshot is provided, a delayed restore is ALWAYS scheduled on
+       a daemon thread (DP3): even when the keystroke is later skipped
+       (pynput missing, rate-limited, paste disabled, unsafe target). This
+       guarantees the clipboard borrow is always paired with a restore
+       (DP1/DP2), so the user's original clipboard is never orphaned.
 
-    `force=True` bypasses the `paste_enabled` gate. Used by `repaste_last()`
- A manual user action that must never be coupled to the auto-paste
-    (`paste_on_stop`) setting. See §2.12.
+       `force=True` bypasses the `paste_enabled` gate. Used by `repaste_last()`
+    A manual user action that must never be coupled to the auto-paste
+       (`paste_on_stop`) setting. See §2.12.
 
-    The snapshot and the expected pasted text are passed as value
-    parameters: no instance state is read or written for the snapshot
-    or the restore guard (DP4). This makes overlapping cycles safe:
-    cycle B's copy() cannot corrupt cycle A's restore, because every
-    cycle carries its own expected text. The transcription thread is
-    never blocked by the restore (it runs on a daemon thread).
+       The snapshot and the expected pasted text are passed as value
+       parameters: no instance state is read or written for the snapshot
+       or the restore guard (DP4). This makes overlapping cycles safe:
+       cycle B's copy() cannot corrupt cycle A's restore, because every
+       cycle carries its own expected text. The transcription thread is
+       never blocked by the restore (it runs on a daemon thread).
     """
     # ── schedule restore FIRST, before any early return (DP1/DP2) ──
     # The borrow happened in copy(); failure to send the keystroke must
@@ -1441,13 +1441,13 @@ class TestRepasteFromDB:
     def test_repaste_after_restart(self):
         """Repaste works after app restart because it reads from DB."""
         # Session 1: transcribe, close app
-        app1 = VoiceTyperApp(...)
+        app1 = LausuApp(...)
         app1.history_db.add_transcription("call mom")
         app1.history_db.flush()
         app1.cleanup()
 
         # Session 2: new app instance, _last_transcription is ""
-        app2 = VoiceTyperApp(...)
+        app2 = LausuApp(...)
         assert app2._last_transcription == ""
 
         # Repaste reads from DB
@@ -1460,7 +1460,7 @@ class TestRepasteFromDB:
 
     def test_repaste_fallback_to_memory_on_db_failure(self):
         """If DB read throws, repaste falls back to _last_transcription."""
-        app = VoiceTyperApp(...)
+        app = LausuApp(...)
         app._last_transcription = "from memory"
         with patch.object(app.history_db, "get_latest_text", side_effect=Exception("DB error")):
             with patch.object(app.clipboard, "paste") as mock_paste:
@@ -1469,7 +1469,7 @@ class TestRepasteFromDB:
 
     def test_repaste_empty_db_notifies_user(self):
         """If DB is empty and memory is empty, user is notified."""
-        app = VoiceTyperApp(...)
+        app = LausuApp(...)
         app._last_transcription = ""
         with patch.object(app.history_db, "get_latest_text", return_value=""):
             with patch.object(app.tray, "notify") as mock_notify:

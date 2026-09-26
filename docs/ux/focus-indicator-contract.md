@@ -1,7 +1,7 @@
 # Focus Indicators: Visibility Is Non-Negotiable
 
 **Status**: Decided (2026-08-28, after a programmatic WCAG contrast audit)
-**Decision owner**: voice-typer UX
+**Decision owner**: lausu UX
 **Supersedes**: none (supersedes ad-hoc per-component focus styling)
 **Related code**:
 - `voice_typer/client/src/renderer/src/components/ui/__tests__/focus-ring-contrast.test.tsx` The executable contract

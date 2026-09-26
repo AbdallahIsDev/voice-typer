@@ -1,7 +1,7 @@
 # Microphone Enumeration: One Canonical Host-API View
 
 **Status**: Decided (2026-08-25, refined with the System Default semantics)
-**Decision owner**: voice-typer UX / audio
+**Decision owner**: lausu UX / audio
 **Supersedes**: the previous raw PortAudio enumeration shown in the UI
 (duplicate devices per host API)
 **Related code**:

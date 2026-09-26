@@ -17,7 +17,7 @@ Historically accepted: implemented in `voice_typer/server/ipc_server.py:_heartbe
 
 ## Context
 
-Voice Typer's architecture is a **two-process** design: the predecessor frontend spawns the Python backend as a subprocess and communicates over a local TCP socket. The two processes have separate lifecycles:
+Lausu's architecture is a **two-process** design: the predecessor frontend spawns the Python backend as a subprocess and communicates over a local TCP socket. The two processes have separate lifecycles:
 
 - predecessor can crash or be force-killed by the user (Task Manager "End task" on Windows, `kill -9` on Linux/macOS).
 - The Python backend runs independently once spawned. It has its own thread for audio capture, its own hotkey registration, its own volume ducking, and its own Win32 named mutex for single-instance enforcement.

@@ -10,7 +10,7 @@ Accepted
 
 ## Context
 
-Voice Typer pastes transcribed text into the user's active application by simulating
+Lausu pastes transcribed text into the user's active application by simulating
 keyboard input (Ctrl+V). This requires reading and writing the system clipboard, which
 has security implications:
 

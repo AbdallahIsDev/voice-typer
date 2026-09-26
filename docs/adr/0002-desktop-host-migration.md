@@ -14,7 +14,7 @@ design. This document is preserved for historical context.
 
 ## Context
 
-Voice Typer needs a rich, cross-platform user interface for settings, model management, and
+Lausu needs a rich, cross-platform user interface for settings, model management, and
 recording feedback. The core ASR (Automatic Speech Recognition) pipeline relies on Python
 libraries (faster-whisper, transformers, sounddevice) that have no equivalent in the
 JavaScript/Node.js ecosystem. We needed an architecture that combines Python's ML/audio

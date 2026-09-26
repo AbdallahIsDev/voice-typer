@@ -153,7 +153,9 @@ A SECOND spawned child (ML worker exe) with its own state struct so worker
 respawn never trips the sidecar circuit breaker and vice versa. The slim-core
 sidecar — not the Tauri host — is the worker's WS client. Worker auth token is
 a process-lifetime `OnceLock` (`VOICE_TYPER_WORKER_TOKEN`); the sidecar reuses
-it across worker respawns.
+it across worker respawns. Crash→respawn policy (Step 5):
+`sidecar/worker_supervisor.rs`, rationale in
+`docs/code-notes/worker-lifecycle-policy.md`.
 
 ## Autostart / hidden launch (C-BG-1)
 
@@ -174,7 +176,7 @@ These files are re-export surfaces only; logic lives in the submodules:
 - `platform/logging/mod.rs` → combined, early, init, panic_hook, redact,
   rotating. Sibling tests: `platform/logging_tests.rs`.
 - `sidecar/mod.rs` → bubble_coalesce, child_log, handle, lifecycle, shutdown,
-  spawn, supervisor, ws. Sibling tests wired per-module (not all here:
+  spawn, supervisor, worker_supervisor, ws. Sibling tests wired per-module (not all here:
   `spawn_tests` is declared inside `spawn.rs` so `super::*` resolves).
 
 `state.rs` re-exports `SidecarHandle`, lifecycle callbacks, and test-gated

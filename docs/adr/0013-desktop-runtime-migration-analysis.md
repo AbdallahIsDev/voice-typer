@@ -12,7 +12,7 @@ Superseded by [ADR-0020](0020-desktop-runtime-migration-analysis.md): see ADR-00
 
 ## Context
 
-Voice Typer today is **predecessor (React UI) + a separate Python backend + a separate prewarm helper**, effectively **three processes**:
+Lausu today is **predecessor (React UI) + a separate Python backend + a separate prewarm helper**, effectively **three processes**:
 
 1. predecessor main process (hosts the React UI).
 2. `python -m voice_typer.server.ipc_server --port 9876` The Python backend, spawned by the legacy host launcher, reached over a local TCP socket. This process does audio capture + model inference.
@@ -144,7 +144,7 @@ This section closes the contradictions and missing specs flagged in implementati
 - **Code-signing:** sign BOTH the main exe and `python-sidecar-*.exe` separately (SmartScreen flags an unsigned sidecar even if the main is signed).
 
 ### Cross-cutting
-- **Config / user-data:** Python keeps resolving its config dir exactly as today (`APPDATA`/voice-typer + `HF_HOME`): no rewrite, no `sys._MEIPASS` dependency. On first Tauri launch, optionally copy any legacy predecessor `userData` into that same dir (one-time migration) so users keep settings/history/model cache. The UI MUST NOT write config directly; all config goes UI → `invoke` → sidecar → `config.py` (single writer).
+- **Config / user-data:** Python keeps resolving its config dir exactly as today (`APPDATA`/lausu + `HF_HOME`): no rewrite, no `sys._MEIPASS` dependency. On first Tauri launch, optionally copy any legacy predecessor `userData` into that same dir (one-time migration) so users keep settings/history/model cache. The UI MUST NOT write config directly; all config goes UI → `invoke` → sidecar → `config.py` (single writer).
 - **Capabilities (`capabilities/default.json`):** allow `core:default`, `shell:allow-spawn` (or sidecar), `global-shortcut:default`, `tray:default`, `clipboard:default`, `updater` (if used), `window:allow-*`. Without these, `invoke`/shell are blocked.
 - **Plugins:** `tray`, `global-shortcut`, `autostart` (prewarm only / disabled for app), `single-instance`, `updater` (optional), `clipboard`, `opener`.
 - **Prewarm post-migration:** still spawned by `task_scheduler.py` BootTrigger (not by Tauri). Installer must remove old predecessor autostart/launcher tasks; `single-instance` ensures one app instance. Prewarm's separate process is unchanged (ADR-0011).

@@ -1,6 +1,6 @@
 > **Historical document**
 
-# RW-9: VoiceTyperApp God-Class Decomposition
+# RW-9: LausuApp God-Class Decomposition
 
 **Task**: RW-9 god-class controller extract
 **Sub-agent**: `rw-9-god-class-controller-extract`
@@ -11,13 +11,13 @@
 
 ## 1. Confirmed Gap
 
-`voice_typer/server/app.py` `VoiceTyperApp` was the single biggest maintainability
+`voice_typer/server/app.py` `LausuApp` was the single biggest maintainability
 liability in the codebase. The pre-RW-9 baseline (per the task directive):
 
 | Metric                | Pre-RW-9 (directive) | Round-6 start (actual) | Round-6 end (this round) | Current (post-round-6 follow-ups) |
 | --------------------- | -------------------- | ---------------------- | ------------------------ | --------------------------------- |
 | `app.py` line count   | 2352                 | 2321                   | 2314                     | **1676** (`wc -l voice_typer/server/app.py`, as of 2026-08-05) |
-| `VoiceTyperApp` methods | 61                 | 35                     | 35                       | 35 (unchanged: follow-ups moved whole controllers out, not methods) |
+| `LausuApp` methods | 61                 | 35                     | 35                       | 35 (unchanged: follow-ups moved whole controllers out, not methods) |
 | `self.models` / `self.recording` / `self.hotkeys` / `self.tray` calls | ~82 | (not recounted) | (not recounted) | (not recounted) |
 
 > **Post-round-6 update (S1-CR-131 reconciliation):** the 2314-line
@@ -28,7 +28,7 @@ liability in the codebase. The pre-RW-9 baseline (per the task directive):
 > completed the `voice_typer/server/service/` package split (history,
 > vocabulary, templates, dictation, model, microphone, status,
 > onboarding, privacy, system, level_monitor sub-services). Each
-> extraction moved real method bodies out of `VoiceTyperApp` into a
+> extraction moved real method bodies out of `LausuApp` into a
 > dedicated module. The line-count figure above is captured as of
 > **2026-08-05** so future drift is detectable, re-run
 > `wc -l voice_typer/server/app.py` and update this row (and the
@@ -45,7 +45,7 @@ prior RW-9 rounds (Phases 1–5) which already extracted:
 | 1     | `voice_typer/server/recording_controller.py`    | `toggle`, `_start_dictation`, `_stop_dictation`, `_cancel_dictation`, `_cancel_streaming_session`, silence/xrun/max-duration callbacks, streaming session accessors |
 | 1     | `voice_typer/server/model_manager.py`           | `ModelManager` (ASR backend lifecycle, fallback, change)  |
 | 1     | `voice_typer/server/hotkey_dispatcher.py`       | `HotkeyDispatcher` (3 hotkey backends + register/restart) |
-| 2     | `voice_typer/server/startup_tasks.py`           | `sync_autostart`, `sync_prewarm_task`, `load_microphones`, `ensure_desktop_shortcut`, `start_accessibility_pulse` (5 standalone functions; `VoiceTyperApp` delegate methods removed) |
+| 2     | `voice_typer/server/startup_tasks.py`           | `sync_autostart`, `sync_prewarm_task`, `load_microphones`, `ensure_desktop_shortcut`, `start_accessibility_pulse` (5 standalone functions; `LausuApp` delegate methods removed) |
 | 5     | `voice_typer/server/startup_sequence.py`        | `StartupSequence.run()` The entire `_do_startup` body (~340 lines, 8-phase boot sequence with RACE-020 shutdown gates) |
 
 This round (Phase 6) adds the SettingsController extraction + regression
@@ -59,9 +59,9 @@ tests + this tracking doc.
 
 **New module**: `voice_typer/server/settings_controller.py` (166 lines)
 
-**Methods moved from `VoiceTyperApp` to `SettingsController`**:
+**Methods moved from `LausuApp` to `SettingsController`**:
 
-| `VoiceTyperApp` method (kept as delegate) | `SettingsController` method | Behaviour preserved verbatim |
+| `LausuApp` method (kept as delegate) | `SettingsController` method | Behaviour preserved verbatim |
 | ----------------------------------------- | --------------------------- | ---------------------------- |
 | `_toggle_autostart`                       | `toggle_autostart`          | Reads `is_autostart_enabled()` dynamically from `voice_typer.server.app` so existing monkeypatch patterns keep working |
 | `_set_autostart(enabled)`                 | `set_autostart(enabled)`    | Calls `enable_autostart()` / `disable_autostart()`, persists config, updates tray UI, notifies user on failure |
@@ -70,22 +70,22 @@ tests + this tracking doc.
 
 **NOT extracted this round** (left for follow-up):
 
-- `_open_config_file`: stays on `VoiceTyperApp` because
+- `_open_config_file`: stays on `LausuApp` because
   `tests/test_config_editor_lock.py` and
   `tests/test_bugfix_regressions.py:943` use
-  `inspect.getsource(VoiceTyperApp._open_config_file)` to pin
+  `inspect.getsource(LausuApp._open_config_file)` to pin
   source-level invariants (macOS `open -W` branch, three platform
   branches acquiring `_config_mutation_lock`, etc.). Moving it would
   require rewriting those source-inspection tests, which expands
   scope and risk; left for a follow-up round.
 
-**Wiring**: `VoiceTyperApp.__init__` instantiates
+**Wiring**: `LausuApp.__init__` instantiates
 `self.settings: SettingsController = SettingsController(self)` immediately
 after `self.tray = TrayIcon(...)` (so the tray is available when
 `SettingsController` needs to call `tray.notify` / `tray.set_*`).
 
 **Back-reference pattern**: `SettingsController._app` holds a reference
-to the `VoiceTyperApp` instance. Same attribute surface as the original
+to the `LausuApp` instance. Same attribute surface as the original
 `self.*` references: only the class boundary moved. Mirrors the pattern
 established by `RecordingController` and `StartupSequence`.
 
@@ -97,7 +97,7 @@ established by `RecordingController` and `StartupSequence`.
   LOCAL to each method that needs `is_autostart_enabled` /
   `enable_autostart` / `disable_autostart`, so the cycle is broken at
   runtime.
-- `TYPE_CHECKING` import of `VoiceTyperApp` is type-only (no runtime
+- `TYPE_CHECKING` import of `LausuApp` is type-only (no runtime
   cost, no cycle).
 
 ### Test-infrastructure fix, `tests/conftest.py`
@@ -138,7 +138,7 @@ Pins the `SettingsController` extraction contract:
 
 - `TestSettingsControllerWiring` (2 tests): `self.settings` is a
   `SettingsController` instance with `_app` back-referencing the app.
-- `TestSettingsControllerDelegates` (4 tests): each `VoiceTyperApp`
+- `TestSettingsControllerDelegates` (4 tests): each `LausuApp`
   delegate method calls the corresponding `SettingsController` method.
 - `TestSettingsControllerSetAutostart` (3 tests): `set_autostart(True)`
   calls `enable_autostart`; `set_autostart(False)` calls
@@ -176,14 +176,14 @@ Pins the `SettingsController` extraction contract:
 The clusters originally identified as follow-up candidates (now
 summarised in §5.1) were **all extracted in subsequent RW-9 rounds**.
 The 5 implemented controllers now live in their own modules and are
-wired into `VoiceTyperApp` as delegates. Only `_open_config_file`
+wired into `LausuApp` as delegates. Only `_open_config_file`
 (§5.2) remains un-extracted, blocked by source-inspection tests.
 
 ### 5.1 Completed in Subsequent RW-9 Rounds
 
 The following 5 controllers were extracted after Phase 6. Each is a
 new module in `voice_typer/server/` with a back-reference to
-`VoiceTyperApp`, mirroring the `SettingsController` pattern.
+`LausuApp`, mirroring the `SettingsController` pattern.
 
 | Controller | Module | Approx. size | Notes |
 | ---------- | ------ | ------------ | ----- |
@@ -203,7 +203,7 @@ Methods:
 **Risk**: LOW, but blocked by source-level structure tests in
 `tests/test_config_editor_lock.py` and
 `tests/test_bugfix_regressions.py:943` that use
-`inspect.getsource(VoiceTyperApp._open_config_file)` to pin
+`inspect.getsource(LausuApp._open_config_file)` to pin
 source-level invariants. Moving this method requires updating those
 tests to inspect `SettingsController._open_config_file` instead.
 
@@ -244,37 +244,37 @@ sub-agents' work:
 ### 6.3 Method count verification
 
 ```
-Total methods on VoiceTyperApp (incl __init__): 35
-Public methods on VoiceTyperApp (incl __init__): 10
+Total methods on LausuApp (incl __init__): 35
+Public methods on LausuApp (incl __init__): 10
 ```
 
 The method count is unchanged from the start of this round (35) because
-the 4 settings methods are kept as thin delegates on `VoiceTyperApp`
+the 4 settings methods are kept as thin delegates on `LausuApp`
 (the directive requires preserving the public API; tray menu callbacks
 + tests call `app._select_microphone` etc. directly). The actual logic
 moved to `SettingsController` (4 methods, 166 lines).
 
 ### 6.4 Public API preservation
 
-- `VoiceTyperApp._toggle_autostart` ✓ (delegate)
-- `VoiceTyperApp._set_autostart` ✓ (delegate)
-- `VoiceTyperApp._set_notifications` ✓ (delegate)
-- `VoiceTyperApp._select_microphone` ✓ (delegate)
-- `VoiceTyperApp._open_config_file` ✓ (unchanged)
-- `VoiceTyperApp.change_microphone` ✓ (unchanged, calls
+- `LausuApp._toggle_autostart` ✓ (delegate)
+- `LausuApp._set_autostart` ✓ (delegate)
+- `LausuApp._set_notifications` ✓ (delegate)
+- `LausuApp._select_microphone` ✓ (delegate)
+- `LausuApp._open_config_file` ✓ (unchanged)
+- `LausuApp.change_microphone` ✓ (unchanged, calls
   `_select_microphone` which delegates to `SettingsController`)
-- `VoiceTyperApp.change_model` ✓ (unchanged, calls `self.models.change_model`)
-- `VoiceTyperApp.toggle_dictation` ✓ (unchanged, calls
+- `LausuApp.change_model` ✓ (unchanged, calls `self.models.change_model`)
+- `LausuApp.toggle_dictation` ✓ (unchanged, calls
   `self.recording.toggle()`)
-- `VoiceTyperApp.quit_app` / `restart_app` / `quit` ✓ (unchanged)
+- `LausuApp.quit_app` / `restart_app` / `quit` ✓ (unchanged)
 
 ---
 
 ## 7. Design Decisions
 
-### 7.1 Why keep thin delegates on `VoiceTyperApp`?
+### 7.1 Why keep thin delegates on `LausuApp`?
 
-The directive says: "DO NOT change the public API of `VoiceTyperApp`
+The directive says: "DO NOT change the public API of `LausuApp`
 (other code depends on it)." The settings methods are called by:
 
 - `voice_typer/server/tray.py` (tray menu callbacks, `_toggle_autostart`,
@@ -313,7 +313,7 @@ reference that the monkeypatch can't override.
 ### 7.3 Why NOT extract `_open_config_file`?
 
 `tests/test_config_editor_lock.py:39-141` uses
-`inspect.getsource(VoiceTyperApp._open_config_file)` to verify the
+`inspect.getsource(LausuApp._open_config_file)` to verify the
 source-level structure:
 
 - macOS branch must exist with `elif is_macos():`
@@ -335,7 +335,7 @@ Left for a follow-up round with explicit test-rewrite scope.
 
 ```
                         ┌──────────────────────────┐
-                        │     VoiceTyperApp        │
+                        │     LausuApp        │
                         │  (voice_typer/server/    │
                         │       app.py: 2314 LOC) │
                         └────────────┬─────────────┘
@@ -382,4 +382,4 @@ completed modules. The only remaining follow-up is:
    rewriting `tests/test_config_editor_lock.py` and
    `tests/test_bugfix_regressions.py:943` to inspect
    `SettingsController._open_config_file` instead of
-   `VoiceTyperApp._open_config_file`.
+   `LausuApp._open_config_file`.

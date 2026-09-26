@@ -12,19 +12,19 @@ Accepted
 ## 1. Context
 
 `IPCServer.__init__(app)` historically took a concrete
-`VoiceTyperApp` and immediately constructed a `VoiceTyperService(app)`
+`LausuApp` and immediately constructed a `LausuService(app)`
 inside its own constructor. This produced tight coupling between the
 IPC dispatch layer and the service implementation:
 
 - **IPC tests could not isolate dispatch from service.** Every test
   that constructed `IPCServer(app)` And there are **20+ such test
-  files** across `tests/` Ended up with a real `VoiceTyperService`
+  files** across `tests/` Ended up with a real `LausuService`
   wrapping whatever `app` was passed (often a `MagicMock`). Bugs in
   the service layer surfaced as IPC test failures, and IPC dispatch
   behavior could not be exercised in isolation.
 - **Mock-based apps leaked service construction.** Passing a
   `MagicMock` as `app` does not stop `IPCServer` from calling
-  `VoiceTyperService(app)`; the service constructor then runs real
+  `LausuService(app)`; the service constructor then runs real
   initialization code against a mock, which can either no-op silently
   or raise unrelated errors far from the code under test.
 - **No single composition root.** Wiring decisions (which service
@@ -99,7 +99,7 @@ Two `typing.Protocol` classes are defined in
   string-form `getattr` access (see §2.5 below).
 - **`ServiceProtocol`**: the structural type for the `service`
   object consumed by the IPC handler mixins. This enumerates the full
-  `VoiceTyperService` public method surface (status, dictation,
+  `LausuService` public method surface (status, dictation,
   config, history, microphone, models, vocabulary, templates,
   onboarding, system).
 
@@ -123,19 +123,19 @@ def __init__(self, app, service: Optional[Any] = None) -> None:
     if service is not None:
         self.service = service  # DI mode: caller-provided fake
     else:
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        self.service = VoiceTyperService(app)  # Backward compat
+        self.service = LausuService(app)  # Backward compat
 ```
 
 - **`IPCServer(app)`**: backward-compatible path. Used by all 20+
   existing test files and the production entry point. Constructs a
-  real `VoiceTyperService(app)` exactly as before. No call site needs
+  real `LausuService(app)` exactly as before. No call site needs
   to change.
 - **`IPCServer(app, service=fake_service)`**: DI path. Used by tests
   that want to exercise the IPC dispatch layer in isolation. The
   injected `service` is stored verbatim on `self.service`; no
-  `VoiceTyperService` is constructed.
+  `LausuService` is constructed.
 
 `app` is annotated as `Any` (not `AppProtocol`) on the constructor
 signature so existing `MagicMock`-based test fixtures keep working
@@ -161,7 +161,7 @@ production entry point (`voice_typer/server/ipc_server.py:main`) calls
 `build_ipc_server(app)` instead of `IPCServer(app)` directly.
 
 Behavior today is identical to `IPCServer(app)`: a real
-`VoiceTyperService` is constructed over `app`. The factory exists so
+`LausuService` is constructed over `app`. The factory exists so
 that future wiring changes (logging, metrics, feature flags, an
 alternate service implementation) live in one place rather than being
 threaded through every call site. The factory intentionally does
@@ -220,7 +220,7 @@ layer.
 
 - **IPC tests can isolate the dispatch layer.** Tests using
   `make_ipc_server_with_fakes()` exercise `_dispatch`, `_send`, and
-  the `_handle_*` mixins without depending on `VoiceTyperService`
+  the `_handle_*` mixins without depending on `LausuService`
   behavior. Service-layer bugs no longer cascade into IPC test
   failures.
 - **Protocol drift is detectable.** The introspection test in
@@ -264,7 +264,7 @@ layer.
   call sites.
 - **`ServiceProtocol` enumerates the full service surface.** This is
   a large protocol (~50 methods), but it mirrors the existing
-  `VoiceTyperService` public surface 1:1, no new surface is being
+  `LausuService` public surface 1:1, no new surface is being
   invented, just documented.
 
 ---
@@ -295,7 +295,7 @@ layer.
    state. Constructor injection via the optional `service` parameter
    keeps dependencies explicit in the signature.
 
-4. **Monkeypatch `VoiceTyperService` in tests.** Rejected. Already
+4. **Monkeypatch `LausuService` in tests.** Rejected. Already
    used in a few legacy tests, but it's brittle: it mutates global
    state, can leak across test files if cleanup is missed, and
    doesn't help with the protocol-drift-detection goal (there's no

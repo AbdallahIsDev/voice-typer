@@ -6,7 +6,7 @@
 
 ## Overview
 
-Voice Typer stores API keys for cloud providers (OpenAI, Groq,
+Lausu stores API keys for cloud providers (OpenAI, Groq,
 Deepgram) and the LLM polishing service in the OS-native credential
 backend via the [`keyring`](https://pypi.org/project/keyring/) library:
 
@@ -21,7 +21,7 @@ container without `gnome-keyring-daemon`), the store falls back to the
 legacy behavior: plaintext in `config.json` with `0o600` permissions on
 POSIX (the file is already created with `0o600` by `_secure_atomic_write`
 in `config.py`). On Windows the fallback is plaintext under
-`%APPDATA%\voice-typer\config.json` (per-user ACLs already isolate the
+`%APPDATA%\lausu\config.json` (per-user ACLs already isolate the
 file).
 
 ## Architecture
@@ -84,9 +84,9 @@ file).
 ```
 
 The real secret lives in the OS keychain under the service name
-`com.voicetyper.keyring` with the provider name as the username key.
-(Prior app versions used the legacy service names `app.voicetyper`
-and `voice-typer` The migration auto-copies those entries to the
+`com.Lausu.keyring` with the provider name as the username key.
+(Prior app versions used the legacy service names `app.Lausu`
+and `lausu` The migration auto-copies those entries to the
 current name and deletes the originals, gated by the
 `service_name_migrated_<name>` config flag.)
 
@@ -132,7 +132,7 @@ The credential store module (`voice_typer/server/credential_store.py`)
 exposes:
 
 ```python
-KEYRING_SERVICE_NAME = "com.voicetyper.keyring"
+KEYRING_SERVICE_NAME = "com.Lausu.keyring"
 KEYRING_REF_PREFIX = "keyring://"
 PROVIDER_TO_CONFIG_FIELD = {
     "openai": "openai_api_key",
@@ -264,17 +264,17 @@ verify the credential store works correctly on each platform.
 
 3. Run the app and enter an OpenAI API key in Settings → Models.
 
-4. Verify the key is NOT in `~/.config/voice-typer/config.json`:
+4. Verify the key is NOT in `~/.config/lausu/config.json`:
 
    ```bash
-   grep -E 'api_key' ~/.config/voice-typer/config.json
+   grep -E 'api_key' ~/.config/lausu/config.json
    # Should show: "openai_api_key": "keyring://openai", ...
    ```
 
 5. Verify the key IS in the GNOME Keyring:
 
    ```bash
-   secret-tool search service com.voicetyper.keyring
+   secret-tool search service com.Lausu.keyring
    # Should list: username = openai, secret = [hidden]
    ```
 
@@ -293,17 +293,17 @@ verify the credential store works correctly on each platform.
    macOS will show a Keychain access prompt, click "Always Allow".
 
 3. Verify the key is NOT in
-   `~/Library/Application Support/voice-typer/config.json`:
+   `~/Library/Application Support/lausu/config.json`:
 
    ```bash
-   grep -E 'api_key' ~/Library/Application\ Support/voice-typer/config.json
+   grep -E 'api_key' ~/Library/Application\ Support/lausu/config.json
    # Should show: "openai_api_key": "keyring://openai", ...
    ```
 
 4. Verify the key IS in the Keychain:
 
    ```bash
-   security find-generic-password -s com.voicetyper.keyring -a openai
+   security find-generic-password -s com.Lausu.keyring -a openai
    # Should print the keychain entry metadata
    ```
 
@@ -320,10 +320,10 @@ verify the credential store works correctly on each platform.
 2. Run the app and enter an OpenAI API key in Settings → Models.
 
 3. Verify the key is NOT in
-   `%APPDATA%\voice-typer\config.json`:
+   `%APPDATA%\lausu\config.json`:
 
    ```powershell
-   Select-String -Path "$env:APPDATA\voice-typer\config.json" -Pattern 'api_key'
+   Select-String -Path "$env:APPDATA\lausu\config.json" -Pattern 'api_key'
    # Should show: "openai_api_key": "keyring://openai", ...
    ```
 
@@ -331,7 +331,7 @@ verify the credential store works correctly on each platform.
 
    ```powershell
    cmdkey /list
-   # Look for an entry with Target: com.voicetyper.keyring:openai
+   # Look for an entry with Target: com.Lausu.keyring:openai
    ```
 
 5. Restart the app and verify the key is still loaded.
@@ -346,17 +346,17 @@ without a desktop environment.
 
 2. Run the app and enter an API key.
 
-3. Verify the key IS in `~/.config/voice-typer/config.json`:
+3. Verify the key IS in `~/.config/lausu/config.json`:
 
    ```bash
-   grep 'openai_api_key' ~/.config/voice-typer/config.json
+   grep 'openai_api_key' ~/.config/lausu/config.json
    # Should show the actual key value (plaintext fallback)
    ```
 
 4. Verify the file has `0o600` perms:
 
    ```bash
-   stat -c '%a' ~/.config/voice-typer/config.json
+   stat -c '%a' ~/.config/lausu/config.json
    # Should print: 600
    ```
 

@@ -1,17 +1,17 @@
-# Voice Typer Data Directory
+# Lausu Data Directory
 
 ## Where your data lives
 
-Voice Typer stores all of its user data in a single **data directory**.
+Lausu stores all of its user data in a single **data directory**.
 The location is platform-specific and is resolved by
 `voice_typer.server.config._config_dir()`:
 
 | Platform | Default data directory |
 |----------|------------------------|
-| Windows (new installs) | `%APPDATA%\voice-typer` → `C:\Users\<you>\AppData\Roaming\voice-typer` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer` is still honored if it already exists. The app checks the legacy path **first** (see `config._config_dir()`) and keeps using it, so upgrades are seamless, no data is moved. |
-| macOS | `~/Library/Application Support/voice-typer` |
-| Linux | `$XDG_DATA_HOME/voice-typer` (falls back to `~/.local/share/voice-typer`) |
+| Windows (new installs) | `%APPDATA%\lausu` → `C:\Users\<you>\AppData\Roaming\lausu` |
+| Windows (existing users) | `%USERPROFILE%\.lausu` is still honored if it already exists. The app checks the legacy path **first** (see `config._config_dir()`) and keeps using it, so upgrades are seamless, no data is moved. |
+| macOS | `~/Library/Application Support/lausu` |
+| Linux | `$XDG_DATA_HOME/lausu` (falls back to `~/.local/share/lausu`) |
 
 You can override the location with the `VOICE_TYPER_CONFIG_DIR` environment
 variable (validated against path traversal in `config._config_dir()`).
@@ -21,20 +21,20 @@ In the rest of this document, `<DATA_DIR>` refers to that resolved directory.
 ## Log File Paths (per-platform)
 
 S5-CR-70: the log file path was previously inconsistent across docs —
-`README.md` mentioned only the Windows path (`%APPDATA%/voice-typer/voice-typer.log`),
-`CONTRIBUTING.md` mentioned only the Unix path (`$HOME/.voice-typer/voice-typer.log`),
-and `bug_report.md` mentioned only `~/.voice-typer/voice-typer.log`. This
+`README.md` mentioned only the Windows path (`%APPDATA%/lausu/lausu.log`),
+`CONTRIBUTING.md` mentioned only the Unix path (`$HOME/.lausu/lausu.log`),
+and `bug_report.md` mentioned only `~/.lausu/lausu.log`. This
 section is the canonical source of truth, `README.md` and `CONTRIBUTING.md`
 both link here.
 
 There are **two** log files (one per process): the Python backend log
 and the Tauri Rust host log. They live at *different* paths, the
-Python log is at `<DATA_DIR>/voice-typer.log` (directly under the data
-dir), while the Rust host log is at `<DATA_DIR>/logs/voice-typer.log`
+Python log is at `<DATA_DIR>/lausu.log` (directly under the data
+dir), while the Rust host log is at `<DATA_DIR>/logs/lausu.log`
 (in a `logs/` subdir). Verified via:
 
-- Python: `voice_typer/server/logging_setup.py:_setup_logging()` (canonical entry point: re-exported from `app.py` for backwards compatibility) → delegates to `voice_typer/server/log.py:setup_logging`; path literal at `log.py:898` `log_file = config_dir / "voice-typer.log"`
-- Rust: `src-tauri/src/platform/logging.rs:22,47,61` `config_dir.join("logs")` + writer prefix `"voice-typer"`
+- Python: `voice_typer/server/logging_setup.py:_setup_logging()` (canonical entry point: re-exported from `app.py` for backwards compatibility) → delegates to `voice_typer/server/log.py:setup_logging`; path literal at `log.py:898` `log_file = config_dir / "lausu.log"`
+- Rust: `src-tauri/src/platform/logging.rs:22,47,61` `config_dir.join("logs")` + writer prefix `"lausu"`
 
 ### Python backend log
 
@@ -44,42 +44,42 @@ Written by `_SecureTruncatingFileHandler` in
 — re-exported from `app.py` for backwards compatibility). **Single-file
 policy:** when the log exceeds 5 MiB it is truncated IN PLACE (emptied) and
 writing continues to the same file, numbered backups
-(`voice-typer.log.1`, `.2`, ...) are NEVER created
+(`lausu.log.1`, `.2`, ...) are NEVER created
 (`_SecureTruncatingFileHandler(maxBytes=5_242_880, backupCount=0)` —
 ADR-0020 §11, hardened).
 
 | Platform | Python log file path |
 |----------|----------------------|
-| Windows (new installs) | `%APPDATA%\voice-typer\voice-typer.log` → `C:\Users\<you>\AppData\Roaming\voice-typer\voice-typer.log` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer\voice-typer.log` (legacy data directory is honored if it already exists, see above) |
-| macOS | `~/Library/Application Support/voice-typer/voice-typer.log` |
-| Linux | `$XDG_DATA_HOME/voice-typer/voice-typer.log` (falls back to `~/.local/share/voice-typer/voice-typer.log`) |
+| Windows (new installs) | `%APPDATA%\lausu\lausu.log` → `C:\Users\<you>\AppData\Roaming\lausu\lausu.log` |
+| Windows (existing users) | `%USERPROFILE%\.lausu\lausu.log` (legacy data directory is honored if it already exists, see above) |
+| macOS | `~/Library/Application Support/lausu/lausu.log` |
+| Linux | `$XDG_DATA_HOME/lausu/lausu.log` (falls back to `~/.local/share/lausu/lausu.log`) |
 
 Override the location by setting `VOICE_TYPER_CONFIG_DIR` (the log lives
 directly under the resolved `<DATA_DIR>` **Not** in a `logs/` subdir).
 An earlier draft of this doc claimed the Python log was at
-`<DATA_DIR>/logs/voice-typer.log`; that was a bug: the Python
-`RotatingFileHandler` writes at `<DATA_DIR>/voice-typer.log` directly
+`<DATA_DIR>/logs/lausu.log`; that was a bug: the Python
+`RotatingFileHandler` writes at `<DATA_DIR>/lausu.log` directly
 (see `log.py:898`). The `logs/` subdir is reserved for the Rust host
 log (below).
 
 ### Tauri Rust host log
 
 When running under the Tauri runtime (ADR-0020, sole host), the Rust host writes
-its own log at `<DATA_DIR>/logs/voice-typer-rust.log` (single-file
+its own log at `<DATA_DIR>/logs/lausu-rust.log` (single-file
 policy: it is truncated in place at 5 MB, numbered backups are never
 created — see `src-tauri/src/platform/logging/init.rs:135-149`). The
-basename is `voice-typer-rust` (distinct from the Python current log
-`logs/voice-typer.log`) so the two processes never collide on disk or in
+basename is `lausu-rust` (distinct from the Python current log
+`logs/lausu.log`) so the two processes never collide on disk or in
 the diagnostics zip; the bundle ships the file under this same
 on-disk name.
 
 | Platform | Rust host log file path |
 |----------|-------------------------|
-| Windows (new installs) | `%APPDATA%\voice-typer\logs\voice-typer-rust.log` → `C:\Users\<you>\AppData\Roaming\voice-typer\logs\voice-typer-rust.log` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer\logs\voice-typer-rust.log` (legacy data directory is honored if it already exists, see above) |
-| macOS | `~/Library/Application Support/voice-typer/logs/voice-typer-rust.log` |
-| Linux | `$XDG_DATA_HOME/voice-typer/logs/voice-typer-rust.log` (falls back to `~/.local/share/voice-typer/logs/voice-typer-rust.log`) |
+| Windows (new installs) | `%APPDATA%\lausu\logs\lausu-rust.log` → `C:\Users\<you>\AppData\Roaming\lausu\logs\lausu-rust.log` |
+| Windows (existing users) | `%USERPROFILE%\.lausu\logs\lausu-rust.log` (legacy data directory is honored if it already exists, see above) |
+| macOS | `~/Library/Application Support/lausu/logs/lausu-rust.log` |
+| Linux | `$XDG_DATA_HOME/lausu/logs/lausu-rust.log` (falls back to `~/.local/share/lausu/logs/lausu-rust.log`) |
 
 The predecessor host and its crash logs (`predecessor-crashes.log`,
 `predecessor-main.log`) were removed with the predecessor cutover
@@ -113,19 +113,19 @@ This design is:
 │   ├── bin/python               #   Python executable (POSIX)
 │   ├── Lib/site-packages/       #   All Python deps (Windows)
 │   └── lib/python3.XY/site-packages/  # All Python deps (POSIX)
-├── voice-typer.log              # Python backend log (single file, truncates in place at 5 MiB)
+├── lausu.log              # Python backend log (single file, truncates in place at 5 MiB)
 ├── logs/
-│   └── voice-typer.log          # Tauri Rust host log (single file, truncates in place at 5 MB)
+│   └── lausu.log          # Tauri Rust host log (single file, truncates in place at 5 MB)
 ├── legacy-profile/               # LEGACY only: Chromium profile left by pre-cutover installs (inert, see uninstall script for exact dirname)
 ├── vocabulary.json  # User vocabulary overrides (merged with bundled defaults)
-├── voice-typer-corrections.json # User text-corrections overrides (optional; merged with bundled)
+├── lausu-corrections.json # User text-corrections overrides (optional; merged with bundled)
 └── crash_recovery/
     └── recovery.json
 ```
 
 > **Windows note:** on a fresh install the directory is
-> `%APPDATA%\voice-typer`. If you upgraded from a version that used
-> `%USERPROFILE%\.voice-typer`, that folder remains the live data
+> `%APPDATA%\lausu`. If you upgraded from a version that used
+> `%USERPROFILE%\.lausu`, that folder remains the live data
 > directory: do not delete it expecting the app to recreate your data
 > under `%APPDATA%`; it will keep using the legacy folder.
 
@@ -147,7 +147,7 @@ Python virtual environment created by the installer or first-run setup. Contains
 - Python interpreter
 - All pip dependencies (faster-whisper, ctranslate2, onnxruntime, sounddevice, pynput, pystray, Pillow, etc.)
   - **Torch migration note (retired 2026-08-15)**: the ONNX migration is complete (`PLAN_ONNX_INTEGRATION.md` §2/§3, Phase 1d). VAD uses `onnxruntime`, Parakeet uses `onnx-asr`, Qwen uses pre-exported ONNX via `onnxruntime`. `torch` is not a project dependency; see `pyproject.toml` for the canonical dep list.
-- CLI entry point (`voice-typer`)
+- CLI entry point (`lausu`)
 
 ### Legacy browser profile (LEGACY)
 
@@ -158,7 +158,7 @@ Leftover Chromium profile from pre-cutover installs
 app is closed. Removed on uninstall purge and GDPR erasure; not included
 in GDPR export bundles. The live Tauri host does not recreate it.
 
-### `vocabulary.json` and `voice-typer-corrections.json`
+### `vocabulary.json` and `lausu-corrections.json`
 User-defined vocabulary and correction files. Read by `VocabularyManager` and `configure_corrections()` respectively to build replacement maps for `clean_transcribed_text()`. Both are optional: the app ships with bundled defaults (`voice_typer/server/corrections.json`) that are merged with the user file.
 
 ## Model Management
@@ -206,11 +206,11 @@ The old code created a junction from `<DATA_DIR>/huggingface/` → `~/.cache/hug
 When a user launches the app for the first time (no `<DATA_DIR>` exists yet):
 
 ### Python backend (`app.py` + `config.py`)
-1. `_migrate_from_legacy()` Copies from `%APPDATA%/voice-typer/` if present (one-time)
+1. `_migrate_from_legacy()` Copies from `%APPDATA%/lausu/` if present (one-time)
 2. `_config_dir().mkdir(parents=True, exist_ok=True)` Creates `<DATA_DIR>`
 3. `Config.load()` detects missing config.json → creates with defaults
 4. `os.environ["HF_HOME"]` set to `<DATA_DIR>/huggingface/`
-5. Logging handler creates `<DATA_DIR>/voice-typer.log` (Python backend log; the Tauri Rust host's `voice-typer.log` lives under `<DATA_DIR>/logs/` See §Log File Paths above)
+5. Logging handler creates `<DATA_DIR>/lausu.log` (Python backend log; the Tauri Rust host's `lausu.log` lives under `<DATA_DIR>/logs/` See §Log File Paths above)
 6. Tray icon renders (assets from `voice_typer/server/assets/`)
 7. `create_launcher_shortcut()` creates desktop shortcut + `<DATA_DIR>/icon.ico`
 8. `models/` junction/symlink → `huggingface/hub/` is created if missing
@@ -256,25 +256,25 @@ For an AI agent tasked with implementing the folder structure recommendations:
 
 ### 2. Create `models/` → `huggingface/hub/` junction/symlink
 - [ ] Add `_ensure_model_junction()` helper in `config.py` or a new `setup.py`
-- [ ] Call it from `VoiceTyperApp.__init__()` or during `logging_setup.py:_setup_logging()`
+- [ ] Call it from `LausuApp.__init__()` or during `logging_setup.py:_setup_logging()`
 - [ ] Windows: `os.symlink(hub_path, models_path, target_is_directory=True)` with appropriate fallback to junction
 - [ ] macOS/Linux: `os.symlink(hub_path, models_path, target_is_directory=True)`
 - [ ] Handle existing broken symlinks (remove and recreate)
 
 ### 3. Vocabulary / corrections files (DONE)
 - [x] `VocabularyManager` reads `config_dir / "vocabulary.json"` (merged with bundled defaults)
-- [x] `configure_corrections()` reads `config_dir / "voice-typer-corrections.json"` (merged with bundled defaults)
+- [x] `configure_corrections()` reads `config_dir / "lausu-corrections.json"` (merged with bundled defaults)
 - [x] Both files are optional, the app works without them using bundled defaults
 
 ### 4. Write `<DATA_DIR>/README.md` on first run
-- [ ] In `logging_setup.py:_setup_logging()` or `VoiceTyperApp.__init__()`, check if `config_dir / "README.md"` exists
+- [ ] In `logging_setup.py:_setup_logging()` or `LausuApp.__init__()`, check if `config_dir / "README.md"` exists
 - [ ] If not, write a copy of this document (or a condensed user-facing version)
 - [ ] The README should list every folder/file with a short description and tell the user not to delete model files manually
 
 ### 5. NSIS installer setup (Tauri)
 - [ ] Add an NSIS script wired via `src-tauri/tauri.conf.json` → `bundle.windows.nsis.installerHooks` (composed by `scripts/windows/tauri-installer-hooks.nsh`) that:
-  - Creates `$PROFILE\.voice-typer\` and subfolders
-  - Runs `python -m venv $PROFILE\.voice-typer\venv`
+  - Creates `$PROFILE\.lausu\` and subfolders
+  - Runs `python -m venv $PROFILE\.lausu\venv`
   - Runs pip install from bundled requirements
   - Writes initial `config.json`
   - Creates desktop shortcut (or let the Python backend handle this)

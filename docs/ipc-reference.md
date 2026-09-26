@@ -1,6 +1,6 @@
 # IPC Reference
 
-Auto-generated reference for the Voice Typer IPC protocol.
+Auto-generated reference for the Lausu IPC protocol.
 
 **Source of truth:**
 
@@ -42,7 +42,7 @@ host-dispatched / host-only set (`heartbeat`, `relaunch_ack`,
 `allowed_commands()` are host-internal (invoked by the Rust host via
 `dispatch_inner` or host-supervised shutdown), never by the renderer.
 
-## Commands (75 total: 71 renderer-reachable + 4 host-dispatched: shutdown, tray_click, heartbeat, relaunch_ack)
+## Commands (79 total: 75 renderer-reachable + 4 host-dispatched: shutdown, tray_click, heartbeat, relaunch_ack)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `allowed_commands()` (renderer-reachable); "—" means host-dispatched
@@ -77,7 +77,7 @@ in `allowed_commands()` (renderer-reachable); "—" means host-dispatched
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
 | `reset_macos_accessibility` | `_handle_reset_macos_accessibility` | ✓ | Finding #127 part b: Settings → Troubleshooting "Reset Accessibility Permission" button. Runs `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at runtime via `macos_bundle_id.py` Never hardcoded) and re-opens System Settings → Privacy & Security → Accessibility. `ack` → `{ok, command, error}`. |
-| `reset_linux_permissions` | `_handle_reset_linux_permissions` | ✓ | Finding #127 part b (Linux sibling), Settings → Troubleshooting "Reset Linux Permission" button. Clears a stale polkit authorization (`auth_admin_keep` is cached ~5 min by polkitd, see finding #134) by restarting the polkit daemon via `pkexec systemctl restart polkit` / `polkitd` / `service polkit restart`; `pkaction` enumerates the Voice Typer action (`com.voicetyper.install-permissions` The only namespace the app ships since finding #54; the legacy pre-Tauri predecessor policy is removed at install/upgrade time) and `pkcheck` verifies the post-reset state. pkexec exit 126 (auth dismissed) is reported as such. `ack` → `{ok, command, error, actions, checks}`. |
+| `reset_linux_permissions` | `_handle_reset_linux_permissions` | ✓ | Finding #127 part b (Linux sibling), Settings → Troubleshooting "Reset Linux Permission" button. Clears a stale polkit authorization (`auth_admin_keep` is cached ~5 min by polkitd, see finding #134) by restarting the polkit daemon via `pkexec systemctl restart polkit` / `polkitd` / `service polkit restart`; `pkaction` enumerates the Lausu action (`com.Lausu.install-permissions` The only namespace the app ships since finding #54; the legacy pre-Tauri predecessor policy is removed at install/upgrade time) and `pkcheck` verifies the post-reset state. pkexec exit 126 (auth dismissed) is reported as such. `ack` → `{ok, command, error, actions, checks}`. |
 | `check_accessibility` | `_handle_check_accessibility` | ✓ | Finding #919 part b: RE-ADDED 2026-08-10. Settings → Troubleshooting probes the macOS Accessibility grant on mount; on a confirmed stale grant (`AXIsProcessTrusted()` False) the `accessibility_status` response carries `suggest_reset: true` + the runtime `reset_command` string (`tccutil reset Accessibility <bundle-id>`, bundle ID resolved via `macos_bundle_id.py` Never hardcoded) so the section can surface it next to the "Reset Accessibility Permission" button. Was removed in the GT-32 stale-entry cleanup (no renderer caller); re-wired through the registry + TS + Rust allowlists in lockstep. `accessibility_status` → `{granted, platform, reason?, suggest_reset?, reset_command?}`. |
 | `undo_last` | `_handle_undo_last` | ✓ |  |
 
@@ -114,6 +114,7 @@ in `allowed_commands()` (renderer-reachable); "—" means host-dispatched
 | `get_volume_backend_status` | `_handle_get_volume_backend_status` | ✓ |  |
 | `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): Cache Status card probe, reads the worker's cache stats (status file `prewarm-status.json` under the config dir). Response: `{ enabled, cache_ratio, cache_label, cached_bytes, total_bytes, last_run, elapsed_s }`. |
 | `open_prewarm_log` | `_handle_open_prewarm_log` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): opens the worker log (`worker.log` The retired `prewarm.log` no longer exists). |
+| `open_data_folder` | `_handle_open_data_folder` | ✓ | Models storage card + Diagnostics button: opens the app config (data) dir in the OS file manager (support case, not the raw hub). Response: `{ opened, path, reason? }`. |
 | `run_prewarm` | `_handle_run_prewarm` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum 2nd half): re-implemented. The handler re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a daemon thread + status-file refresh) instead of spawning the retired standalone-prewarm subprocess. Response: `{ started: bool }`. |
 | `import_model` | `_handle_import_model` | ✓ | MODEL-IMPORT: allows import_model so the Models page can scan and import pre-downloaded model directories. |
 | `pause_model_download` | `_handle_pause_model_download` | ✓ | NEW-PAUSE-001: pause/resume in-progress model downloads. |
@@ -127,6 +128,14 @@ in `allowed_commands()` (renderer-reachable); "—" means host-dispatched
 |---------|---------|-----------|-------|
 | `transcribe_offline` | `_handle_transcribe_offline` | ✓ | Master plan §7.4: slim core forwards this request to the runtime-pack worker over the worker's dedicated WS hop. The worker may take seconds to minutes to transcribe, so the result is returned asynchronously via the `transcribe_offline_result` push event rather than a synchronous response. |
 | `check_offline_pack_update` | `_handle_check_offline_pack_update` | ✓ | Auto-update feature (docs/auto-update-feature.md): runtime-pack manifest check against GitHub Releases + always-on background download (no consent gate). |
+
+### Media transcription (ADR-0023 universal media-to-text, local files first)
+
+| Command | Handler | Allowlist | Notes |
+|---------|---------|-----------|-------|
+| `media_transcribe_start` | `_handle_media_transcribe_start` | ✓ | ADR-0023: start a background media job (`{source, export_path?, export_format?}`); `source` is a local media path or a remote URL (URL jobs are gated by `media_url_consent`, consent error code `client.consent_required`; `server.no_model` when no speech model is selected). Progress/completion/failure arrive via `media_transcribe_progress` / `media_transcribe_complete` / `media_transcribe_error`. |
+| `media_transcribe_cancel` | `_handle_media_transcribe_cancel` | ✓ | ADR-0023: cooperative cancel of the active media job. |
+| `media_transcribe_status` | `_handle_media_transcribe_status` | ✓ | ADR-0023: active (or last finished) job snapshot; `{"job": null}` when idle. |
 
 ### History (CRUD, favorites, search, today stats, count, transcription text)
 
@@ -232,7 +241,7 @@ restored `get_prewarm_status` / `run_prewarm` (worker status file +
 in-process warm pass), not the old
 `sentinel` / `PID`-file probe.
 
-## Push events (60 typed)
+## Push events (63 typed)
 
 Push events flow server to renderer via `window.python.onEvent(callback)`.
 The `PythonPushEvent` union in `types/ipc/push_events.ts` is the canonical
@@ -301,6 +310,9 @@ list: events not in the union fall through to the `string` overload of
 | `history_corrupted` | `HistoryCorruptedEvent` | `{ path: string, db_path: string, recovered_count: number }` History DB corruption was detected and recovered (typed in the union; renderer consumer optional). |
 | `paste_deferred` | `PasteDeferredEvent` | `{ reason: string, message?: string }` Paste was deferred (e.g. clipboard safety validation held it back; typed in the union; renderer consumer optional). |
 | `tray_fallback_notification` | `TrayFallbackNotificationEvent` | `{ title?: string, message?: string }` Tray notification fallback path fired (headless / pystray-only runtimes; Tauri host owns the tray). Generic toast consumer. |
+| `media_transcribe_progress` | `MediaTranscribeProgressEvent` | `{ job_id: string, progress: number, phase: "downloading" \| "loading_model" \| "transcribing", eta_seconds: number \| null, duration_seconds: number \| null }` ADR-0023 media job progress (0-1); renderer drives a progress bar + cancel. |
+| `media_transcribe_complete` | `MediaTranscribeCompleteEvent` | `{ job_id: string, row_id: number \| null, chars: number, partial: boolean }` ADR-0023 media job done; renderer refreshes History. `partial` marks a cancelled job's saved partial transcript; `row_id: null` means the transcript was empty (nothing persisted). |
+| `media_transcribe_error` | `MediaTranscribeErrorEvent` | `{ job_id: string, code: string, message: string }` ADR-0023 media job failed; pushed by `media_ingest/jobs.py` from the job-thread exception handler (E13). |
 
 ## Server-only push events (string-overload, not in the typed union)
 
@@ -356,7 +368,7 @@ side, see [`docs/migration/tauri-sidecar-bridge.md`](migration/tauri-sidecar-bri
 ## See also
 
 - [python-api.md](./python-api.md): Python class API reference
-  (`VoiceTyperApp`, `Recorder`, `IpcServer`, etc.).
+  (`LausuApp`, `Recorder`, `IpcServer`, etc.).
 - [ARCHITECTURE.md](./ARCHITECTURE.md): high-level architecture
   overview (renderer <-> Tauri host <-> Python sidecar).
 - [modules/sidecar_ws.md](./modules/sidecar_ws.md): Tauri sidecar

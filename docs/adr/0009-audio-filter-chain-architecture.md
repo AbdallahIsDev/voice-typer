@@ -484,7 +484,7 @@ Notch Filter (hum):       [OFF] ▼
 | `voice_typer/client/src/renderer/src/types/config.ts` | Add new fields, remove deleted fields. |
 | `voice_typer/client/src/renderer/src/i18n/translations/en.json` | Add translation keys for all new UI strings. |
 | `pyproject.toml` | Move `pyrnnoise` to main deps. Remove `[noise-filter]` extra. Add `[deepfilternet]` extra. Remove `noisereduce`. |
-| `scripts/build/voice-typer.spec` | Add `pyrnnoise` to hiddenimports (was optional, now required). |
+| `scripts/build/lausu.spec` | Add `pyrnnoise` to hiddenimports (was optional, now required). |
 
 ### 8.3 Deleted code
 

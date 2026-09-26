@@ -38,7 +38,7 @@ source ~/.cargo/env
 ### Build steps
 
 ```bash
-cd voice-typer
+cd lausu
 
 # 1. Build the React renderer (Tauri renderer bundle)
 cd voice_typer/client
@@ -59,15 +59,15 @@ ls -la target/release/bundle/
 ```
 
 **Expected output**:
-- `target/release/bundle/deb/voice-typer_1.0.0_amd64.deb`
-- `target/release/bundle/rpm/voice-typer-1.0.0.x86_64.rpm`
-- `target/release/voice-typer-tauri` (the standalone binary)
+- `target/release/bundle/deb/lausu_1.0.0_amd64.deb`
+- `target/release/bundle/rpm/lausu-1.0.0.x86_64.rpm`
+- `target/release/lausu-tauri` (the standalone binary)
 
 **Pass criteria**:
 - `cargo check` exits 0 (already verified on Linux dev container)
 - `cargo tauri build` produces the `.deb` + `.rpm` installers
 - Installing the `.deb` (`sudo dpkg -i ...`) creates a desktop entry
-- Launching "Voice Typer" from the app menu shows the React UI
+- Launching "Lausu" from the app menu shows the React UI
 
 **Common failures**:
 - `error: failed to run custom build command for 'gdk-sys'` → Missing `libgtk-3-dev`. Install system deps.
@@ -110,7 +110,7 @@ winget install OpenJS.NodeJS.LTS
 ### Build steps
 
 ```powershell
-cd voice-typer
+cd lausu
 
 # 1. Build the React renderer
 cd voice_typer\client
@@ -134,15 +134,15 @@ dir target\release\bundle\
 ```
 
 **Expected output**:
-- `target/release/bundle/msi/Voice Typer_1.0.0_x64_en-US.msi`
-- `target/release/bundle/nsis/Voice Typer_1.0.0_x64-setup.exe`
-- `target/release/voice-typer-tauri.exe` (the standalone binary)
+- `target/release/bundle/msi/Lausu_1.0.0_x64_en-US.msi`
+- `target/release/bundle/nsis/Lausu_1.0.0_x64-setup.exe`
+- `target/release/lausu-tauri.exe` (the standalone binary)
 
 **Pass criteria**:
 - `cargo check` exits 0
 - `cargo tauri build` produces the MSI + NSIS installers
 - Installing the MSI creates a Start Menu entry
-- Launching "Voice Typer" shows the React UI
+- Launching "Lausu" shows the React UI
 
 **Cross-compiling for aarch64 (Windows on ARM)**:
 ```powershell
@@ -176,7 +176,7 @@ brew install python@3.12
 ### Build steps
 
 ```bash
-cd voice-typer
+cd lausu
 
 # 1. Build the React renderer
 cd voice_typer/client
@@ -211,15 +211,15 @@ ls -la target/release/bundle/
 ```
 
 **Expected output**:
-- `target/release/bundle/dmg/Voice Typer_1.0.0_x64.dmg`
-- `target/release/bundle/macos/Voice Typer.app`
-- `target/release/voice-typer-tauri` (the standalone binary)
+- `target/release/bundle/dmg/Lausu_1.0.0_x64.dmg`
+- `target/release/bundle/macos/Lausu.app`
+- `target/release/lausu-tauri` (the standalone binary)
 
 **Pass criteria**:
 - `cargo check` exits 0
 - `cargo tauri build` produces the `.dmg` + `.app`
 - Opening the `.dmg` + dragging to Applications installs the app
-- Launching "Voice Typer" from Launchpad shows the React UI
+- Launching "Lausu" from Launchpad shows the React UI
 
 **Universal binary (x86_64 + aarch64)**:
 ```bash
@@ -255,13 +255,13 @@ For fast iteration without rebuilding the Nuitka sidecar:
 
 ```bash
 # Terminal 1: start the Python sidecar in WS mode
-cd voice-typer
+cd lausu
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 VOICE_TYPER_IPC_TOKEN=$(python -c "import secrets; print(secrets.token_hex(32))")
 python -m voice_typer.server.ipc_server --ws
 
 # Terminal 2: start the Tauri dev server
-cd voice-typer/src-tauri
+cd lausu/src-tauri
 VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev
 ```
 
@@ -352,9 +352,9 @@ runs require per-platform host validation (Phase 0) first.
 | Build orchestrator | `scripts/build/build_tauri_all.sh` | ✅ Local dev wrapper around the per-platform build scripts + `cargo tauri build`. Bash-syntax-verified. |
 | Sidecar build (Windows x86_64+aarch64) | `scripts/build/build_sidecar_windows.sh` | ✅ Nuitka `--standalone --onefile` against `python-build-standalone` cpython-3.12.x+x86_64-pc-windows-msvc. Includes ctranslate2/lib + ctranslate2.dll. `--windows-disable-console`. |
 | Sidecar build (macOS x86_64+aarch64) | `scripts/build/build_sidecar_macos.sh` | ✅ Nuitka with `--macos-create-bundle --macos-app-mode=background` (LSUIElement=true). Rosetta 2 fallback for x86_64 on Apple Silicon host. |
-| Sidecar build (Linux x86_64+aarch64) | `scripts/build/build_sidecar_linux.sh` | ✅ Nuitka with `--onefile-tempdir-spec=$XDG_CACHE_HOME/voice-typer/onefile-tmp`. qemu-user-static cross-build for aarch64 on x86_64 host. glibc ≤ 2.35 baseline check. |
+| Sidecar build (Linux x86_64+aarch64) | `scripts/build/build_sidecar_linux.sh` | ✅ Nuitka with `--onefile-tempdir-spec=$XDG_CACHE_HOME/lausu/onefile-tmp`. qemu-user-static cross-build for aarch64 on x86_64 host. glibc ≤ 2.35 baseline check. |
 | Prewarm build (Windows) | `scripts/build/build_prewarm_windows.sh` | ✅ Nuitka freeze of `voice_typer/server/prewarm/__main__.py` into `resources/prewarm-<triple>.exe`. Separate `--onefile-tempdir-spec` from sidecar (no collision). |
-| Prewarm build (macOS) | `scripts/build/build_prewarm_macos.sh` | ✅ Same Nuitka pattern as macOS sidecar; `--macos-app-name=VoiceTyperPrewarm`. |
+| Prewarm build (macOS) | `scripts/build/build_prewarm_macos.sh` | ✅ Same Nuitka pattern as macOS sidecar; `--macos-app-name=LausuPrewarm`. |
 | Prewarm build (Linux) | `scripts/build/build_prewarm_linux.sh` | ✅ Same Nuitka pattern as Linux sidecar. |
 | Native listener build (Windows) | `scripts/build/build_native_listener_windows.sh` | ✅ Wraps `scripts/build/compile_native.ps1` (PowerShell). Copies the compiled `windows-key-listener.exe` into `src-tauri/resources/native/`. |
 | Native listener build (macOS) | `scripts/build/build_native_listener_macos.sh` | ✅ Wraps `scripts/build/compile_native.sh` (Swift). Copies + ad-hoc codesigns `macos-key-listener` into `src-tauri/resources/native/`. |
@@ -368,7 +368,7 @@ runs require per-platform host validation (Phase 0) first.
 | Cargo deps | `src-tauri/Cargo.toml` | ✅ NO `tauri-plugin-updater` dependency. |
 | Signing guide | `docs/migration/signing-guide.md` | ✅ Windows Authenticode (signtool + RFC-3161 timestamp + OV/EV cert tradeoff). macOS Developer ID + notarytool + stapler (Info.plist keys + entitlements). Linux unsigned by default. Updater audit results documented. |
 | Cutover playbook | `docs/migration/cutover-playbook.md` | ✅ Per-platform cutover criteria (9-point Phase 0 gate + supervisor + side-by-side smoke + signing verification + user sign-off). Per-platform rollback procedure. Mixed-mode period support. |
-| PyInstaller fallback | `scripts/build/voice-typer.spec` | ✅ Entry point is `voice_typer/server/ipc_server.py` (the same entry point the Nuitka builds use). Bundles native hotkey binaries + Linux permission scripts + Silero VAD JIT model. Used when Nuitka proves impractical on a target (ADR-0020 §4.5). |
+| PyInstaller fallback | `scripts/build/lausu.spec` | ✅ Entry point is `voice_typer/server/ipc_server.py` (the same entry point the Nuitka builds use). Bundles native hotkey binaries + Linux permission scripts + Silero VAD JIT model. Used when Nuitka proves impractical on a target (ADR-0020 §4.5). |
 | Stub generator | `scripts/gen_tauri_icons_stub.py` | ✅ Generates stub sidecar + prewarm + native binaries so `cargo tauri build` dry-runs succeed without real Nuitka artifacts (preserves real binaries via `_is_stub_file` heuristic). Icons are NOT generated, `src-tauri/icons/*` are committed real files (generated once with `tauri icon` from `voice_typer/client/scripts/logo.svg`). `--check` mode for CI gates; `--check-icons` structurally validates the committed icons before every platform's `cargo tauri build` (the identical fail-fast step in tauri-windows-build.yml / tauri-macos-build.yml / tauri-linux-build.yml); `--clean` removes binary stubs and never touches the committed icons. |
 
 ### Pending (requires per-platform host validation, Phase 0 first)
@@ -388,7 +388,7 @@ runs require per-platform host validation (Phase 0) first.
 
 If Nuitka proves impractical on a target triple (e.g., macOS Apple
 Silicon ABI issues, Linux aarch64 missing wheels), the existing
-PyInstaller spec at `scripts/build/voice-typer.spec` is the fallback.
+PyInstaller spec at `scripts/build/lausu.spec` is the fallback.
 The spec's entry point is **`voice_typer/server/ipc_server.py`**, the
 same module the Nuitka builds use, so the wire contract is identical;
 only the freeze tool changes.
@@ -406,8 +406,8 @@ Caveats:
   JSON, the Windows application manifest (asInvoker), and
   platform-specific hiddenimports (pycaw/comtypes on Win, CoreAudio on
   macOS).
-- Build: `pyinstaller scripts/build/voice-typer.spec --noconfirm`
-  → `dist/VoiceTyper/VoiceTyper.exe` (windowed, no console).
+- Build: `pyinstaller scripts/build/lausu.spec --noconfirm`
+  → `dist/Lausu/Lausu.exe` (windowed, no console).
 
 ### Validation commands (re-runnable)
 
@@ -447,7 +447,7 @@ print('resources count:', len(c['bundle']['resources']))
 "
 
 # 6. PyInstaller spec entry point is ipc_server.py (NOT __main__.py).
-grep -n 'ipc_server.py' scripts/build/voice-typer.spec
+grep -n 'ipc_server.py' scripts/build/lausu.spec
 ```
 
 ### Next actions (for the next round, post-Phase-0 validation)

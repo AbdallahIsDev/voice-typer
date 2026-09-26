@@ -1,4 +1,4 @@
-# ADR 0008: Voice Typer, Zero-Command Hotkey Architecture Design
+# ADR 0008: Lausu, Zero-Command Hotkey Architecture Design
 
 > **Path-note (post-ADR decomposition):** the hotkey backends have since
 > been split from a single `voice_typer/server/hotkeys.py` module into the
@@ -262,7 +262,7 @@ def _on_native_error(self, error_message: str) -> None:
 **Implementation**: Use the existing `app.tray.notify()` API (already used by `HotkeyDispatcher.register()` for registration failures).
 
 **Notification text**:
-- Title: "Voice Typer needs permission"
+- Title: "Lausu needs permission"
 - Body: "Click to open System Settings → Accessibility"
 - Action: Click → `subprocess.Popen(["open", "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"])`
 
@@ -270,7 +270,7 @@ def _on_native_error(self, error_message: str) -> None:
 
 ### B.5 Re-check After User Returns
 
-**Problem**: After the user grants Accessibility and returns to Voice Typer, the native backend has already failed and won't auto-restart.
+**Problem**: After the user grants Accessibility and returns to Lausu, the native backend has already failed and won't auto-restart.
 
 **Fix**: Add a 60-second timer that, after showing the permission notification, periodically retries the native backend. If it succeeds (READY received), cancel the timer and swap back from the legacy fallback to native (if a fallback swap happened). If it fails again with the same permission error, wait another 60s. Stop after 5 attempts.
 
@@ -306,10 +306,10 @@ def _retry_native_backend(self) -> None:
 
 ### B.6 Edge Cases
 
-- **User denies permission permanently**: macOS doesn't have a "permanent deny" for Accessibility. If the user removes Voice Typer from the Accessibility list later, the next hotkey press fails → notification reappears.
+- **User denies permission permanently**: macOS doesn't have a "permanent deny" for Accessibility. If the user removes Lausu from the Accessibility list later, the next hotkey press fails → notification reappears.
 - **macOS update resets Accessibility**: After a major macOS update, Accessibility entries are sometimes cleared. The runtime fallback chain (Section D) handles this. The native backend fails, swaps to pynput, shows notification. User re-grants → retry timer swaps back to native.
 - **App not in Accessibility list at all (first launch)**: Same flow, binary fails, notification appears, user clicks, adds the app, retry succeeds.
-- **Multiple binaries in the Accessibility list** (e.g. both the Python interpreter and the Swift binary): macOS requires *both* to be granted (the Python parent spawns the Swift child; both need Accessibility). The notification body says: "Add both Voice Typer and its key-listener helper to the Accessibility list."
+- **Multiple binaries in the Accessibility list** (e.g. both the Python interpreter and the Swift binary): macOS requires *both* to be granted (the Python parent spawns the Swift child; both need Accessibility). The notification body says: "Add both Lausu and its key-listener helper to the Accessibility list."
 - **User closes notification before reading it**: The notification is also logged to the tray menu as a persistent "⚠️ Permission required, click to fix" item until resolved.
 - **`open` command fails**: Fall back to `subprocess.Popen(["open", "/System/Library/PreferencePanes/Security.prefPane/"])` (older path, works on more macOS versions).
 - **User on macOS 10.13 or earlier** (no `x-apple.systempreferences:` scheme): Fall back to opening System Preferences via the bundle path.
@@ -336,26 +336,26 @@ def _retry_native_backend(self) -> None:
 
 | File | Purpose |
 |---|---|
-| `scripts/linux/99-voice-typer.rules` | udev rule granting `input` group read access to keyboard event devices |
+| `scripts/linux/99-lausu.rules` | udev rule granting `input` group read access to keyboard event devices |
 | `scripts/linux/postinst` | Debian postinst script: runs as root during `apt install` |
 | `scripts/linux/prerm` | Debian prerm script: runs as root during `apt remove` |
 | `scripts/linux/postinst.rpm` | RPM `%post` script (functionally identical to Debian postinst) |
 | `scripts/linux/prerm.rpm` | RPM `%preun` script |
-| `scripts/linux/voice-typer.polkit` | polkit policy file for `pkexec` (AppImage path) |
+| `scripts/linux/lausu.polkit` | polkit policy file for `pkexec` (AppImage path) |
 | `scripts/linux/install_permissions.py` | Python script invoked by postinst AND by pkexec, does the actual system modifications |
 | `scripts/linux/uninstall_permissions.py` | Python script invoked by prerm: removes the modifications |
-| `scripts/linux/00-voice-typer-capslock.conf` | XKB config snippet that neutralizes Caps Lock |
+| `scripts/linux/00-lausu-capslock.conf` | XKB config snippet that neutralizes Caps Lock |
 | legacy builder config | Updated to add Linux targets (`.deb`, `.rpm`, `AppImage`) |
 | `voice_typer/server/permissions.py` | Runtime permission checker + AppImage pkexec helper |
 
 ### C.3 The udev Rule
 
-**File**: `scripts/linux/99-voice-typer.rules`
+**File**: `scripts/linux/99-lausu.rules`
 
 ```
-# Voice Typer: keyboard event device access
+# Lausu: keyboard event device access
 # Grants read access to keyboard event devices for members of the "input" group.
-# Installed by the Voice Typer package (or via pkexec for AppImage users).
+# Installed by the Lausu package (or via pkexec for AppImage users).
 # Do not edit: remove this file to revoke access.
 
 # Match all input event devices (keyboards, mice, etc.)
@@ -373,22 +373,22 @@ ACTION=="add", SUBSYSTEM=="input", RUN+="/usr/bin/udevadm trigger --subsystem-ma
 
 ### C.4 The XKB Caps Lock Config
 
-**File**: `scripts/linux/00-voice-typer-capslock.conf`
+**File**: `scripts/linux/00-lausu-capslock.conf`
 
 ```
-# Voice Typer: neutralize Caps Lock toggle
+# Lausu: neutralize Caps Lock toggle
 # This file tells the X server to ignore Caps Lock as a caps-state toggle,
 # so it can be used as a hotkey without affecting text capitalization.
-# Installed by the Voice Typer package.
+# Installed by the Lausu package.
 
 Section "InputClass"
-    Identifier "Voice Typer Caps Lock Neutralization"
+    Identifier "Lausu Caps Lock Neutralization"
     MatchIsKeyboard "on"
     Option "XkbOptions" "caps:none"
 EndSection
 ```
 
-**Placement**: `/etc/X11/xorg.conf.d/00-voice-typer-capslock.conf`
+**Placement**: `/etc/X11/xorg.conf.d/00-lausu-capslock.conf`
 
 **Why a conf file instead of `setxkbmap`**: `setxkbmap -option caps:none` only affects the current X session. A conf file in `/etc/X11/xorg.conf.d/` persists across reboots and applies to all users.
 
@@ -402,30 +402,30 @@ The install script detects the session type and applies the appropriate configur
 
 ### C.5 The install_permissions.py Script
 
-This is the single source of truth for "what system modifications does Voice Typer make on Linux." Called by:
+This is the single source of truth for "what system modifications does Lausu make on Linux." Called by:
 - Debian `postinst` (as root, from `apt install`)
 - RPM `%post` (as root, from `dnf install`)
 - AppImage first-run helper (as root, via `pkexec`)
 
 **Operations**:
 
-1. Copy `99-voice-typer.rules` to `/etc/udev/rules.d/`
+1. Copy `99-lausu.rules` to `/etc/udev/rules.d/`
 2. Run `udevadm control --reload-rules` and `udevadm trigger --subsystem-match=input`
 3. Add the current user (from `SUDO_USER` env var, fallback to `pkexec`'s `PKEXEC_UID`) to the `input` group via `usermod -aG input`
 4. Detect session type:
-   - X11: copy `00-voice-typer-capslock.conf` to `/etc/X11/xorg.conf.d/`
+   - X11: copy `00-lausu-capslock.conf` to `/etc/X11/xorg.conf.d/`
    - GNOME (X11 or Wayland): `gsettings set org.gnome.desktop.input-sources xkb-options "['caps:none']"` for the target user
    - KDE: write `caps:none` to `~/.config/kxkbrc` for the target user
    - Sway: append `input * xkb_options caps:none` to `~/.config/sway/config` (idempotent)
    - Other Wayland: log warning, skip
-5. Write a manifest at `/var/lib/voice-typer/permissions-manifest.json` tracking what was installed:
+5. Write a manifest at `/var/lib/lausu/permissions-manifest.json` tracking what was installed:
 
 ```json
 {
     "version": 1,
     "installed_at": "2026-06-30T12:00:00Z",
-    "udev_rule": "/etc/udev/rules.d/99-voice-typer.rules",
-    "xkb_conf": "/etc/X11/xorg.conf.d/00-voice-typer-capslock.conf",
+    "udev_rule": "/etc/udev/rules.d/99-lausu.rules",
+    "xkb_conf": "/etc/X11/xorg.conf.d/00-lausu-capslock.conf",
     "user_added_to_group": "alice",
     "session_type": "x11",
     "gnome_settings_modified": true,
@@ -444,19 +444,19 @@ This is the single source of truth for "what system modifications does Voice Typ
 
 ```bash
 #!/bin/bash
-# Debian postinst: runs as root after apt install voice-typer
+# Debian postinst: runs as root after apt install lausu
 set -e
 
 case "$1" in
     configure)
         # Run the permission installer
-        /usr/share/voice-typer/scripts/install_permissions.py
+        /usr/share/lausu/scripts/install_permissions.py
         # The user is SUDO_USER if installed via sudo apt install,
         # or $USER if installed as root directly
         echo ""
-        echo "Voice Typer setup complete."
+        echo "Lausu setup complete."
         echo "IMPORTANT: You must log out and log back in for the 'input' group"
-        echo "change to take effect. After that, Voice Typer will work automatically."
+        echo "change to take effect. After that, Lausu will work automatically."
         echo ""
     ;;
     abort-upgrade|abort-remove|abort-deconfigure)
@@ -474,12 +474,12 @@ exit 0
 
 ```bash
 #!/bin/bash
-# Debian prerm: runs as root before apt remove voice-typer
+# Debian prerm: runs as root before apt remove lausu
 set -e
 
 case "$1" in
     remove|deconfigure)
-        /usr/share/voice-typer/scripts/uninstall_permissions.py || true
+        /usr/share/lausu/scripts/uninstall_permissions.py || true
     ;;
     upgrade|failed-upgrade)
     ;;
@@ -492,7 +492,7 @@ exit 0
 
 ### C.8 The polkit Policy (AppImage Path)
 
-**File**: `scripts/linux/voice-typer.polkit`
+**File**: `scripts/linux/lausu.polkit`
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -501,21 +501,21 @@ exit 0
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 
 <policyconfig>
-  <action id="com.voicetyper.install-permissions">
-    <description>Install Voice Typer keyboard permissions</description>
-    <message>Authentication is required to grant Voice Typer access to keyboard events</message>
+  <action id="com.Lausu.install-permissions">
+    <description>Install Lausu keyboard permissions</description>
+    <message>Authentication is required to grant Lausu access to keyboard events</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/share/voice-typer/scripts/install_permissions.py</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/share/lausu/scripts/install_permissions.py</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
   </action>
 </policyconfig>
 ```
 
-**Placement**: `/usr/share/polkit-1/actions/com.voicetyper.policy`
+**Placement**: `/usr/share/polkit-1/actions/com.Lausu.policy`
 
 **`auth_admin_keep`**: Allows the user to authenticate once and not be re-prompted for 5 minutes (default polkit timeout). This handles the case where the installer needs to run multiple commands.
 
@@ -528,13 +528,13 @@ exit 0
 1. App starts, tries to spawn `linux-key-listener`
 2. Binary emits `ERROR:Permission denied opening /dev/input/event*. Add yourself to the 'input' group...`
 3. Python detects this error → calls `_open_linux_pkexec_prompt()`
-4. Function shows a dialog via the tray: "Voice Typer needs keyboard permission. Click OK to grant it."
+4. Function shows a dialog via the tray: "Lausu needs keyboard permission. Click OK to grant it."
 5. User clicks OK → app runs:
    ```python
    subprocess.Popen(
        [
            "pkexec",
-           "/usr/share/voice-typer/scripts/install_permissions.py",
+           "/usr/share/lausu/scripts/install_permissions.py",
        ],
        env={"PKEXEC_UID": str(os.getuid())},
    )
@@ -544,7 +544,7 @@ exit 0
 8. Script exits 0 → app shows: "Permission granted. Please log out and log back in for changes to take effect."
 9. User logs out and back in → next launch, binary works
 
-**Detecting AppImage vs installed package**: The Python runtime checks if `/usr/share/voice-typer/scripts/install_permissions.py` exists. If yes → it's an installed package, the postinst already ran, so this flow shouldn't be needed (but if it is, use pkexec). If no → it's an AppImage, bundle the install script via `pkg_resources` / `importlib.resources` and write it to a temp location before invoking pkexec.
+**Detecting AppImage vs installed package**: The Python runtime checks if `/usr/share/lausu/scripts/install_permissions.py` exists. If yes → it's an installed package, the postinst already ran, so this flow shouldn't be needed (but if it is, use pkexec). If no → it's an AppImage, bundle the install script via `pkg_resources` / `importlib.resources` and write it to a temp location before invoking pkexec.
 
 ### C.10 Legacy builder Linux targets
 
@@ -560,11 +560,11 @@ linux:
       arch: [x64, arm64]
     - target: AppImage
       arch: [x64, arm64]
-  maintainer: Voice Typer Team
-  vendor: Voice Typer
+  maintainer: Lausu Team
+  vendor: Lausu
   synopsis: Voice-to-text dictation app
   description: |
-    Voice Typer is a cross-platform voice dictation app that transcribes
+    Lausu is a cross-platform voice dictation app that transcribes
     speech to text and pastes it into any application.
 
 deb:
@@ -592,24 +592,24 @@ appImage:
 
 ### C.11 Edge Cases
 
-- **User installs via `apt install ./voice-typer.deb` (local file)**: Same flow, `dpkg -i` runs postinst. `SUDO_USER` may not be set; the script falls back to detecting the user from `/proc/self/loginuid` or `logname`.
+- **User installs via `apt install ./lausu.deb` (local file)**: Same flow, `dpkg -i` runs postinst. `SUDO_USER` may not be set; the script falls back to detecting the user from `/proc/self/loginuid` or `logname`.
 - **User installs via Software Center (GNOME Software / KDE Discover)**: Same, they call `dpkg` under the hood. postinst runs. `SUDO_USER` is the user who clicked install.
 - **User installs as actual root** (e.g. in a container): `SUDO_USER` is empty. Script skips the `usermod` step (root already has access). Logs a warning.
 - **Multi-user system** (5 users share a Linux box): postinst adds the *installing* user to `input`. Other users need to run the AppImage flow individually, or the admin manually adds them. Documented in README.
 - **User is already in `input` group** (set up manually before installing): Script detects this, skips `usermod`, logs "already in group."
-- **udev rule file already exists with different content** (user customized it): Script backs it up to `99-voice-typer.rules.bak` before overwriting.
+- **udev rule file already exists with different content** (user customized it): Script backs it up to `99-lausu.rules.bak` before overwriting.
 - **User's `/etc/X11/xorg.conf.d/` doesn't exist**: Script creates it.
 - **GNOME but `gsettings` not in PATH**: Script logs warning, skips GNOME-specific config. XKB conf file is still installed (works on GNOME X11 sessions).
 - **KDE but `kwriteconfig5` not available**: Script writes `~/.config/kxkbrc` directly.
 - **Sway config file doesn't exist**: Script creates it with the single line.
 - **Sway config already has a `caps:none` line**: Script detects this and skips (idempotent).
 - **User on a Wayland compositor we don't support** (e.g. Hyprland, River): Script logs warning, skips. User can use Alt or Ctrl instead of Caps Lock (no neutralization needed for those).
-- **User uninstalls Voice Typer but the manifest is missing** (deleted manually): `uninstall_permissions.py` falls back to removing the known paths unconditionally. Safe because the paths are Voice-Typer-specific.
-- **User uninstalls Voice Typer but wants to keep the udev rule** (they use it for another app): `prerm` script asks via `debconf` "Remove keyboard permission configuration? [Y/n]". Default Y.
-- **AppImage user runs the app, denies the pkexec prompt**: App shows "Permission denied. Voice Typer can't read keyboard events. Click here to try again." Button re-invokes pkexec.
+- **User uninstalls Lausu but the manifest is missing** (deleted manually): `uninstall_permissions.py` falls back to removing the known paths unconditionally. Safe because the paths are lausu-specific.
+- **User uninstalls Lausu but wants to keep the udev rule** (they use it for another app): `prerm` script asks via `debconf` "Remove keyboard permission configuration? [Y/n]". Default Y.
+- **AppImage user runs the app, denies the pkexec prompt**: App shows "Permission denied. Lausu can't read keyboard events. Click here to try again." Button re-invokes pkexec.
 - **AppImage user grants permission, logs out, logs back in, app still can't read keyboard**: Likely the udev rule didn't trigger. App shows a troubleshooting dialog with the exact `ls -l /dev/input/event*` output and the manifest contents.
 - **Package installed on a system without X11 or Wayland** (headless server): postinst detects no display server, skips XKB config, logs "no display server detected, Caps Lock neutralization skipped." Hotkey won't work anyway (no keyboard to listen to in a headless context).
-- **`pkexec` not available** (minimal Linux install): AppImage helper falls back to `gksu` (deprecated but still present on some systems), then `kdesu`, then a terminal-based prompt as a last resort. If all fail, show error: "Install `polkit` or run `sudo /usr/share/voice-typer/scripts/install_permissions.py` manually."
+- **`pkexec` not available** (minimal Linux install): AppImage helper falls back to `gksu` (deprecated but still present on some systems), then `kdesu`, then a terminal-based prompt as a last resort. If all fail, show error: "Install `polkit` or run `sudo /usr/share/lausu/scripts/install_permissions.py` manually."
 - **SELinux denies the binary from reading /dev/input/event*** (Fedora with strict SELinux): postinst runs `setsebool -P voice_typer_read_input on` if a custom SELinux policy module is bundled. For v1, we document this as a known limitation and fall back to the legacy pynput backend.
 - **User has multiple keyboards** (laptop + external): udev rule applies to all event devices, both keyboards work.
 - **Hotplug keyboard after app start**: udev rule applies automatically (the `ACTION=="add"` rule). New keyboard works without app restart.
@@ -850,9 +850,9 @@ Three notifications, each shown at most once per app session:
 
 | Trigger | Title | Body |
 |---|---|---|
-| Swap to legacy | "Voice Typer: Compatibility mode" | "Hotkey is running in compatibility mode (reduced features). Restart the app for full functionality." |
-| Swap back to native | "Voice Typer: Full mode restored" | "Hotkey is running in full mode." |
-| Both backends fail | "Voice Typer: Hotkey error" | "Hotkey is not working. Click to troubleshoot." |
+| Swap to legacy | "Lausu: Compatibility mode" | "Hotkey is running in compatibility mode (reduced features). Restart the app for full functionality." |
+| Swap back to native | "Lausu: Full mode restored" | "Hotkey is running in full mode." |
+| Both backends fail | "Lausu: Hotkey error" | "Hotkey is not working. Click to troubleshoot." |
 
 ### D.5 Edge Cases
 
@@ -879,11 +879,11 @@ Beyond the per-section edge cases above, these are cross-cutting edge cases that
 
 ### E.1 Permission Edge Cases
 
-- **User has multiple Voice Typer installs** (e.g. .deb and AppImage on same machine): The .deb postinst runs first (installs udev rule). When the AppImage runs, it sees the udev rule exists → skips installation. When the user uninstalls the .deb, the prerm removes the udev rule → AppImage breaks. Mitigation: AppImage always checks "can I read /dev/input/event*?" at startup, regardless of whether the rule file exists. If it can't, it runs the pkexec flow.
+- **User has multiple Lausu installs** (e.g. .deb and AppImage on same machine): The .deb postinst runs first (installs udev rule). When the AppImage runs, it sees the udev rule exists → skips installation. When the user uninstalls the .deb, the prerm removes the udev rule → AppImage breaks. Mitigation: AppImage always checks "can I read /dev/input/event*?" at startup, regardless of whether the rule file exists. If it can't, it runs the pkexec flow.
 - **User installs for "all users" vs "single user"**: .deb is always system-wide. AppImage is always single-user. The udev rule is system-wide (must be, `/dev/input/event*` is a system resource). The XKB config is system-wide on X11, user-specific on GNOME/KDE/Wayland. Documented.
 - **Permission changes between app launches**: App always checks at startup. If permission was revoked, it re-runs the permission flow.
-- **User runs Voice Typer as root** (Linux): The `input` group check is skipped (root has access). XKB config may not apply (root has no X session). The app warns: "Running as root is not recommended, keyboard permission setup is skipped."
-- **User runs Voice Typer via `sudo -E`** (preserve env): `SUDO_USER` is set. Script adds `SUDO_USER` to `input` group. But the running process is still root, so it can read `/dev/input/event*` regardless. The group add is for the user's normal sessions.
+- **User runs Lausu as root** (Linux): The `input` group check is skipped (root has access). XKB config may not apply (root has no X session). The app warns: "Running as root is not recommended, keyboard permission setup is skipped."
+- **User runs Lausu via `sudo -E`** (preserve env): `SUDO_USER` is set. Script adds `SUDO_USER` to `input` group. But the running process is still root, so it can read `/dev/input/event*` regardless. The group add is for the user's normal sessions.
 
 ### E.2 Build & CI Edge Cases
 
@@ -913,19 +913,19 @@ Beyond the per-section edge cases above, these are cross-cutting edge cases that
 ### E.5 Linux-Specific Edge Cases
 
 - **`systemd` not running** (e.g. Alpine Linux with OpenRC): `udevadm` may not work. The postinst script tries `udevadm` and falls back to `mdev` if unavailable. Documented as "may require manual udev reload on non-systemd systems."
-- **User has a custom udev rule that conflicts** (e.g. `/etc/udev/rules.d/50-custom.rules` sets `MODE="0600"` for event devices): Our rule (numbered `99-`) loads later and overrides. But if the user's rule is numbered `99-voice-typer.rules` (same name), they conflict. Mitigation: our script checks if the file exists and backs it up before overwriting.
+- **User has a custom udev rule that conflicts** (e.g. `/etc/udev/rules.d/50-custom.rules` sets `MODE="0600"` for event devices): Our rule (numbered `99-`) loads later and overrides. But if the user's rule is numbered `99-lausu.rules` (same name), they conflict. Mitigation: our script checks if the file exists and backs it up before overwriting.
 - **`/dev/input` doesn't exist** (chroot/container): Script logs warning, skips udev rule. App falls back to legacy pynput backend.
 - **User is on a read-only root filesystem** (e.g. kiosk mode): Script fails to write `/etc/udev/rules.d/...`. Logs error. App falls back to legacy.
-- **AppImage runs from a non-executable location** (e.g. `/tmp` with `noexec`): The `pkexec` helper writes the install script to `~/.cache/voice-typer/install_permissions.py` and runs it from there.
+- **AppImage runs from a non-executable location** (e.g. `/tmp` with `noexec`): The `pkexec` helper writes the install script to `~/.cache/lausu/install_permissions.py` and runs it from there.
 - **AppImage is on a network filesystem** (NFS, SMB): May have permission issues. Documented as "AppImage should be copied to a local filesystem."
 
 ### E.6 macOS-Specific Edge Cases
 
-- **App is quarantined** (downloaded from web): macOS shows "Voice Typer can't be opened because it is from an unidentified developer." User must right-click → Open. Documented in README. After the first open, quarantine is cleared.
+- **App is quarantined** (downloaded from web): macOS shows "Lausu can't be opened because it is from an unidentified developer." User must right-click → Open. Documented in README. After the first open, quarantine is cleared.
 - **App is notarized but binary isn't** (binary built locally, not via CI): macOS may refuse to load the unsigned binary. Mitigation: CI notarizes the whole bundle (app + binary) together.
-- **User has "App Management" protection enabled** (macOS 15+): Modifying `/Applications/Voice Typer.app` requires extra permission. Our app doesn't modify itself, so this is fine. But if the user moves the app after granting Accessibility, the path changes and Accessibility may need to be re-granted. Documented.
+- **User has "App Management" protection enabled** (macOS 15+): Modifying `/Applications/Lausu.app` requires extra permission. Our app doesn't modify itself, so this is fine. But if the user moves the app after granting Accessibility, the path changes and Accessibility may need to be re-granted. Documented.
 - **User has "Input Monitoring" granted but not "Accessibility"**: CGEventTap requires Accessibility, not Input Monitoring. The notification specifically says "Accessibility" to avoid confusion.
-- **App is run from the DMG** (not copied to /Applications): macOS may not grant Accessibility to DMG-mounted apps. The first-launch dialog says "Please drag Voice Typer to your Applications folder before granting permission."
+- **App is run from the DMG** (not copied to /Applications): macOS may not grant Accessibility to DMG-mounted apps. The first-launch dialog says "Please drag Lausu to your Applications folder before granting permission."
 - **App is run via `python3 -m voice_typer`** (developer mode): The "app" in the Accessibility list is Python (or the terminal). The notification body adapts: "Add Python (or your terminal) to the Accessibility list."
 
 ### E.7 Windows-Specific Edge Cases
@@ -933,8 +933,8 @@ Beyond the per-section edge cases above, these are cross-cutting edge cases that
 - **Defender quarantines the binary on first run**: The binary disappears between build and execution. The native backend fails with "file not found" → startup fallback to legacy polling → fallback notification. User must add an exclusion and reinstall.
 - **SmartScreen warns "Windows protected your PC"**: User clicks "More info" → "Run anyway". Documented in README. After first run, SmartScreen stops warning.
 - **Binary requires UCRT** (Universal C Runtime): Bundled with Windows 10+. On Windows 7, user must install UCRT manually. Documented in requirements.
-- **User runs Voice Typer as administrator**: `WH_KEYBOARD_LL` works for both admin and non-admin processes. No special handling.
-- **User runs Voice Typer in a virtual machine** (e.g. Parallels, VMware): The hypervisor's keyboard integration may interfere with `WH_KEYBOARD_LL`. Documented as "may not work in some VMs."
+- **User runs Lausu as administrator**: `WH_KEYBOARD_LL` works for both admin and non-admin processes. No special handling.
+- **User runs Lausu in a virtual machine** (e.g. Parallels, VMware): The hypervisor's keyboard integration may interfere with `WH_KEYBOARD_LL`. Documented as "may not work in some VMs."
 
 ---
 
@@ -973,9 +973,9 @@ For each gap, verification is mandatory before moving on:
 - Unit test: install twice → idempotent (no errors, no duplicate entries)
 - Unit test: install then uninstall → system back to original state
 - Unit test: install with existing udev rule → backup created
-- Integration test (manual): on Ubuntu 22.04, `apt install ./voice-typer.deb` → user added to input group → log out/in → hotkey works
+- Integration test (manual): on Ubuntu 22.04, `apt install ./lausu.deb` → user added to input group → log out/in → hotkey works
 - Integration test (manual): on Ubuntu 22.04, run AppImage → pkexec prompt → password → log out/in → hotkey works
-- Integration test (manual): on Fedora 38, `dnf install voice-typer.rpm` → same flow
+- Integration test (manual): on Fedora 38, `dnf install lausu.rpm` → same flow
 
 **Gap 1 verification**:
 - CI workflow runs on PR → all three binaries build → smoke tests pass
@@ -1009,9 +1009,9 @@ Expected result: all 659 existing tests still pass, plus the new tests for each 
 All four gaps are "done" when:
 
 - [ ] Gap 1: A GitHub release published with the workflow produces installers for Windows, macOS, and Linux. Each installer contains the pre-compiled native binary. Manual install on a clean VM of each platform works.
-- [ ] Gap 2: On a clean macOS VM, install Voice Typer → press hotkey → see Accessibility notification → click → System Settings opens → grant permission → hotkey works. No terminal commands used.
-- [ ] Gap 3: On a clean Ubuntu VM, `apt install voice-typer` → type sudo password → log out/in → hotkey works. No other commands used. Same for `.rpm` and AppImage.
-- [ ] Gap 4: Run Voice Typer → kill the native binary via Task Manager/Activity Monitor → within 31 seconds, hotkey works again via legacy backend. Notification appears. After 5 minutes, native backend auto-recovers (if the kill was one-time, e.g. AV scan finished).
+- [ ] Gap 2: On a clean macOS VM, install Lausu → press hotkey → see Accessibility notification → click → System Settings opens → grant permission → hotkey works. No terminal commands used.
+- [ ] Gap 3: On a clean Ubuntu VM, `apt install lausu` → type sudo password → log out/in → hotkey works. No other commands used. Same for `.rpm` and AppImage.
+- [ ] Gap 4: Run Lausu → kill the native binary via Task Manager/Activity Monitor → within 31 seconds, hotkey works again via legacy backend. Notification appears. After 5 minutes, native backend auto-recovers (if the kill was one-time, e.g. AV scan finished).
 - [ ] All existing tests still pass.
 - [ ] New tests for each gap pass.
 - [ ] README, PLATFORM_STATUS, ADR, and CHANGELOG updated to reflect the completed architecture.
@@ -1027,15 +1027,15 @@ All four gaps are "done" when:
 |---|---|---|
 | `.github/workflows/build-native.yml` | CI pipeline for native binaries | 120 |
 | `voice_typer/server/permissions.py` | OS permission detection + prompts | 200 |
-| `scripts/linux/99-voice-typer.rules` | udev rule for keyboard access | 5 |
-| `scripts/linux/00-voice-typer-capslock.conf` | XKB Caps Lock neutralization | 8 |
+| `scripts/linux/99-lausu.rules` | udev rule for keyboard access | 5 |
+| `scripts/linux/00-lausu-capslock.conf` | XKB Caps Lock neutralization | 8 |
 | `scripts/linux/install_permissions.py` | Shared installer (postinst + pkexec) | 150 |
 | `scripts/linux/uninstall_permissions.py` | Shared uninstaller (prerm) | 80 |
 | `scripts/linux/postinst` | Debian postinst wrapper | 20 |
 | `scripts/linux/prerm` | Debian prerm wrapper | 15 |
 | `scripts/linux/postinst.rpm` | RPM %post wrapper | 20 |
 | `scripts/linux/prerm.rpm` | RPM %preun wrapper | 15 |
-| `scripts/linux/voice-typer.polkit` | polkit policy for pkexec | 20 |
+| `scripts/linux/lausu.polkit` | polkit policy for pkexec | 20 |
 | `tests/test_permissions.py` | Tests for permissions.py | 150 |
 | `tests/test_runtime_fallback.py` | Tests for Gap 4 swap logic | 200 |
 

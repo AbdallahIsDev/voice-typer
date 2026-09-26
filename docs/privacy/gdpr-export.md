@@ -15,7 +15,7 @@ verbatim: no redaction. Model weights are excluded (not personal
 data). Atomic zip write (PI-14): the zip is built to a `.zip.tmp`
 temp file and `os.replace`'d into place on success.
 
-Voice Typer is a **local-first** desktop utility. The only existing
+Lausu is a **local-first** desktop utility. The only existing
 export, `service.export_diagnostics` (`service.py:1998`), produces a
 **redacted support bundle** via `CrashRecovery.create_diagnostic_bundle()`
 for troubleshooting: it is *not* a GDPR Art. 20 export of personal
@@ -25,26 +25,26 @@ redacts transcript text, whereas a GDPR export must include it.
 ## What the GDPR Art. 20 export includes
 
 The export is a single `.zip` containing user-readable +
-machine-readable copies of every personal-data artifact Voice Typer
+machine-readable copies of every personal-data artifact Lausu
 stores locally. All paths are relative to the config dir
-(`_config_dir()`, typically `~/.config/voice-typer` on Linux,
-`%APPDATA%/voice-typer` on Windows, `~/Library/Application
-Support/voice-typer` on macOS).
+(`_config_dir()`, typically `~/.config/lausu` on Linux,
+`%APPDATA%/lausu` on Windows, `~/Library/Application
+Support/lausu` on macOS).
 
 | Artifact | Path | Format | Notes |
 |---|---|---|---|
 | Transcription history | `history.db` | SQLite | Already structured; also export as JSON for portability. Included in export. |
 | Crash-recovery buffer | `recovery.json` | JSON | Last 10 unpasted transcriptions (`crash_recovery.py`). Included in export. |
 | User config + consent flags | `config.json` | JSON | Includes `onboarding_completed`, `auto_punctuation`, `recording_mode`, hotkey prefs, theme, language. **Redact** `llm_api_key` / cloud-engine credentials. Included in export. |
-| User corrections | `voice-typer-corrections.json` | JSON | Custom misspelling/phrase corrections (`text_cleanup.py`). Included in export. |
+| User corrections | `lausu-corrections.json` | JSON | Custom misspelling/phrase corrections (`text_cleanup.py`). Included in export. |
 | Vocabulary / templates | `vocabulary.json`, `templates.json` | JSON | User-added entries. Included in export. |
 | Microphone-test recordings | `<config_dir>/mic-test-recordings/*.wav` | WAV | Only if the user ran the mic-test page and the files still exist. Included in export. |
-| Logs (Python main) | `voice-typer.log` | text | Already PIIRedactionFilter-redacted; include as-is. Included in export. |
-| Logs (Python main, rotated) | `voice-typer.log.1`..`voice-typer.log.5` | text | PI-4: rotated backups matched by `voice-typer.log.*` glob. Included in export. |
+| Logs (Python main) | `lausu.log` | text | Already PIIRedactionFilter-redacted; include as-is. Included in export. |
+| Logs (Python main, rotated) | `lausu.log.1`..`lausu.log.5` | text | PI-4: rotated backups matched by `lausu.log.*` glob. Included in export. |
 | Crash dumps (Windows VEH) | `<config_dir>/crash_diagnostics.*.txt` | text | PI-5: written by `crash_handler.py:722` as `crash_diagnostics.<PID>.txt`. The old `crash-*.dmp` glob was fictional. Included in export. |
 | Crash dumps (Python excepthook) | `<config_dir>/python_crash.*.txt` | text | PI-5: written by `crash_handler.py:1190` as `python_crash.<PID>.txt`. Included in export. |
 | Model artifacts | `<config_dir>/models/` | binary | Whisper / Parakeet / Qwen model weights. **Out of scope** for GDPR export (not personal data, publicly distributable weights). |
-| Voice recordings (live dictation) | — | — | Voice Typer does **not** persist raw audio from live dictation, audio is processed in-memory and discarded after transcription. Mic-test recordings are the only persisted audio. |
+| Voice recordings (live dictation) | — | — | Lausu does **not** persist raw audio from live dictation, audio is processed in-memory and discarded after transcription. Mic-test recordings are the only persisted audio. |
 
 ## Suggested command surface
 
@@ -64,7 +64,7 @@ Support/voice-typer` on macOS).
 
 - It redacts transcript text from `history.db` (PII redaction by
   design: diagnostic bundles are for support tickets).
-- It does not include `voice-typer-corrections.json` or
+- It does not include `lausu-corrections.json` or
   `templates.json`.
 - It does not include mic-test recordings.
 - It does not produce a machine-readable sidecar (just the redacted
@@ -72,7 +72,7 @@ Support/voice-typer` on macOS).
 
 ## Out of scope
 
-- Cloud-side export (Voice Typer has no server-side personal data;
+- Cloud-side export (Lausu has no server-side personal data;
   the only cloud calls are model downloads + optional LLM polish,
   both of which are stateless HTTP requests, no cloud account).
 - Automated scheduled exports.

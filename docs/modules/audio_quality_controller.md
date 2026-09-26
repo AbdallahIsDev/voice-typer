@@ -4,7 +4,7 @@
 
 ## Responsibility
 
-The `AudioQualityController` handles the accumulation of audio quality metrics per chunk, manages on-the-fly reconstruction of filter chains when configurations change, and generates the final post-recording quality report. It was extracted from `VoiceTyperApp` during the RW-9 god-class decomposition.
+The `AudioQualityController` handles the accumulation of audio quality metrics per chunk, manages on-the-fly reconstruction of filter chains when configurations change, and generates the final post-recording quality report. It was extracted from `LausuApp` during the RW-9 god-class decomposition.
 
 Key responsibilities:
 - Accumulate per-chunk audio quality metrics (RMS, peak, clipping, SNR)

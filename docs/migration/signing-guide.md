@@ -1,7 +1,7 @@
 # Signing Guide: Tauri v2 Bundles (ADR-0020 §13 + §15)
 
 **Status**: this is the **authoritative code-signing + notarization guide**
-for the Tauri v2 builds of Voice Typer, covering Windows (Authenticode),
+for the Tauri v2 builds of Lausu, covering Windows (Authenticode),
 macOS (Developer ID + notarization + stapling), and Linux (unsigned by
 default). It also documents the **no-auto-update** decision (ADR-0020 §15)
 and the audit results confirming `tauri-plugin-updater` is not wired.
@@ -123,18 +123,18 @@ updater signing** (per ADR-0020 §15: no auto-update). Instead, the MSI
 # After `cargo tauri build --target x86_64-pc-windows-msvc`:
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
     /f $PFX /p $PWD `
-    "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\Voice Typer_1.0.0_x64_en-US.msi"
+    "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\Lausu_1.0.0_x64_en-US.msi"
 
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
     /f $PFX /p $PWD `
-    "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\Voice Typer_1.0.0_x64-setup.exe"
+    "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\Lausu_1.0.0_x64-setup.exe"
 ```
 
 ### Verify
 
 ```powershell
 signtool verify /pa /v "src-tauri\bin\python-sidecar-x86_64-pc-windows-msvc.exe"
-signtool verify /pa /v "src-tauri\target\...\release\bundle\msi\Voice Typer_1.0.0_x64_en-US.msi"
+signtool verify /pa /v "src-tauri\target\...\release\bundle\msi\Lausu_1.0.0_x64_en-US.msi"
 ```
 
 Both must report `Successfully verified` with a count of `1` or more
@@ -187,7 +187,7 @@ Per ADR-0020 §13.2:
 
 | Key | Value | Why |
 |-----|-------|-----|
-| `CFBundleIdentifier` | `com.voicetyper.desktop` | Matches today's `legacy builder config` `appId`. |
+| `CFBundleIdentifier` | `com.Lausu.desktop` | Matches today's `legacy builder config` `appId`. |
 | `LSMinimumSystemVersion` | `13.0` | Matches `PLATFORM_STATUS.md` minimum. |
 | `LSUIElement` | `false` | Main app shows in Dock. (Sidecar sets `LSUIElement=true` separately.) |
 | `NSMicrophoneUsageDescription` | (required) | `sounddevice` mic access. |
@@ -229,7 +229,7 @@ codesign --force --options runtime --sign "$IDENTITY" \
 
 ```bash
 # After `cargo tauri build --target <arch>-apple-darwin`:
-APP="src-tauri/target/<arch>-apple-darwin/release/bundle/macos/Voice Typer.app"
+APP="src-tauri/target/<arch>-apple-darwin/release/bundle/macos/Lausu.app"
 
 # Sign the entire bundle (--deep walks the bundle and signs leaf-to-root).
 codesign --deep --force --options runtime --sign "$IDENTITY" \
@@ -251,9 +251,9 @@ spctl --assess --verbose=4 "$APP"   # Gatekeeper assessment
 
 ```bash
 # Submit the .app for notarization (zipped, notarytool requires a zip).
-ditto -c -k --keepParent "$APP" /tmp/voice-typer-app.zip
+ditto -c -k --keepParent "$APP" /tmp/lausu-app.zip
 
-xcrun notarytool submit /tmp/voice-typer-app.zip \
+xcrun notarytool submit /tmp/lausu-app.zip \
     --apple-id "$APPLE_ID" \
     --password "$APPLE_PASSWORD" \
     --team-id "$APPLE_TEAM_ID" \
@@ -267,7 +267,7 @@ xcrun stapler validate "$APP"
 ### Notarize + staple the `.dmg`
 
 ```bash
-DMG="src-tauri/target/<arch>-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_<arch>.dmg"
+DMG="src-tauri/target/<arch>-apple-darwin/release/bundle/dmg/Lausu_1.0.0_<arch>.dmg"
 
 # Sign the DMG.
 codesign --force --sign "$IDENTITY" "$DMG"
@@ -347,9 +347,9 @@ Track these as a follow-up after the Tauri cutover stabilizes.
 
 | Format | Install command | Notes |
 |--------|-----------------|-------|
-| `.deb` | `sudo dpkg -i voice-typer-1.0.0-linux-amd64.deb && sudo apt-get -f install` | `-f install` resolves missing deps (libnotify4, libxtst6, etc.). |
-| `.rpm` | `sudo dnf install voice-typer-1.0.0-linux-x86_64.rpm` | `dnf` resolves deps automatically. |
-| AppImage | `chmod +x VoiceTyper-1.0.0-linux-x86_64.AppImage && ./VoiceTyper-*.AppImage` | Runs without install; persists settings to `~/.config/voice-typer/`. |
+| `.deb` | `sudo dpkg -i lausu-1.0.0-linux-amd64.deb && sudo apt-get -f install` | `-f install` resolves missing deps (libnotify4, libxtst6, etc.). |
+| `.rpm` | `sudo dnf install lausu-1.0.0-linux-x86_64.rpm` | `dnf` resolves deps automatically. |
+| AppImage | `chmod +x Lausu-1.0.0-linux-x86_64.AppImage && ./Lausu-*.AppImage` | Runs without install; persists settings to `~/.config/lausu/`. |
 
 ### Reused Linux package scripts (ADR-0020 §13.3)
 
@@ -358,13 +358,13 @@ reused verbatim for the Tauri `.deb` / `.rpm` bundles:
 
 | Script | Purpose | Wired in `tauri.conf.json` `bundle.linux` |
 |--------|---------|-------------------------------------------|
-| `scripts/linux/postinst` | `.deb` post-install: udev rule, `input` group, Caps Lock neutralization, `/var/lib/voice-typer/permissions-manifest.json`. | `deb.postInstallScript` |
+| `scripts/linux/postinst` | `.deb` post-install: udev rule, `input` group, Caps Lock neutralization, `/var/lib/lausu/permissions-manifest.json`. | `deb.postInstallScript` |
 | `scripts/linux/prerm` | `.deb` pre-remove: clean up the manifest. | `deb.preRemoveScript` |
 | `scripts/linux/postinst.rpm` | `.rpm` post-install (same as `postinst`, RPM syntax). | `rpm.postInstallScript` |
 | `scripts/linux/prerm.rpm` | `.rpm` pre-remove (same as `prerm`, RPM syntax). | `rpm.preRemoveScript` |
-| `scripts/linux/99-voice-typer.rules` | udev rule for the native hotkey binary. | Installed by `postinst`/`postinst.rpm`. |
-| `scripts/linux/00-voice-typer-capslock.conf` | X11 Caps Lock config. | Installed by `postinst`/`postinst.rpm`. |
-| `scripts/linux/voice-typer.polkit` | polkit policy for AppImage `pkexec`. | Used by the AppImage launcher. |
+| `scripts/linux/99-lausu.rules` | udev rule for the native hotkey binary. | Installed by `postinst`/`postinst.rpm`. |
+| `scripts/linux/00-lausu-capslock.conf` | X11 Caps Lock config. | Installed by `postinst`/`postinst.rpm`. |
+| `scripts/linux/lausu.polkit` | polkit policy for AppImage `pkexec`. | Used by the AppImage launcher. |
 
 > **Do NOT modify these scripts for the Tauri build.** They are shared
 > with the predecessor fallback path. Per ADR-0020 §"Kept verbatim".

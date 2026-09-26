@@ -73,8 +73,8 @@ Migration rule (mechanical):
   `voice_typer.server.platform_utils.*`.
 - Migrate `_setup_logging` (7 sites) → `voice_typer.server.logging_setup._setup_logging`.
 - Migrate `_config_dir` (2 sites) → `voice_typer.server.config._config_dir`.
-- Migrate `VoiceTyperApp` (7 sites): these are top-level class patches; canonical
-  path is `voice_typer.server.app.VoiceTyperApp` itself, so these stay.
+- Migrate `LausuApp` (7 sites): these are top-level class patches; canonical
+  path is `voice_typer.server.app.LausuApp` itself, so these stay.
 - Migrate the small remaining tail (one-offs): `_register_devnull_file`,
   `_close_devnull_files`, `_clear_backend_pid_file`, `configure_corrections`,
   `_windows_*`, `_systemroot_notepad_path`, `StreamingTranscriptionSession`.
@@ -136,7 +136,7 @@ The same caveat applies to ANY test that (a) calls `startup_tasks.sync_autostart
 
 W1-A9's wave-1 migration missed one of the two autostart-state-asserting tests in `tests/app/test_config_wiring.py`. The sister test `test_autostart_syncs_with_platform` (line ~134-138) had been reverted to `app.X`, but `test_autostart_disabled_when_config_false` (line ~150-168) was left with its `is_autostart_enabled` patch on `voice_typer.server.server_platform.is_autostart_enabled` A STATIC import-time binding that does NOT propagate patches on `server_platform` to the `_app_module.is_autostart_enabled` lookup at `startup_tasks.py:153`.
 
-The patch was a no-op; the test passed ONLY because the sandbox happened to have `~/.config/autostart/voice-typer.desktop` (making the real `is_autostart_enabled()` return True, satisfying the `not app.config.autostart and actual` branch where `disable_autostart` is called). W2-R4 confirmed by running with a clean HOME (`HOME=/tmp/no_autostart_home_*`): the test FAILED with `assert 0 == 1` because `disable_autostart` was not called (real `is_autostart_enabled()` returned False → "already in sync" branch).
+The patch was a no-op; the test passed ONLY because the sandbox happened to have `~/.config/autostart/lausu.desktop` (making the real `is_autostart_enabled()` return True, satisfying the `not app.config.autostart and actual` branch where `disable_autostart` is called). W2-R4 confirmed by running with a clean HOME (`HOME=/tmp/no_autostart_home_*`): the test FAILED with `assert 0 == 1` because `disable_autostart` was not called (real `is_autostart_enabled()` returned False → "already in sync" branch).
 
 W3-A3 reverted all four autostart patches in `test_autostart_disabled_when_config_false` back to `voice_typer.server.app.X` (matching the sister test pattern) so both autostart-state-asserting tests share the same canonical-path-deferred pattern. The 13 defensive-no-op patches migrated in W1-A9 remain on `server_platform.X` (they are inert and asserted to remain so).
 
@@ -163,7 +163,7 @@ Per-symbol breakdown:
 | `enable_autostart`             | 20                            |
 | `is_windows`                    | 12                            |
 | `_setup_logging`                | 7                             |
-| `VoiceTyperApp`                 | 7 (stays: class lives here) |
+| `LausuApp`                 | 7 (stays: class lives here) |
 | `is_macos`                      | 5                             |
 | `is_linux`                      | 5                             |
 | `_register_devnull_file`        | 4                             |

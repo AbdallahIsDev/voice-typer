@@ -94,9 +94,9 @@ are rejected (defense-in-depth: chunked read in transport +
   REST API (uses `GH_TOKEN` / `GITHUB_TOKEN` env vars).
 - CLI entry point (`main`) with argparse + `--json` output for CI
   parsing. Asset-name templates per C-CI-13:
-  - `VoiceTyper-Setup-<version>.exe` (Windows NSIS installer).
-  - `VoiceTyper-<version>.<arch>.app.tar.gz` (macOS bundle).
-  - `voice-typer-<version>-<arch>.AppImage` (Linux).
+  - `Lausu-Setup-<version>.exe` (Windows NSIS installer).
+  - `Lausu-<version>.<arch>.app.tar.gz` (macOS bundle).
+  - `lausu-<version>-<arch>.AppImage` (Linux).
   - `pack-<version>.zip` (pack onefile: version-pinned).
   - `pack-manifest.json` (NOT versioned: served from
     `/releases/latest/download/`).
@@ -302,19 +302,19 @@ The shape is defined by `tauri-plugin-updater`:
   "platforms": {
     "windows-x86_64": {
       "signature": "<minisign signature of the .nsis installer>",
-      "url": "https://github.com/<owner>/<repo>/releases/download/v1.2.3/VoiceTyper-Setup-1.2.3.exe"
+      "url": "https://github.com/<owner>/<repo>/releases/download/v1.2.3/Lausu-Setup-1.2.3.exe"
     },
     "darwin-aarch64": {
       "signature": "<minisign signature of the .app.tar.gz>",
-      "url": "https://github.com/<owner>/<repo>/releases/download/v1.2.3/VoiceTyper-1.2.3.arm64.app.tar.gz"
+      "url": "https://github.com/<owner>/<repo>/releases/download/v1.2.3/Lausu-1.2.3.arm64.app.tar.gz"
     },
     "darwin-x86_64": {
       "signature": "<minisign signature of the .app.tar.gz>",
-      "url": "https://github.com/<owner>/<repo>/releases/download/v1.2.3/VoiceTyper-1.2.3.x64.app.tar.gz"
+      "url": "https://github.com/<owner>/<repo>/releases/download/v1.2.3/Lausu-1.2.3.x64.app.tar.gz"
     },
     "linux-x86_64": {
       "signature": "<minisign signature of the .AppImage>",
-      "url": "https://github.com/<owner>/<repo>/releases/download/v1.2.3/voice-typer-1.2.3-amd64.AppImage"
+      "url": "https://github.com/<owner>/<repo>/releases/download/v1.2.3/lausu-1.2.3-amd64.AppImage"
     }
   }
 }

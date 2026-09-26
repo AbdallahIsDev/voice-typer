@@ -16,7 +16,7 @@ The historical TCP/`client/src/main` material below is not a live path.
 
 ## Context
 
-Voice Typer's Python backend exposes a TCP JSON-lines IPC server on `127.0.0.1:0` (OS-assigned port) and emits `{"event":"server_started","port":N}` JSON on stdout, which the host (predecessor `voice_typer/client/src/main/python/tcp-connect.ts` OR Tauri `src-tauri/src/sidecar/ws.rs`) parses to discover the bound port. The fixed-port binding referenced in earlier drafts of this ADR is DEAD, the OS-assigned port + `server_started` handshake was introduced by ADR-0020 §4.1 to eliminate the port-collision class of startup failures. The host (predecessor or Tauri) spawns the Python backend as a subprocess and communicates over this loopback TCP socket (or, in the Tauri WS path, over a loopback WebSocket).
+Lausu's Python backend exposes a TCP JSON-lines IPC server on `127.0.0.1:0` (OS-assigned port) and emits `{"event":"server_started","port":N}` JSON on stdout, which the host (predecessor `voice_typer/client/src/main/python/tcp-connect.ts` OR Tauri `src-tauri/src/sidecar/ws.rs`) parses to discover the bound port. The fixed-port binding referenced in earlier drafts of this ADR is DEAD, the OS-assigned port + `server_started` handshake was introduced by ADR-0020 §4.1 to eliminate the port-collision class of startup failures. The host (predecessor or Tauri) spawns the Python backend as a subprocess and communicates over this loopback TCP socket (or, in the Tauri WS path, over a loopback WebSocket).
 
 **Threat model:** any local process, malware, a browser extension, an IDE plugin, a debugger, or another predecessor app, can connect to the OS-assigned loopback port and send IPC commands. Without authentication, a malicious local process could:
 
@@ -30,7 +30,7 @@ The IPC socket is designed as loopback-only (`127.0.0.1`), but loopback does not
 
 **Alternatives considered:**
 
-1. **Unix domain socket with peer-credential authentication (SO_PEERCRED).** Peer-cred auth is POSIX-only; Windows has no equivalent. Voice Typer is primarily a Windows app. Rejected.
+1. **Unix domain socket with peer-credential authentication (SO_PEERCRED).** Peer-cred auth is POSIX-only; Windows has no equivalent. Lausu is primarily a Windows app. Rejected.
 
 2. **mTLS (mutual TLS) between host and Python.** This would require certificate management (generation, rotation, secure storage of private keys) on both sides. The added complexity is disproportionate to the threat (local-only, same-user attacker). Rejected.
 

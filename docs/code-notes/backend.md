@@ -67,7 +67,7 @@ behavior unchanged.
 
 ## App construction mixin (`voice_typer/server/app_construction.py`)
 
-- Eager `_init_*` builders extracted from `VoiceTyperApp`; `__init__`
+- Eager `_init_*` builders extracted from `LausuApp`; `__init__`
   order stays in `app.py` (order is behavior).
 - Two builders remain pinned to `app.py` by lock-order contract tests:
   `_init_hotkeys_and_locks` (`_config_mutation_lock`) and

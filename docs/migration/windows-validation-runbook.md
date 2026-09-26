@@ -18,7 +18,7 @@ table at §9.
 
 **Related scripts**:
 - `scripts/build/compile_native.ps1` Builds `windows-key-listener.exe`.
-- `scripts/build/voice-typer.spec` PyInstaller fallback spec (ADR §4.5).
+- `scripts/build/lausu.spec` PyInstaller fallback spec (ADR §4.5).
 - `scripts/build/smoke_test_windows.ps1` Native-listener smoke test.
 - `.github/workflows/tauri-windows-build.yml` CI workflow ENABLED
   (active x86_64 matrix leg runs via `workflow_dispatch` /
@@ -43,7 +43,7 @@ explanation in the cited section.
 3.  winget install --id Microsoft.VisualStudio.2022.BuildTools `
         --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 4.  rustup default stable-x86_64-pc-windows-msvc
-5.  git clone https://github.com/AbdallahIsDev/voice-typer.git ; cd voice-typer
+5.  git clone https://github.com/AbdallahIsDev/voice-typer.git ; cd lausu
 6.  pip install uv ; uv venv ; .venv\Scripts\activate
 7.  uv pip install -e ".[dev,test]" nuitka==2.8.10 zstandard ordered-set
 8.  cd voice_typer\client ; npm install ; cd ..\..
@@ -67,7 +67,7 @@ explanation in the cited section.
 
 # ─── §5 Install + smoke test ────────────────────────────────────────────
 15. # Install target\x86_64-pc-windows-msvc\release\bundle\nsis\*-setup.exe
-16. # Launch "Voice Typer" from the Start Menu.
+16. # Launch "Lausu" from the Start Menu.
 
 # ─── §6 Execute the 9-point gate (record each result in §9) ─────────────
 17. §6.1 Sidecar spawn via externalBin       , log shows server_started
@@ -89,7 +89,7 @@ explanation in the cited section.
 29. # See §7: signtool sign + verify sidecar + prewarm + MSI + NSIS.
 
 # ─── §9 Capture results ─────────────────────────────────────────────────
-30. # Fill the §9 results table; attach %APPDATA%\voice-typer\logs\*.
+30. # Fill the §9 results table; attach %APPDATA%\lausu\logs\*.
 ```
 
 ---
@@ -320,7 +320,7 @@ The flags below are the **authoritative** Nuitka command from ADR-0020
 - `--include-dll=$SITE\ctranslate2\lib\ctranslate2.dll` Explicit
   include of the main CTranslate2 DLL (Nuitka does NOT expand `*.dll`
   globs).
-- `--onefile-tempdir-spec=%LOCALAPPDATA%\voice-typer\onefile-tmp` —
+- `--onefile-tempdir-spec=%LOCALAPPDATA%\lausu\onefile-tmp` —
   pins a deterministic extract dir to prevent tempdir bloat (ADR-0020
   §4.2 + §11 Known Issues).
 - `--output-filename=python-sidecar-x86_64-pc-windows-msvc.exe` The
@@ -352,7 +352,7 @@ The flags below are the **authoritative** Nuitka command from ADR-0020
     --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
     --include-dll="$SITE\ctranslate2\lib\ctranslate2.dll" `
     --windows-disable-console `
-    --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\onefile-tmp" `
+    --onefile-tempdir-spec="%LOCALAPPDATA%\lausu\onefile-tmp" `
     --output-filename=python-sidecar-x86_64-pc-windows-msvc.exe `
     --output-dir=src-tauri\bin `
     voice_typer\server\ipc_server.py
@@ -468,7 +468,7 @@ resolves it via `resolve_prewarm_exe()` (see ADR-0020 §5).
     --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
     --include-dll="$SITE\ctranslate2\lib\ctranslate2.dll" `
     --windows-disable-console `
-    --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\prewarm-onefile-tmp" `
+    --onefile-tempdir-spec="%LOCALAPPDATA%\lausu\prewarm-onefile-tmp" `
     --output-filename=prewarm-x86_64-pc-windows-msvc.exe `
     --output-dir=src-tauri\resources `
     voice_typer\server\prewarm\__main__.py
@@ -501,8 +501,8 @@ hotkeys, and Fn/Globe-key support.
 ```powershell
 **VALIDATE ON WINDOWS HOST** powershell -ExecutionPolicy Bypass -File scripts\build\compile_native.ps1
 # Expected output:
-#   [compile_native] Project root: C:\...\voice-typer
-#   [compile_native] Native dir:   C:\...\voice-typer\voice_typer\server\native
+#   [compile_native] Project root: C:\...\lausu
+#   [compile_native] Native dir:   C:\...\lausu\voice_typer\server\native
 #   [compile_native] Compiling with MSVC: cl.exe /O2 ...
 #   [compile_native] OK: ...\windows-key-listener.exe
 #   [compile_native] Done.
@@ -587,8 +587,8 @@ produces bundles under
 
 Expected (filenames may differ slightly by Tauri version):
 
-- `src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\Voice Typer_1.0.0_x64-setup.exe`
-- `src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\Voice Typer_1.0.0_x64_en-US.msi`
+- `src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\Lausu_1.0.0_x64-setup.exe`
+- `src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\Lausu_1.0.0_x64_en-US.msi`
 
 **Pass criteria for §4**:
 - `cargo tauri build` exits 0 with no errors.
@@ -604,23 +604,23 @@ Expected (filenames may differ slightly by Tauri version):
 testing: faster than MSI and supports in-place upgrades):
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Start-Process "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\Voice Typer_1.0.0_x64-setup.exe" -Wait
+**VALIDATE ON WINDOWS HOST** Start-Process "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\Lausu_1.0.0_x64-setup.exe" -Wait
 ```
 
 Or double-click the .exe in File Explorer. The installer creates:
 
-- Start Menu entry: "Voice Typer"
-- Install dir: `%LOCALAPPDATA%\Programs\Voice Typer\` (per-user, no
-  admin required, `voice-typer.manifest` sets
+- Start Menu entry: "Lausu"
+- Install dir: `%LOCALAPPDATA%\Programs\Lausu\` (per-user, no
+  admin required, `lausu.manifest` sets
   `requestedExecutionLevel=asInvoker`).
-- Config dir: `%APPDATA%\voice-typer\` (config.json, models/, logs/,
+- Config dir: `%APPDATA%\lausu\` (config.json, models/, logs/,
   history.db).
 
 ### §5.1 Launch + first-run smoke
 
 **VALIDATE ON WINDOWS HOST** Launch from the Start Menu. Expected:
 
-- The Voice Typer main window opens (WebView2) within ~5 s.
+- The Lausu main window opens (WebView2) within ~5 s.
 - The tray icon appears in the system tray.
 - No Windows Defender SmartScreen warning (if unsigned, see §7 to
   suppress; if signed, no warning expected).
@@ -628,17 +628,17 @@ Or double-click the .exe in File Explorer. The installer creates:
   `python-sidecar-x86_64-pc-windows-msvc.exe`.
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** tasklist | findstr /I "python-sidecar voice-typer windows-key-listener"
-# Expected: 3 processes (voice-typer main + python-sidecar + windows-key-listener)
+**VALIDATE ON WINDOWS HOST** tasklist | findstr /I "python-sidecar lausu windows-key-listener"
+# Expected: 3 processes (lausu main + python-sidecar + windows-key-listener)
 ```
 
 ### §5.2 Verify the sidecar log path
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Test-Path "$env:APPDATA\voice-typer\logs"
+**VALIDATE ON WINDOWS HOST** Test-Path "$env:APPDATA\lausu\logs"
 # Expected: True
-**VALIDATE ON WINDOWS HOST** Get-ChildItem "$env:APPDATA\voice-typer\logs"
-# Expected: voice-typer.log, sidecar.log (rotating, 5 MB × 5 per ADR-0020 §11)
+**VALIDATE ON WINDOWS HOST** Get-ChildItem "$env:APPDATA\lausu\logs"
+# Expected: lausu.log, sidecar.log (rotating, 5 MB × 5 per ADR-0020 §11)
 ```
 
 ---
@@ -671,7 +671,7 @@ port, and the sidecar writes ONE structured line to stdout:
 **Command** (within 30 s of launching the app):
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\voice-typer.log" -Tail 100 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\lausu.log" -Tail 100 |
     Select-String "server_started"
 ```
 
@@ -713,9 +713,9 @@ differs.)
 **Command**:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\voice-typer.log" -Tail 200 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\lausu.log" -Tail 200 |
     Select-String "auth accepted|auth|reject|ready"
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\sidecar.log" -Tail 200 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\sidecar.log" -Tail 200 |
     Select-String "SIDECAR-WS"
 ```
 
@@ -758,7 +758,7 @@ model load + transcribe all work inside the frozen sidecar exe.
 1. Open **Settings → Models**.
 2. Download a small model: select "tiny" (39 MB) or "base" (74 MB) and
    click Download. Wait for the download to complete (watch the
-   progress bar; the model is saved to `%APPDATA%\voice-typer\models\`).
+   progress bar; the model is saved to `%APPDATA%\lausu\models\`).
 3. Open the **Home** page.
 4. Press the dictation hotkey (default: `Ctrl+Alt+V`).
 5. Speak a test phrase, e.g., "hello world".
@@ -773,7 +773,7 @@ model load + transcribe all work inside the frozen sidecar exe.
 **Verify in logs**:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\sidecar.log" -Tail 200 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\sidecar.log" -Tail 200 |
     Select-String "transcrib|whisper|model_load|ctranslate2"
 ```
 
@@ -789,7 +789,7 @@ model load + transcribe all work inside the frozen sidecar exe.
   `compute_type='int8'` in the ASR config; CUDA wheels are large and
   not bundled by default.
 - `Model not found` → the model download path resolves to the wrong
-  directory. Check `%APPDATA%\voice-typer\models\` exists and contains
+  directory. Check `%APPDATA%\lausu\models\` exists and contains
   the model files. Check `HF_HOME` env var is redirected to that path
   per `asr_setup.py`.
 - `ImportError: libiomp5md.dll` → see §11; the `--include-data-dir`
@@ -834,7 +834,7 @@ threshold is `PASTE_SHORT_THRESHOLD` (defined near the top of
 **Verify in logs**:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\voice-typer.log" -Tail 200 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\lausu.log" -Tail 200 |
     Select-String "PASTE"
 ```
 
@@ -849,8 +849,8 @@ Expected:
   Ctrl/Cmd+V`) appears for each.
 
 **Fail scenarios**:
-- Text appears in the Voice Typer window instead of Notepad → focus
-  was stolen by the Voice Typer bubble/main window. ADR-0020 §6.3
+- Text appears in the Lausu window instead of Notepad → focus
+  was stolen by the Lausu bubble/main window. ADR-0020 §6.3
   describes the `AttachThreadInput` + `SetForegroundWindow` focus-
   restore dance; this is implemented in the Python side's
   `clipboard.py`, NOT in the Rust `paste_text` (which delegates to
@@ -881,20 +881,20 @@ toasts: this is the notification plugin's job.
    mid-dictation).
 
 **Expected**: a Windows toast notification appears in the Action
-Center with the Voice Typer icon + the notification text.
+Center with the Lausu icon + the notification text.
 
 **Verify**:
 
 ```powershell
 **VALIDATE ON WINDOWS HOST** # Open Action Center (Win+N or click the
-# notification icon in the taskbar). A Voice Typer toast should be
+# notification icon in the taskbar). A Lausu toast should be
 # listed.
 ```
 
 **Pass criteria**:
 - A Windows toast notification appears within 5 s of the trigger.
-- The toast has the Voice Typer icon + text.
-- No `notification:allow-notify` capability error in `voice-typer.log`
+- The toast has the Lausu icon + text.
+- No `notification:allow-notify` capability error in `lausu.log`
   (would indicate the capability wasn't granted, re-check
   `src-tauri/capabilities/main-runtime.json`).
 
@@ -924,7 +924,7 @@ the process tree via `kill_children`.
 2. Within 2 s, check Task Manager:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** tasklist | findstr /I "python-sidecar voice-typer windows-key-listener"
+**VALIDATE ON WINDOWS HOST** tasklist | findstr /I "python-sidecar lausu windows-key-listener"
 ```
 
 **Expected**: all three processes are gone within 2 s of window close.
@@ -932,13 +932,13 @@ the process tree via `kill_children`.
 **Verify in logs**:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\voice-typer.log" -Tail 100 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\lausu.log" -Tail 100 |
     Select-String "SHUTDOWN|shutdown"
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\sidecar.log" -Tail 100 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\sidecar.log" -Tail 100 |
     Select-String "SIDECAR-WS"
 ```
 
-Expected (in `voice-typer.log`):
+Expected (in `lausu.log`):
 ```
 [SHUTDOWN] sidecar exited gracefully (code=Some(0), signal=None)
 ```
@@ -963,11 +963,11 @@ Expected (in `sidecar.log`):
 ```
 
 **Pass criteria**:
-- All three processes (`voice-typer`, `python-sidecar`,
+- All three processes (`lausu`, `python-sidecar`,
   `windows-key-listener`) exit within 2 s of window close.
 - One of `[SHUTDOWN] sidecar exited gracefully (code=..., signal=...)`
   (graceful) OR `[SHUTDOWN] sidecar kill completed (graceful=...)`
-  (after-force-kill) appears in `voice-typer.log`.
+  (after-force-kill) appears in `lausu.log`.
 - `[SIDECAR-WS] shutdown received` appears in `sidecar.log`.
 
 **Fail scenarios**:
@@ -1013,11 +1013,11 @@ fallback (plain python module).
 **Verify** the task was registered + ran:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** schtasks /query /tn "com.voicetyper.prewarm" /v /fo LIST
+**VALIDATE ON WINDOWS HOST** schtasks /query /tn "com.Lausu.prewarm" /v /fo LIST
 ```
 
 Expected fields:
-- `TaskName: \com.voicetyper.prewarm`
+- `TaskName: \com.Lausu.prewarm`
 - `Logon Trigger: At logon` (under "Trigger Information")
 - `Last Run Time: <recent>` (matches your sign-in time)
 - `Last Result: 0` (success)
@@ -1025,14 +1025,14 @@ Expected fields:
 **Verify** the prewarm log:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\prewarm.log" -Tail 50
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\prewarm.log" -Tail 50
 ```
 
 Expected: lines showing prewarm ran (file-cache warming of model
 files).
 
 **Pass criteria**:
-- `schtasks /query` shows the `com.voicetyper.prewarm` task with
+- `schtasks /query` shows the `com.Lausu.prewarm` task with
   `LogonTrigger` and `Last Run Time` matching the sign-in.
 - `Last Result: 0` (success).
 - `prewarm.log` shows the prewarm ran.
@@ -1045,7 +1045,7 @@ files).
 - `Last Result: 0x1` (failure) → the prewarm exe crashed. Re-run it
   manually to see the error:
   ```powershell
-  & "$env:LOCALAPPDATA\Programs\Voice Typer\resources\prewarm-x86_64-pc-windows-msvc.exe" --force
+  & "$env:LOCALAPPDATA\Programs\Lausu\resources\prewarm-x86_64-pc-windows-msvc.exe" --force
   ```
 - `Last Result: 0x2` → file not found. The `resolve_prewarm_exe()`
   didn't find the exe at the expected path. Check
@@ -1088,7 +1088,7 @@ and toggles dictation.
 **Verify** in logs:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\sidecar.log" -Tail 200 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\sidecar.log" -Tail 200 |
     Select-String "hotkey|native|KEY_DOWN|toggle"
 ```
 
@@ -1114,7 +1114,7 @@ and toggles dictation.
 **VALIDATE ON WINDOWS HOST**
 
 **Tests**: ADR-0020 §12, `tauri-plugin-single-instance` ensures only
-one Voice Typer process runs. A second launch focuses the existing
+one Lausu process runs. A second launch focuses the existing
 instance (shows + sets focus on the main window) and emits a
 `second-instance` event; NO second sidecar is spawned.
 
@@ -1124,27 +1124,27 @@ doesn't spawn a zombie sidecar.
 
 **Command**:
 
-1. With Voice Typer running, launch it a second time (Start Menu →
-   "Voice Typer", or double-click the desktop shortcut).
+1. With Lausu running, launch it a second time (Start Menu →
+   "Lausu", or double-click the desktop shortcut).
 
 **Expected**:
-- No second Voice Typer window appears.
+- No second Lausu window appears.
 - The existing main window comes to the foreground (focused).
 - No second `python-sidecar` process spawns.
 
 **Verify**:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** tasklist | findstr /I "voice-typer python-sidecar"
-# Expected: ONE voice-typer process + ONE python-sidecar process
+**VALIDATE ON WINDOWS HOST** tasklist | findstr /I "lausu python-sidecar"
+# Expected: ONE lausu process + ONE python-sidecar process
 # (no duplicates from the second launch).
 ```
 
 **Pass criteria**:
 - Second launch focuses the existing window within ~1 s.
-- Task Manager shows ONE `voice-typer` + ONE `python-sidecar` process.
+- Task Manager shows ONE `lausu` + ONE `python-sidecar` process.
 - No "sidecar spawn failed: port already in use" errors in
-  `voice-typer.log`.
+  `lausu.log`.
 
 **Fail scenarios**:
 - Two `python-sidecar` processes after the second launch → the
@@ -1192,9 +1192,9 @@ an "Unknown Publisher" warning):
 ```powershell
 **VALIDATE ON WINDOWS HOST** $cert = New-SelfSignedCertificate `
     -Type CodeSigningCert `
-    -Subject "CN=Voice Typer Test Code Signing" `
+    -Subject "CN=Lausu Test Code Signing" `
     -KeyUsage DigitalSignature `
-    -FriendlyName "Voice Typer Test Code Signing" `
+    -FriendlyName "Lausu Test Code Signing" `
     -CertStoreLocation "Cert:\CurrentUser\My" `
     -HashAlgorithm SHA256 `
     -NotAfter (Get-Date).AddYears(1)
@@ -1293,22 +1293,22 @@ predecessor build: the predecessor code is untouched by the Tauri migration
 
 ```powershell
 **VALIDATE ON WINDOWS HOST** # Via Add/Remove Programs:
-**VALIDATE ON WINDOWS HOST** Get-Package "Voice Typer*" -ErrorAction SilentlyContinue |
+**VALIDATE ON WINDOWS HOST** Get-Package "Lausu*" -ErrorAction SilentlyContinue |
     Uninstall-Package
 
 # Or via winget:
-**VALIDATE ON WINDOWS HOST** winget uninstall "Voice Typer"
+**VALIDATE ON WINDOWS HOST** winget uninstall "Lausu"
 ```
 
 The Tauri uninstaller removes:
-- `%LOCALAPPDATA%\Programs\Voice Typer\`
+- `%LOCALAPPDATA%\Programs\Lausu\`
 - Start Menu entry
-- The Task Scheduler `com.voicetyper.prewarm` task (if registered, the
+- The Task Scheduler `com.Lausu.prewarm` task (if registered, the
   Tauri uninstaller must deregister this, along with the legacy
-  `VoiceTyperPrewarm` from pre-rename installs; see ADR-0020 §5
+  `LausuPrewarm` from pre-rename installs; see ADR-0020 §5
   "Uninstall cleanup per platform")
 
-**NOTE**: The Tauri install shares the `%APPDATA%\voice-typer\` config
+**NOTE**: The Tauri install shares the `%APPDATA%\lausu\` config
 dir with the predecessor build: config.json, models/, history.db, logs/
 are PRESERVED on uninstall (matches the predecessor behavior; data is
 never deleted on uninstall). The predecessor app picks up the same
@@ -1323,11 +1323,11 @@ config + models on next launch.
 **VALIDATE ON WINDOWS HOST** npm run build        # builds main + preload + renderer
 **VALIDATE ON WINDOWS HOST** run the predecessor packaging tool (`--win --x64` equivalent)
 **VALIDATE ON WINDOWS HOST** cd ..\..
-# Output: dist/VoiceTyper Setup <ver>.exe (NSIS installer)
+# Output: dist/Lausu Setup <ver>.exe (NSIS installer)
 ```
 
 Install + launch the predecessor build, it should pick up the same
-`%APPDATA%\voice-typer\` config + models + history as the Tauri build
+`%APPDATA%\lausu\` config + models + history as the Tauri build
 (no data loss on revert).
 
 ### §8.3 What to report when rolling back
@@ -1337,7 +1337,7 @@ If you roll back, file an issue with:
 - The exact error message + log excerpt.
 - The Windows version + build number.
 - The Nuitka version + python-build-standalone release date.
-- `voice-typer.log` + `sidecar.log` (zipped).
+- `lausu.log` + `sidecar.log` (zipped).
 
 This unblocks the next iteration of the Tauri migration without
 blocking the release.
@@ -1383,11 +1383,11 @@ tracking issue.
 | Validation date | |
 
 **Artifacts to attach**:
-- `%APPDATA%\voice-typer\logs\voice-typer.log` (rotated; zip the whole
+- `%APPDATA%\lausu\logs\lausu.log` (rotated; zip the whole
   `logs/` dir).
-- `%APPDATA%\voice-typer\logs\sidecar.log` (rotated; same zip).
-- `%APPDATA%\voice-typer\logs\prewarm.log`.
-- `schtasks /query /tn "com.voicetyper.prewarm" /v /fo LIST > prewarm-task.txt`.
+- `%APPDATA%\lausu\logs\sidecar.log` (rotated; same zip).
+- `%APPDATA%\lausu\logs\prewarm.log`.
+- `schtasks /query /tn "com.Lausu.prewarm" /v /fo LIST > prewarm-task.txt`.
 - `tasklist /v > tasklist.txt` (captured while app running).
 - Screenshots of: main window, bubble window (§10.3), toast (§6.5),
   Action Center.
@@ -1430,7 +1430,7 @@ to create a transcription).
 **Expected**:
 - The file is written at the chosen path within ~2 s.
 - A toast "History exported" appears.
-- No `dispatch timeout` or `server error` in `voice-typer.log`.
+- No `dispatch timeout` or `server error` in `lausu.log`.
 
 **Verify**:
 
@@ -1539,13 +1539,13 @@ The bubble lifecycle:
 **Verify** in logs:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\voice-typer.log" -Tail 200 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\lausu.log" -Tail 200 |
     Select-String "bubble"
-**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\voice-typer\logs\sidecar.log" -Tail 200 |
+**VALIDATE ON WINDOWS HOST** Get-Content "$env:APPDATA\lausu\logs\sidecar.log" -Tail 200 |
     Select-String "bubble"
 ```
 
-Expected (in `voice-typer.log`): bubble show/hide events at the
+Expected (in `lausu.log`): bubble show/hide events at the
 expected times.
 
 Expected (in `sidecar.log`): NO `bubble_level` log entries (per
@@ -1641,7 +1641,7 @@ launch; orphaned dirs accumulate if the process crashes before
 cleanup.
 
 **Fix**: The §1 + §2 commands pin a deterministic extract dir via
-`--onefile-tempdir-spec=%LOCALAPPDATA%\voice-typer\onefile-tmp`
+`--onefile-tempdir-spec=%LOCALAPPDATA%\lausu\onefile-tmp`
 (sidecar) and `...\prewarm-onefile-tmp` (prewarm). This means the
 extract dir is reused across launches (no accumulation). Verify the
 flag is present in your command.
@@ -1684,7 +1684,7 @@ known issue with `schtasks` and the LogonTrigger.
 ### §11.5 `enigo` focus-restore on Windows 11
 
 **Symptom**: §6.4 paste works on Windows 10 but on Windows 11 the
-text appears in the Voice Typer window (or nowhere) instead of the
+text appears in the Lausu window (or nowhere) instead of the
 target app.
 
 **Cause**: ADR-0020 §6.3 describes the Win32 focus-restore dance
@@ -1693,7 +1693,7 @@ sidecar's `clipboard.py` uses to ensure the target window has focus
 before paste. The Rust `paste_text` command (in `main.rs:660`)
 delegates to `enigo` directly WITHOUT the focus-restore dance —
 `enigo` injects into whatever window currently has focus. If the
-Voice Typer main/bubble window stole focus (e.g., the bubble appeared
+Lausu main/bubble window stole focus (e.g., the bubble appeared
 + took focus), the paste goes to the wrong window.
 
 On Windows 11, focus-stealing prevention is stricter than Windows 10
@@ -1708,7 +1708,7 @@ the target app was recently backgrounded.
    does NOT explicitly set `focus: false` Sub-agent A should add
    this.
 2. The UI must call `paste_text` AFTER ensuring the target window is
-   focused (e.g., by NOT calling `set_focus` on the Voice Typer main
+   focused (e.g., by NOT calling `set_focus` on the Lausu main
    window when dictation completes).
 3. If the issue persists on Windows 11, the Rust `paste_text` should
    implement the §6.3 focus-restore dance (`AttachThreadInput` +
@@ -1769,11 +1769,11 @@ The `--locked` flag uses the locked dependencies from
 specified" when Tauri tries to invoke NSIS.
 
 **Cause**: The repo is cloned to a path with spaces (e.g.,
-`C:\Users\John Doe\voice-typer`), and the NSIS bundler doesn't quote
+`C:\Users\John Doe\lausu`), and the NSIS bundler doesn't quote
 the path correctly in some Tauri versions.
 
 **Fix**: Move the repo to a path without spaces (e.g.,
-`C:\dev\voice-typer`). This is a known Tauri/NSIS issue; check the
+`C:\dev\lausu`). This is a known Tauri/NSIS issue; check the
 Tauri issue tracker for the version-specific fix.
 
 ### §11.10 Antivirus false positives on Nuitka `--onefile`
@@ -1784,11 +1784,11 @@ Tauri issue tracker for the version-specific fix.
 **Cause**: Nuitka `--onefile` self-extraction (extract inner exe to
 temp dir at runtime) matches some AV heuristics for "packed
 malware". This is also a known issue with PyInstaller `--onefile`
-(see `voice-typer.spec` `upx=False` comment for the same rationale).
+(see `lausu.spec` `upx=False` comment for the same rationale).
 
 **Fix**:
 1. Add an exclusion in Windows Defender for
-   `%LOCALAPPDATA%\Programs\Voice Typer\` + the build output dir
+   `%LOCALAPPDATA%\Programs\Lausu\` + the build output dir
    `src-tauri\bin\`.
 2. Code-signing (§7) dramatically reduces false positives.
 3. For end users: document the Defender exclusion in the install

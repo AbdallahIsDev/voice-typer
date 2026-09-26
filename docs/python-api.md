@@ -1,14 +1,14 @@
-# Voice Typer: Public API Reference
+# Lausu: Public API Reference
 
 ## Overview
 
-Voice Typer exposes its functionality through Python classes in
+Lausu exposes its functionality through Python classes in
 `voice_typer.server/` and an IPC server for cross-process communication.
 This document covers the primary public API surfaces.
 
 ---
 
-## VoiceTyperApp
+## LausuApp
 
 **Module:** `voice_typer.server.app`
 

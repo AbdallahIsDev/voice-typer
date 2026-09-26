@@ -11,7 +11,7 @@ current and future contributors understand why the codebase is structured the
 way it is. Without explicit records, decisions are lost over time, leading to
 repeated discussions and potential reverts of intentional choices.
 
-Voice Typer is a cross-platform desktop application combining a Python backend
+Lausu is a cross-platform desktop application combining a Python backend
 (speech recognition, model management, clipboard control) with an
 predecessor/React frontend. The architecture has evolved through multiple rounds
 of forensic review and remediation, making it especially important to document

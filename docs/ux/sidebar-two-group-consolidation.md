@@ -1,7 +1,7 @@
 # Sidebar Navigation: Two-Group Consolidation
 
 **Status**: Decided (2026-08-25, user product decision)
-**Decision owner**: voice-typer UX
+**Decision owner**: lausu UX
 **Supersedes**: the earlier three-group hierarchy (Main / Power features / System)
 **Related code**:
 - `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx` Nav group definitions (`nav.group.main`, `nav.group.system`, `pinnedToBottom`)

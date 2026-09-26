@@ -10,11 +10,11 @@ Accepted: implemented in `voice_typer/server/config.py` as typed boolean fields 
 
 ## Context
 
-Voice Typer processes user speech (audio and text) through several systems, each with different privacy implications:
+Lausu processes user speech (audio and text) through several systems, each with different privacy implications:
 
-1. **HuggingFace model download (PRIV-005):** When the user selects a Whisper or Parakeet model for the first time, the app downloads model weights from HuggingFace's CDN. This reveals the user's IP address to HuggingFace (a US-headquartered third party) and indicates that the user is running Voice Typer. Under GDPR Art. 13/44, this is a data-processing disclosure that requires explicit consent before it occurs.
+1. **HuggingFace model download (PRIV-005):** When the user selects a Whisper or Parakeet model for the first time, the app downloads model weights from HuggingFace's CDN. This reveals the user's IP address to HuggingFace (a US-headquartered third party) and indicates that the user is running Lausu. Under GDPR Art. 13/44, this is a data-processing disclosure that requires explicit consent before it occurs.
 
-2. **Cloud ASR providers (PRIV-006):** Voice Typer supports cloud-based transcription via OpenAI Whisper API, Deepgram, and Groq. When enabled, the user's audio is transmitted to these providers for transcription. Storing an API key alone does not constitute consent. The user must explicitly agree that audio will leave their machine. Each provider has different data-handling policies, so consent must be per-provider.
+2. **Cloud ASR providers (PRIV-006):** Lausu supports cloud-based transcription via OpenAI Whisper API, Deepgram, and Groq. When enabled, the user's audio is transmitted to these providers for transcription. Storing an API key alone does not constitute consent. The user must explicitly agree that audio will leave their machine. Each provider has different data-handling policies, so consent must be per-provider.
 
 3. **Local biometric processing (PRIV-009):** Voice recordings may constitute biometric data under the Illinois Biometric Information Privacy Act (BIPA) and GDPR Art. 9 (special categories of personal data). Even though processing is local (on-device), some jurisdictions require informed consent before collecting or processing biometric data. Users must be informed that their voice will be processed for transcription and consent to this.
 
@@ -61,7 +61,7 @@ voice_biometric_consent: bool = False
 ```
 
 - **Disclosure:** The consent dialog informs the user that voice recordings (which may constitute biometric data) are processed locally for transcription on their device. No data leaves the machine for this processing.
-- **Scope:** This is a one-time consent. Once granted, the user can use Voice Typer normally.
+- **Scope:** This is a one-time consent. Once granted, the user can use Lausu normally.
 - **UI location:** First-run onboarding → "I consent to on-device voice processing for transcription"
 
 ### Design Rules

@@ -45,6 +45,8 @@ TS unions: `types/ipc/push_events.ts` + `types/ipc/requests.ts`. Parity: `tests/
 | `history_fts5_rebuild_failed` | `{db_path, deleted, error, source}` | |
 | `paste_deferred` | `{reason, message}` | e.g. macOS Secure Input |
 | `tray_fallback_notification` | `{"data":{title,message}}` | Nested under `data` |
+| `media_transcribe_progress` | `{job_id, progress}` | ADR-0023 chunked job progress |
+| `media_transcribe_complete` | `{job_id, row_id, chars}` | ADR-0023 job completion |
 | `asr_backend_ready` | `{backend, model_size}` | Background model load ok |
 | `asr_backend_load_failed` | `{backend, model_size, failure_reason}` | |
 

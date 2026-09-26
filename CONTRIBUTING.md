@@ -1,6 +1,6 @@
-# Contributing to Voice Typer
+# Contributing to Lausu
 
-Thank you for your interest in improving Voice Typer, a premium offline
+Thank you for your interest in improving Lausu, a premium offline
 background voice-to-text utility that lives in your system tray. This
 document is the canonical reference for getting a development
 environment running, understanding the project layout, and shipping
@@ -25,7 +25,7 @@ changes that pass CI and respect the security model.
 
 ## 1. Prerequisites
 
-Voice Typer is a cross-platform desktop app with a Python backend and a
+Lausu is a cross-platform desktop app with a Python backend and a
 Tauri v2 + React frontend. Both halves must be present to develop
 locally.
 
@@ -50,7 +50,7 @@ locally.
 |----|---------------------------------------|
 | **Windows 10/11** | "Desktop development with C++" workload from Visual Studio Build Tools (for compiling `pynput` keyboard hooks and the optional `windows-key-listener.c` native helper). Run `pip install -e ".[windows]"` to pull `pycaw`, `comtypes`, and `pywin32` for volume ducking and shortcut creation. |
 | **macOS 13+** (Ventura) | Xcode Command Line Tools (`xcode-select --install`). The `pyobjc-core`, `pyobjc-framework-CoreAudio`, and `pyobjc-framework-Cocoa` deps (declared with `sys_platform == 'darwin'` markers) require a working Clang. Grant **Accessibility** permission to the terminal (or the built app) the first time you press the hotkey. The native key listener needs it. CI runners pin to `macos-13` (Intel/x64) and `macos-14` (Apple Silicon/arm64); macOS 12 may work but is not tested. |
-| **Linux (X11 or Wayland)** | `libxdo-dev` and `libxtst-dev` (Debian/Ubuntu: `sudo apt install libxdo-dev libxtst-dev`; Fedora: `sudo dnf install xdo-devel libXtst-devel`). Add your user to the `input` group so the native key listener can read `/dev/input/event*`: `sudo usermod -aG input $USER` then log out/in. See `scripts/linux/99-voice-typer.rules` and `scripts/linux/install_permissions.py` for the packaged udev/polkit story. |
+| **Linux (X11 or Wayland)** | `libxdo-dev` and `libxtst-dev` (Debian/Ubuntu: `sudo apt install libxdo-dev libxtst-dev`; Fedora: `sudo dnf install xdo-devel libXtst-devel`). Add your user to the `input` group so the native key listener can read `/dev/input/event*`: `sudo usermod -aG input $USER` then log out/in. See `scripts/linux/99-lausu.rules` and `scripts/linux/install_permissions.py` for the packaged udev/polkit story. |
 
 > **GPU users (optional):** if you want CUDA-accelerated transcription,
 > install the GPU build of ONNX Runtime *before* `pip install -e .`
@@ -72,7 +72,7 @@ you already have installed.
 ```bash
 # 1. Clone
 git clone https://github.com/AbdallahIsDev/voice-typer.git
-cd voice-typer
+cd lausu
 
 # 2. Install uv (one-time, any of):
 curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
@@ -125,19 +125,19 @@ uv run --no-sync pytest tests/ -v
 ```bash
 # 1. Clone
 git clone https://github.com/AbdallahIsDev/voice-typer.git
-cd voice-typer
+cd lausu
 
 # 2. Create a dedicated venv (matches the path the launcher expects
-#    in production: see ~/.voice-typer/venv in docs/home-directory.md)
-python -m venv ~/.voice-typer/venv
+#    in production: see ~/.lausu/venv in docs/home-directory.md)
+python -m venv ~/.lausu/venv
 
 # 3. Activate it
 #    Windows (PowerShell):
-~/.voice-typer/venv/Scripts/Activate.ps1
+~/.lausu/venv/Scripts/Activate.ps1
 #    Windows (cmd):
-~/.voice-typer/venv/Scripts/activate.bat
+~/.lausu/venv/Scripts/activate.bat
 #    macOS / Linux:
-source ~/.voice-typer/venv/bin/activate
+source ~/.lausu/venv/bin/activate
 
 # 4. Install Python deps (editable + test + dev extras).
 #    Option A: extras syntax (preferred):
@@ -439,7 +439,7 @@ invocations on the GNU target.) These files are gitignored on purpose
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries; the prewarm binaries were dropped with the prewarm retirement, master plan §6.2 P-1) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API. |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC: historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 75-command registry unchanged: CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18; +1 2026-08-13 for `transcribe_offline` per master plan §7.4; −3 2026-08-14 for the prewarm retirements `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` per master plan §6.2 P-1; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card per plan §6.3 addendum, registered verbatim from 5a319872; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half, re-implemented: re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn); +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature, docs/auto-update-feature.md; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16); see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC: historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 79-command registry unchanged: CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18; +1 2026-08-13 for `transcribe_offline` per master plan §7.4; −3 2026-08-14 for the prewarm retirements `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` per master plan §6.2 P-1; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card per plan §6.3 addendum, registered verbatim from 5a319872; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half, re-implemented: re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn); +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature, docs/auto-update-feature.md; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16); +3 2026-09-23: `media_transcribe_start` / `media_transcribe_cancel` / `media_transcribe_status` added by ADR-0023 universal media-to-text (local files first, URLs Phase 2); see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. |
 
 #### Cutover status
@@ -458,11 +458,11 @@ Tauri is the sole desktop host. Historical migration notes:
 ## 3. Project Structure
 
 ```
-voice-typer/
+lausu/
 ├── voice_typer/
 │   ├── server/                       # Python backend (the "real" app)
 │   │   ├── ipc_server.py             # TCP JSON-lines server, SEC-018 token auth
-│   │   ├── app.py                    # VoiceTyperApp, orchestrator
+│   │   ├── app.py                    # LausuApp, orchestrator
 │   │   ├── config/                 # SEC-002 allowlist, SEC-003 redaction (package: __init__.py + loader.py + sanitization.py + coercion.py)
 │   │   ├── security.py               # token / URL / file-perm helpers
 │   │   ├── tray.py / tray_menu.py    # pystray tray icon + menu
@@ -515,7 +515,7 @@ voice-typer/
 │   ├── ipc-reference.md              # IPC message reference (auto-generated from _COMMAND_REGISTRY + allowed_commands())
 │   ├── python-api.md                 # Python class API reference (renamed from API.md)
 │   ├── PLATFORM_STATUS.md            # per-OS support matrix
-│   ├── home-directory.md             # ~/.voice-typer/ layout
+│   ├── home-directory.md             # ~/.lausu/ layout
 │   └── adr/                          # Architecture Decision Records
 │       ├── README.md                 # ADR index, read this first
 │       ├── template.md               # boilerplate scaffold for new ADRs
@@ -674,7 +674,7 @@ S2-CR-62 config-drift cleanup and should NOT be recreated.
 
 ## 5. Architecture Overview
 
-Voice Typer is a **two-process desktop app**. The Tauri **Rust host**
+Lausu is a **two-process desktop app**. The Tauri **Rust host**
 (`src-tauri/src/main.rs`) is the entry point: it generates a 32-byte
 `IPC_TOKEN`, spawns the Python backend as a Nuitka-frozen sidecar (or a
 live `python -m voice_typer.server.ipc_server --ws` subprocess in dev)
@@ -692,7 +692,7 @@ SEC-002 allowlist (`IPC_CONFIG_ALLOWLIST` in
 ``voice_typer/server/config_validators/__init__.py``) with type/range/
 enum/URL validation; `get_config` redacts API keys via SEC-003).
 
-The Python **backend** is a long-running tray app. `VoiceTyperApp`
+The Python **backend** is a long-running tray app. `LausuApp`
 (in `app.py`) wires together: a **pystray** tray icon (with a minimal
 menu: most configuration lives in the desktop UI), three hotkey
 backends (Win32, macOS CGEvent, Linux `/dev/input` See ADR 0007), a
@@ -833,7 +833,7 @@ write a draft ADR (`docs/adr/template.md`) before changing code.
 
 ### 6.4 IPC command parity (keep the two allowlists in lockstep)
 
-Voice Typer's IPC surface is a **two-layer allowlist**: the Python backend
+Lausu's IPC surface is a **two-layer allowlist**: the Python backend
 only dispatches commands it knows about, and the Tauri Rust host only
 *forwards* commands the renderer is allowed to send. Docs must reflect
 the resulting counts in lockstep. A new command is useless — or, worse,
@@ -939,7 +939,7 @@ Adding a new **ASR engine** has its own touchpoint set: see
 
 ### 6.5 i18n (every user-visible string must be localizable)
 
-Voice Typer ships **8 UI locales** (`en`, `ar`, `de`, `es`, `fr`, `hi`,
+Lausu ships **8 UI locales** (`en`, `ar`, `de`, `es`, `fr`, `hi`,
 `ru`, `zh`), see `SUPPORTED_LOCALES` in
 `voice_typer/client/src/renderer/src/i18n/locale.ts`. The app has **one**
 translation store, the renderer catalog:
@@ -993,7 +993,7 @@ completeness suite):**
    (`ml-*`/`mr-*`, `left`/`right`) so layout mirrors automatically. The
    i18n init applies `document.documentElement.dir` at boot; the bubble
    window applies its own `lang`/`dir` from the shared
-   `voice-typer-ui-locale` key.
+   `lausu-ui-locale` key.
 
 **Package layout** (`voice_typer/client/src/renderer/src/i18n/`):
 `locale.ts` (type + `SUPPORTED_LOCALES`), `store.ts` (translation state +
@@ -1028,7 +1028,7 @@ hand-rolling the React tree in component tests. Sibling files:
 **Conventions:**
 
 - **Theme via tokens, not raw palette.** Use semantic CSS variables
-  (`bg-(--bg)`, `text-(--text-primary)`, `text-(--text-muted)`,
+  (`bg-surface`, `text-foreground`, `text-muted-foreground`,
   `border-border/10`): never hardcoded Tailwind palette colors, so both
   the light/dark/system themes and custom presets keep working.
 - **Shared primitives for keycaps, hotkeys, and shortcuts.** Render
@@ -1262,7 +1262,7 @@ entries before importing the real package, see the long comment in
 
 `IPCServer(app, service=fake)` accepts an injected `service` argument
 that lets you exercise the IPC dispatch layer in isolation from
-`VoiceTyperService`.  The fixture `make_fake_service()` in
+`LausuService`.  The fixture `make_fake_service()` in
 `tests/fixtures/ipc_test_helpers.py` returns a `MagicMock`-based fake
 that satisfies the `AppProtocol` structural type.  Use it for tests
 that assert on dispatch behaviour, error codes, or push events
@@ -1292,7 +1292,7 @@ behaviour), the lighter pattern used by
 `TestShowNotificationEventName` in
 `tests/test_notification_event_name.py` builds a bare server via
 `make_bare_ipc_server` (see `tests/fixtures/ipc_test_helpers.py`):
-bypasses the `VoiceTyperService` construction cost entirely.
+bypasses the `LausuService` construction cost entirely.
 
 #### 7.4.3 Push-event testing
 
@@ -1436,17 +1436,17 @@ A maintainer will merge your PR once:
 Use [GitHub Issues](https://github.com/AbdallahIsDev/voice-typer/issues)
 and include:
 
-- Voice Typer version (`python -m voice_typer --version` or the
+- Lausu version (`python -m voice_typer --version` or the
   About page in the app).
 - OS and Python version (`python --version`).
 - Steps to reproduce.
 - Expected vs. actual behavior.
 - Log file: see the **About → Diagnostics** page in the app, or
-  `<DATA_DIR>/voice-typer.log` on disk (Python backend log; the Tauri
-  Rust host log is at `<DATA_DIR>/logs/voice-typer.log`). The data
-  directory resolves per-platform: `%APPDATA%\voice-typer` on Windows,
-  `~/Library/Application Support/voice-typer` on macOS,
-  `$XDG_DATA_HOME/voice-typer` on Linux, see `docs/home-directory.md`
+  `<DATA_DIR>/lausu.log` on disk (Python backend log; the Tauri
+  Rust host log is at `<DATA_DIR>/logs/lausu.log`). The data
+  directory resolves per-platform: `%APPDATA%\lausu` on Windows,
+  `~/Library/Application Support/lausu` on macOS,
+  `$XDG_DATA_HOME/lausu` on Linux, see `docs/home-directory.md`
   §"Log File Paths" for the canonical per-platform table.
 
 ---

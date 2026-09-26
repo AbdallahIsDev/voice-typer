@@ -1,6 +1,6 @@
 # Cloud Transcription Setup
 
-End-user + integrator guide for routing Voice Typer's ASR (and LLM
+End-user + integrator guide for routing Lausu's ASR (and LLM
 polishing) through a cloud provider instead of the default on-device
 faster-whisper / Qwen / Parakeet engines. Covers supported providers,
 API key format, network requirements, and per-OS quirks.
@@ -25,10 +25,10 @@ API key format, network requirements, and per-OS quirks.
 | Google Gemini / Vertex | ❌ (use cloud ASR provider above) | ✅ Gemini chat | `generativelanguage.googleapis.com` | LLM polish only. |
 | Self-hosted (vLLM, llama.cpp server, Whisper HTTP server, etc.) | ✅ (if the server speaks a supported cloud ASR wire format) | ✅ (same) | `localhost`, `127.0.0.1`, `::1` (loopback) or any host added via `add_trusted_endpoint` | HTTPS is NOT enforced on loopback; any non-loopback self-hosted host MUST be added via `add_trusted_endpoint` AND served over HTTPS. |
 
-> Voice Typer does not implement provider-specific SDKs, each cloud
+> Lausu does not implement provider-specific SDKs, each cloud
 > path is a thin HTTP client. As long as the self-hosted endpoint
 > speaks the same JSON wire format as one of the supported providers,
-> Voice Typer will treat it as that provider (set `cloud_provider` to
+> Lausu will treat it as that provider (set `cloud_provider` to
 > `openai` / `groq` / `deepgram` accordingly and point `cloud_api_url`
 > at the self-hosted URL).
 
@@ -64,9 +64,9 @@ The API key is redacted from all log lines by the `PIIRedactionFilter`
   via `socket.getaddrinfo()` and rejects any hostname that resolves to
   a non-allowlist IP (defense against DNS rebinding, see the inline
   comment in `voice_typer/server/_secrets.py`).
-- **Outbound ports**: 443 (HTTPS) for all cloud providers. Voice Typer
+- **Outbound ports**: 443 (HTTPS) for all cloud providers. Lausu
   does not need any inbound ports open for cloud transcription.
-- **Proxy support**: Voice Typer honors the standard `HTTPS_PROXY` /
+- **Proxy support**: Lausu honors the standard `HTTPS_PROXY` /
   `HTTP_PROXY` env vars. The proxy URL itself is NOT subject to the
   allowlist (it's a transport-layer concern, not an endpoint).
 - **Connection timeout**: 30 s connect, 120 s read for ASR (audio
@@ -78,18 +78,18 @@ The API key is redacted from all log lines by the `PIIRedactionFilter`
 
 | OS | Quirk | Mitigation |
 |----|-------|-----------|
-| **Windows** | The system trust store is consulted for TLS verification (via `certifi` + `ssl.create_default_context()`). If a corporate MITM proxy replaces the root CA, TLS verification fails with `SSL: CERTIFICATE_VERIFY_FAILED`. | Set the `SSL_CERT_FILE` env var to the path of the corporate root CA bundle (a `.crt` / `.pem` file exported from the corporate IT portal). Restart Voice Typer. |
-| **Windows** | Windows Firewall prompts on first cloud request if the bundled `pythonw.exe` (or the Nuitka-frozen sidecar exe under Tauri) has not yet been allowlisted. | Accept the prompt once (Private networks only, never Public). Voice Typer makes only outbound HTTPS connections; no inbound rule is needed. |
+| **Windows** | The system trust store is consulted for TLS verification (via `certifi` + `ssl.create_default_context()`). If a corporate MITM proxy replaces the root CA, TLS verification fails with `SSL: CERTIFICATE_VERIFY_FAILED`. | Set the `SSL_CERT_FILE` env var to the path of the corporate root CA bundle (a `.crt` / `.pem` file exported from the corporate IT portal). Restart Lausu. |
+| **Windows** | Windows Firewall prompts on first cloud request if the bundled `pythonw.exe` (or the Nuitka-frozen sidecar exe under Tauri) has not yet been allowlisted. | Accept the prompt once (Private networks only, never Public). Lausu makes only outbound HTTPS connections; no inbound rule is needed. |
 | **macOS** | Same TLS-verification path as Windows; the system Keychain root CAs are picked up automatically by `certifi`. | Same `SSL_CERT_FILE` workaround for corporate MITM proxies. |
-| **macOS** | iCloud Private Relay can route DNS through Apple's relay, which sometimes causes intermittent `getaddrinfo` failures for non-Apple hostnames. | Disable Private Relay for the Voice Typer binary in System Settings → Apple ID → iCloud → Private Relay → "Exclude". This is a macOS-level setting; Voice Typer has no in-app toggle. |
+| **macOS** | iCloud Private Relay can route DNS through Apple's relay, which sometimes causes intermittent `getaddrinfo` failures for non-Apple hostnames. | Disable Private Relay for the Lausu binary in System Settings → Apple ID → iCloud → Private Relay → "Exclude". This is a macOS-level setting; Lausu has no in-app toggle. |
 | **Linux (X11 + Wayland)** | The trust store is rooted at `/etc/ssl/certs/ca-certificates.crt` (Debian/Ubuntu) or `/etc/pki/tls/certs/ca-bundle.crt` (Fedora/RHEL). `certifi` ships its own bundle and uses it in preference to the system bundle. | If a corporate root CA is installed in the system trust store but NOT in `certifi`'s bundle, set `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt` (or the Fedora path) to force the system bundle. |
 | **Linux (AppImage)** | The AppImage bundles its own `certifi` CA bundle; the host system's trust store is NOT consulted unless `SSL_CERT_FILE` is set explicitly. | Same `SSL_CERT_FILE` workaround as above. |
-| **Linux (Tauri sidecar)** | The Nuitka-frozen sidecar exe does NOT consult the system trust store by default; it uses the `certifi` bundle baked in at freeze time. | If the `certifi` bundle is stale (a CA was added/rotated after the sidecar was built), update Voice Typer to a newer release, there is no in-app CA bundle refresh. |
+| **Linux (Tauri sidecar)** | The Nuitka-frozen sidecar exe does NOT consult the system trust store by default; it uses the `certifi` bundle baked in at freeze time. | If the `certifi` bundle is stale (a CA was added/rotated after the sidecar was built), update Lausu to a newer release, there is no in-app CA bundle refresh. |
 | **All OSes (Tauri host)** | The Tauri v2 host does NOT proxy cloud requests through Rust. All cloud ASR / LLM HTTP traffic is initiated by the Python backend (same as the retired predecessor host). The Rust host's `tauri-plugin-http` / `tauri-plugin-reqwest` is NOT used for cloud transcription. | No action needed: this is by design (the allowlist + redaction live in the Python layer). |
 
 ## Verifying connectivity
 
-Voice Typer ships an IPC command specifically for testing cloud
+Lausu ships an IPC command specifically for testing cloud
 connectivity without recording audio:
 
 ```

@@ -93,7 +93,7 @@ unused import, or split a circular import), the ratchet will report
 in the gain:
 
 ```bash
-cd /path/to/voice-typer
+cd /path/to/lausu
 source .venv/bin/activate
 
 # Regenerate the baseline from the current ruff output.
@@ -150,7 +150,7 @@ To onboard a new rule:
 Before pushing:
 
 ```bash
-cd /path/to/voice-typer
+cd /path/to/lausu
 source .venv/bin/activate
 
 # Mirror CI Step 1.

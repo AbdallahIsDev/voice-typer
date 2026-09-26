@@ -28,6 +28,7 @@ Tooling note: `adr-tools` and similar expect unique `NNNN-*.md` names; this dire
 | 0020 | `0020-desktop-runtime-migration-analysis.md` | Desktop Runtime Migration to Tauri v2 + Python Sidecar (Cross-Platform Edition) | **Current authority.** Cutover complete 2026-09-17: predecessor removed; Tauri is the sole desktop host. Cross-platform rewrite of ADR-0013. |
 | 0021 | `rest-encryption.md` | At-Rest Encryption for User Data (Design-Gated) | Proposed (design-only: no production code changes; implementation tracked under the "Phased rollout" section of the ADR). |
 | 0022 | `0022-ws-tcp-protocol-version-asymmetry.md` | Sidecar WS Protocol-Version Check Stays Advisory While TCP Rejects | Accepted: deliberate asymmetry (WS warns-and-continues, TCP rejects with `server.protocol_version_mismatch`); revisit at the ADR-0020 single-transport cutover. |
+| 0024 | `0024-runtime-pack-worker-handoff.md` | Runtime-pack worker handoff end-to-end | Accepted (execution plan): Step-2 `worker_started {pid, version, port}` contract + Steps 0-7 build order; slimming gated on verified handoff. |
 
 ## Template
 

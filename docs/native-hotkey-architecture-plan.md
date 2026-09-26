@@ -65,7 +65,7 @@ Port Freestyle's windows-key-listener.c, trimmed:
 Port Freestyle's linux-key-listener.c:
 
 - `/dev/input/event*` polling via `poll()`
-- Add udev rule installation in your setup/installer: write `/etc/udev/rules.d/99-voice-typer.rules` granting `input` group access to event devices, or document that users must `sudo usermod -aG input $USER`
+- Add udev rule installation in your setup/installer: write `/etc/udev/rules.d/99-lausu.rules` granting `input` group access to event devices, or document that users must `sudo usermod -aG input $USER`
 - This makes Linux actually work for the first time, currently it's vaporware
 - Update README to remove "Windows-only" disclaimer
 

@@ -8,7 +8,7 @@
 
 ## Context
 
-The voice-typer test suite contains **478 `inspect.getsource()` source-string
+The lausu test suite contains **478 `inspect.getsource()` source-string
 tests across 150 test files** (re-verified 2026-08-12; the count has GROWN
 from 164/35 since the previous measurement). These tests assert on the
 literal source text of a function, class, or module, pinning

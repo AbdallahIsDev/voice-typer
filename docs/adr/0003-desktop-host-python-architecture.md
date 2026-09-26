@@ -9,7 +9,7 @@ context (the original two-process predecessor + Python design).
 
 ## Context
 
-Voice Typer needs a desktop GUI for settings, onboarding, and visual feedback.
+Lausu needs a desktop GUI for settings, onboarding, and visual feedback.
 The transcription engine is Python-based (using PyTorch/CTranslate2).
 
 ## Decision

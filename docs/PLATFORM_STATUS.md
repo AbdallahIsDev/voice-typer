@@ -1,6 +1,6 @@
 # Platform Status
 
-Feature × OS matrix for Voice Typer.  Last updated: 2026-06-30.
+Feature × OS matrix for Lausu.  Last updated: 2026-06-30.
 
 | Feature                    | Windows | macOS | Linux (X11) | Linux (Wayland) |
 |----------------------------|---------|-------|-------------|-----------------|
@@ -25,7 +25,7 @@ Feature × OS matrix for Voice Typer.  Last updated: 2026-06-30.
 | IPC TCP (loopback)         | ✅ | ✅ | ✅ | ✅ |
 | IPC session token auth     | ✅ | ✅ | ✅ | ✅ |
 | Config file permissions    | ⚠️ NTFS ACLs (default) | ✅ 0o600/0o700 | ✅ 0o600/0o700 | ✅ 0o600/0o700 |
-| Model download (CLI)       | ⚠️ No dedicated `voice-typer setup` CLI: model download is handled in-app via Settings → Models (`VoiceTyperService.download_model` IPC handler wrapping HuggingFace `snapshot_download`) or implicitly on first dictation. There is no headless CLI flag for triggering a model download. | ⚠️ Same: no dedicated CLI | ⚠️ Same: no dedicated CLI | ⚠️ Same: no dedicated CLI |
+| Model download (CLI)       | ⚠️ No dedicated `lausu setup` CLI: model download is handled in-app via Settings → Models (`LausuService.download_model` IPC handler wrapping HuggingFace `snapshot_download`) or implicitly on first dictation. There is no headless CLI flag for triggering a model download. | ⚠️ Same: no dedicated CLI | ⚠️ Same: no dedicated CLI | ⚠️ Same: no dedicated CLI |
 | Model download (UI)        | ✅ Implemented (Settings → Models) | ✅ Implemented (Settings → Models) | ✅ Implemented (Settings → Models) | ✅ Implemented (Settings → Models) |
 | Native binary build command | `scripts/build/compile_native.sh` (or `.ps1`) | `bash scripts/build/compile_native.sh` | `bash scripts/build/compile_native.sh` | `bash scripts/build/compile_native.sh` |
 
@@ -43,7 +43,7 @@ The `hotkey` config default is platform-aware (`_default_hotkey_for_platform()` 
 | Platform      | Default            | Why |
 |---------------|--------------------|-----|
 | macOS         | `<fn>`             | The Fn/Globe key on modern Macs is ergonomic, rarely conflicts with shortcuts, and is supported only on macOS via the native Swift binary. |
-| Windows       | `<caps_lock>`      | Ergonomic single-key trigger. The native `WH_KEYBOARD_LL` binary suppresses the keydown so the OS doesn't toggle caps state while Voice Typer is running. |
+| Windows       | `<caps_lock>`      | Ergonomic single-key trigger. The native `WH_KEYBOARD_LL` binary suppresses the keydown so the OS doesn't toggle caps state while Lausu is running. |
 | Linux         | `<caps_lock>`      | Same ergonomic rationale. The evdev backend is read-only, so the user is expected to neutralize caps-toggling via `setxkbmap -option caps:none`. |
 
 The legacy `<f2>` default from older releases is preserved as a fallback when the
@@ -56,15 +56,15 @@ with `<f2>` in their config keep it untouched.
 - **Accessibility permission** (System Settings → Privacy & Security →
   Accessibility). The native `macos-key-listener` binary uses `CGEvent` taps
   which require Accessibility. macOS updates sometimes invalidate the grant —
-  re-grant by toggling Voice Typer off and back on in the Accessibility list.
+  re-grant by toggling Lausu off and back on in the Accessibility list.
 - The compiled binary is ad-hoc code-signed by `scripts/build/compile_native.sh`
   so it can be trusted for Accessibility without a Developer ID.
 - **Zero-command onboarding (ADR 0008, Gap 2)**: when the native binary detects
-  a missing Accessibility grant, Voice Typer automatically shows a tray
+  a missing Accessibility grant, Lausu automatically shows a tray
   notification and deep-links to System Settings → Privacy & Security →
   Accessibility via the `x-apple.systempreferences:` scheme. A 60s retry timer
   polls for the grant and auto-restarts the native backend the moment the user
-  toggles Voice Typer on in the Accessibility list, no app restart required.
+  toggles Lausu on in the Accessibility list, no app restart required.
 
 ### Windows
 - **No special permission** for the `WH_KEYBOARD_LL` hook (it is an
@@ -77,18 +77,18 @@ with `<f2>` in their config keep it untouched.
 ### Linux
 - **Zero-command setup (ADR 0008, Gap 3)**: `.deb` and `.rpm` packages ship
   `postinst` / `postinst.rpm` scripts that automatically:
-  - install the udev rule `99-voice-typer.rules` (grants the `input` group
+  - install the udev rule `99-lausu.rules` (grants the `input` group
     read access to `/dev/input/event*`) and reload udev,
   - add the installing user to the `input` group via `usermod -aG input`,
   - detect the session type (X11 / GNOME / KDE / Sway / Wayland-other /
     headless) and configure Caps Lock neutralization for that compositor
     (`setxkbmap -option caps:none` on X11, XKB config drop-in on libinput
     compositors),
-  - write a manifest at `/var/lib/voice-typer/permissions-manifest.json` so
+  - write a manifest at `/var/lib/lausu/permissions-manifest.json` so
     `prerm` / `prerm.rpm` can cleanly uninstall every change.
 - **AppImage users** get a `pkexec` GUI prompt (backed by the
-  `voice-typer.polkit` policy) on first launch. The OS asks for the user's
-  sudo password once; Voice Typer itself never prompts for or stores a
+  `lausu.polkit` policy) on first launch. The OS asks for the user's
+  sudo password once; Lausu itself never prompts for or stores a
   password.
 - After installing a `.deb`/`.rpm`, log out and log back in once so the new
   `input` group membership takes effect: there is no other manual step.
@@ -97,7 +97,7 @@ with `<f2>` in their config keep it untouched.
 
 ## Minimum supported OS versions
 
-These are the oldest OS versions on which Voice Typer is tested and expected to
+These are the oldest OS versions on which Lausu is tested and expected to
 work. The CI pipeline pins to these versions so release binaries are always
 built on the minimum: never a newer SDK/glibc that could introduce ABI
 incompatibility.
@@ -125,7 +125,7 @@ CI runner pinning (CI-10):
   (System Settings → Privacy & Security → Accessibility). As of **ADR 0008
   (Gap 2)**, the app detects the missing grant, shows a tray notification with
   an "Open Settings" deep-link, and auto-restarts the native backend via a
-  60s retry timer once the user toggles Voice Typer on in the Accessibility
+  60s retry timer once the user toggles Lausu on in the Accessibility
   list. Tracked as **XPLAT-002**, resolved at the binary level by
   **NATIVE-001** and at the UX level by **ADR 0008**.
 - **macOS updates**: macOS updates sometimes invalidate the Accessibility grant
@@ -150,7 +150,7 @@ CI runner pinning (CI-10):
 - **`wmic` deprecation**: `wmic` is deprecated since Win10 21H1 and may be
   removed in future Windows builds.  The server-side code (`_another_voice_typer_alive`)
   was removed (DEAD-013) and the client-side `killStalePython` was removed
-  (RELIABILITY-002), so `wmic` is no longer used by Voice Typer.
+  (RELIABILITY-002), so `wmic` is no longer used by Lausu.
   The remaining `wmic`-like operations use `psutil` or `tasklist`.
 
 ## Verifying release artifacts
@@ -166,13 +166,13 @@ using the `gh` CLI:
 # Authenticate: gh auth login
 
 # Verify a Windows installer
-gh attestation verify VoiceTyper-Setup-1.2.3.exe --repo owner/repo
+gh attestation verify Lausu-Setup-1.2.3.exe --repo owner/repo
 
 # Verify a macOS .dmg
-gh attestation verify VoiceTyper-1.2.3.dmg --repo owner/repo
+gh attestation verify Lausu-1.2.3.dmg --repo owner/repo
 
 # Verify a Linux package
-gh attestation verify voice-typer_1.2.3_amd64.deb --repo owner/repo
+gh attestation verify lausu_1.2.3_amd64.deb --repo owner/repo
 ```
 
 Replace `owner/repo` with the actual GitHub repository. If the attestation is

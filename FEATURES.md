@@ -1,4 +1,4 @@
-# Voice Typer: Features
+# Lausu: Features
 
 Last updated: 2026-06-22
 
@@ -6,7 +6,7 @@ Last updated: 2026-06-22
 
 ## Competitive Analysis (2026-06-02)
 
-7 open-source projects analyzed. Key gaps identified in Voice Typer.
+7 open-source projects analyzed. Key gaps identified in Lausu.
 
 > **Note:** This competitive analysis is a snapshot from 2026-06-22.
 > Star counts and feature sets may have changed since then.  To refresh,
@@ -26,7 +26,7 @@ Last updated: 2026-06-22
 | **VOICE2TYPE** | 39 | Rust | Native Win32 | Windows | SiliconFlow/Groq cloud + local Whisper |
 | **thinkur** | 23 | Swift | Native Xcode | macOS | Apple Speech Framework |
 | **MoFA-IME** | 4 | Rust | Native Rust | macOS | Whisper + Qwen GGUF (llama.cpp) |
-| **Voice Typer (ours)** | — | Python + TypeScript + Rust | Tauri | Win/Mac/Linux | faster-whisper (ctranslate2), Qwen3-ASR, Parakeet TDT v3, cloud (OpenAI/Groq/Deepgram) |
+| **Lausu (ours)** | — | Python + TypeScript + Rust | Tauri | Win/Mac/Linux | faster-whisper (ctranslate2), Qwen3-ASR, Parakeet TDT v3, cloud (OpenAI/Groq/Deepgram) |
 
 ---
 
@@ -59,8 +59,8 @@ Last updated: 2026-06-22
 ┌──────────────────────▼──────────────────────────────────┐
 │                  Python Backend                         │
 │  voice_typer/server/                                    │
-│  · VoiceTyperApp (orchestrator)                         │
-│  · VoiceTyperService (service layer, ARCH-005)          │
+│  · LausuApp (orchestrator)                         │
+│  · LausuService (service layer, ARCH-005)          │
 │  · IPC server (TCP 9876, rate limiter, SEC-018/019)     │
 │  · Config (JSON, atomic save, schema versioning)        │
 │  · Recorder (sounddevice, silence/VAD detection)        │
@@ -99,7 +99,7 @@ Last updated: 2026-06-22
 │       Tauri v2 Rust Host (src-tauri/src/)               │
 │  · Spawns the Nuitka-frozen sidecar (externalBin        │
 │    python-sidecar-<triple>) and the runtime-pack worker │
-│    exe (voice-typer-worker-<triple>)                    │
+│    exe (lausu-worker-<triple>)                    │
 │  · WS client to sidecar (bearer-token auth handshake)   │
 │  · Native tray + window mgmt + dispatch allowlist       │
 │  · Shared React renderer via tauri-bridge.ts            │
@@ -113,7 +113,7 @@ Last updated: 2026-06-22
 │  · voice_typer/server/ stack; transport is              │
 │    sidecar_ws.py (localhost WebSocket)                  │
 │  · Second WS hop: sidecar (client) → runtime-pack       │
-│    worker (voice-typer-worker-<triple>) for offline     │
+│    worker (lausu-worker-<triple>) for offline     │
 │    ASR via the transcribe_offline command               │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -230,7 +230,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 |---|---|---|---|---|
 | 61 | Launch at login | ✅ | Windows Registry `HKCU\Run` |
 | 62 | Fast startup (cache prewarming) | ✅ | Worker warm-imports the ONNX runtime stack at boot (no torch/transformers, torch was removed 2026-08-15) |
-| 63 | Desktop shortcut creation on first run | ✅ | Creates Voice Typer.lnk |
+| 63 | Desktop shortcut creation on first run | ✅ | Creates Lausu.lnk |
 | 64 | Launch strategy | ✅ | Tauri host + Nuitka sidecar externalBin; autostart detects the Tauri binary |
 
 ### UI Pages
@@ -297,7 +297,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |
 | 79 | Test suite (700+ pytest files, 250+ vitest files; 2800+ Python tests) | ✅ | All major subsystems covered (counts grow over time, see `pytest --collect-only` and `npm run test` for the current totals) |
 | 80 | Ruff linting + mypy type checking | ✅ | Configured in pyproject.toml |
-| 81 | IPC command allowlist | ✅ | 71 allowed commands whitelisted in the Rust host `allowed_commands()` set (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`); the Python `_COMMAND_REGISTRY` registers 75 commands total. Four of those are intentionally absent from the renderer allowlist, `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler), `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path), `heartbeat` and `relaunch_ack` (host-dispatched via `dispatch_inner`, never through the renderer gate), so the renderer-callable count is 71 (== the Rust allowlist count). The +4 host-only delta is asserted by `HOST_DISPATCHED_COMMANDS` in `tests/test_ipc_command_parity.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 64/62/66; +2 again 2026-08-10: `reset_macos_accessibility` + `reset_linux_permissions`, now 66/64/68; +1 2026-08-10: `check_accessibility` re-added for the Settings → Troubleshooting stale-grant reset (finding #919 part b), now 67/65/69; +1 2026-08-13: `transcribe_offline` added by the runtime-pack split (master plan §7.4, slim core → worker offline-transcription request), now 68/66/70; −3 2026-08-14: `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` retired as prewarm became a worker startup phase (master plan §6.2 P-1), now 65/63/67; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card (plan §6.3 addendum 2026-08-14, restored verbatim from 5a319872; `run_prewarm` stays retired per §6.2 P-1), now 67/65/69; +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature (docs/auto-update-feature.md, runtime-pack manifest check + consent-gated background download), now 68/66/70; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half, re-implemented to re-run the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn), now 69/67/71; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16), now 71/69/73; +1 2026-08: `microphone_test_read_audio` added by the mic-test file-reference transport fix (chunked WAV delivery under the 1 MiB IPC frame cap), now 72/70/74; +1 2026-09-08: `get_download_queue` added for the Models download-queue mount hydration (read-only snapshot), now 73/71/75; predecessor cutover 2026-09-15: the TS `ALLOWED_COMMANDS` set was deleted with the predecessor main/preload shell, the two-way surface is Python registry 75 / Rust allowlist 71, renderer-callable count is 71). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_ipc_command_parity.py`. |
+| 81 | IPC command allowlist | ✅ | 75 allowed commands whitelisted in the Rust host `allowed_commands()` set (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`); the Python `_COMMAND_REGISTRY` registers 79 commands total. Four of those are intentionally absent from the renderer allowlist, `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler), `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path), `heartbeat` and `relaunch_ack` (host-dispatched via `dispatch_inner`, never through the renderer gate), so the renderer-callable count is 75 (== the Rust allowlist count). The +4 host-only delta is asserted by `HOST_DISPATCHED_COMMANDS` in `tests/test_ipc_command_parity.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 64/62/66; +2 again 2026-08-10: `reset_macos_accessibility` + `reset_linux_permissions`, now 66/64/68; +1 2026-08-10: `check_accessibility` re-added for the Settings → Troubleshooting stale-grant reset (finding #919 part b), now 67/65/69; +1 2026-08-13: `transcribe_offline` added by the runtime-pack split (master plan §7.4, slim core → worker offline-transcription request), now 68/66/70; −3 2026-08-14: `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` retired as prewarm became a worker startup phase (master plan §6.2 P-1), now 65/63/67; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card (plan §6.3 addendum 2026-08-14, restored verbatim from 5a319872; `run_prewarm` stays retired per §6.2 P-1), now 67/65/69; +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature (docs/auto-update-feature.md, runtime-pack manifest check + consent-gated background download), now 68/66/70; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half, re-implemented to re-run the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn), now 69/67/71; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16), now 71/69/73; +1 2026-08: `microphone_test_read_audio` added by the mic-test file-reference transport fix (chunked WAV delivery under the 1 MiB IPC frame cap), now 72/70/74; +1 2026-09-08: `get_download_queue` added for the Models download-queue mount hydration (read-only snapshot), now 73/71/75; predecessor cutover 2026-09-15: the TS `ALLOWED_COMMANDS` set was deleted with the predecessor main/preload shell, the two-way surface is Python registry 75 / Rust allowlist 71, renderer-callable count is 71; +3 2026-09-23: `media_transcribe_start` / `media_transcribe_cancel` / `media_transcribe_status` added by ADR-0023 universal media-to-text (local files first, URLs Phase 2; ADR-0020 §16 addendum 2026-09-24), now Python registry 78 / Rust allowlist 74, renderer-callable count is 74). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_ipc_command_parity.py`. |
 | 82 | IPC rate limiter | ✅ | Sliding window: 60 msg/s sustained, 200 burst |
 | 83 | IPC auth token | ✅ | Per-launch random 256-bit token exchanged on TCP connect |
 | 84 | Config secret redaction | ✅ | API keys replaced with `<redacted>` sentinel in IPC responses |
@@ -309,7 +309,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | # | Feature | Status | Notes |
 |---|---|---|---|
 | 85 | Help overlay (`?` shortcut) | ✅ | Press `?` anywhere in the app to open a modal listing every keyboard shortcut (dictation hotkey, `Esc`, `Ctrl+Alt+V` repaste, `Ctrl+B` sidebar, `Ctrl+,` settings, `Ctrl+H` home, `Tab`/`Shift+Tab` navigate, `Space` toggle, `Enter` activate, `Ctrl+Plus`/`Ctrl+Minus` zoom, `?` open help, `Alt+Left`/`Alt+Right` navigate back/forward). Rendered by `App.tsx:showHelpOverlay` state in a `Modal`. |
-| 86 | Punctuation cheat sheet | ✅ | Embedded in the help overlay (`PunctuationCheatSheet.tsx`). Lists the spoken-form → character mappings Voice Typer recognizes: comma, period, question mark, exclamation point, semicolon, colon, apostrophe, open/close quote, new line (↵), new paragraph (¶). Source of truth: `voice_typer/client/src/renderer/src/components/help/PunctuationCheatSheet.tsx`. |
+| 86 | Punctuation cheat sheet | ✅ | Embedded in the help overlay (`PunctuationCheatSheet.tsx`). Lists the spoken-form → character mappings Lausu recognizes: comma, period, question mark, exclamation point, semicolon, colon, apostrophe, open/close quote, new line (↵), new paragraph (¶). Source of truth: `voice_typer/client/src/renderer/src/components/help/PunctuationCheatSheet.tsx`. |
 
 ---
 
@@ -343,7 +343,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 
 ---
 
-## What Voice Typer Does Well (competitors don't)
+## What Lausu Does Well (competitors don't)
 
 | Feature | Notes |
 |---|---|

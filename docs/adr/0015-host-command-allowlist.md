@@ -15,7 +15,7 @@ Preserved for the SEC-019 rationale (renderer-compromised → arbitrary IPC).
 
 ## Context
 
-Voice Typer's IPC architecture has three layers:
+Lausu's IPC architecture has three layers:
 
 1. **Renderer (React UI)**: communicates with the predecessor main process via `ipcMain.handle("python-call", ...)`.
 2. **predecessor main process**: forwards commands to the Python backend over TCP.

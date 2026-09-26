@@ -1,7 +1,7 @@
 # Keyboard Shortcuts Render as Keycap Chips, Never a `+` Separator
 
 **Status**: Decided (2026-08-22, refined 2026-08-24)
-**Decision owner**: voice-typer UX
+**Decision owner**: lausu UX
 **Supersedes**: the previous `formatHotkey(...)` plain-text rendering that
 joined keys with `+`
 **Related code**:

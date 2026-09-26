@@ -83,7 +83,7 @@ sudo apt-get install -y \
 
 # Clone + enter the repo
 git clone https://github.com/AbdallahIsDev/voice-typer.git
-cd voice-typer
+cd lausu
 
 # Python venv + deps (use uv, not pip, qwen-asr resolution issues with pip)
 pip install uv
@@ -197,8 +197,8 @@ ls -la target/release/bundle/appimage/  # .AppImage
 ```
 
 **Expected output**: `cargo tauri build` compiles the Rust host (~5 min), bundles the sidecar + prewarm + native listener + resources, and produces:
-- `target/release/bundle/deb/voice-typer_1.0.0_amd64.deb` (or `_arm64.deb` on aarch64)
-- `target/release/bundle/appimage/voice-typer_1.0.0_amd64.AppImage` (or `_arm64.AppImage`)
+- `target/release/bundle/deb/lausu_1.0.0_amd64.deb` (or `_arm64.deb` on aarch64)
+- `target/release/bundle/appimage/lausu_1.0.0_amd64.AppImage` (or `_arm64.AppImage`)
 
 **Pass criteria**: Both `.deb` and `.AppImage` exist. The `.deb` lists the postinst/prerm scripts in its control archive (`dpkg-deb -e <deb> /tmp/control && cat /tmp/control/postinst /tmp/control/prerm`).
 
@@ -215,25 +215,25 @@ ls -la target/release/bundle/appimage/  # .AppImage
 
 ```bash
 # Install the .deb
-sudo apt-get install -y ./src-tauri/target/release/bundle/deb/voice-typer_1.0.0_amd64.deb
+sudo apt-get install -y ./src-tauri/target/release/bundle/deb/lausu_1.0.0_amd64.deb
 
 # OR run the AppImage without installing:
-chmod +x src-tauri/target/release/bundle/appimage/voice-typer_1.0.0_amd64.AppImage
-./src-tauri/target/release/bundle/appimage/voice-typer_1.0.0_amd64.AppImage
+chmod +x src-tauri/target/release/bundle/appimage/lausu_1.0.0_amd64.AppImage
+./src-tauri/target/release/bundle/appimage/lausu_1.0.0_amd64.AppImage
 
 # Verify the postinst ran (udev rule + input group)
-ls -l /etc/udev/rules.d/99-voice-typer.rules
+ls -l /etc/udev/rules.d/99-lausu.rules
 groups $USER  # should include 'input'
 
 # Log out + log back in for the input group to take effect, then:
-voice-typer  # or find in application menu
+lausu  # or find in application menu
 ```
 
-**Expected output**: The Voice Typer window opens. The sidecar stdout appears in `~/.local/share/voice-typer/logs/sidecar.log` (per ADR-0020 §11). The native `linux-key-listener` process appears in `ps aux | grep linux-key-listener`.
+**Expected output**: The Lausu window opens. The sidecar stdout appears in `~/.local/share/lausu/logs/sidecar.log` (per ADR-0020 §11). The native `linux-key-listener` process appears in `ps aux | grep linux-key-listener`.
 
 **Pass criteria**:
-1. The Voice Typer main window opens on X11.
-2. `~/.local/share/voice-typer/logs/sidecar.log` contains `[SIDECAR] server_started port=N`.
+1. The Lausu main window opens on X11.
+2. `~/.local/share/lausu/logs/sidecar.log` contains `[SIDECAR] server_started port=N`.
 3. `ps aux | grep linux-key-listener` shows the native listener process.
 4. The Tauri host's WS client connects to `ws://127.0.0.1:N` and the auth handshake succeeds (log shows `WS connected` + `auth ok`).
 5. The tray icon appears in the system tray.
@@ -256,18 +256,18 @@ echo $WAYLAND_DISPLAY    # should be non-empty (e.g. 'wayland-0')
 
 # Install the same .deb (or run the AppImage, AppImage on Wayland is a
 # required test per ADR-0020 Phase 0-L gate).
-sudo apt-get install -y ./src-tauri/target/release/bundle/deb/voice-typer_1.0.0_amd64.deb
+sudo apt-get install -y ./src-tauri/target/release/bundle/deb/lausu_1.0.0_amd64.deb
 # OR:
-./src-tauri/target/release/bundle/appimage/voice-typer_1.0.0_amd64.AppImage
+./src-tauri/target/release/bundle/appimage/lausu_1.0.0_amd64.AppImage
 
-voice-typer
+lausu
 ```
 
 **Expected output**: Same as Step 5, but on Wayland. The sidecar detects Wayland via `WAYLAND_DISPLAY` env var and uses `wl-copy`/`wl-paste` for clipboard I/O (per ADR-0020 §6.6 and the `_linux_wayland_copy` / `_linux_wayland_paste` helpers in `voice_typer/server/clipboard.py`). The native `linux-key-listener` uses evdev (works on Wayland: see ADR-0020 §6.4).
 
 **Pass criteria** (in addition to Step 5's criteria):
-1. The Voice Typer main window opens on Wayland.
-2. `~/.local/share/voice-typer/logs/sidecar.log` contains `[SIDECAR] server_started port=N`.
+1. The Lausu main window opens on Wayland.
+2. `~/.local/share/lausu/logs/sidecar.log` contains `[SIDECAR] server_started port=N`.
 3. The native `linux-key-listener` process is running (evdev works on Wayland).
 4. **AppImage on Wayland**: running the AppImage does NOT print `wl-copy: failed to connect to wayland` errors. (If it does, the AppImage sandbox is restricting wl-clipboard access, see ADR-0020 §6.6.)
 
@@ -294,14 +294,14 @@ voice-typer
 
 # Verify the transcription appears in the text field + History page
 # Verify the model loaded by checking the log:
-tail -f ~/.local/share/voice-typer/logs/sidecar.log | grep -E "model_loaded|whisper"
+tail -f ~/.local/share/lausu/logs/sidecar.log | grep -E "model_loaded|whisper"
 ```
 
 **Pass criteria**: The transcription text appears in the focused text field within 5 seconds of releasing the hotkey. The History page shows the new entry with the correct model name + device name. The log shows `model_loaded` and `whisper` (or `faster_whisper`) entries.
 
 **Common failures**:
 - `CUDA error: no kernel image` → The Nuitka bundle didn't include the CUDA runtime. Most Linux installs are CPU-only; if CUDA is required for ctranslate2, add `--include-package=ctranslate2` + the CUDA libs to `scripts/build/build_sidecar_linux.sh`. (Historical note: pre-2026-08-13 the sidecar imported `torch` for Silero VAD + Parakeet and the build script carried `--include-package=torch`; torch is no longer a sidecar dep post-ONNX-migration, VAD uses `onnxruntime` (ADR-0005) and Parakeet uses `onnx-asr` (`PLAN_ONNX_INTEGRATION.md` §3). The runtime pack worker exe is the only place that may still carry GPU-related libs.)
-- `Model not found` → The model download path resolves to the wrong directory. Check `~/.local/share/voice-typer/models/` (per ADR-0020 §8, `$XDG_DATA_HOME/voice-typer/models/`).
+- `Model not found` → The model download path resolves to the wrong directory. Check `~/.local/share/lausu/models/` (per ADR-0020 §8, `$XDG_DATA_HOME/lausu/models/`).
 - `ctranslate2 ImportError` → The build env was missing `libiomp5.so` / `libgomp.so`. The build script's `--include-data-dir=$SITE/ctranslate2/lib=...` should pick these up; verify with `ldd src-tauri/bin/python-sidecar-<triple> | grep -E 'libiomp|libgomp'`.
 
 ---
@@ -348,7 +348,7 @@ tail -f ~/.local/share/voice-typer/logs/sidecar.log | grep -E "model_loaded|whis
 notify-send "test"  # verify libnotify itself works on the host
 ```
 
-**Pass criteria**: A notification appears in the desktop environment's notification list with the Voice Typer icon + the notification text. Both X11 and Wayland show the notification (libnotify is display-server-agnostic via D-Bus).
+**Pass criteria**: A notification appears in the desktop environment's notification list with the Lausu icon + the notification text. Both X11 and Wayland show the notification (libnotify is display-server-agnostic via D-Bus).
 
 **Common failures**:
 - `notification:allow-notify not in capabilities` → Add `notification:allow-notify` to `src-tauri/capabilities/main-runtime.json`. Per ADR-0020 §7, Tauri v2 silently blocks notification APIs without the capability.
@@ -367,11 +367,11 @@ notify-send "test"  # verify libnotify itself works on the host
 # 2. Verify the sidecar exits within 2 seconds
 
 # Check for lingering processes:
-ps aux | grep -E 'python-sidecar|linux-key-listener|voice-typer' | grep -v grep
+ps aux | grep -E 'python-sidecar|linux-key-listener|lausu' | grep -v grep
 # Should return nothing within 2 seconds of closing the window.
 
 # Check the log for the shutdown handshake:
-tail -20 ~/.local/share/voice-typer/logs/sidecar.log | grep -E 'shutdown|kill_children'
+tail -20 ~/.local/share/lausu/logs/sidecar.log | grep -E 'shutdown|kill_children'
 ```
 
 **Pass criteria**: `ps aux | grep python-sidecar` returns nothing within 2 seconds of closing the main window. The log shows `[SHUTDOWN] sidecar exited cleanly` (cooperative) OR `[SHUTDOWN] sidecar killed via kill_children` (backstop). No zombie `linux-key-listener` processes remain.
@@ -390,26 +390,26 @@ tail -20 ~/.local/share/voice-typer/logs/sidecar.log | grep -E 'shutdown|kill_ch
 # In the running app:
 # 1. Open Settings → General
 # 2. Enable "Prewarm on login"
-# 3. Reboot (or `systemctl --user restart voice-typer-prewarm.timer`)
+# 3. Reboot (or `systemctl --user restart lausu-prewarm.timer`)
 
 # Verify the systemd user timer was registered:
-systemctl --user list-timers voice-typer-prewarm.timer
-systemctl --user status voice-typer-prewarm.service
-cat ~/.config/systemd/user/voice-typer-prewarm.service
-cat ~/.config/systemd/user/voice-typer-prewarm.timer
+systemctl --user list-timers lausu-prewarm.timer
+systemctl --user status lausu-prewarm.service
+cat ~/.config/systemd/user/lausu-prewarm.service
+cat ~/.config/systemd/user/lausu-prewarm.timer
 
 # Verify the prewarm binary ran:
-journalctl --user -u voice-typer-prewarm.service --no-pager | tail -20
+journalctl --user -u lausu-prewarm.service --no-pager | tail -20
 ```
 
 **Pass criteria**:
-1. `systemctl --user list-timers voice-typer-prewarm.timer` shows the timer with `OnBootSec=10s`.
-2. `~/.config/systemd/user/voice-typer-prewarm.service` exists with `ExecStart=` pointing at the frozen prewarm binary (NOT a `python3 -m ...` command: that's the dev fallback).
-3. After reboot, `journalctl --user -u voice-typer-prewarm.service` shows the prewarm ran successfully.
-4. The prewarm log at `~/.local/share/voice-typer/logs/prewarm.log` shows file-cache warming activity.
+1. `systemctl --user list-timers lausu-prewarm.timer` shows the timer with `OnBootSec=10s`.
+2. `~/.config/systemd/user/lausu-prewarm.service` exists with `ExecStart=` pointing at the frozen prewarm binary (NOT a `python3 -m ...` command: that's the dev fallback).
+3. After reboot, `journalctl --user -u lausu-prewarm.service` shows the prewarm ran successfully.
+4. The prewarm log at `~/.local/share/lausu/logs/prewarm.log` shows file-cache warming activity.
 
 **Common failures**:
-- `ExecStart=python3 -m voice_typer.server.prewarm` (dev fallback) → The frozen prewarm binary wasn't found. Verify `src-tauri/resources/prewarm-<triple>` exists in the install dir (`/usr/lib/voice-typer/resources/prewarm-<triple>` for `.deb`, or `$APPDIR/usr/resources/prewarm-<triple>` for AppImage). Check the `VOICE_TYPER_PREWARM_EXE` env var is set by the Tauri host.
+- `ExecStart=python3 -m voice_typer.server.prewarm` (dev fallback) → The frozen prewarm binary wasn't found. Verify `src-tauri/resources/prewarm-<triple>` exists in the install dir (`/usr/lib/lausu/resources/prewarm-<triple>` for `.deb`, or `$APPDIR/usr/resources/prewarm-<triple>` for AppImage). Check the `VOICE_TYPER_PREWARM_EXE` env var is set by the Tauri host.
 - `systemctl --user` returns "Failed to connect to bus" → Run from a graphical session, not a TTY. The systemd user instance is per-login.
 - `systemctl --user list-timers` shows nothing → The Tauri host didn't call `register_prewarm_task()` on first launch. Check the sidecar log for `[PREWARM-POSIX] Linux systemd user timer registered`.
 
@@ -450,35 +450,35 @@ ps aux | grep linux-key-listener | grep -v grep
 
 ```bash
 # Verify the .deb has the postinst + prerm scripts:
-dpkg-deb -e src-tauri/target/release/bundle/deb/voice-typer_1.0.0_amd64.deb /tmp/control
+dpkg-deb -e src-tauri/target/release/bundle/deb/lausu_1.0.0_amd64.deb /tmp/control
 cat /tmp/control/postinst
 cat /tmp/control/prerm
 cat /tmp/control/conffiles  # may be empty
 
 # Verify the udev rule is in the .deb:
-dpkg-deb -c src-tauri/target/release/bundle/deb/voice-typer_1.0.0_amd64.deb | grep -E 'voice-typer.rules|voice-typer.polkit|postinst|prerm'
+dpkg-deb -c src-tauri/target/release/bundle/deb/lausu_1.0.0_amd64.deb | grep -E 'lausu.rules|lausu.polkit|postinst|prerm'
 
 # Install + verify the udev rule landed:
-sudo apt-get install -y ./src-tauri/target/release/bundle/deb/voice-typer_1.0.0_amd64.deb
-ls -l /etc/udev/rules.d/99-voice-typer.rules
-ls -l /usr/share/voice-typer/scripts/install_permissions.py
-ls -l /usr/share/voice-typer/scripts/uninstall_permissions.py
+sudo apt-get install -y ./src-tauri/target/release/bundle/deb/lausu_1.0.0_amd64.deb
+ls -l /etc/udev/rules.d/99-lausu.rules
+ls -l /usr/share/lausu/scripts/install_permissions.py
+ls -l /usr/share/lausu/scripts/uninstall_permissions.py
 
 # Uninstall + verify the prerm cleaned up:
-sudo apt-get remove -y voice-typer
-ls /etc/udev/rules.d/99-voice-typer.rules 2>&1  # should be 'No such file'
+sudo apt-get remove -y lausu
+ls /etc/udev/rules.d/99-lausu.rules 2>&1  # should be 'No such file'
 ```
 
 **Pass criteria**:
 1. The `.deb`'s control archive contains `postinst` and `prerm` scripts (per ADR-0020 §13.3, these are reused verbatim from `scripts/linux/`).
-2. The `.deb` contains `/etc/udev/rules.d/99-voice-typer.rules` and `/usr/share/voice-typer/scripts/install_permissions.py`.
-3. After install, `/etc/udev/rules.d/99-voice-typer.rules` exists.
+2. The `.deb` contains `/etc/udev/rules.d/99-lausu.rules` and `/usr/share/lausu/scripts/install_permissions.py`.
+3. After install, `/etc/udev/rules.d/99-lausu.rules` exists.
 4. After uninstall, the udev rule is removed (the prerm script handles this).
 5. The AppImage runs without extraction errors on both X11 and Wayland.
 
 **Common failures**:
 - `postinst: not found` in control archive → The `tauri.conf.json` `bundle.linux.deb.postInstallScript` path is wrong. Per ADR-0020 §13.3, it should be `"../../scripts/linux/postinst"` (relative to `src-tauri/`).
-- udev rule not installed → The postinst script failed silently. Run `sudo bash /usr/share/voice-typer/scripts/install_permissions.py` manually to see the error.
+- udev rule not installed → The postinst script failed silently. Run `sudo bash /usr/share/lausu/scripts/install_permissions.py` manually to see the error.
 
 ---
 
@@ -491,13 +491,13 @@ ADR-0020 §12 mandates that the `single-instance` Tauri plugin runs at the **abs
 The Linux single-instance mechanism is a lockfile at `<config_dir>/.single-instance.lock` (Tauri plugin default).
 
 ```bash
-# 1. Launch Voice Typer (first instance):
-voice-typer &
+# 1. Launch Lausu (first instance):
+lausu &
 FIRST_PID=$!
 sleep 3   # let it fully start (sidecar + WS + tray)
 
 # 2. Launch a SECOND instance:
-voice-typer &
+lausu &
 SECOND_PID=$!
 sleep 2
 
@@ -514,7 +514,7 @@ kill -0 $FIRST_PID && echo "OK: first instance still alive" || echo "FAIL: first
 
 # 5. Verify the first instance's window was focused (not minimized):
 #    On X11, use wmctrl:
-wmctrl -a "Voice Typer" 2>/dev/null && echo "OK: window focused" || echo "(wmctrl not installed: skip)"
+wmctrl -a "Lausu" 2>/dev/null && echo "OK: window focused" || echo "(wmctrl not installed: skip)"
 #    On Wayland, the compositor's focus-stealing prevention may suppress this.
 #    Visually verify the window came to the foreground.
 
@@ -541,8 +541,8 @@ kill $FIRST_PID 2>/dev/null || true
 **Common failures**:
 - Second instance spawns its own sidecar → The `single-instance` plugin is initialized AFTER `spawn_sidecar_and_get_port` in `main.rs`. Per ADR-0020 §12, the duplicate check MUST run at the absolute entry point, before any sidecar initialization. Check `src-tauri/src/main.rs` for the plugin init order.
 - Second instance hangs (doesn't exit) → The plugin's `second-instance` event handler is blocking. It should focus the existing window and exit immediately.
-- Lockfile not released after first instance exits → `<config_dir>/.single-instance.lock` is stale. Delete it: `rm ~/.local/share/voice-typer/.single-instance.lock` (or wherever `_paths.config_dir()` resolves to).
-- `cannot acquire lock` on every launch → The lockfile is owned by a different user (e.g. after `sudo voice-typer`). `sudo chown $USER ~/.local/share/voice-typer/.single-instance.lock`.
+- Lockfile not released after first instance exits → `<config_dir>/.single-instance.lock` is stale. Delete it: `rm ~/.local/share/lausu/.single-instance.lock` (or wherever `_paths.config_dir()` resolves to).
+- `cannot acquire lock` on every launch → The lockfile is owned by a different user (e.g. after `sudo lausu`). `sudo chown $USER ~/.local/share/lausu/.single-instance.lock`.
 
 ---
 
@@ -560,12 +560,12 @@ ADR-0020 §16 + MIG-1.1/1.2 added these new Tauri commands that did NOT exist in
 # 2. Verify at least one transcription entry exists (dictate a test phrase first if empty)
 # 3. Click the "Export…" button at the top of the History page
 # 4. In the native save dialog (GTK FileChooserDialog on Linux), navigate to ~/Documents
-# 5. Enter a filename (e.g., "voice-typer-history.json")
+# 5. Enter a filename (e.g., "lausu-history.json")
 # 6. Click "Save"
 
 # Verify the file was written:
-ls -l ~/Documents/voice-typer-history.json
-cat ~/Documents/voice-typer-history.json | python -m json.tool | head -20
+ls -l ~/Documents/lausu-history.json
+cat ~/Documents/lausu-history.json | python -m json.tool | head -20
 # Should be valid JSON with an array of {timestamp, text, model, device} objects.
 ```
 
@@ -581,7 +581,7 @@ cat ~/Documents/voice-typer-history.json | python -m json.tool | head -20
 ```bash
 # In the running app:
 # 1. Open Settings → Vocabulary (or Side Panel → Vocabulary)
-# 2. Add at least one custom vocabulary entry if empty (e.g., "Voice Typer" → "Voice Typer")
+# 2. Add at least one custom vocabulary entry if empty (e.g., "Lausu" → "Lausu")
 # 3. Click the "Export…" button
 # 4. Save as "vocabulary.json"
 
@@ -607,7 +607,7 @@ The dictation bubble is a separate Tauri `WebviewWindow` (declared in `tauri.con
 # 6. The bubble should disappear within 200ms of the paste keystroke
 
 # Verify in the sidecar log:
-tail -50 ~/.local/share/voice-typer/logs/sidecar.log | grep -E 'bubble|recording'
+tail -50 ~/.local/share/lausu/logs/sidecar.log | grep -E 'bubble|recording'
 # Should show: bubble_show → bubble_signal_ready → (bubble_move_by events from drag)
 #               → bubble_hide_complete → recording_stopped
 ```
@@ -634,13 +634,13 @@ The 9 mandatory checks (per ADR-0020 §"Phase 0 validation gate", Phase 0-L). **
 
 | # | Check | Step | Pass criteria |
 |---|---|---|---|
-| 1 | `externalBin` sidecar spawns via Tauri on X11 + Wayland | Step 5 / Step 6 | Tauri app launches; `~/.local/share/voice-typer/logs/sidecar.log` contains `[SIDECAR] server_started port=N`; `ps aux \| grep python-sidecar` shows one process |
+| 1 | `externalBin` sidecar spawns via Tauri on X11 + Wayland | Step 5 / Step 6 | Tauri app launches; `~/.local/share/lausu/logs/sidecar.log` contains `[SIDECAR] server_started port=N`; `ps aux \| grep python-sidecar` shows one process |
 | 2 | WS + bearer-token handshake works on X11 + Wayland | Step 5 (criterion 4) | Log shows `WS connected` + `auth ok`; wrong-token rejection logged as `auth rejected` |
 | 3 | `faster-whisper` transcribes inside the Nuitka exe | Step 7 | Transcription appears in focused text field within 5s of releasing hotkey; log shows `model_loaded` |
 | 4 | `enigo` types on X11; clipboard + Ctrl+V fallback (via `wl-copy` + Ctrl+V) works on Wayland | Step 8 | Text appears in editor on BOTH session types; Wayland uses `_linux_copy` → `wl-copy` path in `clipboard.py` (ADR-0020 §6.6) |
 | 5 | `tauri-plugin-notification` posts via libnotify on X11 + Wayland | Step 9 | Notification appears in DE notification list on BOTH session types |
 | 6 | Cooperative `{"type":"shutdown"}` exits; `kill_children` cleans | Step 10 | `ps aux \| grep python-sidecar` returns nothing within 2s of window close; log shows `[SHUTDOWN] sidecar exited cleanly` or `kill_children` |
-| 7 | Prewarm exe registered as systemd user timer | Step 11 | `systemctl --user list-timers voice-typer-prewarm.timer` shows the timer with `OnBootSec=10s`; `~/.config/systemd/user/voice-typer-prewarm.service` `ExecStart=` points at the frozen prewarm binary (NOT `python3 -m ...`) |
+| 7 | Prewarm exe registered as systemd user timer | Step 11 | `systemctl --user list-timers lausu-prewarm.timer` shows the timer with `OnBootSec=10s`; `~/.config/systemd/user/lausu-prewarm.service` `ExecStart=` points at the frozen prewarm binary (NOT `python3 -m ...`) |
 | 8 | Native `linux-key-listener` toggles dictation on X11 (XRecord) + Wayland (libinput/evdev) | Step 12 | F8 starts/stops recording on BOTH session types; `ps aux \| grep linux-key-listener` shows the process |
 | 9 | Single-instance (lockfile at `<config_dir>/.single-instance.lock`): second launch focuses first, no zombie sidecar | Step 14 | Second instance exits within 2s; `ps aux \| grep python-sidecar \| wc -l` returns `1` after second launch |
 
@@ -675,7 +675,7 @@ ADR-0020 §4.1 mandates both `x86_64-unknown-linux-gnu` AND `aarch64-unknown-lin
 
 ## Linux unsigned packaging (ADR-0020 §13.3)
 
-Linux packages are unsigned by default in both predecessor (today) and Tauri. The `scripts/linux/postinst`, `prerm`, `postinst.rpm`, `prerm.rpm` scripts are reused verbatim: they install the udev rule, add the user to the `input` group, configure Caps Lock neutralization, and write a manifest at `/var/lib/voice-typer/permissions-manifest.json`.
+Linux packages are unsigned by default in both predecessor (today) and Tauri. The `scripts/linux/postinst`, `prerm`, `postinst.rpm`, `prerm.rpm` scripts are reused verbatim: they install the udev rule, add the user to the `input` group, configure Caps Lock neutralization, and write a manifest at `/var/lib/lausu/permissions-manifest.json`.
 
 **Wire into Tauri's `bundle.linux` config** (in `src-tauri/tauri.conf.json`):
 
@@ -684,7 +684,7 @@ Linux packages are unsigned by default in both predecessor (today) and Tauri. Th
   "linux": {
     "deb": {
       "depends": ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3", "wl-clipboard", "xclip"],
-      "desktopTemplate": "voice-typer.desktop.template",
+      "desktopTemplate": "lausu.desktop.template",
       "postInstallScript": "../../scripts/linux/postinst",
       "preRemoveScript": "../../scripts/linux/prerm"
     },
@@ -708,19 +708,19 @@ Linux packages are unsigned by default in both predecessor (today) and Tauri. Th
 
 If any of the 9 checks fail and you need to revert to the predecessor build on Linux:
 
-1. `sudo apt-get remove -y voice-typer` (removes the Tauri `.deb`).
+1. `sudo apt-get remove -y lausu` (removes the Tauri `.deb`).
 2. Remove the systemd user timer (the prerm should have done this, but verify):
    ```bash
-   systemctl --user disable --now voice-typer-prewarm.timer 2>/dev/null || true
-   rm -f ~/.config/systemd/user/voice-typer-prewarm.{service,timer}
+   systemctl --user disable --now lausu-prewarm.timer 2>/dev/null || true
+   rm -f ~/.config/systemd/user/lausu-prewarm.{service,timer}
    systemctl --user daemon-reload
    ```
 3. Remove the udev rule (the prerm should have done this):
    ```bash
-   sudo rm -f /etc/udev/rules.d/99-voice-typer.rules
+   sudo rm -f /etc/udev/rules.d/99-lausu.rules
    sudo udevadm control --reload-rules
    ```
-4. Install the predecessor `.deb`/`.AppImage` from the previous release. The user's data at `~/.local/share/voice-typer/` (config, models, history) is preserved. The Tauri build writes to the same `_paths.config_dir()` location per ADR-0020 §8.
+4. Install the predecessor `.deb`/`.AppImage` from the previous release. The user's data at `~/.local/share/lausu/` (config, models, history) is preserved. The Tauri build writes to the same `_paths.config_dir()` location per ADR-0020 §8.
 
 No data loss on revert. The predecessor app picks up the same config + models + history DB.
 
@@ -733,10 +733,10 @@ After running the runbook, capture the following artifacts for the migration rec
 1. `src-tauri/bin/.build-sidecar-<triple>.log` (Nuitka build log).
 2. `src-tauri/resources/.build-prewarm-<triple>.log` (Nuitka prewarm build log).
 3. `ldd` output for both binaries (proves the glibc baseline).
-4. `~/.local/share/voice-typer/logs/sidecar.log` (runtime log: contains `server_started`, `auth ok`, `model_loaded`, `shutdown` events).
-5. `~/.local/share/voice-typer/logs/prewarm.log` (prewarm log).
-6. `systemctl --user status voice-typer-prewarm.timer` output (proves the systemd user timer registered).
-7. `journalctl --user -u voice-typer-prewarm.service` output (proves the prewarm ran at boot).
+4. `~/.local/share/lausu/logs/sidecar.log` (runtime log: contains `server_started`, `auth ok`, `model_loaded`, `shutdown` events).
+5. `~/.local/share/lausu/logs/prewarm.log` (prewarm log).
+6. `systemctl --user status lausu-prewarm.timer` output (proves the systemd user timer registered).
+7. `journalctl --user -u lausu-prewarm.service` output (proves the prewarm ran at boot).
 8. Screenshots of: the main window, the bubble, a notification, a transcription in a text editor, on BOTH X11 and Wayland.
 9. `dpkg-deb -e` + `dpkg-deb -c` output for the `.deb` (proves the postinst/prerm scripts + udev rule are in the package).
 10. The `cargo tauri build` stdout (proves the Rust host compiled + bundled successfully).

@@ -2,15 +2,15 @@
 
 ## Status
 
-Accepted (revised 2026-08-13: ONNX migration)
+Accepted (revised 2026-08-13: ONNX migration; 2026-09-23: streaming context)
 
 ## Date
 
-2024-02-10 (initial adoption); 2026-08-13 (ONNX backend migration per `PLAN_ONNX_INTEGRATION.md` §2)
+2024-02-10 (initial adoption); 2026-08-13 (ONNX backend migration per `PLAN_ONNX_INTEGRATION.md` §2); 2026-09-23 (streaming-context addendum)
 
 ## Context
 
-Voice Typer records audio continuously while the user presses the dictation hotkey.
+Lausu records audio continuously while the user presses the dictation hotkey.
 Without Voice Activity Detection (VAD), the entire recording (including long silences)
 is sent to the ASR model, wasting GPU/CPU time and producing hallucinated text during
 silent segments.
@@ -61,3 +61,18 @@ buffer; `unload()` clears both the session and the state; `preload()` runs a
 zero-tensor warmup then calls `reset_states()` so the first real audio chunk
 starts from a clean LSTM state. See `PLAN_ONNX_INTEGRATION.md` §2.2 for the
 threading rationale.
+
+## Streaming audio context (2026-09-23 addendum)
+
+The bundled model follows Silero's current ONNX streaming contract: each
+inference input is a rolling **context** (64 samples at 16 kHz, 32 at 8 kHz)
+prepended to the new 512/256-sample window — 576/288 samples per call — and
+the context is replaced by the trailing 64/32 samples of the previous window
+after every call (official `OnnxWrapper` / C++ example behavior).
+`voice_typer/server/vad.py` originally fed bare 512/256-sample windows; an
+A/B run against the bundled model showed probabilities diverging by up to
+~0.25 on identical audio, so the wrapper now threads a module-level
+`_context` alongside `_state`, re-zeroing both on `reset_states()` /
+`unload()` / first load and restarting both on sample-rate switches. The
+public `compute_vad_prob` API (arbitrary chunk sizes, 512/256 windows
+internally) is unchanged.

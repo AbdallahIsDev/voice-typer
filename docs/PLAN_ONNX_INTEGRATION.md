@@ -1,7 +1,7 @@
 # ONNX Runtime Migration: Technical Reference
 
 > **Status:** Rewritten 2026-08-13 after a 15-agent deep investigation of the
-> voice-typer codebase. Supersedes the earlier "OnnxParakeet Integration Plan"
+> lausu codebase. Supersedes the earlier "OnnxParakeet Integration Plan"
 > which proposed adding a parallel `onnx-parakeet` backend: that architecture
 > is **obsolete**. The user-approved decision (2026-08-12, see
 > `plan-runtime-pack-split.md`) is to **convert the three existing engines in
@@ -163,7 +163,7 @@ become garbage after the first 512-sample window.
   `silero_vad.jit`).
 - Update packaging:
   - `MANIFEST.in:25-31` Add `include voice_typer/server/silero_vad.onnx`.
-  - `scripts/build/voice-typer.spec:112-113,274` (PyInstaller fallback) —
+  - `scripts/build/lausu.spec:112-113,274` (PyInstaller fallback) —
     add `silero_vad.onnx` to datas.
   - The three `scripts/build/build_sidecar_*.sh` scripts: Nuitka
     `--include-data-files=voice_typer/server/silero_vad.onnx=voice_typer/server/silero_vad.onnx`.
@@ -183,6 +183,7 @@ import onnxruntime as ort
 _VAD_MODEL_PATH = Path(__file__).resolve().parent / "silero_vad.onnx"
 _VAD_STATE_SHAPE = (2, 1, 128)  # Silero v4 LSTM hidden state
 _VAD_SAMPLE_RATE = 16000
+
 
 class _SileroVadOnnx:
     def __init__(self) -> None:
@@ -355,6 +356,7 @@ This is the lowest-effort path: the decoding loop is the library's problem.
 
 import onnx_asr  # type: ignore[import-untyped]
 
+
 class ParakeetEngine:
     def __init__(self, device="cuda", language="en", config=None):
         self.device = device
@@ -500,14 +502,16 @@ Update `voice_typer/server/security/model_integrity.py:553-587` (NOT
 convention (the old plan's `ALLOW_PATTERNS_ONNX` violates the convention):
 
 ```python
-ALLOW_PATTERNS_PARAKEET_ONNX = frozenset({
-    "*.onnx",
-    "config.json",
-    "tokenizer.json",
-    "vocab.txt",
-    "special_tokens_map.json",
-    "generation_config.json",
-})
+ALLOW_PATTERNS_PARAKEET_ONNX = frozenset(
+    {
+        "*.onnx",
+        "config.json",
+        "tokenizer.json",
+        "vocab.txt",
+        "special_tokens_map.json",
+        "generation_config.json",
+    }
+)
 ```
 
 Parakeet TDT needs more than the old plan's `*.onnx, config.json, vocab.txt` —
@@ -733,6 +737,8 @@ The old plan proposed a shared `CUDA_ERROR_KEYWORDS` frozenset:
 
 ```python
 CUDA_ERROR_KEYWORDS = frozenset({"cuda", "cublas", "cudnn", "out of memory"})
+
+
 def is_cuda_error(exc): ...
 ```
 
@@ -760,11 +766,13 @@ their messages).
 ```python
 # voice_typer/server/asr_utils.py
 
+
 def is_cuda_error(exc: Exception) -> bool:
     """Return True if *exc* looks like a GPU runtime failure."""
     # Layer 1: ORT CUDA exceptions (replaces torch.cuda.OutOfMemoryError)
     try:
         import onnxruntime as ort
+
         if isinstance(exc, ort.RuntimeException):
             msg = str(exc).lower()
             if "cuda" in msg or "gpu" in msg:
@@ -783,6 +791,7 @@ def is_cuda_error(exc: Exception) -> bool:
     if any(kw in err_str for kw in ("dll", "not found", "cannot be loaded", "load library")):
         return True
     return False
+
 
 def is_oom_error(exc: Exception) -> bool:
     """Separate OOM check: kept distinct to avoid matching CPU RAM exhaustion."""
@@ -1073,7 +1082,7 @@ claim is honestly scoped to "total except Qwen."
 | **REGENERATE** | `requirements-lock.txt` | 1c |
 | **REGENERATE** | `coverage-baseline.json`, `mypy-baseline.json`, `pyrefly-baseline.json`, `ruff-baseline.json` | 1c |
 | **MODIFY** | `MANIFEST.in` (add `silero_vad.onnx`) | 1a |
-| **MODIFY** | `scripts/build/voice-typer.spec` (PyInstaller fallback datas) | 1a |
+| **MODIFY** | `scripts/build/lausu.spec` (PyInstaller fallback datas) | 1a |
 | **MODIFY** | `scripts/build/build_sidecar_*.sh` (Nuitka data-file inclusion; retire `--module-parameter=torch-disable-jit=no` at 1c) | 1a/1c |
 | **MODIFY** | `voice_typer/server/security/model_integrity.py:553-587` (add `ALLOW_PATTERNS_PARAKEET_ONNX`) | 1b |
 | **REGENERATE** | `model_hashes.json` (via `scripts/populate_model_hashes.py`) | 1b |

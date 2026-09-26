@@ -4,7 +4,7 @@
 
 ## Responsibility
 
-The `TimerCoordinator` owns the lifecycle of fire-and-forget `threading.Timer` instances scheduled by the application. It was extracted from `VoiceTyperApp` during the RW-9 god-class decomposition.
+The `TimerCoordinator` owns the lifecycle of fire-and-forget `threading.Timer` instances scheduled by the application. It was extracted from `LausuApp` during the RW-9 god-class decomposition.
 
 It is responsible for:
 
@@ -29,4 +29,4 @@ The coordinator does **not** own the `app._shutting_down_event` It consults it r
 
 ## IPC Surface
 
-None. The `TimerCoordinator` is a private internal helper. It is invoked by `VoiceTyperApp` (and the recording / transcription / tray call sites that previously scheduled timers directly on `app`), which delegate to `_schedule_timer` / `_cancel_pending_timers` via thin forwarder methods so existing callers (and tests that `monkeypatch.setattr(app, "_schedule_timer", spy)`) keep working unchanged.
+None. The `TimerCoordinator` is a private internal helper. It is invoked by `LausuApp` (and the recording / transcription / tray call sites that previously scheduled timers directly on `app`), which delegate to `_schedule_timer` / `_cancel_pending_timers` via thin forwarder methods so existing callers (and tests that `monkeypatch.setattr(app, "_schedule_timer", spy)`) keep working unchanged.

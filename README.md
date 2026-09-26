@@ -1,4 +1,4 @@
-# Voice Typer
+# Lausu
 
 Premium offline background voice-to-text utility. Runs in your system tray. Press the hotkey, talk, press it again, final text is copied to your clipboard and pasted safely when a text field is focused.
 
@@ -40,7 +40,7 @@ No. Transcription runs locally (faster-whisper, optional Qwen3-ASR/Parakeet) on 
 
 ### Where are my recordings, history, and settings stored?
 
-Everything lives under your local data directory: `%APPDATA%\voice-typer\` on Windows (new installs; `%USERPROFILE%\.voice-typer\` for upgraded legacy installs), `~/Library/Application Support/voice-typer/` on macOS, and `$XDG_DATA_HOME/voice-typer/` on Linux. See [docs/home-directory.md](docs/home-directory.md) for the full layout (config.json, history DB, logs). Nothing is uploaded.
+Everything lives under your local data directory: `%APPDATA%\lausu\` on Windows (new installs; `%USERPROFILE%\.lausu\` for upgraded legacy installs), `~/Library/Application Support/lausu/` on macOS, and `$XDG_DATA_HOME/lausu/` on Linux. See [docs/home-directory.md](docs/home-directory.md) for the full layout (config.json, history DB, logs). Nothing is uploaded.
 
 ### What is the default hotkey and how do I change it?
 
@@ -67,11 +67,11 @@ Yes, autostart is enabled by default. Disable it in **Settings → General → L
 
 ### Where is the log file for reporting a bug?
 
-One log per process, under the data directory: `%APPDATA%\voice-typer\voice-typer.log` (Python backend) on Windows new installs, `%APPDATA%\voice-typer\logs\voice-typer.log` (Tauri host), with per-OS paths in the [Log File](#log-file) table. Each log is capped at 5 MiB and truncated in place, attach the relevant tail when filing an issue.
+One log per process, under the data directory: `%APPDATA%\lausu\lausu.log` (Python backend) on Windows new installs, `%APPDATA%\lausu\logs\lausu.log` (Tauri host), with per-OS paths in the [Log File](#log-file) table. Each log is capped at 5 MiB and truncated in place, attach the relevant tail when filing an issue.
 
 ## Runtime Architecture
 
-Voice Typer runs on a **single desktop host: Tauri v2 + Python sidecar**.
+Lausu runs on a **single desktop host: Tauri v2 + Python sidecar**.
 The predecessor host was removed on 2026-09-17 (ADR-0020 Phase 5 cutover;
 historical predecessor path documented in
 [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md) and
@@ -83,7 +83,7 @@ historical predecessor path documented in
    WebSocket (the sidecar binds an ephemeral loopback port and announces it
    on stdout; the host connects and authenticates with a bearer token). The
    Rust host also spawns the runtime-pack worker exe
-   (`voice-typer-worker-<triple>`), a second Nuitka-frozen process that owns
+   (`lausu-worker-<triple>`), a second Nuitka-frozen process that owns
    the heavy offline-ASR stack; the sidecar talks to it over a dedicated
    second WebSocket hop to serve the `transcribe_offline` command.
 
@@ -113,10 +113,10 @@ This runs the Rust host against a `python -m voice_typer.server.ipc_server --ws`
 ## Quick Install (Windows: Easiest)
 
 1. Go to **[Releases](https://github.com/AbdallahIsDev/voice-typer/releases)**
-2. Download the latest `VoiceTyper-Setup-*.exe`
+2. Download the latest `Lausu-Setup-*.exe`
 3. Double-click the installer
 4. Click Next → Install → Finish
-5. Voice Typer starts automatically: look for the microphone icon in your system tray
+5. Lausu starts automatically: look for the microphone icon in your system tray
 
 No Python, no terminal, no commands needed.
 
@@ -130,7 +130,7 @@ No Python, no terminal, no commands needed.
 
 ## Requirements
 
-- **Windows 10/11**, **macOS 13+** (Ventura or newer), or **Linux** (X11 or Wayland), Voice Typer is cross-platform. See [docs/PLATFORM_STATUS.md](docs/PLATFORM_STATUS.md) for the full per-OS support matrix and minimum-version rationale.
+- **Windows 10/11**, **macOS 13+** (Ventura or newer), or **Linux** (X11 or Wayland), Lausu is cross-platform. See [docs/PLATFORM_STATUS.md](docs/PLATFORM_STATUS.md) for the full per-OS support matrix and minimum-version rationale.
 - A microphone
 - Internet on first run (downloads the Whisper model for the selected model size)
 - **macOS only**: Accessibility permission for the native key listener (see [Troubleshooting](#troubleshooting))
@@ -155,7 +155,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS / Linux
 # or: winget install astral-sh.uv                # Windows
 
 # Create a venv and install deps in one step
-cd voice-typer
+cd lausu
 uv venv
 # `dev` extras = ruff, mypy, pre-commit, mutmut
 # `test` extras = pytest, pytest-cov, hypothesis, pytest-benchmark, ...
@@ -246,16 +246,16 @@ in the config file.
 
 ### ASR Auto-Setup
 
-On startup, Voice Typer runs an automatic ASR dependency check (`asr_setup.py`) that detects available GPU hardware, verifies required packages are installed, and downloads model weights if needed. This runs transparently in the background, no manual setup required.
+On startup, Lausu runs an automatic ASR dependency check (`asr_setup.py`) that detects available GPU hardware, verifies required packages are installed, and downloads model weights if needed. This runs transparently in the background, no manual setup required.
 
 ## Run
 
-**If you used the installer:** find "Voice Typer" in your Start Menu and click it.
+**If you used the installer:** find "Lausu" in your Start Menu and click it.
 
 **If you installed from source:**
 
 ```bash
-voice-typer
+lausu
 ```
 
 Or:
@@ -268,7 +268,7 @@ The app runs in the system tray, look for the microphone icon. No terminal windo
 
 ### Single Instance
 
-Only one Voice Typer process can run at a time. If you launch a second instance, it will show "Voice Typer is already running" and exit immediately. This prevents duplicate tray icons and hotkey conflicts.
+Only one Lausu process can run at a time. If you launch a second instance, it will show "Lausu is already running" and exit immediately. This prevents duplicate tray icons and hotkey conflicts.
 
 ### Desktop Shortcut
 
@@ -288,9 +288,9 @@ Settings are stored in JSON for troubleshooting:
 
 `<DATA_DIR>/config.json`
 
-On Windows this is `%APPDATA%\voice-typer\config.json` for new installs
-(`C:\Users\<you>\AppData\Roaming\voice-typer\config.json`). If you upgraded
-from an older version, `%USERPROFILE%\.voice-typer\config.json` is still used.
+On Windows this is `%APPDATA%\lausu\config.json` for new installs
+(`C:\Users\<you>\AppData\Roaming\lausu\config.json`). If you upgraded
+from an older version, `%USERPROFILE%\.lausu\config.json` is still used.
 See `docs/home-directory.md` for the full per-platform layout.
 
 Use Settings for normal changes. Use the advanced settings button to open the raw config file only when troubleshooting.
@@ -367,7 +367,7 @@ The overlay lists the active dictation hotkey plus:
 | `?` | Open this help overlay |
 | `Alt+←` / `Alt+→` | Navigate back / forward |
 
-Below the shortcut list, the **Punctuation cheat sheet** shows the spoken-form → character mappings Voice Typer recognizes (the cleanup pipeline in `voice_typer/server/text_cleanup.py` normalizes spacing around these without dropping them):
+Below the shortcut list, the **Punctuation cheat sheet** shows the spoken-form → character mappings Lausu recognizes (the cleanup pipeline in `voice_typer/server/text_cleanup.py` normalizes spacing around these without dropping them):
 
 | Spoken form | Inserted character |
 |---|---|
@@ -398,7 +398,7 @@ Available models (subject to Whisper upstream naming and sizes):
 
 ## Silence Detection and Auto-Stop
 
-Voice Typer monitors audio input during recording to detect microphone disconnections and extended silence:
+Lausu monitors audio input during recording to detect microphone disconnections and extended silence:
 
 ### Silence Warning
 
@@ -476,7 +476,7 @@ Context-aware capitalization of "I" that skips capitalization when followed by R
 ### External Corrections
 
 Bundled corrections are in `voice_typer/server/corrections.json` (misspellings, phrase corrections, extra-word patterns).
-Place a `voice-typer-corrections.json` in the config directory (or set `corrections_path` in config) to override bundled entries.
+Place a `lausu-corrections.json` in the config directory (or set `corrections_path` in config) to override bundled entries.
 External file format: `{"misspellings": {...}, "phrase_corrections": [["bad", "good"], ...], "extra_word_patterns": [["bad", "good"], ...]}`.
 
 ## Streaming Transcription
@@ -489,7 +489,7 @@ Hidden streaming transcription processes audio in overlapping chunks during reco
 
 ## Hotkey Architecture
 
-Voice Typer detects global hotkeys via an **out-of-process native binary** spawned by the Python backend. The binary speaks a line-delimited stdout wire protocol (`READY`, `KEY_DOWN:<Name>`, `MOD_DOWN:<Name>`, `FN_DOWN` (macOS only), …) that the Python side parses and matches against the registered hotkey. The same binary is reused in record mode for the Settings capture dialog.
+Lausu detects global hotkeys via an **out-of-process native binary** spawned by the Python backend. The binary speaks a line-delimited stdout wire protocol (`READY`, `KEY_DOWN:<Name>`, `MOD_DOWN:<Name>`, `FN_DOWN` (macOS only), …) that the Python side parses and matches against the registered hotkey. The same binary is reused in record mode for the Settings capture dialog.
 
 - **macOS**, `voice_typer/server/native/macos-key-listener` (Swift), uses `NSEvent.modifierFlags.function` + a `CGEvent` tap to support the Fn/Globe key.
 - **Windows**, `voice_typer/server/native/windows-key-listener.exe` (C): uses a `WH_KEYBOARD_LL` low-level hook (event-driven, supports key suppression, lower CPU than polling).
@@ -503,7 +503,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/adr/0007-native-ho
 
 ## Platform Notes
 
-Voice Typer is **cross-platform**: Windows, macOS, and Linux (X11 and Wayland) are all supported. The hotkey backend, autostart adapter, and clipboard/focus backends are selected per-OS at runtime.
+Lausu is **cross-platform**: Windows, macOS, and Linux (X11 and Wayland) are all supported. The hotkey backend, autostart adapter, and clipboard/focus backends are selected per-OS at runtime.
 
 - **Windows 10/11**: tested by the maintainer. There is no CI matrix for Win10 vs Win11 yet, contributors on either version are welcome to report issues. Several Win10-specific code paths (notably `taskkill /T /F` and the legacy `wmic` calls) have been removed; the app now uses `psutil` for process introspection on all platforms.
 - **macOS 13+** (Ventura): native Swift key listener supports the Fn/Globe key. Requires Accessibility permission (see [Troubleshooting](#troubleshooting)). Autostart uses a `LaunchAgents` plist. macOS 12 may work but is not tested; CI runners pin to `macos-13` (Intel) and `macos-14` (Apple Silicon).
@@ -522,7 +522,7 @@ voice_typer/
 ├── __init__.py         # Package init, __version__
 ├── __main__.py         # Entry point (python -m voice_typer)
 ├── server/             # Python backend (was voice_typer/*.py before refactor)
-│   ├── app.py          # VoiceTyperApp orchestrator, startup, state machine, thread safety
+│   ├── app.py          # LausuApp orchestrator, startup, state machine, thread safety
 │   ├── asr_setup.py    # ASR auto-setup: GPU detection, dependency checking, weight downloading
 │   ├── asr_registry.py # Registry of ASR backends (whisper/qwen/parakeet)
 │   ├── config/        # Configuration package (platform-aware paths, validation, schema versioning), see config/__init__.py
@@ -589,7 +589,7 @@ Key design decisions:
 
 ## Log File
 
-Voice Typer writes **two** log files (one per process). The Python
+Lausu writes **two** log files (one per process). The Python
 backend log lives directly under the data directory; the Tauri Rust
 host log lives under a `logs/` subdir. **Single-file policy:** each log
 is exactly ONE file: when it exceeds 5 MiB it is truncated IN PLACE
@@ -600,10 +600,10 @@ is exactly ONE file: when it exceeds 5 MiB it is truncated IN PLACE
 
 | Platform | Python backend log | Tauri Rust host log |
 |----------|--------------------|---------------------|
-| Windows (new installs) | `%APPDATA%\voice-typer\voice-typer.log` | `%APPDATA%\voice-typer\logs\voice-typer.log` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer\voice-typer.log` (legacy path honored if it exists) | `%USERPROFILE%\.voice-typer\logs\voice-typer.log` |
-| macOS | `~/Library/Application Support/voice-typer/voice-typer.log` | `~/Library/Application Support/voice-typer/logs/voice-typer.log` |
-| Linux | `$XDG_DATA_HOME/voice-typer/voice-typer.log` (falls back to `~/.local/share/voice-typer/voice-typer.log`) | `$XDG_DATA_HOME/voice-typer/logs/voice-typer.log` |
+| Windows (new installs) | `%APPDATA%\lausu\lausu.log` | `%APPDATA%\lausu\logs\lausu.log` |
+| Windows (existing users) | `%USERPROFILE%\.lausu\lausu.log` (legacy path honored if it exists) | `%USERPROFILE%\.lausu\logs\lausu.log` |
+| macOS | `~/Library/Application Support/lausu/lausu.log` | `~/Library/Application Support/lausu/logs/lausu.log` |
+| Linux | `$XDG_DATA_HOME/lausu/lausu.log` (falls back to `~/.local/share/lausu/lausu.log`) | `$XDG_DATA_HOME/lausu/logs/lausu.log` |
 
 Override the location by setting `VOICE_TYPER_CONFIG_DIR` (the Python
 log lives directly under the resolved `<DATA_DIR>`; the Rust host log
@@ -624,39 +624,39 @@ Uses `_SecureTruncatingFileHandler` (5 MiB cap, truncates in place, single-file 
   powershell -ExecutionPolicy Bypass -File scripts/build/compile_native.ps1
   ```
   The script auto-detects your platform and only builds the binary that matches it. The compiled binary lives in `voice_typer/server/native/`.
-- If the binary is missing, Voice Typer falls back to the legacy in-process backends (`PynputHotkey` / `WindowsNativeHotkey` / `WaylandHotkey`): this is enough to keep the app usable, but you lose Fn-key support on macOS and Wayland support on Linux.
+- If the binary is missing, Lausu falls back to the legacy in-process backends (`PynputHotkey` / `WindowsNativeHotkey` / `WaylandHotkey`): this is enough to keep the app usable, but you lose Fn-key support on macOS and Wayland support on Linux.
 - Check the log file for `[HOTKEY]` messages indicating which backend was selected.
 
 ### Hotkey doesn't work on macOS
 
-- Voice Typer needs Accessibility permission to read the keyboard.
+- Lausu needs Accessibility permission to read the keyboard.
 - On first launch, it should show a notification with a link to System Settings.
-- If you missed it: System Settings → Privacy & Security → Accessibility → add Voice Typer.
+- If you missed it: System Settings → Privacy & Security → Accessibility → add Lausu.
 - After macOS updates, you may need to re-grant Accessibility.
 
 ### Hotkey doesn't work on Linux
 
 - If you installed via `.deb` or `.rpm`: log out and log back in after install (the `input` group change needs a new login session).
-- If you're using the AppImage: on first launch, Voice Typer will prompt for your password to install keyboard permissions.
+- If you're using the AppImage: on first launch, Lausu will prompt for your password to install keyboard permissions.
 - To check: `groups` should include `input`. If not, run `sudo usermod -aG input $USER` and log out/back in.
 
 ### Hotkey stopped working after a while
 
 - This can happen if antivirus software (Windows) or macOS code-signing changes kill the native key-listener binary.
-- Voice Typer should automatically fall back to compatibility mode and show a notification.
-- To restore full mode: restart Voice Typer.
+- Lausu should automatically fall back to compatibility mode and show a notification.
+- To restore full mode: restart Lausu.
 
 ### macOS: Accessibility permission
 
 The native key listener needs Accessibility permission to observe keyboard events system-wide:
 
 1. Open **System Settings → Privacy & Security → Accessibility**.
-2. Enable the toggle next to **Voice Typer** (or the terminal you launched it from, if running from source).
-3. If Voice Typer isn't listed, click **+** and add it.
+2. Enable the toggle next to **Lausu** (or the terminal you launched it from, if running from source).
+3. If Lausu isn't listed, click **+** and add it.
 
 ### macOS: Re-grant Accessibility after a macOS update
 
-macOS updates sometimes invalidate the Accessibility grant for previously-trusted apps. If the hotkey stops working immediately after a macOS update, go back to **System Settings → Privacy & Security → Accessibility**, toggle Voice Typer off and back on, or remove it and re-add it.
+macOS updates sometimes invalidate the Accessibility grant for previously-trusted apps. If the hotkey stops working immediately after a macOS update, go back to **System Settings → Privacy & Security → Accessibility**, toggle Lausu off and back on, or remove it and re-add it.
 
 ### Linux: Add yourself to the `input` group
 
@@ -680,7 +680,7 @@ For more permanent behavior across Wayland compositors, consider `keyd` or `kmon
 
 ### Windows: Caps Lock remap
 
-The Windows native binary **does** suppress the Caps Lock keydown event so the OS doesn't toggle caps state, but only when Voice Typer is running. If you want Caps Lock to be neutralized even when Voice Typer isn't running (or you want it remapped to a different key entirely), use one of these:
+The Windows native binary **does** suppress the Caps Lock keydown event so the OS doesn't toggle caps state, but only when Lausu is running. If you want Caps Lock to be neutralized even when Lausu isn't running (or you want it remapped to a different key entirely), use one of these:
 
 - **PowerToys Keyboard Manager** (recommended): install PowerToys → Keyboard Manager → Remap a key → remap `Caps Lock` to `Disable`.
 - **Registry Scancode Map**: add a `Scancode Map` binary value under `HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout` to globally remap Caps Lock. (Standard caveat: edits to `HKLM` require admin rights and a reboot.)
@@ -707,7 +707,7 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 ### Wrong microphone
 
 - Use the app's Microphone page (tray menu → **Open App** → Microphone). Duplicate names show host APIs where needed.
-- If one host API fails, Voice Typer can fall back to another entry with the same physical microphone name and persist the working device index.
+- If one host API fails, Lausu can fall back to another entry with the same physical microphone name and persist the working device index.
 
 ### Silence warnings during recording
 
@@ -728,7 +728,7 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 
 ### CUDA fallback
 
-- Voice Typer tries CUDA first. If CUDA/cuBLAS/cuDNN fails during load or transcription, it falls back to CPU.
+- Lausu tries CUDA first. If CUDA/cuBLAS/cuDNN fails during load or transcription, it falls back to CPU.
 - On Windows, NVIDIA wheel DLL paths are added automatically when installed.
 - The fallback chain: configured device → CPU/int8 with original model → CPU/int8 with tiny.en → CPU/float32 with tiny.en.
 
@@ -750,12 +750,12 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 - Phrase corrections preserve ALL-CAPS, Title Case, and mixed case patterns.
 - Roman numeral detection prevents false capitalization of "i" in academic/numbered contexts.
 - Bundled corrections are in `voice_typer/server/corrections.json`.
-- Place a `voice-typer-corrections.json` in the config directory (or set `corrections_path` in config) to override bundled entries.
+- Place a `lausu-corrections.json` in the config directory (or set `corrections_path` in config) to override bundled entries.
 
 ### Already running
 
-- Only one Voice Typer instance can run at a time (enforced via Windows named mutex on Windows, lockfile on macOS/Linux).
-- If you see "Voice Typer is already running", check the system tray for the existing instance.
+- Only one Lausu instance can run at a time (enforced via Windows named mutex on Windows, lockfile on macOS/Linux).
+- If you see "Lausu is already running", check the system tray for the existing instance.
 - Use **Restart** from the tray menu to cleanly restart the app.
 
 ## Known Limitations

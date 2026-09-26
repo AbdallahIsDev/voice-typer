@@ -9,7 +9,7 @@ contract as written; the predecessor path is no longer in-tree.
 
 ## Date
 
-2026-07-13 (decision): 2026-07-14 (updated to Sidecar-only, actionable migration plan), 2026-07-16 (cross-platform rewrite: verified against `AbdallahIsDev/voice-typer` `main`, reconciled with ADRs 0003/0007/0008/0009/0011/0014/0015/0016/0017/0018/0019, expanded to cover Windows + macOS + Linux + Wayland + Apple Silicon + Linux ARM64). **2026-09-17: cutover note — predecessor host removed; Tauri sole host.**
+2026-07-13 (decision): 2026-07-14 (updated to Sidecar-only, actionable migration plan), 2026-07-16 (cross-platform rewrite: verified against `AbdallahIsDev/lausu` `main`, reconciled with ADRs 0003/0007/0008/0009/0011/0014/0015/0016/0017/0018/0019, expanded to cover Windows + macOS + Linux + Wayland + Apple Silicon + Linux ARM64). **2026-09-17: cutover note — predecessor host removed; Tauri sole host.**
 
 ---
 
@@ -19,9 +19,9 @@ This is a **migration contract**, not a high-level proposal. Every section is wr
 
 1. **Fixes the ADR cross-references.** The previous version cited "ADR-0009 (Prewarm & Autostart Architecture)". That is wrong. ADR-0009 is the **Audio Filter Chain Architecture**. The actual prewarm ADR is **ADR-0011**. Every reference has been re-verified against `docs/adr/`.
 2. **Fixes the source-file line references.** The previous version cited `prewarm.py:17` for the prewarm helper; `prewarm.py` no longer exists (it was decomposed into the `prewarm/` package, see `prewarm/pipeline.py` for the entrypoint `run` function), and line 17 was part of the module docstring anyway. References now point to **symbols** (function/class names), line numbers drift, and entire files get split into packages, so symbol names are the only stable anchor.
-3. **Adds full cross-platform coverage.** Voice Typer today ships on Windows, macOS, and Linux (X11 + Wayland), per `README.md`, `docs/PLATFORM_STATUS.md`, `pyproject.toml` classifiers, `legacy builder config`, the `scripts/linux/` postinst/prerm/udev/polkit set, and the `prewarm_scheduler_posix.py` module. The previous ADR's Nuitka flags, code-signing commands, paste logic, autostart, prewarm scheduling, and path resolution were Windows-only and would silently produce broken macOS/Linux builds. Each technical section now has a Windows / macOS / Linux sub-section.
-4. **Reconciles with the existing build assets.** The repo already contains `scripts/build/voice-typer.spec` (PyInstaller), `scripts/build/compile_native.sh` + `.ps1` (native hotkey binaries), `scripts/linux/{postinst,prerm,postinst.rpm,prerm.rpm,99-voice-typer.rules,00-voice-typer-capslock.conf,voice-typer.polkit,install_permissions.py,uninstall_permissions.py}`, and `voice_typer/client/legacy builder config` (NSIS + DMG x64/arm64 + AppImage/deb/rpm with notarization enabled). (The historical `scripts/build/installer.iss` Inno Setup script is no longer present in the source tree.) The migration must reuse or explicitly replace each of these, none were referenced by the previous ADR.
-5. **Reconciles with the existing ADRs.** Voice Typer has 20 prior ADRs (0000–0019). The previous ADR (ADR-0013) referenced 0002 (the *initial* predecessor + Python ADR, superseded by ADR-0003. The current architecture), 0009 (wrong, actually audio filters), and 0011 (the actual prewarm ADR). The migration touches concerns governed by ADRs 0003, 0007, 0008, 0009 (real), 0011, 0014, 0015, 0016, 0017, 0018, 0019. Each is cited where relevant.
+3. **Adds full cross-platform coverage.** Lausu today ships on Windows, macOS, and Linux (X11 + Wayland), per `README.md`, `docs/PLATFORM_STATUS.md`, `pyproject.toml` classifiers, `legacy builder config`, the `scripts/linux/` postinst/prerm/udev/polkit set, and the `prewarm_scheduler_posix.py` module. The previous ADR's Nuitka flags, code-signing commands, paste logic, autostart, prewarm scheduling, and path resolution were Windows-only and would silently produce broken macOS/Linux builds. Each technical section now has a Windows / macOS / Linux sub-section.
+4. **Reconciles with the existing build assets.** The repo already contains `scripts/build/lausu.spec` (PyInstaller), `scripts/build/compile_native.sh` + `.ps1` (native hotkey binaries), `scripts/linux/{postinst,prerm,postinst.rpm,prerm.rpm,99-lausu.rules,00-lausu-capslock.conf,lausu.polkit,install_permissions.py,uninstall_permissions.py}`, and `voice_typer/client/legacy builder config` (NSIS + DMG x64/arm64 + AppImage/deb/rpm with notarization enabled). (The historical `scripts/build/installer.iss` Inno Setup script is no longer present in the source tree.) The migration must reuse or explicitly replace each of these, none were referenced by the previous ADR.
+5. **Reconciles with the existing ADRs.** Lausu has 20 prior ADRs (0000–0019). The previous ADR (ADR-0013) referenced 0002 (the *initial* predecessor + Python ADR, superseded by ADR-0003. The current architecture), 0009 (wrong, actually audio filters), and 0011 (the actual prewarm ADR). The migration touches concerns governed by ADRs 0003, 0007, 0008, 0009 (real), 0011, 0014, 0015, 0016, 0017, 0018, 0019. Each is cited where relevant.
 
 > **Plain English:** This is the rewritten migration plan. The old plan only really worked on Windows and got a few file references wrong. This version works on Windows, macOS, and Linux, fixes the references, and tells you exactly which existing build scripts and ADRs the migration interacts with.
 
@@ -29,16 +29,16 @@ This is a **migration contract**, not a high-level proposal. Every section is wr
 
 ## Context
 
-Voice Typer today is **predecessor (React UI) + a separate Python backend + a separate prewarm helper**, effectively **three OS processes**, plus the predecessor renderer GPU child:
+Lausu today is **predecessor (React UI) + a separate Python backend + a separate prewarm helper**, effectively **three OS processes**, plus the predecessor renderer GPU child:
 
 1. **predecessor main process** (hosts the React UI). Source: `voice_typer/client/src/main/index.ts` (209 lines: wiring-only; logic in `./state/`, `./python/`, `./ipc/`, `./windows/`, `./bootstrap`). Entry: `package.json` `main: ./out/main/index.js`. Build: a Vite renderer bundle → NSIS on Windows, DMG on macOS x64+arm64, AppImage+deb+rpm on Linux.
 2. **Python backend**, `python -m voice_typer.server.ipc_server --port 9876` (see the file directly for the current size, earlier drafts of this ADR disagreed on the line count, and the module has continued to grow since). Spawned by the legacy host launcher (the inverse path: Python-as-parent, also exists) and reached over a local TCP socket on `127.0.0.1:9876`. Audio capture + ASR inference + tray + hotkeys + volume ducking + clipboard all live here. The IPC dispatch layer is `_COMMAND_REGISTRY` (locate by the `_COMMAND_REGISTRY = {` assignment near the top of `ipc_server.py`; 63 commands: see §2 IPC-1 reconciliation) → `_handle_<cmd>` mixins in `voice_typer/server/handlers/*`. Server-initiated events flow through `event_bus.publish(...)` (`event_bus.py`, the modern successor to `ipc_server._push_event_now`).
 3. **prewarm helper**, `prewarm/` package (entry point `prewarm/__main__.py`, dispatched to `prewarm/pipeline.py::run`). A standalone boot-time process that warms the OS file cache (~7 GB of onnxruntime + ctranslate2 + model weights; historical torch + transformers path retired 2026-08-15) before the app's cold imports contend for disk. Kept intentionally separate per ADR-0011. Scheduling is platform-specific:
    - **Windows**: `task_scheduler.py` (708 lines) registers a `LogonTrigger` Scheduled Task (`schtasks`) with an HKCU `Run` registry-key fallback.
-   - **macOS**: `prewarm_scheduler_posix.py` registers a LaunchAgent at `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` with `RunAtLoad=true`.
-   - **Linux**: `prewarm_scheduler_posix.py` registers a systemd user timer at `~/.config/systemd/user/voice-typer-prewarm.{service,timer}` with `OnBootSec=10s`.
+   - **macOS**: `prewarm_scheduler_posix.py` registers a LaunchAgent at `~/Library/LaunchAgents/com.Lausu.prewarm.plist` with `RunAtLoad=true`.
+   - **Linux**: `prewarm_scheduler_posix.py` registers a systemd user timer at `~/.config/systemd/user/lausu-prewarm.{service,timer}` with `OnBootSec=10s`.
 
-The codebase is **already cross-platform**. The README explicitly states: "**Windows 10/11**, **macOS 11+**, or **Linux** (X11 or Wayland), Voice Typer is cross-platform". `pyproject.toml` declares platform-conditional deps for volume ducking on each OS (`pycaw`/`comtypes` on Win32, `pyobjc-core`/`pyobjc-framework-CoreAudio`/`pyobjc-framework-Cocoa` on Darwin). `docs/PLATFORM_STATUS.md` enumerates a 30-row feature × OS matrix. Native hotkey binaries exist for all three platforms (`voice_typer/server/native/{windows-key-listener.c, macos-key-listener.swift, linux-key-listener.c}`), compiled by `scripts/build/compile_native.sh` (Linux/macOS) and `scripts/build/compile_native.ps1` (Windows). The CI matrix in `.github/workflows/build.yml` runs tests on `windows-2022`, `ubuntu-22.04`, `macos-13`, plus `macos-14` for Apple Silicon native builds.
+The codebase is **already cross-platform**. The README explicitly states: "**Windows 10/11**, **macOS 11+**, or **Linux** (X11 or Wayland), Lausu is cross-platform". `pyproject.toml` declares platform-conditional deps for volume ducking on each OS (`pycaw`/`comtypes` on Win32, `pyobjc-core`/`pyobjc-framework-CoreAudio`/`pyobjc-framework-Cocoa` on Darwin). `docs/PLATFORM_STATUS.md` enumerates a 30-row feature × OS matrix. Native hotkey binaries exist for all three platforms (`voice_typer/server/native/{windows-key-listener.c, macos-key-listener.swift, linux-key-listener.c}`), compiled by `scripts/build/compile_native.sh` (Linux/macOS) and `scripts/build/compile_native.ps1` (Windows). The CI matrix in `.github/workflows/build.yml` runs tests on `windows-2022`, `ubuntu-22.04`, `macos-13`, plus `macos-14` for Apple Silicon native builds.
 
 Two pain points drive this migration:
 
@@ -71,7 +71,7 @@ Three mandatory architecture rules:
 
 These choices were decided before the Phase 0 spike and are fixed for the build:
 
-- **Sidecar freeze tool: Nuitka.** The Python backend is compiled to a native single-file executable via **Nuitka** (not PyInstaller `--onedir`). Rationale: smaller/faster-start binary, no PyInstaller bootloader PID/antivirus quirks on Windows, better fit for a Tauri `externalBin` sidecar (which requires a single executable per target triple, not a folder). Build uses a clean **`python-build-standalone`** interpreter as the Nuitka target. **Per-platform:** each target triple gets its own Nuitka build, Nuitka does not cross-compile, so the CI matrix must run one Nuitka build per target. The existing `scripts/build/voice-typer.spec` (PyInstaller, Windows-focused) is **retained as the fallback path** for platforms where Nuitka proves impractical (e.g., macOS Apple Silicon ABI issues); the sidecar entrypoint is identical, only the freeze tool changes.
+- **Sidecar freeze tool: Nuitka.** The Python backend is compiled to a native single-file executable via **Nuitka** (not PyInstaller `--onedir`). Rationale: smaller/faster-start binary, no PyInstaller bootloader PID/antivirus quirks on Windows, better fit for a Tauri `externalBin` sidecar (which requires a single executable per target triple, not a folder). Build uses a clean **`python-build-standalone`** interpreter as the Nuitka target. **Per-platform:** each target triple gets its own Nuitka build, Nuitka does not cross-compile, so the CI matrix must run one Nuitka build per target. The existing `scripts/build/lausu.spec` (PyInstaller, Windows-focused) is **retained as the fallback path** for platforms where Nuitka proves impractical (e.g., macOS Apple Silicon ABI issues); the sidecar entrypoint is identical, only the freeze tool changes.
 - **Transport: WebSocket, single choice.** UI → Rust (`invoke`) → sidecar over a **localhost WebSocket**. No HTTP/JSON-RPC alternative. The sidecar is reached at an **ephemeral `127.0.0.1:0`** port it binds itself and reports to Rust via a `server_started` JSON line on stdout (not the hardcoded `9876`; see §1). Auth is the existing **HMAC session token** scheme via env `VOICE_TYPER_IPC_TOKEN`, reused from ADR-0014 (TCP IPC session-token auth).
 - **Paste/keystroke injection: `enigo` + `tauri-plugin-clipboard-manager`.** The Rust bridge uses the **`enigo`** crate (cross-platform: Windows via `SendInput`, macOS via CGEvent, Linux via X11/XTest) for keystroke injection of transcribed text into the foreground window, **plus** `tauri-plugin-clipboard-manager` for the clipboard copy + `Ctrl+V`/`Cmd+V` long-text path. `enigo` is keyboard/mouse ONLY: it does NOT do toast notifications (see §6 of the Implementation Specification). The previous ADR's Win32-only focus-restore dance (`AttachThreadInput`, `SetForegroundWindow`, `GetForegroundWindow`) is the Windows implementation; macOS and Linux each need their own equivalent (see §6).
 - **Cooperative shutdown over the WebSocket**, not stdin/stdout. The Rust supervisor sends `{"type":"shutdown"}`; the sidecar releases the mic, acks, and exits. `kill_children` is the backstop only.
@@ -87,9 +87,9 @@ These choices were decided before the Phase 0 spike and are fixed for the build:
 ```
 One Tauri app per platform (ONE icon / install, one app to launch; multiple OS processes under the hood):
 
-  Windows:  VoiceTyper.exe (Rust shell) + WebView2 (React UI) + python-sidecar-x86_64-pc-windows-msvc.exe + prewarm-x86_64-pc-windows-msvc.exe
-  macOS:    Voice Typer.app (Rust shell + WKWebView React UI) + python-sidecar-{aarch64|x86_64}-apple-darwin + prewarm-{aarch64|x86_64}-apple-darwin
-  Linux:    voice-typer (Rust shell) + webkit2gtk (React UI) + python-sidecar-{aarch64|x86_64}-unknown-linux-gnu + prewarm-{aarch64|x86_64}-unknown-linux-gnu
+  Windows:  Lausu.exe (Rust shell) + WebView2 (React UI) + python-sidecar-x86_64-pc-windows-msvc.exe + prewarm-x86_64-pc-windows-msvc.exe
+  macOS:    Lausu.app (Rust shell + WKWebView React UI) + python-sidecar-{aarch64|x86_64}-apple-darwin + prewarm-{aarch64|x86_64}-apple-darwin
+  Linux:    lausu (Rust shell) + webkit2gtk (React UI) + python-sidecar-{aarch64|x86_64}-unknown-linux-gnu + prewarm-{aarch64|x86_64}-unknown-linux-gnu
 
   UI → Tauri invoke('dispatch', {cmd,data}) → Rust → localhost WebSocket → Python sidecar _COMMAND_REGISTRY
   Sidecar → event_bus.publish(event) → Rust subscriber → app.emit(name, payload) → React UI
@@ -114,12 +114,12 @@ Verified against `docs/PLATFORM_STATUS.md` (last updated 2026-06-30) and the act
 | Tray icon | `pystray` (Win32 / AppKit / GTK) | `tauri-plugin-tray` (Win32 / AppKit / GTK via `gtk-3.0`) | Tray menu structure (locale, dynamic items) must be preserved 1:1, see §6.5. |
 | Tray notifications | `Shell_NotifyIcon` / `NSUserNotificationCenter` / libnotify | `tauri-plugin-notification` (cross-platform backend) | `notification` event (canonical name); payload unchanged. |
 | Autostart: Windows | Task Scheduler `LogonTrigger` + HKCU Run key fallback | **Keep existing** `task_scheduler.py` (do NOT enable Tauri `autostart` plugin: avoids duplicate entries) | Per Phase 3 of the prior ADR; still correct. |
-| Autostart, macOS | LaunchAgent plist (`com.voicetyper.plist`) | **Keep existing** `server_platform._enable_autostart_macos()` | Tauri `autostart` plugin uses LaunchAgent too but with a different label; switching would orphan the old one. |
+| Autostart, macOS | LaunchAgent plist (`com.Lausu.plist`) | **Keep existing** `server_platform._enable_autostart_macos()` | Tauri `autostart` plugin uses LaunchAgent too but with a different label; switching would orphan the old one. |
 | Autostart, Linux | `.desktop` in `~/.config/autostart/` | **Keep existing** `server_platform._enable_autostart_linux()` | Same rationale. |
 | Prewarm scheduling: Windows | `task_scheduler.py` → `schtasks` LogonTrigger | **Keep existing** (prewarm exe replaces `pythonw.exe -m voice_typer.server.prewarm` via `resolve_prewarm_exe`) | See §5. |
-| Prewarm scheduling, macOS | `prewarm_scheduler_posix.py` → LaunchAgent `com.voicetyper.prewarm.plist` | **Keep existing** (prewarm exe replaces Python module via `resolve_prewarm_exe`) | The previous ADR's claim that prewarm is Windows-only was **wrong**, `prewarm_scheduler_posix.py` already exists. |
+| Prewarm scheduling, macOS | `prewarm_scheduler_posix.py` → LaunchAgent `com.Lausu.prewarm.plist` | **Keep existing** (prewarm exe replaces Python module via `resolve_prewarm_exe`) | The previous ADR's claim that prewarm is Windows-only was **wrong**, `prewarm_scheduler_posix.py` already exists. |
 | Prewarm scheduling, Linux | `prewarm_scheduler_posix.py` → systemd user timer | **Keep existing** (prewarm exe replaces Python module) | Same. |
-| Single-instance lock | Win32 named mutex (`Local\VoiceTyperSingleInstance` Locate by `class VoiceTyperSingleInstance` in `app.py`) · POSIX lockfile (best-effort) | `tauri-plugin-single-instance` (Win mutex / macOS NSApplication activation / Linux lockfile) | The Python-side `VoiceTyperSingleInstance` mutex becomes redundant on Windows once Tauri's plugin is active; remove it from the sidecar to avoid double-locking. |
+| Single-instance lock | Win32 named mutex (`Local\LausuSingleInstance` Locate by `class LausuSingleInstance` in `app.py`) · POSIX lockfile (best-effort) | `tauri-plugin-single-instance` (Win mutex / macOS NSApplication activation / Linux lockfile) | The Python-side `LausuSingleInstance` mutex becomes redundant on Windows once Tauri's plugin is active; remove it from the sidecar to avoid double-locking. |
 | Microphone listing | `sounddevice` (WASAPI / CoreAudio / ALSA / PulseAudio / PipeWire) | Unchanged (stays in Python sidecar) | No change. |
 | Microphone hot-plug detection | Win `WM_DEVICECHANGE` · Linux `/dev/snd` poll · macOS TTL fallback (NATIVE-001) | Unchanged | `microphone_watcher.py` stays in Python. |
 | Clipboard paste: Windows | `pyperclip` + Win32 `SendInput` (atomic 4-event batch) | `enigo` `text()` (short) + `tauri-plugin-clipboard-manager` + `Ctrl+V` (long) | Focus-restore via `AttachThreadInput` + `SetForegroundWindow` See §6.2. |
@@ -140,7 +140,7 @@ Verified against `docs/PLATFORM_STATUS.md` (last updated 2026-06-30) and the act
 | Diagnostics export | `export_diagnostics` command (redacted bundle) | Unchanged (stays in Python sidecar) | No change. |
 | Crash recovery | `crash_recovery.py` (BG thread, bounded queue, `flush()` on quit) | Unchanged (stays in Python sidecar) | No change. |
 | Streaming dictation | `streaming.py` + `dictation_pipeline.py` | Unchanged (stays in Python sidecar) | No change. |
-| Models path | Win `%APPDATA%/voice-typer/models` · macOS `~/Library/Application Support/voice-typer/models` · Linux `$XDG_DATA_HOME/voice-typer/models` | Unchanged (`_paths.config_dir()` already handles this) | See §8. |
+| Models path | Win `%APPDATA%/lausu/models` · macOS `~/Library/Application Support/lausu/models` · Linux `$XDG_DATA_HOME/lausu/models` | Unchanged (`_paths.config_dir()` already handles this) | See §8. |
 | Logs path | `<config_dir>/logs/` (rotating) | Unchanged | See §11. |
 | WebView | Chromium (predecessor-bundled, ~100 MB) | WebView2 (Win) / WKWebView (macOS, system) / webkit2gtk (Linux, system) | Tauri shell ~2–10 MB. CSS guardrails for webkit2gtk quirks. |
 
@@ -204,7 +204,7 @@ The plan runs **Windows → macOS → Linux** in sequence. Each platform has its
 
 - Re-point the "wire" (UI → logic) from predecessor→Python to Tauri→sidecar. Keep the predecessor build path intact and runnable in parallel.
 - Implement **crash isolation** (supervisor): a Rust supervisor respawns the sidecar on unexpected exit, shows a "reconnecting…" state, and falls back to full-app relaunch if respawn fails repeatedly.
-- Enable the `single-instance` plugin so only one app instance runs. **On Windows, also remove the `VoiceTyperSingleInstance` Win32 mutex from `app.py` (locate by `class VoiceTyperSingleInstance`)** when running under Tauri: the Tauri plugin already provides the mutex, and double-locking would block the second-instance focus path.
+- Enable the `single-instance` plugin so only one app instance runs. **On Windows, also remove the `LausuSingleInstance` Win32 mutex from `app.py` (locate by `class LausuSingleInstance`)** when running under Tauri: the Tauri plugin already provides the mutex, and double-locking would block the second-instance focus path.
 
 ### Phase 5: Validation & cutover (per platform)
 
@@ -278,7 +278,7 @@ Closes the gaps called out in review: port-bind direction, command table, token 
   Fail the launch if the configured bind is not loopback.
 - On respawn Rust generates a **new** token and respawns the sidecar (which binds a fresh `:0`); token rotation per §3.
 
-#> **Frozen command contract (65 commands):** the sidecar IPC command table in §2 enumerates exactly **65 commands**. The baseline established after the Tauri/Rust allowlist narrowing (S3-CR-3) and the subsequent IPC-1 reconciliation (ZR-45 cleanup + `relaunch_ack` add), extended by the §16 addenda. The frozen set lives in `tests/tauri/mig19/test_phase4_validation.py::EXPECTED_COMMANDS` and MUST NOT grow without (1) a new `_handle_<cmd>` mixin, (2) an ADR addendum, (3) a `_validate_dict_payload` schema, and (4) a dispatch-errors test. (DT-19 reconciliation 2026-07-24: earlier drafts of this ADR cited "61 commands"; the frozen-table count is 65 as of the 2026-08-14 §16 addendum, the registry total is 69, see `docs/ipc-reference.md` and `tests/test_security_doc_command_count.py`.)
+#> **Frozen command contract (74 commands):** the sidecar IPC command table in §2 enumerates exactly **74 commands**. The baseline established after the Tauri/Rust allowlist narrowing (S3-CR-3) and the subsequent IPC-1 reconciliation (ZR-45 cleanup + `relaunch_ack` add), extended by the §16 addenda. The frozen set lives in `tests/tauri/mig19/test_phase4_validation.py::EXPECTED_COMMANDS` and MUST NOT grow without (1) a new `_handle_<cmd>` mixin, (2) an ADR addendum, (3) a `_validate_dict_payload` schema, and (4) a dispatch-errors test. (DT-19 reconciliation 2026-07-24: earlier drafts of this ADR cited "61 commands"; the count has grown via the §16 addenda below, most recently 71 → 74 (2026-09-24, ADR-0023), the registry total is 78, see `docs/ipc-reference.md` and `tests/test_security_doc_command_count.py`.)
 
 > **TS-only exceptions parity contract:** The renderer TS `ALLOWED_COMMANDS`
 > set contains two commands that are intentionally absent from the Rust
@@ -414,7 +414,7 @@ Nuitka does **not** cross-compile. Each target triple gets its own Nuitka build,
 
 #### 4.1 Target triples (mandatory set)
 
-The Tauri `externalBin` mechanism resolves each binary by the Rust target triple (no `.exe` on macOS/Linux; `.exe` on Windows) at runtime via `std::env::consts::ARCH` + `std::env::consts::OS`. The table below is the set of **shipped** binaries you must place in `src-tauri/bin/` It is NOT the `externalBin` config entry (that is the single base name `bin/python-sidecar`; see §7 for the correction). Voice Typer's CI today ships:
+The Tauri `externalBin` mechanism resolves each binary by the Rust target triple (no `.exe` on macOS/Linux; `.exe` on Windows) at runtime via `std::env::consts::ARCH` + `std::env::consts::OS`. The table below is the set of **shipped** binaries you must place in `src-tauri/bin/` It is NOT the `externalBin` config entry (that is the single base name `bin/python-sidecar`; see §7 for the correction). Lausu's CI today ships:
 
 | Platform | Target triple | CI runner | Binary name |
 |---|---|---|---|
@@ -452,8 +452,8 @@ python -m nuitka --standalone --onefile ^
 - `--include-package=websockets` is **required** (added to `requirements-lock.txt` See §14); the sidecar is a WS *server* and the stdlib has no WS implementation. `--enable-plugin=numpy` pulls numpy's hidden imports; if Nuitka warns about missing `numpy.*` submodules, add `--include-package=numpy`.
 - **Discover the exact DLL set at build time**, do not guess: `dir "%SITE%\ctranslate2\lib\*.dll"` and list every file; re-run after any `faster-whisper`/`ctranslate2` version bump.
 - **CPU inference runtimes (easy to miss, instant crash if absent):** `ctranslate2` links Intel MKL / OpenMP for fast x86 CPU inference even with no GPU. If `libiomp5md.dll` (OpenMP) or the MKL redistributables are missing, the frozen exe **builds fine but crashes instantly on `import ctranslate2`** at launch. Verify with `python -c "import ctranslate2"` in the build env, then enumerate loaded companion DLLs (`listdlls`, Sysinternals Process Explorer, or `tasklist /m`) and copy every runtime next to `ctranslate2.dll` via `--include-data-dir` (or an explicit `--include-dll`). At minimum include `libiomp5md.dll`; add any `libiomp*.dll` / `mkl*.dll` / `libgomp*.dll` present. Nuitka does **not** auto-collect these.
-- **Do NOT** bundle model weights, models live in `%APPDATA%/voice-typer/models` (see §8), loaded at runtime. Include only code + native DLLs.
-- **`--onefile` temp-dir bloat:** Nuitka `--onefile` extracts to `%TEMP%\onefile_*` on every launch; frequent launches/crashes accumulate gigabytes. Pin a deterministic extract dir with `--onefile-tempdir-spec=%LOCALAPPDATA%\voice-typer\onefile-tmp` and have the installer/uninstaller purge that dir (match by the Voice Typer binary signature) so stale extracts are cleaned.
+- **Do NOT** bundle model weights, models live in `%APPDATA%/lausu/models` (see §8), loaded at runtime. Include only code + native DLLs.
+- **`--onefile` temp-dir bloat:** Nuitka `--onefile` extracts to `%TEMP%\onefile_*` on every launch; frequent launches/crashes accumulate gigabytes. Pin a deterministic extract dir with `--onefile-tempdir-spec=%LOCALAPPDATA%\lausu\onefile-tmp` and have the installer/uninstaller purge that dir (match by the Lausu binary signature) so stale extracts are cleaned.
 
 #### 4.3 macOS Nuitka command (Apple Silicon + Intel)
 
@@ -470,8 +470,8 @@ python -m nuitka --standalone --onefile \
   --include-data-dir=$SITE/ctranslate2/lib=$SITE/ctranslate2/lib \
   --include-data-dir=$SITE/ctranslate2/libs=$SITE/ctranslate2/libs \
   --macos-create-bundle \
-  --macos-app-name=VoiceTyperSidecar \
-  --macos-signed-app-name=com.voicetyper.sidecar \
+  --macos-app-name=LausuSidecar \
+  --macos-signed-app-name=com.Lausu.sidecar \
   --macos-app-mode=background \
   --output-filename=python-sidecar-aarch64-apple-darwin \
   voice_typer/server/ipc_server.py
@@ -482,7 +482,7 @@ python -m nuitka --standalone --onefile \
 - **CTranslate2 on macOS:** the wheels ship `libctranslate2.dylib` + `libiomp5.dylib` (OpenMP) under `$SITE/ctranslate2/lib/`. Apple Silicon wheels do NOT ship CUDA, CPU-only inference. Verify with `otool -L $SITE/ctranslate2/lib/libctranslate2.dylib` that every `@rpath` dependency resolves in the build env.
 - **`pyobjc` deps:** `pyobjc-core`, `pyobjc-framework-CoreAudio`, `pyobjc-framework-Cocoa` are required (volume ducking + tray). Add `--include-package=pyobjc` (and the framework sub-packages). Nuitka's `--include-package=pyobjc` does not always pick up the framework bridges, run the sidecar once in dev mode and watch for `ImportError: pyobjc-...` to discover missing pieces.
 - **Apple Silicon vs Intel:** Nuitka cannot produce a universal binary. Build separately per arch and let Tauri pick the right `externalBin` at runtime via `std::env::consts::ARCH`.
-- **`--onefile` temp-dir on macOS:** extracts to `$TMPDIR/onefile_*`. Pin with `--onefile-tempdir-spec=$HOME/Library/Application Support/voice-typer/onefile-tmp`.
+- **`--onefile` temp-dir on macOS:** extracts to `$TMPDIR/onefile_*`. Pin with `--onefile-tempdir-spec=$HOME/Library/Application Support/lausu/onefile-tmp`.
 
 #### 4.4 Linux Nuitka command (x86_64 + aarch64)
 
@@ -505,14 +505,14 @@ python -m nuitka --standalone --onefile \
 - **No `--windows-disable-console` equivalent is needed on Linux**. The sidecar is spawned by Tauri with `stdio` piped; no terminal window appears.
 - **CTranslate2 on Linux:** the wheels ship `libctranslate2.so` + `libiomp5.so` + `libgomp.so` (OpenMP) under `$SITE/ctranslate2/lib/`. CPU-only on most installs; CUDA wheels exist but are large. Verify with `ldd $SITE/ctranslate2/lib/libctranslate2.so` that every `NEEDED` dependency resolves in the build env.
 - **glibc version pinning:** the `python-build-standalone` Linux builds are compiled against a specific glibc. Pin to a build linked against glibc 2.35 (Ubuntu 22.04) so the sidecar runs on Ubuntu 22.04+ / Debian 12+ / Fedora 36+. Newer glibc builds (e.g., Ubuntu 24.04 baseline) would break older distributions. **This is the same baseline as the existing Linux native binary build** (`PLATFORM_STATUS.md`: "The native binary is compiled on `ubuntu-22.04` and links against glibc 2.35").
-- **`--onefile` temp-dir on Linux:** extracts to `/tmp/onefile_*`. Pin with `--onefile-tempdir-spec=$HOME/.cache/voice-typer/onefile-tmp` or `$XDG_CACHE_HOME/voice-typer/onefile-tmp`.
+- **`--onefile` temp-dir on Linux:** extracts to `/tmp/onefile_*`. Pin with `--onefile-tempdir-spec=$HOME/.cache/lausu/onefile-tmp` or `$XDG_CACHE_HOME/lausu/onefile-tmp`.
 - **AppImage considerations:** if shipping as AppImage, the sidecar binary is extracted at mount time to `/tmp/.mount_VoiceTy<XXXX>/usr/bin/`. The `externalBin` mechanism handles this transparently, but the prewarm binary (a `bundle.resource`, not an `externalBin`) must be looked up via `resolve_prewarm_exe()` (see §5) because AppImage mount paths are not stable across launches.
 
 #### 4.5 Common Nuitka caveats (all platforms)
 
 - Path resolution inside the compiled exe: `os.path.dirname(sys.argv[0])` for the exe dir; the OS-specific data dir for config/models/logs (see §8). Tauri passes `VOICE_TYPER_IPC_TOKEN` (+ optionally `appConfigDir`/`appLogDir`) via env; the port is self-selected by the sidecar (`:0`) and reported via stdout (see §1). Dev mode (§14) instead passes `VOICE_TYPER_IPC_PORT` to the plain-Python server, which still reads it from env.
 - **Verify step (Phase 0 gate per platform):** run the sidecar binary with a one-shot command that loads `faster_whisper` (`WhisperModel("tiny")`), transcribes a 3-second WAV, prints the text, exits 0. This proves CTranslate2 + DLLs + model load all work inside Nuitka. Run this on every target triple. A Windows-success does NOT imply macOS-success.
-- **Existing PyInstaller spec (`scripts/build/voice-typer.spec`) is the fallback.** If Nuitka proves impractical on a target (e.g., macOS Apple Silicon ABI issues, Linux aarch64 missing wheels), the existing PyInstaller `--onedir` spec already bundles the native hotkey binaries, Linux permission scripts, data files, and platform-specific hidden imports. The sidecar entrypoint is identical; only the freeze tool changes. PyInstaller `--onedir` produces a folder, not a single file, Tauri `externalBin` cannot point at a folder, so the folder must be wrapped: on Windows, a thin launcher `.exe` that `CreateProcess`es the real entrypoint inside the folder; on macOS/Linux, a shell-script launcher with the executable bit set. The launcher must be named with the target-triple suffix.
+- **Existing PyInstaller spec (`scripts/build/lausu.spec`) is the fallback.** If Nuitka proves impractical on a target (e.g., macOS Apple Silicon ABI issues, Linux aarch64 missing wheels), the existing PyInstaller `--onedir` spec already bundles the native hotkey binaries, Linux permission scripts, data files, and platform-specific hidden imports. The sidecar entrypoint is identical; only the freeze tool changes. PyInstaller `--onedir` produces a folder, not a single file, Tauri `externalBin` cannot point at a folder, so the folder must be wrapped: on Windows, a thin launcher `.exe` that `CreateProcess`es the real entrypoint inside the folder; on macOS/Linux, a shell-script launcher with the executable bit set. The launcher must be named with the target-triple suffix.
 
 ### 5. Prewarm packaging (cross-platform)
 
@@ -527,7 +527,7 @@ python -m nuitka --standalone --onefile \
         1. VOICE_TYPER_PREWARM_EXE env var (set by Tauri to resourceDir/prewarm-<triple>).
         2. Tauri resource dir (tauri::api::path::resource_dir), heuristically:
            next to the sidecar binary, in ../Resources/ (macOS .app bundle).
-        3. App install dir (Windows: %LOCALAPPDATA%\Programs\VoiceTyper\).
+        3. App install dir (Windows: %LOCALAPPDATA%\Programs\Lausu\).
         4. Dev fallback: plain python module (works without a frozen exe).
       """
       import os, sys
@@ -543,20 +543,18 @@ python -m nuitka --standalone --onefile \
       exe_suffix = ".exe" if is_windows() else ""
       candidates = []
       if is_macos():
-          # .app bundle: Voice Typer.app/Contents/Resources/prewarm-<triple>
+          # .app bundle: Lausu.app/Contents/Resources/prewarm-<triple>
           candidates.append(Path(sys.argv[0]).resolve().parent.parent / "Resources" / f"prewarm-{triple}{exe_suffix}")
       elif is_linux():
           # AppImage: /tmp/.mount_VoiceTy*/usr/resources/prewarm-<triple>
-          # .deb/.rpm: /usr/lib/voice-typer/resources/prewarm-<triple>
-          candidates.append(
-              Path(os.environ.get("APPDIR", "/usr/lib/voice-typer/resources")) / f"prewarm-{triple}{exe_suffix}"
-          )
+          # .deb/.rpm: /usr/lib/lausu/resources/prewarm-<triple>
+          candidates.append(Path(os.environ.get("APPDIR", "/usr/lib/lausu/resources")) / f"prewarm-{triple}{exe_suffix}")
       elif is_windows():
-          # %LOCALAPPDATA%\Programs\VoiceTyper\resources\prewarm-<triple>.exe
+          # %LOCALAPPDATA%\Programs\Lausu\resources\prewarm-<triple>.exe
           candidates.append(
               Path(os.environ.get("LOCALAPPDATA", ""))
               / "Programs"
-              / "VoiceTyper"
+              / "Lausu"
               / "resources"
               / f"prewarm-{triple}{exe_suffix}"
           )
@@ -590,9 +588,9 @@ python -m nuitka --standalone --onefile \
             return f"{arch}-unknown-linux-gnu"
     ```
 - **Uninstall cleanup per platform:**
-  - **Windows:** the MSI/installer must **deregister** the `VoiceTyperPrewarm` Task Scheduler entry (`schtasks /delete /tn VoiceTyperPrewarm /f`) and the HKCU Run key on uninstall/upgrade. Otherwise an orphaned scheduled task will try to launch a deleted exe after the app is removed, spamming Task Scheduler failures.
-  - **macOS:** the `.pkg`/DMG installer must `launchctl unload` and delete `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` on uninstall.
-  - **Linux:** the .deb/.rpm `prerm` scripts must `systemctl --user disable --now voice-typer-prewarm.timer` and delete `~/.config/systemd/user/voice-typer-prewarm.{service,timer}` on uninstall. The existing `scripts/linux/prerm` and `scripts/linux/prerm.rpm` already handle the udev-rule and input-group cleanup, extend them, do not replace them.
+  - **Windows:** the MSI/installer must **deregister** the `LausuPrewarm` Task Scheduler entry (`schtasks /delete /tn LausuPrewarm /f`) and the HKCU Run key on uninstall/upgrade. Otherwise an orphaned scheduled task will try to launch a deleted exe after the app is removed, spamming Task Scheduler failures.
+  - **macOS:** the `.pkg`/DMG installer must `launchctl unload` and delete `~/Library/LaunchAgents/com.Lausu.prewarm.plist` on uninstall.
+  - **Linux:** the .deb/.rpm `prerm` scripts must `systemctl --user disable --now lausu-prewarm.timer` and delete `~/.config/systemd/user/lausu-prewarm.{service,timer}` on uninstall. The existing `scripts/linux/prerm` and `scripts/linux/prerm.rpm` already handle the udev-rule and input-group cleanup, extend them, do not replace them.
 
 ### 6. Toast + paste (cross-platform)
 
@@ -617,13 +615,13 @@ Native notifications go through **`tauri-plugin-notification`**, NOT `enigo`. `e
 
 Before injecting, capture the current foreground window with `GetForegroundWindow()` + its thread id (`GetWindowThreadProcessId`); after `SendInput`, re-attach via `AttachThreadInput(our_thread, target_thread, TRUE)` then `SetForegroundWindow(hwnd)` + `AttachThreadInput(..., FALSE)`. This is the standard `win32` focus-steal dance (see `clipboard/windows.py`, which already does foreground-attachment for paste) so the user's window is not permanently stolen.
 
-**Elevated / focus-attach failure (UIPI):** `SendInput` and the focus-restore dance are blocked by UIPI when the target runs as Administrator (or at a higher integrity level than Voice Typer). The restore path calls `AttachThreadInput(our_thread, target_thread, TRUE)`; **if it returns `0`, do NOT retry the window-switch**, fall back immediately: write the text to the system clipboard, push it to crash-recovery (`crash_recovery.add`), and surface a **toast** "Could not paste, text copied to clipboard" (via `tauri-plugin-notification`). The same fallback applies if `SetForegroundWindow` silently fails. This matches today's no-data-loss guarantee and removes the ambiguity an implementer would otherwise hit.
+**Elevated / focus-attach failure (UIPI):** `SendInput` and the focus-restore dance are blocked by UIPI when the target runs as Administrator (or at a higher integrity level than Lausu). The restore path calls `AttachThreadInput(our_thread, target_thread, TRUE)`; **if it returns `0`, do NOT retry the window-switch**, fall back immediately: write the text to the system clipboard, push it to crash-recovery (`crash_recovery.add`), and surface a **toast** "Could not paste, text copied to clipboard" (via `tauri-plugin-notification`). The same fallback applies if `SetForegroundWindow` silently fails. This matches today's no-data-loss guarantee and removes the ambiguity an implementer would otherwise hit.
 
 **Global hotkeys + UIPI:** the dictation toggle is registered via `tauri-plugin-global-shortcut`. On Windows, UIPI blocks a standard-user process from receiving global keyboard hooks while an **elevated (Administrator)** window has focus. The hotkey silently will not fire. This is an OS limitation, not a bug: log it and (optionally) surface a one-time toast "Hotkeys unavailable while an admin window is focused" so an implementer does not waste hours "debugging" a working hook. **This UIPI issue also applies to the native `windows-key-listener.exe` binary**: the existing behavior is the same, so switching to Tauri's plugin would not regress this, but switching to Tauri's plugin WOULD regress key suppression (see §6.4).
 
 #### 6.4 Global hotkeys: DO NOT switch to `tauri-plugin-global-shortcut` (keep native binaries)
 
-The previous ADR said "Port tray, global hotkey, settings, and autostart UX to Tauri plugins (`tray`, `global-shortcut`, `autostart`, `single-instance`)." **This is wrong for the global hotkey.** Voice Typer today uses three native binaries (`voice_typer/server/native/{windows-key-listener.exe, macos-key-listener, linux-key-listener}`) compiled by `scripts/build/compile_native.sh` / `compile_native.ps1`, documented in ADR-0007 and ADR-0008. The Tauri global-shortcut plugin **cannot replace them** without regressing critical features:
+The previous ADR said "Port tray, global hotkey, settings, and autostart UX to Tauri plugins (`tray`, `global-shortcut`, `autostart`, `single-instance`)." **This is wrong for the global hotkey.** Lausu today uses three native binaries (`voice_typer/server/native/{windows-key-listener.exe, macos-key-listener, linux-key-listener}`) compiled by `scripts/build/compile_native.sh` / `compile_native.ps1`, documented in ADR-0007 and ADR-0008. The Tauri global-shortcut plugin **cannot replace them** without regressing critical features:
 
 | Feature | Native binary (today) | `tauri-plugin-global-shortcut` |
 |---|---|---|
@@ -637,7 +635,7 @@ The previous ADR said "Port tray, global hotkey, settings, and autostart UX to T
 
 **macOS Accessibility permission flow (preserved):** the native `macos-key-listener` binary requires Accessibility (System Settings → Privacy & Security → Accessibility). ADR-0008 Gap 2 documents the zero-command onboarding flow: when the binary detects a missing Accessibility grant, the sidecar publishes `notification` (forwarded to the native toast under Tauri) with a deep-link to `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`. A 60s retry timer polls for the grant and auto-restarts the native backend. **This entire flow stays in the Python sidecar**, Tauri just forwards the notification event to the system toast. The `permissions.py` module and `check_accessibility` command (`system_handlers.py`) are unchanged.
 
-**Linux udev rule + input group (preserved):** the native `linux-key-listener` binary requires `input` group membership to read `/dev/input/event*`. The existing `scripts/linux/postinst` (and `postinst.rpm`) already install the udev rule `99-voice-typer.rules` and add the installing user to the `input` group via `usermod -aG input`. The Tauri `.deb`/`.rpm` packages must **reuse these postinst scripts verbatim**. They are not Tauri-specific. The `scripts/linux/install_permissions.py` script and the AppImage `pkexec` + `voice-typer.polkit` flow also stay unchanged.
+**Linux udev rule + input group (preserved):** the native `linux-key-listener` binary requires `input` group membership to read `/dev/input/event*`. The existing `scripts/linux/postinst` (and `postinst.rpm`) already install the udev rule `99-lausu.rules` and add the installing user to the `input` group via `usermod -aG input`. The Tauri `.deb`/`.rpm` packages must **reuse these postinst scripts verbatim**. They are not Tauri-specific. The `scripts/linux/install_permissions.py` script and the AppImage `pkexec` + `lausu.polkit` flow also stay unchanged.
 
 #### 6.5 Tray icon: port to `tauri-plugin-tray`, preserve menu structure
 
@@ -723,25 +721,25 @@ Today the tray icon is `pystray` (Win32 / AppKit / GTK), with menu logic in `tra
 
 ### 8. Path resolution (cross-platform)
 
-Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates to `config._config_dir()`): the single source of truth. The previous ADR's Windows-only `%LOCALAPPDATA%` reference was incomplete. The actual resolution per `_paths.py`:
+Lausu today uses the platform-aware `_paths.config_dir()` (which delegates to `config._config_dir()`): the single source of truth. The previous ADR's Windows-only `%LOCALAPPDATA%` reference was incomplete. The actual resolution per `_paths.py`:
 
 | Platform | Path | Notes |
 |---|---|---|
-| Windows | `%APPDATA%/voice-typer` | `APPDATA` = `C:\Users\<user>\AppData\Roaming` |
-| macOS | `~/Library/Application Support/voice-typer` | per Apple File System conventions |
-| Linux | `$XDG_DATA_HOME/voice-typer` (default `~/.local/share/voice-typer`) | per XDG Base Directory Spec |
+| Windows | `%APPDATA%/lausu` | `APPDATA` = `C:\Users\<user>\AppData\Roaming` |
+| macOS | `~/Library/Application Support/lausu` | per Apple File System conventions |
+| Linux | `$XDG_DATA_HOME/lausu` (default `~/.local/share/lausu`) | per XDG Base Directory Spec |
 | Override | `$VOICE_TYPER_CONFIG_DIR` | dev/test override |
-| Migration | `~/.voice-typer` checked first | existing installs keep their data in place |
+| Migration | `~/.lausu` checked first | existing installs keep their data in place |
 
 - Config: `<config_dir>/config.json` (same as today's `config.py` `APPNAME` dir). Sidecar reads it via `_paths.config_dir()` (CWD-independent, unchanged).
 - Models: `<config_dir>/models` (`HF_HOME` redirected here via `asr_setup.py`). `prewarm` warms this path.
 - Logs: `<config_dir>/logs/` (see §11).
 - History DB: `<config_dir>/history.db` (SQLite WAL, `0o600` on POSIX, NTFS ACLs on Windows).
 - Crash recovery: `<config_dir>/recovery.json`.
-- **predecessor `userData` migration:** on first Tauri launch, if `<config_dir>` is absent but the old predecessor `userData/voice-typer` exists, copy it once (config + models + history), one-time, idempotent. Off by default until validated.
-  - **Both exist (merge rule):** if both `<config_dir>` and the old predecessor `userData/voice-typer` exist and differ, do **not** blindly overwrite: (a) `config.json` Merge key-by-key, **newest mtime wins** per key; (b) `models/` Copy only files **absent** from the target (never clobber a newer download); (c) `history.db` **Append**, never replace (history is append-only and irreplaceable); (d) log a summary of what was merged. Prevents silently destroying user data on a revert-then-relaunch.
+- **predecessor `userData` migration:** on first Tauri launch, if `<config_dir>` is absent but the old predecessor `userData/lausu` exists, copy it once (config + models + history), one-time, idempotent. Off by default until validated.
+  - **Both exist (merge rule):** if both `<config_dir>` and the old predecessor `userData/lausu` exist and differ, do **not** blindly overwrite: (a) `config.json` Merge key-by-key, **newest mtime wins** per key; (b) `models/` Copy only files **absent** from the target (never clobber a newer download); (c) `history.db` **Append**, never replace (history is append-only and irreplaceable); (d) log a summary of what was merged. Prevents silently destroying user data on a revert-then-relaunch.
   - **Ordering (write-conflict trap):** run the migration/merge **before** the sidecar starts. If the sidecar boots first it initializes a fresh empty `config.json` / `history.db`; the later merge then hits a file lock / write conflict or silently ignores the old data. Migrate → then spawn.
-  - **Per-platform `userData` location:** the predecessor's `app.getPath('userData')` is `%APPDATA%/Voice Typer` (Windows, with a space), `~/Library/Application Support/Voice Typer` (macOS, with a space), `~/.config/Voice Typer` (Linux, with a space). Note the **space** in the dir name, different from the Python side's `voice-typer` (hyphen). The migration code must handle both.
+  - **Per-platform `userData` location:** the predecessor's `app.getPath('userData')` is `%APPDATA%/Lausu` (Windows, with a space), `~/Library/Application Support/Lausu` (macOS, with a space), `~/.config/Lausu` (Linux, with a space). Note the **space** in the dir name, different from the Python side's `lausu` (hyphen). The migration code must handle both.
 
 ### 9. `bubble_level` throttling
 
@@ -767,17 +765,17 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 - **Exclude `bubble_level` from the file log.** At ~60 Hz it would fill disk fast even with rotation. Ensure `bubble_level` publishes are logged at `DEBUG` only (or suppressed in `log.py` / the `event_bus`→file forwarder) so file logs capture events/errors, not the level stream. Rust already coalesces the event to ≤30 Hz for the UI (§9); the file path must drop it entirely.
 - Keep the Python `logging` config (`log.py`) otherwise unchanged; it writes to the file resolved from `_paths.config_dir()`. Do NOT rely on console output post-migration.
 - **Per-platform log location:**
-  - Windows: `%APPDATA%/voice-typer/logs/`
-  - macOS: `~/Library/Application Support/voice-typer/logs/` (NOT `~/Library/Logs/` Keep consistency with the existing app data dir)
-  - Linux: `$XDG_DATA_HOME/voice-typer/logs/` (default `~/.local/share/voice-typer/logs/`)
+  - Windows: `%APPDATA%/lausu/logs/`
+  - macOS: `~/Library/Application Support/lausu/logs/` (NOT `~/Library/Logs/` Keep consistency with the existing app data dir)
+  - Linux: `$XDG_DATA_HOME/lausu/logs/` (default `~/.local/share/lausu/logs/`)
 
 ### 12. Single-instance behavior (cross-platform)
 
 - `single-instance` plugin enabled. Second launch → existing instance focused (`show` + `setFocus` on main window) and a `second-instance` event emitted so tray/UI can surface. No second sidecar spawned. Matches "one app" expectation.
 - **Ordering is critical:** the `single-instance` duplicate check must run at the **absolute entry point of `main.rs` Before any sidecar initialization** (token gen, `stdout` port handshake, `shell:spawn`). If a second launch reaches the spawn code before the duplicate is detected, you get a **zombie sidecar** (and a competing mic holder) on every double-click of the desktop shortcut. Detect the duplicate first; only the surviving instance starts the sidecar.
-- **CLI args / deep links:** forward the second instance's argv to the running instance via the `single-instance` `args` payload → re-emit as a Tauri event (or internal Rust message). The current `app.py` mutex (`VoiceTyperSingleInstance` Locate by `class VoiceTyperSingleInstance`) only blocks duplicates; under Tauri the args must be delivered so deep links / `voice-typer:` URIs still open the right view.
+- **CLI args / deep links:** forward the second instance's argv to the running instance via the `single-instance` `args` payload → re-emit as a Tauri event (or internal Rust message). The current `app.py` mutex (`LausuSingleInstance` Locate by `class LausuSingleInstance`) only blocks duplicates; under Tauri the args must be delivered so deep links / `lausu:` URIs still open the right view.
 - **Per-platform single-instance mechanism used by Tauri's plugin:**
-  - **Windows:** Win32 named mutex (same approach as today's `VoiceTyperSingleInstance`, different name: Tauri uses the app identifier). **Remove the Python-side `VoiceTyperSingleInstance` mutex when running under Tauri** (`TAURI_SIDECAR=1` → skip mutex acquire) to avoid double-locking.
+  - **Windows:** Win32 named mutex (same approach as today's `LausuSingleInstance`, different name: Tauri uses the app identifier). **Remove the Python-side `LausuSingleInstance` mutex when running under Tauri** (`TAURI_SIDECAR=1` → skip mutex acquire) to avoid double-locking.
   - **macOS:** `NSApplication` activation policy: the second launch activates the first via the macOS app-activation protocol. No file-based lock needed.
   - **Linux:** lockfile in `<config_dir>/.single-instance.lock` (Tauri plugin default). Best-effort, like today's POSIX lockfile.
 
@@ -805,7 +803,7 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 5. The DMG is built from the stapled `.app`, then the DMG itself is signed + notarized + stapled.
 
 **Required `Info.plist` keys for the `.app`:**
-- `CFBundleIdentifier`: `com.voicetyper.desktop` (matches today's `legacy builder config` `appId`).
+- `CFBundleIdentifier`: `com.Lausu.desktop` (matches today's `legacy builder config` `appId`).
 - `LSMinimumSystemVersion`: `13.0` (matches `PLATFORM_STATUS.md` minimum).
 - `LSUIElement`: `false` (the main app shows in the Dock; the sidecar sets `LSUIElement=true` separately).
 - `NSMicrophoneUsageDescription`: required for `sounddevice` to access the mic.
@@ -823,13 +821,13 @@ Linux packages are unsigned by default in both predecessor (today) and Tauri. Op
 - **GPG-sign the .rpm**: `rpm --addsign <rpm>`. Users verify with `rpm --checksig`.
 - **AppImage GPG signature**: AppImage supports `zsync` + GPG; documented at the AppImage spec.
 
-**Reuse the existing `scripts/linux/postinst`, `prerm`, `postinst.rpm`, `prerm.rpm`** verbatim: they install the udev rule, add the user to `input`, configure Caps Lock neutralization, and write a manifest at `/var/lib/voice-typer/permissions-manifest.json` for clean uninstall. **These scripts are not Tauri-specific** and must be wired into the Tauri `deb` and `rpm` bundle config:
+**Reuse the existing `scripts/linux/postinst`, `prerm`, `postinst.rpm`, `prerm.rpm`** verbatim: they install the udev rule, add the user to `input`, configure Caps Lock neutralization, and write a manifest at `/var/lib/lausu/permissions-manifest.json` for clean uninstall. **These scripts are not Tauri-specific** and must be wired into the Tauri `deb` and `rpm` bundle config:
 ```json
 "bundle": {
   "linux": {
     "deb": {
       "depends": ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3"],
-      "desktopTemplate": "voice-typer.desktop.template",
+      "desktopTemplate": "lausu.desktop.template",
       "postInstallScript": "../../scripts/linux/postinst",
       "preRemoveScript": "../../scripts/linux/prerm"
     },
@@ -892,6 +890,10 @@ Do NOT silently add commands/events during implementation. Every addition widens
 - **Added surface:** `#[tauri::command] save_stats_image` in `src-tauri/src/commands/system_cmds/stats_image.rs`, registered in `main.rs`'s `generate_handler!` (24th command). Payload `{ dataUrl: string, defaultName?: string, mode?: "downloads" | "saveAs" }`. Returns the predecessor's handler shapes verbatim: success `{"success": true, "path": "<file>"}`; canceled dialog `{"success": false, "canceled": true}`; invalid payload / write failure `{"success": false, "error": "<msg>"}`.
 - **Validation rules:** the data URL must be a `data:image/png;base64,...` string capped at 25 MB (`MAX_PNG_DATA_URL_BYTES`, mirrors the predecessor handler's cap; defends against a compromised renderer feeding a multi-GB base64 blob to `BASE64_STANDARD`); the DECODED bytes must carry the PNG signature `89 50 4E 47` (not just the MIME prefix); the filename stem is sanitized with the same traversal-neutral rules as the predecessor's `safePngFilename`; `require_main_window` runs FIRST (SEC-026: a compromised bubble renderer cannot write files or open save dialogs).
 - **Tests:** `src-tauri/src/commands/system_cmds/stats_image_tests.rs` (13 cases: MIME-prefix rejection, decoded-signature check, oversized-base64 rejection, traversal neutralization, `.png`/`.PNG` peel, non-colliding Downloads naming). This is a **Tauri host** command: it does NOT grow the Python sidecar frozen table (`_COMMAND_REGISTRY` / `EXPECTED_COMMANDS`) or the TS `ALLOWED_COMMANDS` set. The host-side frozen set is `tests/tauri/mig19/test_final_glue.py::EXPECTED_MAIN_RS_COMMANDS`, which grew 23 → 24 in the same commit. `tests/test_architecture_doc_accuracy.py` already pins 24 commands / 330 main.rs lines against the same `generate_handler!` list (two pins, one truth).
+
+#### §16 addendum 2026-09-24: universal media-to-text job surface (ADR-0023)
+
+- **Added:** `media_transcribe_start` + `media_transcribe_cancel` + `media_transcribe_status`. The Media page turns a local media file (or, already implemented, a remote URL gated by `media_url_consent`) into text on the existing ASR engines; the trio only manages the background job: `start` validates the source, rejects with `client.missing_field` / `client.consent_required` / `server.no_model` / `server.job_busy`, then returns the job id while progress/completion/failure arrive as the `media_transcribe_progress` / `media_transcribe_complete` / `media_transcribe_error` push events; `cancel` sets the cooperative cancel flag; `status` returns the active-or-last job snapshot (`{"job": null}` when idle) so the page rehydrates its card after navigation. They have `_handle_*` mixins in `handlers/media_handlers.py`, a `_validate_dict_payload` schema for `media_transcribe_start` (`{source (required, ≤4096), export_path?, export_format?, use_subtitles? (opt-in)}`; capacity weight 10 in `ipc/rate_limiter.py`), and no-payload reads for `cancel` / `status` (nothing to validate; a single active job makes the id implicit). Domain coverage lives in `tests/handlers/test_media_handlers.py` (dispatch-error envelopes: `client.missing_field`, `client.consent_required`, `server.no_model`), engine tests in `tests/test_media_ingest.py` / `tests/test_media_ingest_aux.py`, renderer tests under `pages/media/**/__tests__/`, and the full design in `docs/adr/0023-media-ingest-transcription.md` + `docs/ipc-reference.md` § Media. `EXPECTED_COMMANDS` grew 71 → 74; the registry (78) and the Rust `allowed_commands()` allowlist (74) were already grown in lockstep by the feature commit; this addendum closes the ADR-documentation gap that commit left open. (Note: `tests/test_ipc_dispatch_errors.py`, named by earlier addenda and by rule (4) above, was folded away by the Tauri-only cutover; per-domain dispatch-error suites carry that coverage now.)
 
 ---
 
@@ -981,7 +983,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - `ipc_server.py` Dispatch layer (`_COMMAND_REGISTRY`, `_dispatch`, `_validate_dict_payload`). The listen/accept loop changes (TCP → WS server), but the dispatch + handler invocation is unchanged.
 - `event_bus.py` The publish/subscribe event bus. Unchanged.
 - `handlers/*` All 69 command handlers. Unchanged.
-- `app.py`, `service.py` The `VoiceTyperApp` and `VoiceTyperService` domain layer. Unchanged.
+- `app.py`, `service.py` The `LausuApp` and `LausuService` domain layer. Unchanged.
 - `recording/` package, `recording_controller.py`, `streaming.py`, `dictation_pipeline.py`, `transcription.py` Audio capture + ASR pipeline. Unchanged.
 - `audio_processor.py`, `audio_filters/*`, `audio_chain_builder.py`, `audio_presets.py` Audio filter chain (ADR-0009, the real one). Unchanged.
 - `vad.py`, `silero_vad.onnx` Voice activity detection. **Changed by the ONNX migration (ADR-0005, `PLAN_ONNX_INTEGRATION.md` §2):** `vad.py` now uses an `onnxruntime.InferenceSession` against the bundled `silero_vad.onnx` (replacing the legacy `torch.jit.load` + `silero_vad.jit` path). The hidden-state buffer is threaded across calls (`_state` numpy array, not torch tensors) so streaming chunk detection preserves context. The legacy `silero_vad.jit` artifact and the `--module-parameter=torch-disable-jit=no` Nuitka flag were retired (Phase 1c complete 2026-08-15, see `plan-runtime-pack-split.md` §3.3).
@@ -1038,18 +1040,18 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - `client/legacy vite.config.ts`, `client/legacy vite.main.ts`, `client/legacy vite.renderer.ts` predecessor-specific Vite configs. Replaced by a single Vite config for the Tauri WebView.
 - `client/csp-plugin.ts` predecessor CSP enforcer. Replaced by `tauri.conf.json` `app.security.csp`.
 - `scripts/build/installer.iss` Inno Setup script (no longer present in the source tree; was the legacy Windows installer). Replaced by Tauri's NSIS bundler.
-- `scripts/build/voice-typer.manifest` Windows app manifest. Tauri generates its own.
+- `scripts/build/lausu.manifest` Windows app manifest. Tauri generates its own.
 - The `_handle_heartbeat` path in `ipc_server.py` Disabled via `TAURI_SIDECAR=1` env var (not deleted, so the predecessor fallback still works).
-- The `VoiceTyperSingleInstance` Win32 mutex in `app.py` (locate by `class VoiceTyperSingleInstance`): disabled via `TAURI_SIDECAR=1` (Tauri's `single-instance` plugin replaces it).
+- The `LausuSingleInstance` Win32 mutex in `app.py` (locate by `class LausuSingleInstance`): disabled via `TAURI_SIDECAR=1` (Tauri's `single-instance` plugin replaces it).
 
 ### Kept verbatim (NOT Tauri-specific: reuse as-is)
 
-- `scripts/build/voice-typer.spec` PyInstaller spec (fallback if Nuitka fails on a target).
+- `scripts/build/lausu.spec` PyInstaller spec (fallback if Nuitka fails on a target).
 - `scripts/build/compile_native.sh` + `compile_native.ps1` Native hotkey binary build.
 - `scripts/linux/postinst`, `prerm`, `postinst.rpm`, `prerm.rpm` Linux package scripts (udev + input group + Caps Lock).
-- `scripts/linux/99-voice-typer.rules` Udev rule.
-- `scripts/linux/00-voice-typer-capslock.conf` X11 Caps Lock config.
-- `scripts/linux/voice-typer.polkit` Polkit policy for AppImage `pkexec`.
+- `scripts/linux/99-lausu.rules` Udev rule.
+- `scripts/linux/00-lausu-capslock.conf` X11 Caps Lock config.
+- `scripts/linux/lausu.polkit` Polkit policy for AppImage `pkexec`.
 - `scripts/linux/install_permissions.py`, `uninstall_permissions.py` Linux permission setup.
 - `voice_typer/server/native/*` Native hotkey binaries source.
 - `voice_typer/stubs/*` Type stubs for platform-only deps.
@@ -1071,7 +1073,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 
 ### Resolved in planning (no longer blocking)
 
-- **Sidecar freeze tool:** Nuitka (not PyInstaller `--onedir`). Single executable per target triple via `python-build-standalone`. PyInstaller `voice-typer.spec` retained as fallback.
+- **Sidecar freeze tool:** Nuitka (not PyInstaller `--onedir`). Single executable per target triple via `python-build-standalone`. PyInstaller `lausu.spec` retained as fallback.
 - **Paste/keystroke injection crate:** `enigo` (not `rdev`) + `tauri-plugin-clipboard-manager` for the long-text path.
 - **Transport:** WebSocket only (not WebSocket/HTTP ambiguity); ephemeral port + HMAC token (ADR-0014 reuse).
 - **Cooperative shutdown:** over WebSocket (not stdin/stdout).
@@ -1086,7 +1088,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 
 ## References
 
-### Voice Typer ADRs (verified against `docs/adr/` on 2026-07-16)
+### Lausu ADRs (verified against `docs/adr/` on 2026-07-16)
 
 - **ADR-0000**: ADR process.
 - **ADR-0001**: Record architecture decisions.
@@ -1125,7 +1127,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - systemd user units (`www.freedesktop.org/software/systemd/man/systemd.unit.html`).
 - macOS LaunchAgent plist reference (`developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html`).
 
-### Voice Typer source files (locate symbols by name; line numbers drift)
+### Lausu source files (locate symbols by name; line numbers drift)
 
 - `voice_typer/server/ipc_server.py` (see the file directly: earlier drafts of this ADR disagreed on the line count, and the module has continued to grow since), `_COMMAND_REGISTRY` (locate by the `_COMMAND_REGISTRY = {` assignment near the top of the file; 69 commands, see §2 IPC-1 reconciliation), `_validate_dict_payload` (locate by `def _validate_dict_payload` in `voice_typer/server/ipc/validation.py` Extracted from `ipc_server.py` during the Phase 4.5 split), `_push_event_now` (locate by `def _push_event_now`), `push` (locate by `def push`), the `ready` emit (locate by the `{"type": "ready"}` `IPCServer.push` call site: also re-emitted from `sidecar_ws.py`), `_handle_heartbeat` (locate by `def _handle_heartbeat` Resident on `IPCServer`, not in `handlers/`), `_handle_relaunch_ack` (locate by `def _handle_relaunch_ack` Resident on `IPCServer`, not in `handlers/`).
 - `voice_typer/server/event_bus.py` (see the file directly): the publish/subscribe singleton. The module docstring's "Canonical event catalogue" section lists all 24 event names (IPC-2 reconciliation, 2026-07-18).
@@ -1141,14 +1143,14 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - `voice_typer/server/hotkeys/` package, `create_hotkey_backend` factory, native + fallback backends. (The historical `hotkeys.py` was split into a package, `base.py`, `factory.py`, `native_adapter.py`, `pynput_backend.py`, `wayland.py`, `windows_native.py`, `win32_vk.py`.)
 - `voice_typer/server/native_hotkeys/` package, `get_native_binary_path`, native binary subprocess management. (The historical `native_hotkeys.py` was split into a package, `base.py`, `binary_path.py`, `factory.py`, `linux_backend.py`, `mac_backend.py`, `modifiers.py`, `recorder.py`, `spec_parser.py`, `windows_backend.py`.)
 - `voice_typer/server/native/{windows-key-listener.c, macos-key-listener.swift, linux-key-listener.c}` The three native hotkey binaries (preserved by this ADR).
-- `voice_typer/server/app.py` (see the file directly), `VoiceTyperApp`. The `VoiceTyperSingleInstance` Win32 mutex (`"Local\\VoiceTyperSingleInstance"` Locate by `class VoiceTyperSingleInstance`) is disabled via `TAURI_SIDECAR=1` (single-instance enforcement is handled by Tauri's `tauri-plugin-single-instance` on the Tauri path). **Note: an earlier version of this ADR claimed `app.py:2086` for `VoiceTyperSingleInstance` That was wrong; line numbers drift, so the class is located by name, not line number.**
+- `voice_typer/server/app.py` (see the file directly), `LausuApp`. The `LausuSingleInstance` Win32 mutex (`"Local\\LausuSingleInstance"` Locate by `class LausuSingleInstance`) is disabled via `TAURI_SIDECAR=1` (single-instance enforcement is handled by Tauri's `tauri-plugin-single-instance` on the Tauri path). **Note: an earlier version of this ADR claimed `app.py:2086` for `LausuSingleInstance` That was wrong; line numbers drift, so the class is located by name, not line number.**
 - `voice_typer/client/src/main/index.ts` (209 lines, plus sibling modules under `voice_typer/client/src/main/{windows,python,ipc}/`): predecessor main process, refactored from the historical monolithic `index.ts` into multiple submodules (REMOVED on Tauri path).
 - `voice_typer/client/legacy builder config` predecessor builder config (Windows NSIS + macOS DMG x64/arm64 + Linux AppImage/deb/rpm with notarization). **Source of signing-config reuse for the Tauri build.**
-- `scripts/build/voice-typer.spec` (382 lines): PyInstaller spec (fallback for Nuitka).
+- `scripts/build/lausu.spec` (382 lines): PyInstaller spec (fallback for Nuitka).
 - `scripts/build/compile_native.sh` (270 lines) + `scripts/build/compile_native.ps1` Native hotkey binary build.
 - `scripts/build/installer.iss` Inno Setup script (no longer present in the source tree; was the legacy Windows installer script before the Tauri migration removed it).
-- `scripts/build/voice-typer.manifest` Windows app manifest (REMOVED on Tauri path, Tauri generates its own).
-- `scripts/linux/{postinst,prerm,postinst.rpm,prerm.rpm,99-voice-typer.rules,00-voice-typer-capslock.conf,voice-typer.polkit,install_permissions.py,uninstall_permissions.py}` Linux packaging + permission scripts (REUSED verbatim by Tauri .deb/.rpm).
+- `scripts/build/lausu.manifest` Windows app manifest (REMOVED on Tauri path, Tauri generates its own).
+- `scripts/linux/{postinst,prerm,postinst.rpm,prerm.rpm,99-lausu.rules,00-lausu-capslock.conf,lausu.polkit,install_permissions.py,uninstall_permissions.py}` Linux packaging + permission scripts (REUSED verbatim by Tauri .deb/.rpm).
 - `docs/PLATFORM_STATUS.md` The 30-row feature × OS matrix. **Authoritative for what must not regress.**
 - `docs/ARCHITECTURE.md` The current (the predecessor) architecture overview.
 - `docs/auto-update-feature.md` Design-only (NOT IMPLEMENTED). **Do not assume auto-update works today.**
@@ -1169,9 +1171,9 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 11. **Missing auto-update discussion**. The previous ADR did not mention auto-update at all. Today auto-update is NOT IMPLEMENTED (`docs/auto-update-feature.md`'s own header says so). Fixed in §15.
 12. **Missing rate-limiter porting**: ADR-0019 (per-connection rate limiter) was not mentioned. The TCP-side limiter must be ported to the WS accept path. Fixed in §10.
 13. **Missing ADR-0018 reconciliation**. The previous ADR said "remove heartbeat" but did not reference ADR-0018 (the heartbeat watchdog ADR) or explain how the Rust supervisor replaces it. Fixed in §2 + §10.
-14. **Missing existing build assets**, `voice-typer.spec`, `installer.iss`, `compile_native.sh`, `legacy builder config`, `scripts/linux/*` were not referenced. Fixed in §4.5 + §13.3 + the "Kept verbatim" section.
+14. **Missing existing build assets**, `lausu.spec`, `installer.iss`, `compile_native.sh`, `legacy builder config`, `scripts/linux/*` were not referenced. Fixed in §4.5 + §13.3 + the "Kept verbatim" section.
 15. **`externalBin` naming**: the previous ADR only mentioned `python-sidecar-x86_64-pc-windows-msvc.exe`. macOS + Linux + ARM need their own target triples. Fixed in §4.1 + §7.
 
 ---
 
-*End of document. This is the cross-platform rewrite of ADR-0020, verified against `AbdallahIsDev/voice-typer` `main` on 2026-07-16. The previous Windows-only version is superseded.*
+*End of document. This is the cross-platform rewrite of ADR-0020, verified against `AbdallahIsDev/lausu` `main` on 2026-07-16. The previous Windows-only version is superseded.*

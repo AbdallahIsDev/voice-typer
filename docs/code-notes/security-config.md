@@ -51,9 +51,11 @@ Do not re-inline literals.
 ## model-integrity-cache
 
 `security/model_integrity.py` caches SHA-256 by
-`(repo_id, relpath, st_mtime_ns, st_size)`. Cache hit skips re-hash
-of unchanged multi-GB weights; it does not weaken the pinned-manifest
-check. Local models (`revision: "local"`) hard-fail when `files` is
+`(repo_id, relpath, st_mtime_ns, st_size)` for the reporting-only
+failure-details path. The load verdict always re-hashes file bytes:
+mtime/size and the user-writable cache are forgeable by any
+user-privileged writer, so a cache hit never decides pass/fail.
+Local models (`revision: "local"`) hard-fail when `files` is
 empty — there is no upstream commit pin.
 
 ## url-allowlist-ssrf

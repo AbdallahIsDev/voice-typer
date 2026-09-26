@@ -1,7 +1,7 @@
 # Plan: Drop torch, shrink the installer, split core vs ML runtime pack
 
 > **Status:** Rewritten 2026-08-13 after a 15-agent deep investigation of the
-> voice-typer codebase. Supersedes the 2026-08-12 version, which was
+> lausu codebase. Supersedes the 2026-08-12 version, which was
 > Windows-skewed, under-specified the worker-exe architecture, made
 > inaccurate claims about prewarm/auto-update/NVIDIA DLLs, and treated Qwen
 > as an LLM (it is an ASR engine).
@@ -181,7 +181,7 @@ additional sites** that must be swept:
 - 8 literal `import torch` statements in tests
   (`tests/test_vad_dtype_optimization.py` ×7,
   `tests/test_transcription_fallback.py:127`).
-- `scripts/build/voice-typer.spec:112-113,274` PyInstaller fallback
+- `scripts/build/lausu.spec:112-113,274` PyInstaller fallback
   references `silero_vad.jit`, `"transformers"`, `"transformers.models"`,
   `"accelerate"`.
 - `MANIFEST.in:20-26` `include voice_typer/server/silero_vad.jit`.
@@ -290,8 +290,8 @@ for the worker. This rewrite specifies them:
     --include-package=pyrnnoise \
     --nofollow-import-to=torch \
     --nofollow-import-to=transformers \
-    --onefile-tempdir-spec=%LOCALAPPDATA%/voice-typer/worker-tmp \
-    --output-filename=voice-typer-worker-$TARGET_TRIPLE.exe \
+    --onefile-tempdir-spec=%LOCALAPPDATA%/lausu/worker-tmp \
+    --output-filename=lausu-worker-$TARGET_TRIPLE.exe \
     voice_typer/worker/__main__.py
   ```
 - **Tauri `externalBin`:** add the worker to ALL FIVE platform tauri conf
@@ -299,10 +299,10 @@ for the worker. This rewrite specifies them:
   `tauri.linux-x86_64.conf.json`, `tauri.linux-aarch64.conf.json`,
   `tauri.macos.conf.json`). Also add to `plugins.shell.scope` in
   `tauri.conf.json:60-62,127-138`.
-- **macOS bundle id:** `com.voicetyper.worker` (parallel to the host's
-  `com.voicetyper`).
-- **PyInstaller fallback:** add a `voice-typer-worker.spec` (parallel to
-  `voice-typer.spec`) for environments where Nuitka fails.
+- **macOS bundle id:** `com.Lausu.worker` (parallel to the host's
+  `com.Lausu`).
+- **PyInstaller fallback:** add a `lausu-worker.spec` (parallel to
+  `lausu.spec`) for environments where Nuitka fails.
 
 ### 4.5 How updates work after the split
 
@@ -322,12 +322,12 @@ integrity systems**, and the pack would be a fourth:
 
 1. `model_hashes.json` + `verify_model_integrity()` For HF model files.
 2. `tauri-binaries.json` + `verify_tauri_binary_or_skip()` For the Tauri
-   host binary (only 3 entries: `voice-typer-tauri` / `.exe` / `.app`).
+   host binary (only 3 entries: `lausu-tauri` / `.exe` / `.app`).
 3. `voice_typer/server/native/binaries.json` + `update_native_manifests.py`
  For the native hotkey listener.
 
 **Decision:** create a fourth manifest `pack-manifest.json` at
-`%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\pack-manifest.json`
+`%LOCALAPPDATA%\lausu\runtime-pack\<version>\pack-manifest.json`
 (schema: `{version, sha256, files: [{name, sha256, size}], min_proto_version}`).
 Do NOT extend `tauri-binaries.json` Its schema is scoped to a single host
 binary spawned by the launcher, and extending it creates coupling between
@@ -339,14 +339,14 @@ function modeled on `verify_tauri_binary_or_skip()`.
 
 ### 4.7 Where the pack lives (cross-platform)
 
-The 2026-08-12 version hardcoded `%LOCALAPPDATA%\voice-typer\runtime-pack\`.
+The 2026-08-12 version hardcoded `%LOCALAPPDATA%\lausu\runtime-pack\`.
 This is Windows-only. The actual paths (per `src-tauri/src/platform/paths.rs:163-356`):
 
 | Platform | Path |
 |---|---|
-| Windows | `%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\` |
-| Linux | `$XDG_DATA_HOME/voice-typer/runtime-pack/<version>/` (default `~/.local/share/voice-typer/runtime-pack/<version>/`) |
-| macOS | `~/Library/Application Support/voice-typer/runtime-pack/<version>/` |
+| Windows | `%LOCALAPPDATA%\lausu\runtime-pack\<version>\` |
+| Linux | `$XDG_DATA_HOME/lausu/runtime-pack/<version>/` (default `~/.local/share/lausu/runtime-pack/<version>/`) |
+| macOS | `~/Library/Application Support/lausu/runtime-pack/<version>/` |
 
 The worker exe path is resolved per-platform via a new
 `src-tauri/src/platform/worker_path.rs` (modeled on `paths.rs`).
@@ -567,7 +567,7 @@ that the slim-core sidecar connects to as a client.
 - **Shutdown:** the worker shuts down when the slim-core sidecar shuts down
   (graceful via WS close, or forceful via SIGTERM/taskkill).
 - **Single-instance:** the worker takes a lock file to prevent parallel
-  spawns (parallel to `VoiceTyperSingleInstance`).
+  spawns (parallel to `LausuSingleInstance`).
 
 ### 7.3 Worker lifecycle (the plan's biggest hole)
 
@@ -741,7 +741,7 @@ section re-specifies each against the real codebase.
 
 - **Codebase state:** `src-tauri/src/platform/paths.rs` resolves the data
   dir per-platform. No fallback for write-blocked dirs.
-- **Plan:** fall back to the user's roaming folder (Windows) / `~/.voice-typer`
+- **Plan:** fall back to the user's roaming folder (Windows) / `~/.lausu`
   (POSIX). If that's blocked too, run in "core-only mode" with one clear
   message. Rare, but handled.
 - **Test:** `tests/test_pack_fallback_dir.py` (new).
@@ -756,7 +756,7 @@ section re-specifies each against the real codebase.
 
 ### 8.13 Dual instance race
 
-- **Codebase state:** `VoiceTyperSingleInstance` enforces a single app
+- **Codebase state:** `LausuSingleInstance` enforces a single app
   instance via mutex (Windows) / lockfile (POSIX, best-effort).
 - **Plan:** the pack downloader takes its own lock file
   (`pack-<version>.lock`) to serialize downloads across instances.
@@ -825,7 +825,7 @@ them and corrected the claims:
 | Integrity manifest | `tauri-binaries.json`, `autostart_launcher.py`, `update_tauri_manifests.py` | Pattern for `pack-manifest.json` (new file). Do NOT extend `tauri-binaries.json` Different scope. | ✅ pattern, ❌ direct reuse |
 | Websocket IPC bridge | `--ws` flag, `websockets` package, IPC registry | Pattern for the worker's WS server. The slim-core sidecar becomes a WS CLIENT of the worker, a new second hop. | ✅ pattern, ❌ direct reuse |
 | Prewarm tooling | `voice_typer/server/prewarm/` | Logic moves INTO the worker as a startup phase. The separate binary + OS schedulers are DELETED. | ✅ logic, ❌ binary |
-| Single-instance mutex | `VoiceTyperSingleInstance` | Pattern for the worker's own lock file. | ✅ pattern |
+| Single-instance mutex | `LausuSingleInstance` | Pattern for the worker's own lock file. | ✅ pattern |
 | Auto-update mechanism | `docs/auto-update-feature.md` | **NOT IMPLEMENTED (design only).** Must be built from scratch. See §10. | ❌ does not exist |
 | Code-signing pipeline | `tauri-windows-build.yml` (4 steps) | Extend to sign the worker exe (5th binary). | ✅ exists, needs extension |
 | Cloud engines | `cloud_engines.py`, `llm_polish.py` | Core works without the pack (verified: zero torch/ctranslate2/onnxruntime imports). | ✅ verified |
@@ -953,8 +953,8 @@ the payload. Concrete implementation:
 
 ```bash
 # scripts/build/check_bundle_torch_free.sh (new)
-strings voice-typer-sidecar-$TARGET_TRIPLE.exe | grep -i "torch\." && exit 1
-strings voice-typer-sidecar-$TARGET_TRIPLE.exe | grep -i "silero_vad.jit" && exit 1
+strings lausu-sidecar-$TARGET_TRIPLE.exe | grep -i "torch\." && exit 1
+strings lausu-sidecar-$TARGET_TRIPLE.exe | grep -i "silero_vad.jit" && exit 1
 echo "Bundle is torch-free."
 ```
 
@@ -969,7 +969,7 @@ gate:
 ```yaml
 - name: Assert sidecar size ≤ 185 MB
   run: |
-    $size = (Get-Item voice-typer-sidecar-x86_64-pc-windows-msvc.exe).Length / 1MB
+    $size = (Get-Item lausu-sidecar-x86_64-pc-windows-msvc.exe).Length / 1MB
     Write-Host "Sidecar size: $size MB"
     if ($size -gt 185) {
       Write-Error "Sidecar exceeds 185 MB limit (got $size MB)"
@@ -1029,8 +1029,8 @@ concern below is now moot for pre-push; it applies to local
 C-CI-13 forbids renaming existing artifacts but allows adding new ones.
 New artifact names:
 
-- `voice-typer-slim-core-<version>-<triple>.exe` (Windows slim core).
-- `voice-typer-runtime-pack-<pack-version>-<triple>.zip` (pack, platform-agnostic zip).
+- `lausu-slim-core-<version>-<triple>.exe` (Windows slim core).
+- `lausu-runtime-pack-<pack-version>-<triple>.zip` (pack, platform-agnostic zip).
 - `pack-manifest.json` (manifest, uploaded as a release asset).
 
 Update `tauri-build.yml` download steps in lockstep.
@@ -1073,7 +1073,7 @@ Update `tauri-build.yml` download steps in lockstep.
 
 1. **Phase 1a: Silero VAD → ONNX.** See `PLAN_ONNX_INTEGRATION.md` §2.
    - Rewrite `vad.py` (ORT backend + hidden state threading).
-   - Add `silero_vad.onnx` + packaging (`MANIFEST.in`, `voice-typer.spec`,
+   - Add `silero_vad.onnx` + packaging (`MANIFEST.in`, `lausu.spec`,
      `build_sidecar_*.sh`).
    - Rewrite `tests/test_vad.py`, delete `tests/test_vad_dtype_optimization.py`.
    - Update `docs/adr/0005-silero-vad.md`.
@@ -1186,7 +1186,7 @@ Update `tauri-build.yml` download steps in lockstep.
 | **NEW** | `scripts/build/build_worker_windows.sh` | 2a |
 | **NEW** | `scripts/build/build_worker_linux.sh` | 2a |
 | **NEW** | `scripts/build/build_worker_macos.sh` | 2a |
-| **NEW** | `scripts/build/voice-typer-worker.spec` (PyInstaller fallback) | 2a |
+| **NEW** | `scripts/build/lausu-worker.spec` (PyInstaller fallback) | 2a |
 | **NEW** | `scripts/build/check_bundle_torch_free.sh` | 1c |
 | **NEW** | `tests/test_event_types_parity.py` (4th allowlist) | 2b |
 | **NEW** | 18 edge-case tests (`tests/test_pack_*.py`) | 2b |

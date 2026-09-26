@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Voice Typer are documented here.
+All notable changes to Lausu are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
@@ -243,7 +243,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 - **XZ-PRIV-04 (Low)**, `voice_typer/server/transcription.py`: the
   per-segment DEBUG log (`[TRANSCRIBE] Segment: [start - end] %s`)
   previously logged raw segment text unconditionally. User speech
-  could leak into `voice-typer.log` even when
+  could leak into `lausu.log` even when
   `config.log_transcriptions` was False. The log site now mirrors the
   contract already used by `hallucination.py::log_hallucination_rejection`:
   (a) only emit when the user has opted in via
@@ -283,7 +283,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   (.exe /.dmg /.deb /.rpm /.AppImage).
 
 - **Gap 2: macOS Accessibility onboarding**, When the native binary detects
-  missing Accessibility permission, Voice Typer shows a tray notification and
+  missing Accessibility permission, Lausu shows a tray notification and
   deep-links to System Settings → Privacy & Security → Accessibility. A 60s
   retry timer auto-restarts the native backend once permission is granted.
 
@@ -291,10 +291,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   postinst scripts that automatically install the udev rule, add the user to
   the `input` group, and configure Caps Lock neutralization. AppImage users
   get a `pkexec` GUI prompt on first launch. The user only types their sudo
-  password once (prompted by the OS, not by Voice Typer).
+  password once (prompted by the OS, not by Lausu).
 
 - **Gap 4: Runtime fallback chain**, If the native binary dies permanently
-  (antivirus, OOM killer, code-signing expiry), Voice Typer transparently
+  (antivirus, OOM killer, code-signing expiry), Lausu transparently
   swaps to the legacy backend (pynput/polling) with the same hotkey. A 5-min
   retry timer auto-recovers the native backend when it comes back.
 
@@ -305,11 +305,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   `permissions/checker.py`)
 - `scripts/linux/install_permissions.py` Linux udev/group/Caps Lock installer
 - `scripts/linux/uninstall_permissions.py` Linux uninstaller
-- `scripts/linux/99-voice-typer.rules` Udev rule
-- `scripts/linux/00-voice-typer-capslock.conf` XKB Caps Lock config
+- `scripts/linux/99-lausu.rules` Udev rule
+- `scripts/linux/00-lausu-capslock.conf` XKB Caps Lock config
 - `scripts/linux/postinst` / `prerm` Debian package scripts
 - `scripts/linux/postinst.rpm` / `prerm.rpm` RPM package scripts
-- `scripts/linux/voice-typer.polkit` Polkit policy for pkexec
+- `scripts/linux/lausu.polkit` Polkit policy for pkexec
 - `tests/test_runtime_fallback.py` 28 Tests for Gap 4
 - `tests/test_permissions.py` 31 Tests for Gap 2 + Gap 3
 
@@ -317,7 +317,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 - `voice_typer/server/native_hotkeys/` Added _on_error_callback, _on_permanent_failure_callback
 - `voice_typer/server/hotkeys/` Rewrote _NativeBackendAdapter as 4-state machine
 - `voice_typer/server/hotkey_dispatcher.py` Wires tray reference to adapter
-- `scripts/build/voice-typer.spec` Bundles Linux scripts + permissions module
+- `scripts/build/lausu.spec` Bundles Linux scripts + permissions module
 - `.github/workflows/build.yml` Added build-native matrix + build-macos + build-linux jobs
 
 ### Added: earlier NATIVE-001 work

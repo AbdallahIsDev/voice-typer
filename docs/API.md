@@ -1,10 +1,10 @@
-# Voice Typer: Public API Reference (DEPRECATED)
+# Lausu: Public API Reference (DEPRECATED)
 
 > **NH-34 reconciliation (2026-07-24):** this file is **deprecated** and is
 > retained only for backward-link compatibility. The canonical references are:
 >
 > - **[`docs/python-api.md`](python-api.md)**: Python class API reference
->   (`VoiceTyperApp`, `Recorder`, `TranscriptionEngine`, `Config`, etc.).
+>   (`LausuApp`, `Recorder`, `TranscriptionEngine`, `Config`, etc.).
 >   Kept in sync with the actual class signatures by
 >   `tests/test_api_doc_accuracy.py`.
 > - **[`docs/ipc-reference.md`](ipc-reference.md)**: IPC message reference
@@ -17,7 +17,7 @@
 > directly; this file will be deleted in a future release once no inbound
 > links remain.
 >
-> The Python class API (`VoiceTyperApp`, `Recorder`, `TranscriptionEngine`,
+> The Python class API (`LausuApp`, `Recorder`, `TranscriptionEngine`,
 > `Config`, `ClipboardManager`, `ModelManager`, `SecurityModule`,
 > `IpcServer`, etc.) is documented in `docs/python-api.md`. The IPC
 > command surface (renderer → main → backend ↔ Rust host) is documented

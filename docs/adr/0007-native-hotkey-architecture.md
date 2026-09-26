@@ -25,7 +25,7 @@ Accepted
 
 ## Context
 
-Voice Typer's hotkey detection lived entirely inside the Python process. On
+Lausu's hotkey detection lived entirely inside the Python process. On
 Windows the backend was `WindowsNativeHotkey`, which used Win32
 `RegisterHotKey` plus a `GetAsyncKeyState` polling thread; on macOS and Linux
 the backend was `PynputHotkey`, which uses `pynput`'s `GlobalHotKeysListener`
@@ -81,7 +81,7 @@ Options considered:
    are project-blocking for the cross-platform roadmap.
 3. **Keep `GetAsyncKeyState` polling on Windows**: accept the CPU cost.
    Rejected: the polling thread was the single largest contributor to
-   Voice Typer's idle CPU usage on Windows laptops, and it cannot support
+   Lausu's idle CPU usage on Windows laptops, and it cannot support
    modifier-only hotkeys (e.g. bare `Alt` as a trigger) because
    `RegisterHotKey` requires a non-modifier virtual key.
 4. **Out-of-process native binaries** (this ADR), one binary per

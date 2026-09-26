@@ -159,7 +159,7 @@ These tests assert that `# RACE-008` rationale comments exist on daemon-thread s
 ## Validation
 
 ```
-$ cd /home/z/my-project/voice-typer && python -m pytest tests/test_bugfix_regressions.py tests/test_bugfix_regressions_behavioral.py -q --no-header
+$ cd /home/z/my-project/lausu && python -m pytest tests/test_bugfix_regressions.py tests/test_bugfix_regressions_behavioral.py -q --no-header
 
 1 failed, 200 passed, 5 skipped in ~12s
 ```

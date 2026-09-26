@@ -1,6 +1,6 @@
-# Releasing Voice Typer
+# Releasing Lausu
 
-This document describes the release process for Voice Typer. The project
+This document describes the release process for Lausu. The project
 ships per-platform installers (Windows `.exe`, macOS `.dmg`, Linux
 `.deb` / `.rpm` / `.AppImage`) built by GitHub Actions on every `v*`
 tag push.
@@ -14,7 +14,7 @@ tag push.
 
 ## 1. Versioning
 
-Voice Typer follows [Semantic Versioning](https://semver.org/):
+Lausu follows [Semantic Versioning](https://semver.org/):
 
 - **MAJOR**: incompatible API / IPC protocol changes (e.g. a
   `_COMMAND_REGISTRY` rename or removal that breaks older renderer

@@ -1,11 +1,11 @@
 # Model Delete: Confirm-Only, No Undo (NEW-UX-004)
 
 **Status**: Decided (2025, d-review NEW-UX-004)
-**Decision owner**: voice-typer UX
+**Decision owner**: lausu UX
 **Supersedes**: none
 **Related code**:
 - `voice_typer/client/src/renderer/src/pages/Models.tsx` `confirmDeleteModel`
-- `voice_typer/server/service.py` `VoiceTyperService.delete_model`
+- `voice_typer/server/service.py` `LausuService.delete_model`
 - `voice_typer/server/handlers/model_handlers.py` `_handle_delete_model`
 
 ## Context
@@ -32,7 +32,7 @@ This is intentional. The two ways to implement undo on a model are both bad:
 ### Option A: Soft-delete (move model dir to trash dir for 6s, then hard-delete)
 
 The "model directory" is the HuggingFace hub cache entry under
-`~/.voice-typer/huggingface/hub/models--{repo_id}/`. Sizes:
+`~/.lausu/huggingface/hub/models--{repo_id}/`. Sizes:
 
 | Model                          | Approx. size |
 | ------------------------------ | ------------ |

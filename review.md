@@ -28,11 +28,11 @@ observations before marking anything done.
 **Severity:** 🔴 High
 **Priority:** P0
 
-### S1-CR-146, `StartupWMClass=Voice Typer` may not match Tauri window class
-**Status:** ❌ Not Fixed — host-only gate (`VALIDATE ON LINUX HOST` via `xprop WM_CLASS`); intentionally not rewritten blind (2026-09-21 FV session: left unchanged). (mismatch re-confirmed live 2026-09-15: template:28 `StartupWMClass=Voice Typer` vs `Cargo.toml:15` bin `voice-typer-tauri`; wiring intact via `tauri.conf.json:98` desktopTemplate + `Exec=voice-typer-tauri`). Deliberately NOT rewritten blindly; `host-validation.yml` records it as a `::warning` until `xprop WM_CLASS` on a visible Tauri window decides the value. `VALIDATE ON LINUX HOST`.
-> - **2026-08-24 audit:** plausible-true (space+case in productName makes default tao WM_CLASS match unlikely vs binary prgname `voice-typer-tauri`): verify via `xprop WM_CLASS` on a real Linux desktop, then set the matching class in `src-tauri/voice-typer.desktop.template`.
-- Location: `src-tauri/voice-typer.desktop.template:9`
-- Evidence: Binary is `voice-typer-tauri` (per `Cargo.toml:15`). Tauri v2 sets WM_CLASS based on binary name. If actual WM_CLASS is `voice-typer-tauri` but `StartupWMClass=Voice Typer`, WM may show duplicate icon.
+### S1-CR-146, `StartupWMClass=Lausu` may not match Tauri window class
+**Status:** ❌ Not Fixed — host-only gate (`VALIDATE ON LINUX HOST` via `xprop WM_CLASS`); intentionally not rewritten blind (2026-09-21 FV session: left unchanged). (mismatch re-confirmed live 2026-09-15: template:28 `StartupWMClass=Lausu` vs `Cargo.toml:15` bin `lausu-tauri`; wiring intact via `tauri.conf.json:98` desktopTemplate + `Exec=lausu-tauri`). Deliberately NOT rewritten blindly; `host-validation.yml` records it as a `::warning` until `xprop WM_CLASS` on a visible Tauri window decides the value. `VALIDATE ON LINUX HOST`.
+> - **2026-08-24 audit:** plausible-true (space+case in productName makes default tao WM_CLASS match unlikely vs binary prgname `lausu-tauri`): verify via `xprop WM_CLASS` on a real Linux desktop, then set the matching class in `src-tauri/lausu.desktop.template`.
+- Location: `src-tauri/lausu.desktop.template:9`
+- Evidence: Binary is `lausu-tauri` (per `Cargo.toml:15`). Tauri v2 sets WM_CLASS based on binary name. If actual WM_CLASS is `lausu-tauri` but `StartupWMClass=Lausu`, WM may show duplicate icon.
 - Fix: Verify actual WM_CLASS via `xprop WM_CLASS` on a running Tauri window; set `StartupWMClass` to match. `VALIDATE ON LINUX HOST`. · **Found by**: R15
 
 - **WM-6 / WM-7 / WM-8 / WM-11 / WM-12 / WM-13**, headless slice green 2026-09-15 (`test_clipboard_restore_args` + `test_clipboard_borrow_restore` + `test_sidecar_ws_ready_ordering` + `test_timeout_utils`, 57 passed); live desktop runs (X11/Wayland paste, toasts, hooks, logon) still need real hosts.
@@ -43,25 +43,7 @@ observations before marking anything done.
 
 ---
 
-# FV Session — 2026-09-19 (INVESTIGATION, GROUP 0, 7 sub-agents, orchestrator-verified)
-
-### FV-19 — Silero VAD v5 is available (current bundle is v4)
-**Status:** ❌ Not Fixed (2026-09-21 FV session: evaluated and deliberately left. A model swap is a design decision (v5 needs 576-sample chunking + a different state shape) and its claimed speedup cannot be validated without real-host audio calibration of `vad_speech_threshold`; shipping it unvalidated risks silently degrading core dictation (AGENTS.md E12). No code changed.)
-**Description:** The bundled VAD model is the v4 export; v5 is released upstream with claimed ONNX speedups (upstream compares ONNX-vs-torch at 4-5x; the v4→v5 swap benefit is unquantified, per Review Wave 2). Note: v5 is NOT a drop-in — at 16 kHz it requires a 576-sample input tensor (64 rolling context + 512 new samples) vs the current 512-sample contract. This is a model swap, which is a design decision, not a silent upgrade.
-**User Impact:** Potentially faster/more accurate voice-activity detection; VAD is already sub-millisecond per call so practical urgency is low.
-**Root Cause:** Verified (v4 asset in tree; v5 exists upstream — web-verified against the Silero VAD repository).
-**Gain vs Trade-off:** Claimed ONNX speedups (upstream compares ONNX-vs-torch at 4-5x; the v4→v5 swap benefit is unquantified, per Review Wave 2) and possibly better accuracy; trade-off: input chunking (576-sample), state-shape, and I/O-name changes in the integration, plus the speech-threshold setting may need retuning (calibrated differently).
-**If We Do It:** Faster VAD with the same latency contract; threshold semantics validated.
-**If We Don't:** Nothing breaks; v4 keeps working.
-**My Recommendation:** 🟡 Try and revert — evaluate the swap behind the existing probability calibration, treat threshold retuning as part of it.
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/vad.py:91,97` (`_VAD_MODEL_PATH`, `_VAD_STATE_SHAPE`)
-- `voice_typer/server/silero_vad.onnx` (the v4 asset)
-**Fix:** Swap the bundled asset for the v5 export; adapt the input chunking (576-sample input = 64 rolling context + 512 new samples, per Review Wave 2), `_VAD_STATE_SHAPE` (different state shape), and the I/O-name discovery (already name-driven, vad.py:216-222); re-validate `vad_speech_threshold` calibration.
-**Simplified Fix:** A newer version of the voice-activity detection model is published, claiming to be about three times faster. Swapping it in is a deliberate upgrade, not a bug fix, and needs its sensitivity re-tuned.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟢 Low
+# FV Session
 
 ### FV-31 — tests/ root holds 716 flat test files (243 already live in 26 domain subdirs)
 **Status:** ❌ Not Fixed (2026-09-21 FV session: re-confirmed 727 flat root files; the entry's own recommendation is 🟡 Defer — opportunistic migration only when a file is already being edited, since a bulk move is churn-for-churn. No bulk move performed.)
@@ -101,15 +83,9 @@ observations before marking anything done.
 
 ---
 
-# FV Wave 3 Additions — 2026-09-19 (deeper-pass investigation, 7 sub-agents incl. 1 re-dispatch)
-
-> Findings from the deep reads of files Wave 1 could not fully cover, plus edge cases. All NOT FIXED (investigation mode). Ordered Critical → High → Medium → Low.
-
-## FV Critical
-
 ### FV-39 — macOS/Linux release pipelines build a deleted prewarm module: any dispatch fails mid-job (plus dead prewarm scripts)
 **Status:** ❌ Not Fixed — SKIPPED this session, conflicts with AGENTS.md Hard "Don'ts": C-CI-2 (the fix edits `tauri-macos-build.yml` / `tauri-linux-build.yml`, which are protected; any change must be user-validated by a full re-run). Its own recommendation is 🟡 Defer to the owner. Recorded in `worklog.md`.
-**Description:** The prewarm pipeline was migrated to the slim-core worker (commit 46cf40fa deleted `voice_typer/server/prewarm/__main__.py`; the directory now holds only `__init__.py`, `cache_probe.py`, `status.py`), and the Windows workflow removed its prewarm step after a FATAL on main (noted at tauri-windows-build.yml:563-570). But the macOS workflow still runs `scripts/build/build_prewarm_macos.sh` (steps at :250, :447) and Linux runs `build_prewarm_linux.sh` (:647) — both scripts' Nuitka invocations target the deleted module, and macOS lists `prewarm-<triple>` artifact uploads with `if-no-files-found: error` (:297). The three build_prewarm_*.sh scripts and the retired PyInstaller packaging (voice-typer.spec + the `pyinstaller` build extra in pyproject.toml) are dead-but-invokable.
+**Description:** The prewarm pipeline was migrated to the slim-core worker (commit 46cf40fa deleted `voice_typer/server/prewarm/__main__.py`; the directory now holds only `__init__.py`, `cache_probe.py`, `status.py`), and the Windows workflow removed its prewarm step after a FATAL on main (noted at tauri-windows-build.yml:563-570). But the macOS workflow still runs `scripts/build/build_prewarm_macos.sh` (steps at :250, :447) and Linux runs `build_prewarm_linux.sh` (:647) — both scripts' Nuitka invocations target the deleted module, and macOS lists `prewarm-<triple>` artifact uploads with `if-no-files-found: error` (:297). The three build_prewarm_*.sh scripts and the retired PyInstaller packaging (lausu.spec + the `pyinstaller` build extra in pyproject.toml) are dead-but-invokable.
 **User Impact:** Any dispatch of the release pipeline (tauri-build.yml all/macos/linux) at HEAD fails mid-job after the expensive sidecar build — macOS/Linux release builds are red, and the all-platforms manifest gate can never pass. No user-facing impact in the shipped app (releases are manual-dispatch only), but the release capability is silently broken.
 **Root Cause:** Verified — plan-runtime-pack-split §6.2 P-1 removal was applied to the Windows workflow only; the sibling workflows, the build scripts, and the legacy packaging extra were never swept.
 **Gain vs Trade-off:** Mirroring the Windows removal (drop prewarm steps + artifact paths, delete the three scripts + spec + extra, record in archive/deleted_files.txt) un-breaks the pipelines; the risk is that these are the repo's most fragile CI files and any edit must be validated by a full re-run.
@@ -121,99 +97,8 @@ observations before marking anything done.
 - `.github/workflows/tauri-macos-build.yml:250,297,447`
 - `.github/workflows/tauri-linux-build.yml:647`
 - `scripts/build/build_prewarm_macos.sh:176`, `build_prewarm_linux.sh:166`, `build_prewarm_windows.sh:190`
-- `scripts/build/voice-typer.spec`, `pyproject.toml` ([build] extra `pyinstaller`)
-**Fix:** Mirror the Windows removal in the macOS/Linux workflows (drop prewarm build steps + prewarm artifact paths — note Linux :652-660 carries a second uncited hard-fail `test -x $PREWARM` site, per Review Wave 4), delete the three build_prewarm_*.sh scripts, the voice-typer.spec, and the pyinstaller extra; record all deletions in archive/deleted_files.txt per E15 (the ledger does not currently exist on disk — deleted at ebce5598 — so RECREATE it). USER MUST CONFIRM + validate with a full re-run (C-CI-2), and the AGENTS.md update is user-owned: the fix also conflicts with the letter of C-CI-9, C-CI-11, and C-CI-13 — a coordinated user-owned AGENTS.md edit is required alongside (per Review Wave 4).
+- `scripts/build/lausu.spec`, `pyproject.toml` ([build] extra `pyinstaller`)
+**Fix:** Mirror the Windows removal in the macOS/Linux workflows (drop prewarm build steps + prewarm artifact paths — note Linux :652-660 carries a second uncited hard-fail `test -x $PREWARM` site, per Review Wave 4), delete the three build_prewarm_*.sh scripts, the lausu.spec, and the pyinstaller extra; record all deletions in archive/deleted_files.txt per E15 (the ledger does not currently exist on disk — deleted at ebce5598 — so RECREATE it). USER MUST CONFIRM + validate with a full re-run (C-CI-2), and the AGENTS.md update is user-owned: the fix also conflicts with the letter of C-CI-9, C-CI-11, and C-CI-13 — a coordinated user-owned AGENTS.md edit is required alongside (per Review Wave 4).
 **Simplified Fix:** The Mac and Linux build recipes still try to compile a helper program that was deleted weeks ago, so those builds fail every time they run. Removing the dead steps and leftover scripts — with the owner's approval, since these recipes are deliberately protected — makes the builds work again.
 **Implementation Difficulty:** 🟡 Medium
 **Severity:** 🔴 Critical
-
-### FV-50 — 158 task-ID comment remnants (57 Python + 101 Rust) violate the no-task-IDs-in-code rule
-**Status:** ✅ Fixed (2026-09-21: both trees swept — 0 retired IDs remain in `voice_typer/server` + `src-tauri/src`; ruff + `py_compile` + `cargo check --all-targets` green, full pytest run recorded in `worklog.md`).
-**Description:** 57 occurrences across 27 Python server files plus 101 across 43 Rust source files (per Review Wave 4's repo-wide recount; the Wave-3 count of 14 was slice-scoped) still carry session/task tags (`R13-F3`, `F11-FIX`, `P4-A9`, `SVC-10`, `WAL-CHECKPOINT-FIX`, `MO-1xx`, `T3-05`, `TR-4`, …) — the residue of a past sweep that stripped tags incompletely. Pervasive grammar artifacts of the stripping ("(fix):", " : replaces", dangling double spaces) compound the readability cost.
-**User Impact:** None; the IDs are meaningless noise for future sessions (their review.md entries are long gone) and the dangling artifacts hurt readability.
-**Root Cause:** Verified — incomplete tag-stripping sweep.
-**Gain vs Trade-off:** Purpose-named prose replaces tags; opportunistic per-file, never batch (the sanctioned greppable tags SEC-*/RACE-*/PERF-*/ADR-* must be preserved).
-**If We Do It:** Comments describe durable facts; the rule's letter is met.
-**If We Don't:** Noise persists and invites more tagging.
-**My Recommendation:** ✅ Implement (opportunistic sweep; a dedicated session could finish it in one pass).
-**Progress:** 2026-09-21: swept 215 lines across 90 files (54 Python server + 36 Rust) — every retired session ID deleted and the prose around it repaired (`# M-62: persists first-then-mutates` → `# Persists first-then-mutates`; the user-visible log string `"[ASR_REGISTRY] active backend %s is disabled, refusing to load (OI-15)"` → `"…refusing to load"`; Rust assertion messages `"UE-4: breaker …"` → `"breaker …"`). Sanctioned anchors preserved (SEC-*/RACE-*/PERF-*/ADR-*/NU-*/IPD-*/TX-*/C-*/CRIT-*/BRAND-001, plus component topic prefixes such as THREAD-REGISTRY / PLAT-RUN / AUDIO-*); non-tag false positives left alone (`Parakeet-TDT-0.6b-V3`, `Qwen3-ASR-1.7B` model names) and the live plan anchor `P-1` (§6.2 of `docs/plan-runtime-pack-split.md`). The earlier sweep's grammar artifacts were repaired in the same pass: `"(fix):"`, `" : replaces"`, `",): auto-paste"`, `"(partial)"`, `"(combined)"`, `"(rate-scaled)"`, `"(Task 2.4)"`, `".  Never read …"`, `"# extracted from the original"`, `"pre- callers"`, `"class:`_ArchAwareBinaryNameMap`"`, `"owned by) and"`. One comment-pinned test found and updated per C-COMMENT-9: `tests/test_platform_fix_regressions.py` asserted the literal `"PLAT-001"` in clipboard source; it now asserts the durable content (`"pynput"`). Re-scan of both trees: 0 legacy IDs. Out-of-scope residue recorded, not touched (outside this entry's 27 Python + 43 Rust file scope): `tests/` 1,760 hits in 248 files, `voice_typer/client/src` 107 in 56, `scripts/` 7 — extendable only via a new entry.
-**Related Files:**
-- `voice_typer/server/ipc/validation.py:10,759`, `handlers/history_handlers.py:324,386,406,430`, `handlers/config_handlers.py:143`, `ipc/registry.py:431`, `service/onboarding.py:233` (Python representative sites)
-- `src-tauri/src/sidecar/supervisor.rs:230`, `platform/power.rs`, `main.rs:1`, `state.rs`, `spawn.rs` (Rust representative sites — 90 of the 101 are MO-NNN line-tags; full list via `rg 'MO-[0-9]+|T3-05|TR-4|M-65' src-tauri/src`)
-**Fix:** Sweep the ~70 affected files replacing task-ID tags with purpose-named prose (the Python families QUIT-CLEAN-001/PLAT-HLEAK/DB-LOCK-FIX/WAL-CHECKPOINT-FIX/IMPL-A are residue to replace, per Review Wave 4); KEEP the sanctioned greppable tags (SEC-*, RACE-*, PERF-*, ADR-*, NU-*, IPD-*, TX-* — these are documented conventions); fix the stripping grammar artifacts. Opportunistic per-file or one dedicated session — never a blind batch (E1).
-**Simplified Fix:** Comments in the code still reference long-retired work-item numbers, leftovers of a half-finished cleanup. Rewording them to describe what the code does makes the comments useful again.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
-### FV-57 — Model-integrity cache trusts metadata over bytes (forgeable by user-privileged malware)
-**Status:** ❌ Not Fixed
-**Description:** The model-integrity cache (user-writable JSON keyed by repo/path/mtime/size → sha256) lets verification skip reading the model bytes when metadata matches. An attacker with user-level write access can preserve mtime+size while substituting bytes, or forge the cache directly to the pinned hash — verification then never reads the file. The comment claims the cache "does NOT weaken the security guarantee", which is incorrect under that threat model.
-**User Impact:** Defense-in-depth erosion, not a new RCE: user-privileged malware can already do worse. The integrity check's purpose (detect corruption/tampering of model files) silently degrades to a metadata check.
-**Root Cause:** Verified (code + cache format) — cache hit trusts metadata over bytes.
-**Gain vs Trade-off:** Bind cache entries to a non-forgeable anchor (MAC keyed by an install-dir secret) or restrict the cache to the failure-details path; at minimum correct the security comment.
-**If We Do It:** The integrity guarantee matches its documented claim.
-**If We Don't:** The security comment overstates the guarantee.
-**My Recommendation:** ✅ Implement (comment fix at minimum; MAC binding as the full fix).
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/security/model_integrity.py:197-215,322-359`
-**Fix:** MAC-bind cache entries to an app-install-dir secret, or restrict the cache to failure-detail reporting; correct the security comment either way.
-**Simplified Fix:** The "are the speech models genuine?" check keeps a shortcut file so it doesn't re-read big files every launch. Software with enough access could edit that shortcut to lie. Anchoring the shortcut to a secret the attacker can't forge restores the guarantee.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟡 Medium
-
-## FV Low Priority
-
-### FV-69 — `_recorder_split.py` (1668 lines) still holds 4 concerns + machine-generated locals (`_uu36_*`)
-**Status:** ❌ Not Fixed
-**Description:** The module carries the buffer class, snapshot logic, start/stop, and discard in one file, with its own header documenting a split plan "to be completed", plus machine-generated local names (`_uu36_sizing_sr` etc.) that survived a refactor. It is a helper module, not an entry file, so no E3 letter violation — but the documented plan was never finished.
-**User Impact:** None; navigability cost on the largest recording module.
-**Root Cause:** Verified — incomplete follow-through on the module's own documented split plan.
-**Gain vs Trade-off:** Finishing the create-first split (E1) removes the last concerns; renaming locals is free.
-**If We Do It:** The module's structure matches its own plan.
-**If We Don't:** The debt grows with every edit.
-**My Recommendation:** 🟡 Defer — finish opportunistically when the module is next touched for a real change.
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/recording/_recorder_split.py:1-41,1052-1060`
-**Fix:** Complete the documented create-first split (buffer/snapshot/lifecycle/discard modules with re-exports per E1); rename the `_uu36_*` locals to purpose names.
-**Simplified Fix:** The main recording file was planned to be split into focused pieces, but the plan was never finished, and it still contains auto-generated placeholder names from an old tool. Completing the split and giving things real names makes it navigable.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟢 Low
-
-### FV-74 — Level monitor holds its lock across device query + stream open (50-200 ms) — stalls level polls during device switch
-**Status:** ❌ Not Fixed
-**Description:** The monitor lock is held across `query_devices` + `InputStream(...)` + `start()` while the old-stream close was deliberately moved outside the same lock — an internal inconsistency that stalls `get_level()` IPC polls and worker drain during a device switch (cosmetic surfaces only, no RT impact).
-**User Impact:** Brief level-bar freeze during device switches.
-**Root Cause:** Verified — lock scope grew with the open path.
-**Gain vs Trade-off:** Query/open outside, re-check-and-commit under the lock; standard pattern, low risk.
-**If We Do It:** Level polls stay responsive during switches.
-**If We Don't:** Cosmetic stall persists.
-**My Recommendation:** ✅ Implement (next time the monitor is touched).
-**Progress:** `None yet.`
-**Related Files:**
-- `voice_typer/server/level_monitor/monitoring.py:557-751`
-**Fix:** Do query/open outside the lock; re-check state and commit under the lock (standard double-check pattern).
-**Simplified Fix:** While switching microphones, the level meter holds an internal lock through the slow device-opening step, briefly freezing the on-screen level bar. Doing the slow step first and taking the lock only to record the result keeps the bar live.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🟢 Low
-
-### FV-95 — 10 pre-existing pytest failures at HEAD on Linux (5 clustered in mic-test quality grading, order-dependent)
-**Status:** ❌ Not Fixed
-**Description:** The full-suite chunked run (16 chunks, Σ collected = 15,506 = total, coverage PROVEN) on this Linux sandbox found 10 failing tests at HEAD 97513fa9 with zero session code changes: 5 in `test_mic_test_quality_grading.py` (quality grading returns "very_low" where tests expect "low"/"good"), 2 in `test_install_permissions_gsettings.py` (Sway flow + uninstall restore), and one each in `test_autostart_installer_linux.py` (single-instance plugin wiring), `test_dictation_pipeline_check_resources.py` (RAM ctypes fallback logging), `test_logging_rotation_perms.py` (chmod-inside-lock). Re-running the mic-grading file solo produces a DIFFERENT failure subset (4 failures, 2 names differing from the chunked run's 5) — the failures are order/state-dependent, not deterministic. This also empirically confirms FV-11: CI-errors.md records "No test failures ✅ (0 JUnit files checked)" while 10 real failures exist at HEAD.
-**User Impact:** The mic-test quality-grading failures mean the microphone test's quality verdict logic drifted from its pinned expectations (a user's test recording can be graded worse than designed); the others are wiring/persistence expectations that regressed silently. CI's vacuous green means none of this surfaces in the committed status file.
-**Root Cause:** Suspected per-test (needs fix-session diagnosis; likely shared-state leakage in the grading module for the order-dependent cluster + three genuine expectation drifts); VERIFIED that the failures exist at HEAD with a clean tree (git status: only review.md modified this session).
-**Gain vs Trade-off:** A fix session should diagnose each at root cause (systematic-debugging: reproduce → isolate shared state → fix). No quick fixes — some may be test expectations to update, some may be real regressions.
-**If We Do It:** The suite returns to green; CI-errors.md reflects reality.
-**If We Don't:** The suite ships 10 red on every full run; the "0 JUnit files" vacuous green keeps hiding them.
-**My Recommendation:** ✅ Implement (next FIX_EXISTING session; P0 per the never-grandfather rule).
-**Progress:** `None yet.`
-**Related Files:**
-- `tests/test_mic_test_quality_grading.py` (5 failed; order-dependent cluster)
-- `tests/test_install_permissions_gsettings.py` (2 failed)
-- `tests/tauri/mig17/test_autostart_installer_linux.py`, `tests/test_dictation_pipeline_check_resources.py`, `tests/test_logging_rotation_perms.py` (1 each)
-- full failure list + chunk log: /tmp/chunk_run.log, /tmp/chunk_results.json (session artifacts)
-**Fix:** Fix-session work: reproduce each with --tb=short, trace the shared state in the mic-grading module (module-level cache suspected for the order dependence), correct code or expectations at root cause, add the missing isolation if state leakage is confirmed.
-**Simplified Fix:** Ten tests fail on a clean copy of the project — five of them flaky depending on run order, which usually means leftover shared state between tests. A repair session should find what's leaking, fix the five flaky ones properly, and check whether the other five point at real behavior changes.
-**Implementation Difficulty:** 🟡 Medium
-**Severity:** 🔴 High

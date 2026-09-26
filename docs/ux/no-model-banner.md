@@ -1,7 +1,7 @@
 # Models Page: No-Model State Is a Dismissible Banner, Not a Centered Empty State
 
 **Status**: Decided (2026-08-30)
-**Decision owner**: voice-typer UX
+**Decision owner**: lausu UX
 **Supersedes**: the previous centered `EmptyState` treatment of the
 no-model state
 **Related code**:
