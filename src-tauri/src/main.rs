@@ -211,6 +211,12 @@ fn main() {
             // `AssertUnwindSafe(fut).catch_unwind().await` (inside the
             // module), NEVER `block_on` on a runtime worker.
             tauri::async_runtime::spawn(sidecar::spawn::initialize_sidecar_guarded(app_handle));
+            // Worker cold start: no-ops quietly without the pack binary
+            // (the pack-verified trigger starts it after download).
+            let worker_handle = app.handle().clone();
+            tauri::async_runtime::spawn(sidecar::worker_init::initialize_worker_guarded(
+                worker_handle,
+            ));
             Ok(())
         })
         .on_window_event(crate::window_events::handle)

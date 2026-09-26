@@ -1,9 +1,8 @@
-
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::commands::require_main_window;
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 use crate::sidecar::supervisor;
 use crate::state::SidecarState;
 
@@ -16,16 +15,16 @@ fn adopted_blocked_envelope(adopted: bool) -> Option<Value> {
 }
 
 async fn restart_sidecar_inner(app: &tauri::AppHandle, state: &Arc<SidecarState>) -> Value {
-    let shutting_down = state.shutting_down.load(std::sync::atomic::Ordering::SeqCst);
+    let shutting_down = state
+        .shutting_down
+        .load(std::sync::atomic::Ordering::SeqCst);
     if let Some(blocked) = restart_blocked_envelope(shutting_down) {
         log::info!("[RESTART] restart refused: host is shutting down");
         return blocked;
     }
     let adopted = *state.adopted_backend.lock().await;
     if let Some(blocked) = adopted_blocked_envelope(adopted) {
-        log::info!(
-            "[RESTART] restart refused: adopted-backend mode (backend is our parent)"
-        );
+        log::info!("[RESTART] restart refused: adopted-backend mode (backend is our parent)");
         return blocked;
     }
     match supervisor::respawn(app, state).await {
@@ -52,7 +51,7 @@ pub async fn restart_sidecar(
     app: tauri::AppHandle,
     window: tauri::Window,
     state: tauri::State<'_, Arc<SidecarState>>,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     Ok(restart_sidecar_inner(&app, state.inner()).await)
 }

@@ -1,7 +1,7 @@
 //! Windows toast-identity registration (AUMID).
 //!
 //! `tauri-plugin-notification` sends Windows toasts under the app
-//! identifier from `tauri.conf.json` (`com.voicetyper.desktop`) used as the
+//! identifier from `tauri.conf.json` (`com.Lausu.desktop`) used as the
 //! toast's AppUserModelId. If that AUMID is not registered with Windows, the
 //! toast is attributed to whatever process identity the shell can resolve —
 //! in dev that is Windows PowerShell (the terminal that launched
@@ -9,7 +9,7 @@
 //!
 //! Registering the AUMID per-user under
 //! `HKCU\Software\Classes\AppUserModelId\<identifier>` with `DisplayName`
-//! and `IconUri` makes every toast (dev AND installed) show the Voice Typer
+//! and `IconUri` makes every toast (dev AND installed) show the Lausu
 //! name + icon and play the default notification sound. Idempotent: the key
 //! is (re)written on each launch so icon path changes self-heal.
 

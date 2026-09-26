@@ -1,10 +1,10 @@
 //! Rust brand constant. C-BRAND-1: do not hardcode the display name.
 //! Mirrors `voice_typer/server/branding.py` and
 //! `voice_typer/client/src/renderer/src/branding.ts`.
-//! Filesystem paths use the slug (`voice-typer`), not this string.
+//! Filesystem paths use the slug (`lausu`), not this string.
 
 /// User-visible product name (tray/toasts/legacy userData probes).
-pub(crate) const APP_NAME: &str = "Voice Typer";
+pub(crate) const APP_NAME: &str = "Lausu";
 
 #[cfg(test)]
 #[path = "branding_tests.rs"]

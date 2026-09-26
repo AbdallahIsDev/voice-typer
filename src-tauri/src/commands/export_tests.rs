@@ -22,17 +22,24 @@
 //! used by `export_data`.
 
 use super::{
-    await_dialog_bridge, await_dialog_bridge_with_timeout, csv_escape_into, export_file_filters,
-    json_to_csv, value_to_string, value_to_string_into, DIALOG_CALLBACK_TIMEOUT_MS,
+    apply_formula_prefix, await_dialog_bridge, await_dialog_bridge_with_timeout,
+    export_file_filters, json_to_csv, value_to_string, value_to_string_into,
+    DIALOG_CALLBACK_TIMEOUT_MS,
 };
 
-// The allocation-returning `csv_escape` twin was deleted, production
-// escapes via `csv_escape_into`. This helper wraps it with a fresh buffer
-// so each escape-behavior assertion below still reads as
-// "input → escaped output".
+// Single-cell escape through the production path: SEC-015 prefix on top,
+// RFC 4180 quoting owned by the `csv` crate writer. The trailing record
+// terminator is stripped so each assertion reads as "input → cell output".
 fn escape(s: &str) -> String {
-    let mut out = String::new();
-    csv_escape_into(&mut out, s);
+    let prefixed = apply_formula_prefix(s).into_owned();
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    wtr.write_record([prefixed.as_str()])
+        .expect("writer in memory");
+    let bytes = wtr.into_inner().expect("writer in memory");
+    let mut out = String::from_utf8(bytes).expect("writer emits UTF-8");
+    if out.ends_with('\n') {
+        out.pop();
+    }
     out
 }
 use serde_json::{json, Value};
@@ -96,13 +103,16 @@ fn test_export_file_filters_unrecognized_format_falls_back_to_json_filter() {
     assert_eq!(filters[0].1, &["json"][..]);
 }
 
-// ── csv_escape_into (escape behavior) ─────────────────────────────
+// ── cell escape behavior (SEC-015 prefix + `csv` crate quoting) ───
 
 #[test]
 fn test_csv_escape_into_plain() {
     assert_eq!(escape("hello"), "hello");
     assert_eq!(escape("123"), "123");
-    assert_eq!(escape(""), "");
+    // A lone empty cell is canonicalized to `""` by the writer; it
+    // round-trips back to empty and multi-column empty cells still
+    // emit bare (see the missing-keys case below).
+    assert_eq!(escape(""), "\"\"");
 }
 
 #[test]
@@ -130,7 +140,7 @@ fn test_csv_escape_into_all_special() {
     assert_eq!(escape("a,b\"c\nd\re"), "\"a,b\"\"c\nd\re\"");
 }
 
-// ── csv_escape_into: SEC-015 formula-injection defense ─
+// ── SEC-015 formula-injection defense ─────────────────────────────
 
 #[test]
 fn test_csv_escape_into_formula_equals() {
@@ -193,24 +203,26 @@ fn test_csv_escape_into_formula_with_comma_quoted() {
     assert_eq!(escape("=a,b"), "\"'=a,b\"");
 }
 
-// ── csv_escape_into (buffer contract) ────────────────────────────
+// ── apply_formula_prefix (allocation contract) ───────────────────
 //
-// `csv_escape_into` writes the escaped form directly into a
-// caller-provided `&mut String` instead of allocating a fresh `String`
-// per cell. The escape-behavior cases above pin its output through the
-// `escape()` helper; the test here pins the buffer contract itself:
-// appends, never overwrites (the property `json_to_csv` relies on when
-// it writes the header row + every row's cells into one `out` buffer).
+// The prefix helper borrows when no prefix applies (zero allocation on
+// the hot path) and allocates only for formula-prone cells. The
+// escape-behavior cases above pin the combined prefix + writer output
+// through `escape()`; the assertions here pin the borrow/own contract.
 
 #[test]
-fn test_csv_escape_into_appends_to_existing_buffer() {
-    // Contract: `csv_escape_into` appends, it must NOT
-    // overwrite existing buffer content. This is what `json_to_csv`
-    // relies on when it writes the header row + each row's cells into
-    // the same `out` buffer.
-    let mut out = String::from("prefix|");
-    csv_escape_into(&mut out, "hello,world");
-    assert_eq!(out, "prefix|\"hello,world\"");
+fn test_apply_formula_prefix_borrows_when_clean() {
+    let borrowed = apply_formula_prefix("hello,world");
+    assert!(
+        matches!(borrowed, std::borrow::Cow::Borrowed(_)),
+        "clean cells must borrow, got {borrowed:?}"
+    );
+    let owned = apply_formula_prefix("=cmd|'/C calc'!A1");
+    assert!(
+        matches!(owned, std::borrow::Cow::Owned(_)),
+        "formula cells must allocate the prefix, got {owned:?}"
+    );
+    assert_eq!(owned.as_ref(), "'=cmd|'/C calc'!A1");
 }
 
 #[test]
@@ -256,7 +268,7 @@ fn test_json_to_csv_large_export_no_per_cell_string_leak() {
     // Smoke test that `json_to_csv` produces the expected
     // output for a moderately-sized homogeneous dataset (the kind
     // of thing a real history export produces). This exercises the
-    // `csv_escape_into` + `value_to_string` integration in
+    // prefix + `value_to_string` + writer integration in
     // `json_to_csv`'s hot loop.
     let mut rows: Vec<Value> = Vec::with_capacity(100);
     for i in 0..100 {
@@ -413,10 +425,8 @@ fn test_pi13_atomic_write_helper_preserves_existing_file_on_overwrite() {
     // rename pattern guarantees this: either the OLD file is at
     // `path` (rename hasn't happened yet) or the NEW file is at
     // `path` (rename succeeded). There's no intermediate state.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-pi13-test-{}-overwrite",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("lausu-pi13-test-{}-overwrite", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
     let path = tmp.join("export.csv");
@@ -457,10 +467,7 @@ fn test_pi13_atomic_write_helper_failure_leaves_original_unchanged() {
     // returns ENOENT, the function returns Err, and we verify
     // that a sentinel file at a DIFFERENT path (the "original
     // export file" we're simulating) is unchanged.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-pi13-test-{}-failure",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-pi13-test-{}-failure", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
     // "Original file": must survive the failed write.

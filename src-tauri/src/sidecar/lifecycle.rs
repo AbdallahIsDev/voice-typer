@@ -18,7 +18,7 @@ pub(super) const PRE_RESTART_SIDECAR_GRACE_MS: u64 = 5_000;
 /// (the cross-language convention; no Rust-side helper existed yet, so
 /// this local one keeps the formats in lockstep, sub-minute
 /// `{:.1}s`, minutes `{}m {:.1}s`).
-pub(super) fn format_duration_suffix(d: std::time::Duration) -> String {
+pub(crate) fn format_duration_suffix(d: std::time::Duration) -> String {
     let total_secs = d.as_secs_f64();
     if total_secs < 60.0 {
         format!(" {:.1}s", total_secs)

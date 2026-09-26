@@ -59,7 +59,7 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
 }
 
 /// ADR-0020 §11: rotating file logger at
-/// `<config_dir>/logs/voice-typer-rust.log`.
+/// `<config_dir>/logs/lausu-rust.log`.
 /// Excludes bubble_level (~60 Hz) from the file sink. Session banner is
 /// the ONLY sanctioned `session=` line (C-LOG-1). File default WARN+;
 /// VOICE_TYPER_RUST_INFO_LOG=1 opts INFO. Hand-rolled writer (not log4rs).
@@ -73,9 +73,9 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     {
         let _ = std::fs::set_permissions(&logs_dir, std::fs::Permissions::from_mode(0o700));
     }
-    // Basename `voice-typer-rust` (not `voice-typer`) so a future Python
+    // Basename `lausu-rust` (not `lausu`) so a future Python
     // move into logs/ cannot collide on the same file.
-    let writer = RotatingFileWriter::new(logs_dir.clone(), "voice-typer-rust");
+    let writer = RotatingFileWriter::new(logs_dir.clone(), "lausu-rust");
     let explicit_level = std::env::var("RUST_LOG")
         .ok()
         .and_then(|s| s.parse::<log::LevelFilter>().ok())

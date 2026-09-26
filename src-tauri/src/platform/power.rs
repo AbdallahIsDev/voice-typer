@@ -97,7 +97,9 @@ impl PowerMonitor {
     pub(crate) fn apply(&self, event: PowerEvent) -> PowerAction {
         match event {
             PowerEvent::Suspend => {
-                if self.state.swap(PowerState::Suspended as u8, Ordering::SeqCst)
+                if self
+                    .state
+                    .swap(PowerState::Suspended as u8, Ordering::SeqCst)
                     == PowerState::Running as u8
                 {
                     PowerAction::StopSidecar
@@ -242,9 +244,7 @@ pub(crate) fn handle_power_event(
             monitor.state()
         ),
         PowerEvent::OnBattery => {
-            log::info!(
-                "[POWER] power-status change (on-battery/AC); log-only (documented drop)"
-            )
+            log::info!("[POWER] power-status change (on-battery/AC); log-only (documented drop)")
         }
     }
     dispatch_power_action(app, state, action);
@@ -252,11 +252,7 @@ pub(crate) fn handle_power_event(
 }
 
 #[cfg(target_os = "windows")]
-fn windows_power_loop(
-    app: tauri::AppHandle,
-    state: Arc<SidecarState>,
-    monitor: Arc<PowerMonitor>,
-) {
+fn windows_power_loop(app: tauri::AppHandle, state: Arc<SidecarState>, monitor: Arc<PowerMonitor>) {
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
@@ -280,7 +276,7 @@ fn windows_power_loop(
         DefWindowProcW(hwnd, msg, wparam, lparam)
     }
 
-    let class_name: Vec<u16> = "VoiceTyperPowerMonitor\0".encode_utf16().collect();
+    let class_name: Vec<u16> = "LausuPowerMonitor\0".encode_utf16().collect();
     let wnd_class = WNDCLASSW {
         lpfnWndProc: Some(wnd_proc),
         lpszClassName: windows::core::PCWSTR(class_name.as_ptr()),

@@ -453,7 +453,7 @@ fn test_worker_state_new_auth_token_is_unset() {
 /// `OnceLock`. The lock path is resolved lazily on first worker
 /// spawn via
 /// `worker_path::worker_exe_path().with_file_name("worker.lock")`
-/// (parallel to `VoiceTyperSingleInstance`'s lock file pattern).
+/// (parallel to `LausuSingleInstance`'s lock file pattern).
 #[test]
 fn test_worker_state_new_lock_file_path_is_unset() {
     let state = WorkerState::new();

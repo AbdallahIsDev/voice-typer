@@ -1,4 +1,3 @@
-
 use crate::util::LOG_MAX_BYTES;
 use std::fs::OpenOptions;
 use std::io::Seek;
@@ -68,7 +67,7 @@ impl RotatingFileWriter {
         let queued_bytes = Arc::new(AtomicUsize::new(0));
         let thread_queued_bytes = queued_bytes.clone();
         let tx = std::thread::Builder::new()
-            .name(format!("voice-typer-log-{base_name}"))
+            .name(format!("lausu-log-{base_name}"))
             .spawn(move || {
                 writer_thread(
                     thread_inner,

@@ -10,6 +10,8 @@ pub(crate) mod lifecycle;
 pub(crate) mod shutdown;
 pub(crate) mod spawn;
 pub(crate) mod supervisor;
+pub(crate) mod worker_init;
+pub(crate) mod worker_supervisor;
 pub(crate) mod ws;
 
 // Re-exports so historical `crate::state::*` paths keep resolving
@@ -23,5 +25,7 @@ pub(crate) use shutdown::{send_fire_and_forget_frame, shutdown_sidecar_for_exit}
 mod lifecycle_tests;
 #[cfg(test)]
 mod supervisor_tests;
+#[cfg(test)]
+mod worker_supervisor_tests;
 #[cfg(test)]
 mod ws_tests;

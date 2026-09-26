@@ -29,7 +29,11 @@ fn test_format_tee_line_shape() {
         line,
         "2026-09-16  12:34:56  STDERR Traceback (most recent call last):"
     );
-    let stdout = format_tee_line("2026-09-16  12:34:56", ChildStream::Stdout, "server_started");
+    let stdout = format_tee_line(
+        "2026-09-16  12:34:56",
+        ChildStream::Stdout,
+        "server_started",
+    );
     assert_eq!(stdout, "2026-09-16  12:34:56  STDOUT server_started");
     // Both labels are the same width, so the message column aligns
     // internally (the file is a raw capture, not the canonical level
@@ -98,7 +102,7 @@ fn test_should_tee_only_release_sidecar_tag() {
 #[test]
 fn test_tee_line_to_writes_sidecar_log() {
     let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-child-log-test-{}-{}",
+        "lausu-child-log-test-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -107,7 +111,11 @@ fn test_tee_line_to_writes_sidecar_log() {
     ));
     std::fs::create_dir_all(&tmp).unwrap();
     let writer = RotatingFileWriter::new(tmp.clone(), "sidecar");
-    tee_line_to(&writer, ChildStream::Stderr, "ImportError: libtorch missing");
+    tee_line_to(
+        &writer,
+        ChildStream::Stderr,
+        "ImportError: libtorch missing",
+    );
     writer.flush().unwrap();
     let content = std::fs::read_to_string(tmp.join("sidecar.log")).unwrap();
     let line = content.lines().next().unwrap();

@@ -15,7 +15,7 @@
 //! processing. It exists purely to timestamp liveness.
 
 use crate::commands::require_main_window;
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 use crate::platform::renderer_watchdog::HeartbeatState;
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ use std::sync::Arc;
 pub async fn renderer_heartbeat(
     window: tauri::Window,
     state: tauri::State<'_, Arc<HeartbeatState>>,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     require_main_window(&window)?;
     state.inner().record();
     Ok(())

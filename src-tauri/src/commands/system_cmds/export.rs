@@ -1,24 +1,23 @@
-
 use serde_json::Value;
 
 use super::dialog_titles::DialogTitle;
 use super::redaction::redact_config_secrets;
 use crate::commands::export::export_data;
 use crate::commands::require_main_window;
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 
 #[tauri::command]
 pub async fn export_templates(
     data: Value,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     export_data(
         data,
         "json".to_string(),
         app,
-        "voice-typer-templates",
+        "lausu-templates",
         DialogTitle::ExportTemplates,
     )
     .await
@@ -29,7 +28,7 @@ pub async fn export_config(
     mut data: Value,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     let redaction_count = redact_config_secrets(&mut data);
     if redaction_count > 0 {
@@ -43,7 +42,7 @@ pub async fn export_config(
         data,
         "json".to_string(),
         app,
-        "voice-typer-config",
+        "lausu-config",
         DialogTitle::ExportConfig,
     )
     .await

@@ -12,7 +12,7 @@ mod handshake;
 mod handshake_loop;
 // Permanent child-event drain: keeps the bounded shell event channel
 // drained post-handshake so child stderr can never block its writers.
-mod event_drain;
+pub(crate) mod event_drain;
 mod release_mode;
 // Worker exe spawn (runtime-pack split). Sidecar is the worker's WS client.
 pub(crate) mod worker;
@@ -31,7 +31,7 @@ pub(crate) use target_triple::{current_target_triple, target_triple_for};
 #[cfg(test)]
 pub(crate) use worker::try_claim_restart_slot;
 #[cfg(test)]
-pub(crate) use worker::worker_shared_env;
+pub(crate) use worker::{should_start_worker, worker_shared_env, worker_started_relay_frame};
 
 use crate::state::SidecarHandle;
 use std::panic::AssertUnwindSafe;
@@ -228,10 +228,14 @@ pub(crate) async fn initialize_worker(
         crate::platform::worker_path::worker_exe_path().with_file_name("worker.lock")
     });
 
+    let spawn_started = std::time::Instant::now();
     match spawn_worker_and_get_port_with_shutdown(app_handle, state.clone(), &state.shutting_down)
         .await
     {
         Ok((port, child, exit_rx)) => {
+            // Capture the pid before the move into state (kill path below
+            // consumes the child; the relay needs the pid after it).
+            let worker_pid = child.pid();
             // Post-spawn shutting_down re-check (mirror initialize_sidecar).
             if state.shutting_down.load(Ordering::SeqCst) {
                 log::info!(
@@ -252,14 +256,21 @@ pub(crate) async fn initialize_worker(
             // block its writers. Future worker-respawn path must do the same.
             let exit_rx = exit_rx.map(|rx| event_drain::spawn_child_event_drain("[WORKER]", rx));
             *state.child_exit_rx.lock().await = exit_rx;
+            // Crash→respawn supervisor owns the child from here on.
+            // NOTE: see docs/code-notes/worker-lifecycle-policy.md
+            super::worker_supervisor::spawn_worker_exit_watcher(app_handle, state.clone());
             // Never log the bearer token (ADR-0020 §3; pinned by
             // test_externalbin_spawn_windows.py).
             log::info!(
-                "[WORKER-INIT] worker spawned (port={}): WS client + \
-                 respawn supervisor are the next phase (plan §7.2/§7.3; \
-                 the slim-core sidecar owns the worker WS connection)",
-                port
+                "[WORKER-INIT] worker spawned (port={}){}: respawn supervisor active; \
+                 worker WS client is the next phase (plan §7.2/§7.3)",
+                port,
+                super::lifecycle::format_duration_suffix(spawn_started.elapsed())
             );
+            // ADR-0024 Step 2: relay the bind to the sidecar over the
+            // existing host↔sidecar WS hop (fast path + bounded retry).
+            // NOTE: see docs/code-notes/worker-port-relay.md#host-emit
+            worker::relay_worker_started_to_sidecar(app_handle, worker_pid, port);
         }
         Err(e) => {
             log::error!("[WORKER-INIT] worker spawn failed: {}", e);

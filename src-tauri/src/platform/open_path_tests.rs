@@ -31,7 +31,7 @@ use crate::test_support::CHILD_PROCESS_TEST_LOCK;
 #[test]
 fn test_open_path_rejects_missing_path() {
     let missing = std::env::temp_dir().join(format!(
-        "voice-typer-ac34-missing-{}-{}",
+        "lausu-ac34-missing-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

@@ -78,6 +78,10 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // Engine / pipeline degradation.
     "cloud_fallback_used",
     "dictation_suppressed",
+    // ADR-0023 media job events (progress + completion/failure pushes).
+    "media_transcribe_progress",
+    "media_transcribe_complete",
+    "media_transcribe_error",
     // History-store integrity.
     "history_corrupted",
     "history_fts5_rebuild_failed",

@@ -3,7 +3,7 @@
 //!
 //! The React UI's `__tauriLog.error(...)` invokes this command so
 //! uncaught UI errors land in the host-side rotating log file
-//! (`<config_dir>/logs/voice-typer-rust.log` via the existing
+//! (`<config_dir>/logs/lausu-rust.log` via the existing
 //! `log::error!` global logger) for operator triage without requiring
 //! DevTools to be open.
 //!
@@ -12,7 +12,7 @@
 //! It is rendered as ONE canonical C-LOG-1 line
 //! (`[renderer-error] <message> (src=<file>:<line>:<col>) scope=<s>`),
 //! never a raw JSON blob, so renderer records are as readable and
-//! grep-able as every other line in `voice-typer-rust.log`. Payloads
+//! grep-able as every other line in `lausu-rust.log`. Payloads
 //! without a `message` field (unexpected shape) fall back to the
 //! bounded JSON serialization. Returns `Ok(())` unconditionally: the
 //! renderer's promise resolves so its `__tauriLog.error` call doesn't
@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::commands::require_main_window;
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 
 /// Cap (in bytes) on the serialized renderer error payload. Larger
 /// payloads are truncated with a visible marker so operators know the
@@ -175,7 +175,6 @@ fn parse_renderer_level(raw: Option<&str>) -> log::Level {
     }
 }
 
-
 /// Where the renderer error came from: either the structured
 /// `location` object Chrome reports on `ErrorEvent`
 /// (`{file, line, column}`) or a plain string when a caller passes
@@ -199,9 +198,7 @@ impl RendererLocation {
         match self {
             Self::Text(text) => collapse_whitespace(text),
             Self::Structured { file, line, column } => {
-                let file = file
-                    .clone()
-                    .unwrap_or_else(|| "<unknown>".to_string());
+                let file = file.clone().unwrap_or_else(|| "<unknown>".to_string());
                 match (line, column) {
                     (Some(line), Some(column)) => format!("{file}:{line}:{column}"),
                     (Some(line), None) => format!("{file}:{line}"),
@@ -327,7 +324,7 @@ pub async fn renderer_log_error(
     payload: Value,
     window: tauri::Window,
     _app: tauri::AppHandle,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     require_main_window(&window)?;
     let (level, line) = format_renderer_log_line(&payload);
     match level {

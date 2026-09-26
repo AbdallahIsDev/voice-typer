@@ -1,13 +1,16 @@
 
 use crate::state::SidecarHandle;
 use crate::state::WorkerState;
+use crate::state::{lock as state_lock, SidecarState};
 use crate::util::SERVER_STARTED_TIMEOUT_MS;
+use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message;
 
 use super::dev_mode::is_dev_mode;
 use super::env_allowlist::passthrough_env_allowlist;
@@ -161,37 +164,141 @@ pub(crate) async fn stop_worker_child(state: &Arc<WorkerState>) {
     }
 }
 
+/// Pure start gate: run only while the host is alive AND a worker
+/// binary exists. Pure so both triggers stay unit-testable.
+pub(crate) fn should_start_worker(shutting_down: bool, binary_present: bool) -> bool {
+    !shutting_down && binary_present
+}
+
+/// Shared start sequence for cold boot + pack-verified events:
+/// stop-first (frees the pack dir on Windows) then
+/// `initialize_worker`. Serialized on the restart slot; a missing
+/// binary or a quitting host skips quietly (C-WS-3 generation
+/// stamping lands with the worker WS bridge, no WS yet to stamp).
+pub(crate) async fn start_worker_if_ready(app_handle: &tauri::AppHandle, state: Arc<WorkerState>) {
+    if !try_claim_restart_slot(&state.respawn_in_progress) {
+        log::info!("[WORKER-INIT] worker (re)start already in flight: skipping duplicate");
+        return;
+    }
+    stop_worker_child(&state).await;
+    if !should_start_worker(
+        state.shutting_down.load(Ordering::SeqCst),
+        worker_binary_present(),
+    ) {
+        if !state.shutting_down.load(Ordering::SeqCst) {
+            log::info!("[WORKER-INIT] no worker binary on disk: skipping worker start");
+        }
+        state.respawn_in_progress.store(false, Ordering::SeqCst);
+        return;
+    }
+    initialize_worker(app_handle, state.clone()).await;
+    state.respawn_in_progress.store(false, Ordering::SeqCst);
+}
+
+/// ADR-0024 Step 2 port relay: host pushes `worker_started
+/// {pid, version, port}` to the sidecar over the existing host↔sidecar
+/// WS hop (fire-and-forget TEXT frame + numeric id, same envelope as
+/// `send_fire_and_forget_frame`). `port` is additive: old
+/// {pid, version} readers keep working, no allowlist churn.
+/// NOTE: see docs/code-notes/worker-port-relay.md#host-emit
+
+/// Pure frame constructor. `port` is u16 on both sides of the hop
+/// (E9); the sidecar validates 1..=65535 and drops anything else.
+pub(crate) fn worker_started_relay_frame(pid: u32, version: &str, port: u16, id: u64) -> Value {
+    json!({"type": "worker_started", "data": {"pid": pid, "version": version, "port": port}, "id": id})
+}
+
+/// Best-effort immediate send. `Some(id)` on queued, `None` when the
+/// sidecar link is down (caller falls back to the bounded retry).
+fn send_worker_started_frame(
+    state: &Arc<SidecarState>,
+    pid: u32,
+    version: &str,
+    port: u16,
+) -> Option<u64> {
+    let ws_tx = state_lock(&state.ws_tx).clone()?;
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+    let frame = worker_started_relay_frame(pid, version, port, id);
+    match ws_tx.try_send(Message::Text(frame.to_string().into())) {
+        Ok(_) => {
+            log::info!(
+                "[WORKER-INIT] worker_started relay sent (pid={}, port={}, id={})",
+                pid,
+                port,
+                id
+            );
+            Some(id)
+        }
+        Err(e) => {
+            log::warn!(
+                "[WORKER-INIT] worker_started relay try_send failed (id={}): {}",
+                id,
+                e
+            );
+            None
+        }
+    }
+}
+
+// Cold-start race cover: worker and sidecar spawn in parallel, so the
+// link may be down when the worker bind lands. Bounded so a dead link
+// can never retry forever (respawn policy is Step 5 territory).
+const RELAY_RETRY_ATTEMPTS: u32 = 20;
+const RELAY_RETRY_INTERVAL_MS: u64 = 500;
+
+/// Relay the worker bind to the sidecar. Skips (warn) when the pid is
+/// unknown rather than sending a garbage pid; retries briefly when the
+/// sidecar link is not up yet.
+pub(crate) fn relay_worker_started_to_sidecar(
+    app: &tauri::AppHandle,
+    pid: Option<u32>,
+    port: u16,
+) {
+    let pid = match pid {
+        Some(pid) => pid,
+        None => {
+            log::warn!(
+                "[WORKER-INIT] worker pid unknown, skipping worker_started relay (port={})",
+                port
+            );
+            return;
+        }
+    };
+    let version = crate::platform::worker_path::pack_version();
+    let state: tauri::State<'_, Arc<SidecarState>> = app.state();
+    let state = state.inner().clone();
+    if send_worker_started_frame(&state, pid, &version, port).is_some() {
+        return;
+    }
+    log::info!(
+        "[WORKER-INIT] sidecar link down, retrying worker_started relay (port={})",
+        port
+    );
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..RELAY_RETRY_ATTEMPTS {
+            tokio::time::sleep(std::time::Duration::from_millis(RELAY_RETRY_INTERVAL_MS)).await;
+            if state.shutting_down.load(Ordering::SeqCst) {
+                return;
+            }
+            if send_worker_started_frame(&state, pid, &version, port).is_some() {
+                return;
+            }
+        }
+        log::warn!(
+            "[WORKER-INIT] worker_started relay undelivered after retries (port={})",
+            port
+        );
+    });
+}
+
 /// `offline_pack_verified` trigger (called from the WS reader, sync
 /// context: the async work runs on a spawned task, never `block_on`:
-/// C-TOKIO-1). Restarts the worker against the just-verified pack:
-/// stop-first (frees the pack dir on Windows) then
-/// `initialize_worker`. Concurrent events serialize on the restart
-/// slot; a missing binary or a quitting host skips quietly. Spawn
-/// failure only logs (no supervisor yet, plan §7.2, so a bad pack
-/// can never trip a respawn loop).
+/// C-TOKIO-1). Delegates to the shared start sequence so a bad pack
+/// can never trip a respawn loop (no supervisor yet, plan §7.2).
 pub(crate) fn on_pack_verified(app: &tauri::AppHandle) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = app_handle.state::<Arc<WorkerState>>().inner().clone();
-        if !try_claim_restart_slot(&state.respawn_in_progress) {
-            log::info!(
-                "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"
-            );
-            return;
-        }
-        stop_worker_child(&state).await;
-        if state.shutting_down.load(Ordering::SeqCst) {
-            state.respawn_in_progress.store(false, Ordering::SeqCst);
-            return;
-        }
-        if !worker_binary_present() {
-            log::info!(
-                "[WORKER-INIT] pack verified but no worker binary on disk: skipping worker start"
-            );
-            state.respawn_in_progress.store(false, Ordering::SeqCst);
-            return;
-        }
-        initialize_worker(&app_handle, state.clone()).await;
-        state.respawn_in_progress.store(false, Ordering::SeqCst);
+        start_worker_if_ready(&app_handle, state).await;
     });
 }

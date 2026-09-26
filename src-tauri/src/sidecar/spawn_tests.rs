@@ -658,6 +658,38 @@ fn test_parse_worker_started_invalid_json() {
     assert_eq!(parse_worker_started(""), None);
 }
 
+// ── worker_started relay frame (ADR-0024 Step 2) ────────────────────
+// The host pushes `worker_started {pid, version, port}` to the sidecar
+// over the existing WS hop. The frame builder is pure so the frozen
+// wire shape is pinned here; the send path needs a live WS link.
+
+#[test]
+fn test_worker_started_relay_frame_shape() {
+    let v = worker_started_relay_frame(1234, "v1", 54321, 7);
+    assert_eq!(
+        v.get("type").and_then(|t| t.as_str()),
+        Some("worker_started"),
+        "relay must reuse the existing event name, no second event"
+    );
+    let data = v.get("data").expect("relay frame must carry data");
+    assert_eq!(data.get("pid").and_then(|p| p.as_u64()), Some(1234));
+    assert_eq!(data.get("version").and_then(|s| s.as_str()), Some("v1"));
+    // E9: u16 both sides; the sidecar validates 1..=65535.
+    assert_eq!(data.get("port").and_then(|p| p.as_u64()), Some(54321));
+    // C-WS-2: numeric id echo on this hop.
+    assert_eq!(v.get("id").and_then(|i| i.as_u64()), Some(7));
+}
+
+#[test]
+fn test_worker_started_relay_frame_port_u16_max() {
+    let v = worker_started_relay_frame(1, "v1", u16::MAX, 1);
+    assert_eq!(
+        v.get("data").and_then(|d| d.get("port")).and_then(|p| p.as_u64()),
+        Some(65535),
+        "u16::MAX must serialize exactly, never wrap"
+    );
+}
+
 // ── worker_shared_env (worker env contract) ────────────────────────
 //
 // BOTH worker spawn paths (release + dev) pass the same three explicit
@@ -727,6 +759,41 @@ fn test_worker_shared_env_config_dir_is_non_empty() {
         !config_dir.is_empty(),
         "VOICE_TYPER_CONFIG_DIR must resolve to a non-empty path"
     );
+}
+
+// ── should_start_worker (shared cold-start/pack-verified gate) ──
+//
+// Both triggers (boot cold start + `offline_pack_verified`) run only
+// while the host is alive AND a worker binary exists. Pure bool gate
+// so the skip-quietly contract pins without a Tauri handle.
+
+#[test]
+fn test_should_start_worker_truth_table() {
+    assert!(
+        should_start_worker(false, true),
+        "live host + binary present must start"
+    );
+    assert!(
+        !should_start_worker(true, true),
+        "quitting host must skip even with a binary present"
+    );
+    assert!(
+        !should_start_worker(false, false),
+        "missing binary must skip (pack-verified path starts it later)"
+    );
+    assert!(
+        !should_start_worker(true, false),
+        "quitting host + missing binary must skip"
+    );
+}
+
+/// Compile-time contract: the cold-start entry point `main.rs` spawns
+/// plus the shared trigger it delegates to exist under their names.
+#[test]
+fn test_worker_cold_start_entry_points_exist() {
+    let _gate = should_start_worker;
+    let _cold = crate::sidecar::worker_init::initialize_worker_guarded;
+    let _shared = crate::sidecar::spawn::worker::start_worker_if_ready;
 }
 
 // ── try_claim_restart_slot (restart-slot serialization) ────────

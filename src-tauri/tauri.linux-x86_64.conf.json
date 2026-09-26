@@ -1,15 +1,15 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "bundle": {
-    "targets": ["deb", "rpm", "appimage"],
-    "resources": [
-      "resources/native/linux-key-listener",
-      "resources/linux-scripts/install_permissions.py",
-      "resources/linux-scripts/uninstall_permissions.py",
-      "resources/linux-scripts/99-voice-typer.rules",
-      "resources/linux-scripts/00-voice-typer-capslock.conf",
-      "resources/linux-scripts/voice-typer.polkit",
-      "icons/tray/"
-    ]
-  }
+	"$schema": "https://schema.tauri.app/config/2",
+	"bundle": {
+		"targets": ["deb", "rpm", "appimage"],
+		"resources": [
+			"resources/native/linux-key-listener",
+			"resources/linux-scripts/install_permissions.py",
+			"resources/linux-scripts/uninstall_permissions.py",
+			"resources/linux-scripts/99-lausu.rules",
+			"resources/linux-scripts/00-lausu-capslock.conf",
+			"resources/linux-scripts/lausu.polkit",
+			"icons/tray/"
+		]
+	}
 }

@@ -1,4 +1,3 @@
-
 use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
@@ -6,7 +5,7 @@ use tokio::sync::oneshot;
 use super::dialog_titles::{localized_title_for, DialogTitle};
 use crate::commands::export::await_dialog_bridge;
 use crate::commands::require_main_window;
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 use crate::platform::open_path::{
     open_external_url, open_path_in_file_manager, reveal_path_in_file_manager,
 };
@@ -17,10 +16,7 @@ pub(crate) fn logs_dir_path(config_dir: &std::path::Path) -> std::path::PathBuf 
 }
 
 #[tauri::command]
-pub async fn open_logs(
-    _app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+pub async fn open_logs(_app: tauri::AppHandle, window: tauri::Window) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     let log_dir = logs_dir_path(&config_dir());
     let blocking_result = tauri::async_runtime::spawn_blocking(move || {
@@ -61,7 +57,7 @@ pub async fn open_logs(
 pub async fn open_external_url_command(
     url: String,
     window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     // Blocking work (argv build + OS handler spawn) goes to the blocking
     // pool, mirroring `open_logs`.
@@ -77,10 +73,7 @@ pub async fn open_external_url_command(
 }
 
 #[tauri::command]
-pub async fn reveal_path_command(
-    path: String,
-    window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+pub async fn reveal_path_command(path: String, window: tauri::Window) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     let path_buf = std::path::PathBuf::from(path);
     let result =
@@ -99,7 +92,7 @@ pub async fn reveal_path_command(
 pub async fn open_model_import_dialog(
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     // Locale-aware title from the renderer-pushed host_locale
     // (English until the first `set_host_locale` push resolves).

@@ -1,11 +1,9 @@
-
 use serde::{ser::Serializer, Serialize};
 use serde_json::{json, Value};
 
 use crate::commands::sidecar_cmds::{
     DISALLOWED_COMMAND_CODE, DISALLOWED_WINDOW_CODE, PENDING_FULL_CODE,
 };
-
 
 /// The `pending_full` backpressure envelope (dispatch pending-map cap).
 fn pending_full_envelope() -> String {
@@ -57,7 +55,7 @@ fn disallowed_window_envelope(message: &str) -> String {
 // ─── The enum ─────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum VoiceTyperError {
+pub(crate) enum LausuError {
     /// `state.ws_tx` is `None`: the sidecar WS link is down (or the
     /// writer task exited, surfaced as `TrySendError::Closed`).
     #[error("sidecar not connected")]
@@ -116,11 +114,11 @@ pub(crate) enum VoiceTyperError {
     Host(String),
 }
 
-impl VoiceTyperError {
+impl LausuError {
     /// Rejection for a call whose invoking window is not the main
     /// window (`commands::require_main_window`).
     pub(crate) fn disallowed_main_window() -> Self {
-        VoiceTyperError::DisallowedWindow {
+        LausuError::DisallowedWindow {
             message: "command only allowed from main window",
         }
     }
@@ -128,7 +126,7 @@ impl VoiceTyperError {
     /// Rejection for a call whose invoking window is not the bubble
     /// window (`commands::require_bubble_window`).
     pub(crate) fn disallowed_bubble_window() -> Self {
-        VoiceTyperError::DisallowedWindow {
+        LausuError::DisallowedWindow {
             message: "command only allowed from bubble window",
         }
     }
@@ -145,38 +143,38 @@ impl VoiceTyperError {
                 .and_then(Value::as_str)
                 .unwrap_or("server error")
                 .to_string();
-            VoiceTyperError::Server {
+            LausuError::Server {
                 code,
                 message,
                 data,
             }
         } else {
-            VoiceTyperError::Host("server error [unknown]: server error".to_string())
+            LausuError::Host("server error [unknown]: server error".to_string())
         }
     }
 }
 
-impl From<String> for VoiceTyperError {
+impl From<String> for LausuError {
     fn from(s: String) -> Self {
-        VoiceTyperError::Host(s)
+        LausuError::Host(s)
     }
 }
 
-impl From<&str> for VoiceTyperError {
+impl From<&str> for LausuError {
     fn from(s: &str) -> Self {
-        VoiceTyperError::Host(s.to_string())
+        LausuError::Host(s.to_string())
     }
 }
 
 // ─── Wire serialization ───────────────────────────────────────────────
 
-impl Serialize for VoiceTyperError {
+impl Serialize for LausuError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         match self {
-            VoiceTyperError::Server { data, .. } => {
+            LausuError::Server { data, .. } => {
                 serializer.serialize_str(&json!({ "type": "error", "data": data }).to_string())
             }
             _ => serializer.serialize_str(&self.to_string()),

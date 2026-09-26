@@ -1,5 +1,5 @@
 //! Unit tests for the unified Tauri-host command error enum
-//! (`crate::error::VoiceTyperError`).
+//! (`crate::error::LausuError`).
 //!
 //! Two properties are golden-pinned for every variant:
 //!
@@ -28,16 +28,16 @@ use serde_json::{json, Value};
 use crate::commands::sidecar_cmds::{
     DISALLOWED_COMMAND_CODE, DISALLOWED_WINDOW_CODE, PENDING_FULL_CODE,
 };
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 
 /// Serialize the error the way Tauri's `InvokeError` does and assert
 /// the result is a JSON string with the expected contents.
-fn wire_string(err: &VoiceTyperError) -> String {
-    let value = serde_json::to_value(err).expect("VoiceTyperError must serialize");
+fn wire_string(err: &LausuError) -> String {
+    let value = serde_json::to_value(err).expect("LausuError must serialize");
     match value {
         Value::String(s) => s,
         other => panic!(
-            "VoiceTyperError must serialize to a JSON string (usePython.ts only \
+            "LausuError must serialize to a JSON string (usePython.ts only \
              normalizes `typeof err === \"string\"` rejections); got: {other}"
         ),
     }
@@ -47,14 +47,14 @@ fn wire_string(err: &VoiceTyperError) -> String {
 
 #[test]
 fn test_not_connected_display_and_wire_string() {
-    let err = VoiceTyperError::NotConnected;
+    let err = LausuError::NotConnected;
     assert_eq!(err.to_string(), "sidecar not connected");
     assert_eq!(wire_string(&err), "sidecar not connected");
 }
 
 #[test]
 fn test_shutting_down_display_and_wire_string() {
-    let err = VoiceTyperError::ShuttingDown;
+    let err = LausuError::ShuttingDown;
     assert_eq!(err.to_string(), "sidecar shutting down");
     assert_eq!(wire_string(&err), "sidecar shutting down");
 }
@@ -65,18 +65,18 @@ fn test_timeout_display_and_wire_string() {
     // (`DISPATCH_TIMEOUT_SECS`); 15s is the short timeout. Both render
     // through the same format the former
     // `format!("dispatch timeout ({}s)", timeout_secs)` produced.
-    let long = VoiceTyperError::Timeout { secs: 120 };
+    let long = LausuError::Timeout { secs: 120 };
     assert_eq!(long.to_string(), "dispatch timeout (120s)");
     assert_eq!(wire_string(&long), "dispatch timeout (120s)");
 
-    let short = VoiceTyperError::Timeout { secs: 15 };
+    let short = LausuError::Timeout { secs: 15 };
     assert_eq!(short.to_string(), "dispatch timeout (15s)");
     assert_eq!(wire_string(&short), "dispatch timeout (15s)");
 }
 
 #[test]
 fn test_channel_closed_display_and_wire_string() {
-    let err = VoiceTyperError::ChannelClosed;
+    let err = LausuError::ChannelClosed;
     assert_eq!(err.to_string(), "dispatch response channel closed");
     assert_eq!(wire_string(&err), "dispatch response channel closed");
 }
@@ -85,7 +85,7 @@ fn test_channel_closed_display_and_wire_string() {
 fn test_send_failed_display_and_wire_string() {
     // `message` is the `TrySendError`'s Display, the former inline
     // `format!("WS send failed: {e}")` concatenation.
-    let err = VoiceTyperError::SendFailed {
+    let err = LausuError::SendFailed {
         message: "channel is full".to_string(),
     };
     assert_eq!(err.to_string(), "WS send failed: channel is full");
@@ -94,7 +94,7 @@ fn test_send_failed_display_and_wire_string() {
 
 #[test]
 fn test_host_variant_passes_string_through_verbatim() {
-    let err = VoiceTyperError::Host("bubble window not found".to_string());
+    let err = LausuError::Host("bubble window not found".to_string());
     assert_eq!(err.to_string(), "bubble window not found");
     assert_eq!(wire_string(&err), "bubble window not found");
 }
@@ -104,10 +104,10 @@ fn test_from_string_wraps_into_host_variant() {
     // Command fns rely on `?` + `From<String>` to convert the legacy
     // helper errors (`json_to_csv`, `resolve_cursor_monitor`, …), the
     // renderer-visible string must survive the wrap byte-identically.
-    let err: VoiceTyperError = "CSV export requires an array of objects".to_string().into();
+    let err: LausuError = "CSV export requires an array of objects".to_string().into();
     assert_eq!(wire_string(&err), "CSV export requires an array of objects");
 
-    let err: VoiceTyperError = "bubble window not found".into();
+    let err: LausuError = "bubble window not found".into();
     assert_eq!(wire_string(&err), "bubble window not found");
 }
 
@@ -115,7 +115,7 @@ fn test_from_string_wraps_into_host_variant() {
 
 #[test]
 fn test_pending_full_envelope_golden() {
-    let err = VoiceTyperError::PendingFull;
+    let err = LausuError::PendingFull;
     let expected = json!({
         "type": "error",
         "data": {
@@ -148,7 +148,7 @@ fn test_pending_full_envelope_golden() {
 
 #[test]
 fn test_disallowed_command_envelope_golden() {
-    let err = VoiceTyperError::DisallowedCommand;
+    let err = LausuError::DisallowedCommand;
     let expected = json!({
         "type": "error",
         "data": {
@@ -168,7 +168,7 @@ fn test_disallowed_command_envelope_golden() {
 
 #[test]
 fn test_data_too_large_envelope_golden() {
-    let err = VoiceTyperError::DataTooLarge;
+    let err = LausuError::DataTooLarge;
     let expected = json!({
         "type": "error",
         "data": {
@@ -188,7 +188,7 @@ fn test_data_too_large_envelope_golden() {
 
 #[test]
 fn test_disallowed_window_envelope_golden_main_window_guard() {
-    let err = VoiceTyperError::disallowed_main_window();
+    let err = LausuError::disallowed_main_window();
     let expected = json!({
         "type": "error",
         "data": {
@@ -208,7 +208,7 @@ fn test_disallowed_window_envelope_golden_main_window_guard() {
 
 #[test]
 fn test_disallowed_window_envelope_golden_bubble_window_guard() {
-    let err = VoiceTyperError::disallowed_bubble_window();
+    let err = LausuError::disallowed_bubble_window();
     let expected = json!({
         "type": "error",
         "data": {
@@ -232,7 +232,7 @@ fn test_disallowed_window_envelope_golden_bubble_window_guard() {
 fn test_server_variant_display_is_flat_log_string() {
     // The log-facing Display keeps the pre-enum flat concat so the
     // tray / heartbeat `log::warn!("... {}", e)` lines don't shift.
-    let err = VoiceTyperError::server_from_data(json!({
+    let err = LausuError::server_from_data(json!({
         "code": "server.internal_error",
         "message": "internal error"
     }));
@@ -246,7 +246,7 @@ fn test_server_variant_display_is_flat_log_string() {
 fn test_server_variant_wire_is_envelope_passthrough() {
     // The wire payload re-wraps the sidecar's `data` VERBATIM, the
     // `code` + `message` survive AND any sibling fields ride along.
-    let err = VoiceTyperError::server_from_data(json!({
+    let err = LausuError::server_from_data(json!({
         "code": "client.invalid_field",
         "message": "invalid field",
         "errors": ["sample_rate must be > 0", "channels must be 1 or 2"]
@@ -268,7 +268,7 @@ fn test_server_variant_preserves_consent_fields_verbatim() {
     // envelopes carry `consent_field` / `engine_name` / `model_id` so
     // the renderer can deep-link to the exact Settings toggle. The
     // former flat `"server error [code]: msg"` concat destroyed them.
-    let err = VoiceTyperError::server_from_data(json!({
+    let err = LausuError::server_from_data(json!({
         "code": "client.consent_required",
         "message": "consent required",
         "consent_field": "voice_biometric_consent",
@@ -291,7 +291,7 @@ fn test_server_variant_preserves_consent_fields_verbatim() {
 
 #[test]
 fn test_server_variant_defaults_code_and_message_when_missing() {
-    let err = VoiceTyperError::server_from_data(json!({}));
+    let err = LausuError::server_from_data(json!({}));
     assert_eq!(err.to_string(), "server error [unknown]: server error");
     let parsed: Value = serde_json::from_str(&wire_string(&err)).unwrap();
     assert_eq!(parsed["type"], "error");
@@ -307,21 +307,21 @@ fn test_server_from_data_non_object_falls_back_to_legacy_flat_string() {
     // `{"type":"error","data":null}` envelope the renderer would
     // surface as raw JSON text.
     assert_eq!(
-        VoiceTyperError::server_from_data(Value::Null).to_string(),
+        LausuError::server_from_data(Value::Null).to_string(),
         "server error [unknown]: server error"
     );
     assert_eq!(
-        wire_string(&VoiceTyperError::server_from_data(Value::Null)),
+        wire_string(&LausuError::server_from_data(Value::Null)),
         "server error [unknown]: server error"
     );
     assert_eq!(
-        wire_string(&VoiceTyperError::server_from_data(json!("boom"))),
+        wire_string(&LausuError::server_from_data(json!("boom"))),
         "server error [unknown]: server error"
     );
     // Non-string code / message values don't panic, the extraction
     // falls back to the defaults.
     assert_eq!(
-        VoiceTyperError::server_from_data(json!({"code": 42, "message": true})).to_string(),
+        LausuError::server_from_data(json!({"code": 42, "message": true})).to_string(),
         "server error [unknown]: server error"
     );
 }
@@ -337,7 +337,7 @@ fn test_server_variant_wire_matches_direct_envelope_construction() {
         "message": "handler failed",
         "extra": {"nested": [1, 2, 3]}
     });
-    let err = VoiceTyperError::server_from_data(data.clone());
+    let err = LausuError::server_from_data(data.clone());
     assert_eq!(
         wire_string(&err),
         json!({ "type": "error", "data": data }).to_string()

@@ -39,12 +39,12 @@ use super::*;
 // ── Constants ───────────────────────────────────────────────────────
 
 /// The worker exe base name (without triple suffix + .exe) must stay
-/// pinned to `voice-typer-worker`: `externalBin` in `tauri.conf.json`
+/// pinned to `lausu-worker`: `externalBin` in `tauri.conf.json`
 /// + `plugins.shell.scope` + the Python-side `build_worker_*.sh`
 /// `--output-filename` flag all depend on this exact string.
 #[test]
 fn test_worker_bin_base_name_pinned() {
-    assert_eq!(WORKER_BIN_BASE_NAME, "voice-typer-worker");
+    assert_eq!(WORKER_BIN_BASE_NAME, "lausu-worker");
 }
 
 /// The runtime-pack directory leaf name must stay pinned to
@@ -67,7 +67,7 @@ fn test_default_pack_version_pinned() {
 
 // ── pack_dir_from_env (per-platform runtime-pack root) ──────────────
 
-/// Windows: `%LOCALAPPDATA%\voice-typer\runtime-pack\`
+/// Windows: `%LOCALAPPDATA%\lausu\runtime-pack\`
 /// (NOT `%APPDATA%`: the runtime-pack is a per-machine cache that
 /// should NOT roam with the user profile; the sidecar's `config_dir`
 /// uses `%APPDATA%` for roaming config, but the pack is separate.)
@@ -87,12 +87,12 @@ fn test_pack_dir_windows_localappdata() {
         std::path::PathBuf::from("C:\\Users\\Alice\\AppData\\Local")
             .join(APP_SLUG)
             .join(RUNTIME_PACK_DIR),
-        "Windows pack_dir must be %LOCALAPPDATA%\\voice-typer\\runtime-pack"
+        "Windows pack_dir must be %LOCALAPPDATA%\\lausu\\runtime-pack"
     );
 }
 
 /// Windows: missing `LOCALAPPDATA` falls back to CWD-relative
-/// `./voice-typer/runtime-pack` (mirrors `config_dir_from_env`'s
+/// `./lausu/runtime-pack` (mirrors `config_dir_from_env`'s
 /// APPDATA fallback for Windows service accounts / headless CI).
 #[cfg(target_os = "windows")]
 #[test]
@@ -110,12 +110,12 @@ fn test_pack_dir_windows_missing_localappdata_falls_back_to_cwd() {
         std::path::PathBuf::from(".")
             .join(APP_SLUG)
             .join(RUNTIME_PACK_DIR),
-        "missing LOCALAPPDATA → CWD fallback ./voice-typer/runtime-pack"
+        "missing LOCALAPPDATA → CWD fallback ./lausu/runtime-pack"
     );
 }
 
-/// Linux: `$XDG_DATA_HOME/voice-typer/runtime-pack/`
-/// (default `~/.local/share/voice-typer/runtime-pack/`).
+/// Linux: `$XDG_DATA_HOME/lausu/runtime-pack/`
+/// (default `~/.local/share/lausu/runtime-pack/`).
 #[cfg(target_os = "linux")]
 #[test]
 fn test_pack_dir_linux_xdg_data_home() {
@@ -137,7 +137,7 @@ fn test_pack_dir_linux_xdg_data_home() {
 }
 
 /// Linux: missing `XDG_DATA_HOME` falls back to
-/// `~/.local/share/voice-typer/runtime-pack/` (the XDG spec default).
+/// `~/.local/share/lausu/runtime-pack/` (the XDG spec default).
 #[cfg(target_os = "linux")]
 #[test]
 fn test_pack_dir_linux_xdg_unset_falls_back_to_home() {
@@ -156,12 +156,12 @@ fn test_pack_dir_linux_xdg_unset_falls_back_to_home() {
             .join("share")
             .join(APP_SLUG)
             .join(RUNTIME_PACK_DIR),
-        "Linux pack_dir with no XDG_DATA_HOME → ~/.local/share/voice-typer/runtime-pack"
+        "Linux pack_dir with no XDG_DATA_HOME → ~/.local/share/lausu/runtime-pack"
     );
 }
 
 /// Linux: missing `HOME` (and missing `XDG_DATA_HOME`) falls back to
-/// CWD-relative `./voice-typer/runtime-pack` (mirrors `config_dir`'s
+/// CWD-relative `./lausu/runtime-pack` (mirrors `config_dir`'s
 /// missing-HOME fallback for systemd user units without
 /// `Environment=HOME=...`).
 #[cfg(target_os = "linux")]
@@ -180,11 +180,11 @@ fn test_pack_dir_linux_missing_home_falls_back_to_cwd() {
         std::path::PathBuf::from(".")
             .join(APP_SLUG)
             .join(RUNTIME_PACK_DIR),
-        "missing HOME on Linux → CWD fallback ./voice-typer/runtime-pack"
+        "missing HOME on Linux → CWD fallback ./lausu/runtime-pack"
     );
 }
 
-/// macOS: `~/Library/Application Support/voice-typer/runtime-pack/`.
+/// macOS: `~/Library/Application Support/lausu/runtime-pack/`.
 #[cfg(target_os = "macos")]
 #[test]
 fn test_pack_dir_macos_application_support() {
@@ -203,12 +203,12 @@ fn test_pack_dir_macos_application_support() {
             .join("Application Support")
             .join(APP_SLUG)
             .join(RUNTIME_PACK_DIR),
-        "macOS pack_dir must be ~/Library/Application Support/voice-typer/runtime-pack"
+        "macOS pack_dir must be ~/Library/Application Support/lausu/runtime-pack"
     );
 }
 
 /// macOS: missing `HOME` falls back to CWD-relative
-/// `./Library/Application Support/voice-typer/runtime-pack` (mirrors
+/// `./Library/Application Support/lausu/runtime-pack` (mirrors
 /// `config_dir`'s missing-HOME fallback for system LaunchDaemons).
 #[cfg(target_os = "macos")]
 #[test]
@@ -228,7 +228,7 @@ fn test_pack_dir_macos_missing_home_falls_back_to_cwd() {
             .join("Application Support")
             .join(APP_SLUG)
             .join(RUNTIME_PACK_DIR),
-        "missing HOME on macOS → CWD fallback ./Library/Application Support/voice-typer/runtime-pack"
+        "missing HOME on macOS → CWD fallback ./Library/Application Support/lausu/runtime-pack"
     );
 }
 
@@ -306,7 +306,7 @@ fn test_pack_dir_linux_empty_home_and_empty_xdg_treated_as_unset() {
 // ── worker_exe_path_from_env (full path with version + worker name) ──
 
 /// The full worker exe path on Windows must be:
-/// `%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\voice-typer-worker-<triple>.exe`
+/// `%LOCALAPPDATA%\lausu\runtime-pack\<version>\lausu-worker-<triple>.exe`
 ///
 /// We can't pin the triple here (it's runtime-dependent), but we CAN
 /// verify the path ends with the expected suffix + that the
@@ -327,7 +327,7 @@ fn test_worker_exe_path_windows_full_path() {
     assert_eq!(
         p.file_name().and_then(|n| n.to_str()),
         Some(expected_name.as_str()),
-        "worker exe file name must be voice-typer-worker-<triple>.exe"
+        "worker exe file name must be lausu-worker-<triple>.exe"
     );
     assert_eq!(
         p.parent()
@@ -350,7 +350,7 @@ fn test_worker_exe_path_windows_full_path() {
 }
 
 /// The full worker exe path on Linux must be:
-/// `$XDG_DATA_HOME/voice-typer/runtime-pack/<version>/voice-typer-worker-<triple>`
+/// `$XDG_DATA_HOME/lausu/runtime-pack/<version>/lausu-worker-<triple>`
 /// (no `.exe` suffix on POSIX).
 #[cfg(target_os = "linux")]
 #[test]
@@ -368,7 +368,7 @@ fn test_worker_exe_path_linux_full_path() {
     assert_eq!(
         p.file_name().and_then(|n| n.to_str()),
         Some(expected_name.as_str()),
-        "worker exe file name must be voice-typer-worker-<triple> (no .exe on POSIX)"
+        "worker exe file name must be lausu-worker-<triple> (no .exe on POSIX)"
     );
     // No `.exe` extension on POSIX.
     assert!(
@@ -378,7 +378,7 @@ fn test_worker_exe_path_linux_full_path() {
 }
 
 /// The full worker exe path on macOS must be:
-/// `~/Library/Application Support/voice-typer/runtime-pack/<version>/voice-typer-worker-<triple>`
+/// `~/Library/Application Support/lausu/runtime-pack/<version>/lausu-worker-<triple>`
 /// (no `.exe` suffix on POSIX).
 #[cfg(target_os = "macos")]
 #[test]
@@ -396,7 +396,7 @@ fn test_worker_exe_path_macos_full_path() {
     assert_eq!(
         p.file_name().and_then(|n| n.to_str()),
         Some(expected_name.as_str()),
-        "worker exe file name must be voice-typer-worker-<triple> (no .exe on POSIX)"
+        "worker exe file name must be lausu-worker-<triple> (no .exe on POSIX)"
     );
     assert!(
         !p.to_string_lossy().ends_with(".exe"),
@@ -562,7 +562,7 @@ fn test_worker_exe_path_file_name_matches_target_triple() {
     assert_eq!(
         p.file_name().and_then(|n| n.to_str()),
         Some(expected.as_str()),
-        "worker exe file name must match voice-typer-worker-<triple>[.exe]"
+        "worker exe file name must match lausu-worker-<triple>[.exe]"
     );
 }
 

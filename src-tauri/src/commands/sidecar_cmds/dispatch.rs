@@ -5,9 +5,9 @@
 //! C-TAURI-3: FLAT `(cmd: String, data: Option<Value>)` params only.
 
 use crate::commands::require_main_window;
-use crate::error::VoiceTyperError;
-use crate::state::SidecarState;
+use crate::error::LausuError;
 use crate::state::lock as mutex_lock;
+use crate::state::SidecarState;
 use crate::util::{
     DISPATCH_DOWNLOAD_TIMEOUT_SECS, DISPATCH_SHORT_TIMEOUT_SECS, DISPATCH_TIMEOUT_SECS,
 };
@@ -24,6 +24,9 @@ use super::allowlist::{is_command_allowed, PENDING_MAX};
 
 // Model-lifecycle commands get the long budget; others 15s.
 // Routing: docs/code-notes/tauri-host.md#dispatch-timeouts
+// `media_transcribe_start` resolves the pasted URL (yt-dlp extract)
+// SYNCHRONOUSLY before acknowledging, which needs tens of seconds on a
+// cold network (ADR-0023), so it shares the 120s budget.
 const _LONG_RUNNING_COMMANDS: &[&str] = &[
     "download_model",
     "import_model",
@@ -31,6 +34,7 @@ const _LONG_RUNNING_COMMANDS: &[&str] = &[
     "cancel_model_download",
     "pause_model_download",
     "resume_model_download",
+    "media_transcribe_start",
 ];
 
 // Multi-GB transfer commands get the 1h download-scale cap
@@ -71,7 +75,7 @@ pub(crate) struct DispatchArgs {
 pub(crate) async fn dispatch_inner(
     args: DispatchArgs,
     state: Arc<SidecarState>,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     dispatch_frame(&state, &args.cmd, args.data).await
 }
 
@@ -82,18 +86,18 @@ pub(crate) fn dispatch_fire_and_forget(
     state: &Arc<SidecarState>,
     cmd: &str,
     data: Option<Value>,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     let frame = json!({
         "type": cmd,
         "data": data.unwrap_or(json!({})),
         "id": 0u64,
     });
     let ws_tx_opt = mutex_lock(&state.ws_tx).clone();
-    let ws_tx = ws_tx_opt.ok_or(VoiceTyperError::NotConnected)?;
+    let ws_tx = ws_tx_opt.ok_or(LausuError::NotConnected)?;
     // try_send: sync path; Full/Closed mirror dispatch_frame errors.
     ws_tx
         .try_send(Message::Text(frame.to_string().into()))
-        .map_err(|e| VoiceTyperError::SendFailed {
+        .map_err(|e| LausuError::SendFailed {
             message: e.to_string(),
         })?;
     Ok(())
@@ -146,7 +150,7 @@ async fn dispatch_frame(
     state: &Arc<SidecarState>,
     cmd: &str,
     data: Option<Value>,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     // Relaxed is fine: pure unique-id generator; no publish/order need.
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     // Correlation id + cmd for WS reader fulfillment logs.
@@ -162,7 +166,7 @@ async fn dispatch_frame(
             id,
             cmd
         );
-        return Err(VoiceTyperError::ShuttingDown);
+        return Err(LausuError::ShuttingDown);
     }
 
     // Cap data BEFORE pending insert / writer enqueue (writer's 1 MiB
@@ -183,7 +187,7 @@ async fn dispatch_frame(
             data_str.len(),
             DISPATCH_DATA_MAX_BYTES
         );
-        return Err(VoiceTyperError::DataTooLarge);
+        return Err(LausuError::DataTooLarge);
     }
 
     // Manual frame: type quoted via serde_json, data pre-serialized, id numeric.
@@ -200,7 +204,7 @@ async fn dispatch_frame(
                 id,
                 cmd
             );
-            return Err(VoiceTyperError::NotConnected);
+            return Err(LausuError::NotConnected);
         }
     };
 
@@ -217,7 +221,7 @@ async fn dispatch_frame(
                 pending.len(),
                 PENDING_MAX
             );
-            return Err(VoiceTyperError::PendingFull);
+            return Err(LausuError::PendingFull);
         }
         pending.insert(id, tx);
     }
@@ -229,8 +233,8 @@ async fn dispatch_frame(
         let mut pending = state.pending.lock().await;
         pending.remove(&id);
         let err = match &e {
-            tokio::sync::mpsc::error::TrySendError::Closed(_) => VoiceTyperError::NotConnected,
-            tokio::sync::mpsc::error::TrySendError::Full(_) => VoiceTyperError::SendFailed {
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => LausuError::NotConnected,
+            tokio::sync::mpsc::error::TrySendError::Full(_) => LausuError::SendFailed {
                 message: e.to_string(),
             },
         };
@@ -270,7 +274,7 @@ async fn dispatch_frame(
                     .get_mut("data")
                     .map(Value::take)
                     .unwrap_or(json!({}));
-                return Err(VoiceTyperError::server_from_data(data));
+                return Err(LausuError::server_from_data(data));
             }
             // Value::take: O(1) move, no deep clone on hot path.
             let data = response
@@ -286,7 +290,7 @@ async fn dispatch_frame(
                 id,
                 cmd
             );
-            Err(VoiceTyperError::ChannelClosed)
+            Err(LausuError::ChannelClosed)
         }
         Err(_) => {
             let mut pending = state.pending.lock().await;
@@ -297,7 +301,7 @@ async fn dispatch_frame(
                 cmd,
                 timeout_secs
             );
-            Err(VoiceTyperError::Timeout { secs: timeout_secs })
+            Err(LausuError::Timeout { secs: timeout_secs })
         }
     }
 }
@@ -308,7 +312,7 @@ pub async fn dispatch(
     data: Option<Value>,
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     // C-TAURI-3: FLAT (cmd, data) params — a struct arg breaks every invoke.
     // NOTE: see docs/code-notes/tauri-host.md#dispatch-arg-shape-c-tauri-3
     let args = DispatchArgs { cmd, data };
@@ -320,7 +324,7 @@ pub async fn dispatch(
             "rejected dispatch command with length {} (>64 char cap)",
             args.cmd.len()
         );
-        return Err(VoiceTyperError::Host("command name too long".into()));
+        return Err(LausuError::Host("command name too long".into()));
     }
 
     // SEC-026: bubble is sandboxed and must not drive the sidecar command surface.
@@ -333,7 +337,7 @@ pub async fn dispatch(
             "[DISPATCH-ALLOWLIST] rejected disallowed dispatch command: {:?} (not in ALLOWED_COMMANDS)",
             args.cmd
         );
-        return Err(VoiceTyperError::DisallowedCommand);
+        return Err(LausuError::DisallowedCommand);
     }
 
     // Already allowlisted above; Arc clone makes this callable outside Tauri commands.

@@ -172,10 +172,8 @@ pub(crate) struct WorkerState {
     #[allow(dead_code)] // wired when the worker supervisor is managed (pending)
     pub(crate) heartbeat_handle: AsyncMutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     /// Worker WS generation counter (mirrors sidecar).
-    #[allow(dead_code)] // wired when the worker supervisor is managed (pending)
     pub(crate) ws_generation: AtomicU64,
     /// Worker supervisor backoff-cancel signal.
-    #[allow(dead_code)] // wired when the worker supervisor is managed (pending)
     pub(crate) shutdown_notify: Notify,
     /// Per-launch bearer token (`VOICE_TYPER_WORKER_TOKEN`). Generated
     /// once per host launch so the slim-core sidecar can re-auth to a

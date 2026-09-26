@@ -11,8 +11,7 @@
 use base64::Engine as _;
 
 use super::{
-    decode_png_data_url, non_colliding_png_path, safe_png_stem, PNG_DATA_URL_PREFIX,
-    PNG_SIGNATURE,
+    decode_png_data_url, non_colliding_png_path, safe_png_stem, PNG_DATA_URL_PREFIX, PNG_SIGNATURE,
 };
 
 /// A minimal valid PNG header (signature + IHDR chunk magic) — enough
@@ -81,14 +80,14 @@ fn test_invalid_base64_is_rejected() {
 
 #[test]
 fn test_default_name_passes_through() {
-    assert_eq!(safe_png_stem(Some("voice-typer-stats")), "voice-typer-stats");
-    assert_eq!(safe_png_stem(None), "voice-typer-stats");
-    assert_eq!(safe_png_stem(Some("")), "voice-typer-stats");
+    assert_eq!(safe_png_stem(Some("lausu-stats")), "lausu-stats");
+    assert_eq!(safe_png_stem(None), "lausu-stats");
+    assert_eq!(safe_png_stem(Some("")), "lausu-stats");
 }
 
 #[test]
 fn test_png_suffix_is_peeled() {
-    assert_eq!(safe_png_stem(Some("voice-typer-stats.png")), "voice-typer-stats");
+    assert_eq!(safe_png_stem(Some("lausu-stats.png")), "lausu-stats");
     assert_eq!(safe_png_stem(Some("share.PNG")), "share");
 }
 
@@ -107,7 +106,7 @@ fn test_path_traversal_is_neutralized() {
 fn test_whitespace_collapses_and_hidden_names_are_stripped() {
     assert_eq!(safe_png_stem(Some("  my  stats  ")), "my-stats");
     assert!(!safe_png_stem(Some(".hidden")).starts_with('.'));
-    assert_eq!(safe_png_stem(Some("---")), "voice-typer-stats");
+    assert_eq!(safe_png_stem(Some("---")), "lausu-stats");
 }
 
 #[test]
@@ -122,19 +121,19 @@ fn test_long_names_are_capped_at_80_chars() {
 fn test_fresh_dir_uses_the_plain_name() {
     let dir = tempfile_dir();
     assert_eq!(
-        non_colliding_png_path(&dir, "voice-typer-stats"),
-        dir.join("voice-typer-stats.png")
+        non_colliding_png_path(&dir, "lausu-stats"),
+        dir.join("lausu-stats.png")
     );
 }
 
 #[test]
 fn test_existing_files_get_numbered_suffixes() {
     let dir = tempfile_dir();
-    std::fs::write(dir.join("voice-typer-stats.png"), b"old").unwrap();
-    std::fs::write(dir.join("voice-typer-stats (1).png"), b"old").unwrap();
+    std::fs::write(dir.join("lausu-stats.png"), b"old").unwrap();
+    std::fs::write(dir.join("lausu-stats (1).png"), b"old").unwrap();
     assert_eq!(
-        non_colliding_png_path(&dir, "voice-typer-stats"),
-        dir.join("voice-typer-stats (2).png")
+        non_colliding_png_path(&dir, "lausu-stats"),
+        dir.join("lausu-stats (2).png")
     );
 }
 

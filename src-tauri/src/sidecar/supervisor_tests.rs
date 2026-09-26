@@ -613,10 +613,7 @@ async fn test_gt_c4_8_child_install_race_clears_flag() {
     state.shutting_down.store(true, Ordering::SeqCst);
 
     let install = !state.shutting_down.load(Ordering::SeqCst);
-    assert!(
-        !install,
-        "when shutting_down is set, install must be false"
-    );
+    assert!(!install, "when shutting_down is set, install must be false");
     if !install {
         state.respawn_in_progress.store(false, Ordering::SeqCst);
     }
@@ -936,7 +933,7 @@ fn test_write_read_restart_counter_round_trip_json_contract() {
 #[test]
 fn test_clear_restart_counter_for_user_restart_sets_zero() {
     // Create a unique temp dir so this test never interferes with
-    // the user's real `~/.voice-typer/restart_counter.json` (and
+    // the user's real `~/.lausu/restart_counter.json` (and
     // vice versa). `tempfile` is not a dev-dependency, so use
     // `std::env::temp_dir()` + process-id + thread-name for uniqueness.
     let pid = std::process::id();
@@ -945,7 +942,7 @@ fn test_clear_restart_counter_for_user_restart_sets_zero() {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let temp_config =
-        std::env::temp_dir().join(format!("voice-typer-test-clear-counter-{}-{}", pid, ts_ns));
+        std::env::temp_dir().join(format!("lausu-test-clear-counter-{}-{}", pid, ts_ns));
     // Best-effort create; if it fails (read-only temp dir), the
     // test will fall through to the "config dir unwritable" guard
     // below and skip the assertions rather than fail spuriously.
@@ -1182,7 +1179,9 @@ async fn test_stop_sidecar_for_suspend_adopted_mode_is_noop() {
     *state.adopted_backend.lock().await = true;
     stop_sidecar_for_suspend(&state).await;
     assert!(
-        !state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
+        !state
+            .shutting_down
+            .load(std::sync::atomic::Ordering::SeqCst),
         "adopted-mode suspend stop must NOT mark the host as shutting_down"
     );
 }
@@ -1190,11 +1189,15 @@ async fn test_stop_sidecar_for_suspend_adopted_mode_is_noop() {
 #[tokio::test]
 async fn test_stop_sidecar_for_suspend_skips_when_host_shutting_down() {
     let state = Arc::new(SidecarState::new());
-    state.shutting_down.store(true, std::sync::atomic::Ordering::SeqCst);
+    state
+        .shutting_down
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     stop_sidecar_for_suspend(&state).await;
     // Flag stays true (already set); the point is we did not panic
     // and did not try to take/kill a child while shutting down.
-    assert!(state.shutting_down.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(state
+        .shutting_down
+        .load(std::sync::atomic::Ordering::SeqCst));
 }
 
 #[tokio::test]
@@ -1206,7 +1209,9 @@ async fn test_stop_sidecar_for_suspend_does_not_set_shutting_down() {
     let state = Arc::new(SidecarState::new());
     stop_sidecar_for_suspend(&state).await;
     assert!(
-        !state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
+        !state
+            .shutting_down
+            .load(std::sync::atomic::Ordering::SeqCst),
         "suspend stop must leave shutting_down=false so resume can respawn"
     );
     assert!(

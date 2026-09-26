@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Voice Typer. Linux keyboard permission installer.
+"""Lausu. Linux keyboard permission installer.
 
 This is the single source of truth for "what system modifications does
-Voice Typer make on Linux." Called by:
+Lausu make on Linux." Called by:
 
-- Debian ``postinst`` (as root, during ``apt install voice-typer``)
-- RPM ``%post`` (as root, during ``dnf install voice-typer``)
+- Debian ``postinst`` (as root, during ``apt install lausu``)
+- RPM ``%post`` (as root, during ``dnf install lausu``)
 - AppImage first-run helper (as root, via ``pkexec``)
 
 Operations (all idempotent):
   1. Ensure the polkit-stable path
-     ``/usr/share/voice-typer/scripts/install_permissions.py`` resolves
+     ``/usr/share/lausu/scripts/install_permissions.py`` resolves
      to this script (symlink for stable installs, copy for AppImage).
      Also installs the polkit policy file to
-     ``/usr/share/polkit-1/actions/com.voicetyper.policy`` so
-     ``pkexec com.voicetyper.install-permissions`` resolves to the
+     ``/usr/share/polkit-1/actions/com.Lausu.policy`` so
+     ``pkexec com.Lausu.install-permissions`` resolves to the
      custom authentication prompt. This is a defensive fallback for
      AppImage installs (which have no ``postinst``) and for repair
      scenarios.
-  2. Copy ``99-voice-typer.rules`` to ``/etc/udev/rules.d/``
+  2. Copy ``99-lausu.rules`` to ``/etc/udev/rules.d/``
   3. Reload udev rules and trigger input subsystem
   4. Add the current user (from SUDO_USER / PKEXEC_UID) to the ``input`` group
   5. Detect session type (X11 / GNOME / KDE / Sway) and configure Caps Lock
      neutralization appropriately
-  6. Write a manifest at ``/var/lib/voice-typer/permissions-manifest.json``
+  6. Write a manifest at ``/var/lib/lausu/permissions-manifest.json``
      tracking what was installed (used by uninstall_permissions.py)
 
 Usage:
@@ -46,7 +46,7 @@ Exit codes:
 
 Note: when this script is invoked via pkexec, polkit caches the
 authentication for ~5 minutes (``auth_admin_keep`` default in
-``voice-typer.polkit``). Re-running within that window will not re-prompt
+``lausu.polkit``). Re-running within that window will not re-prompt
 for a password: this is expected polkit behavior, not a bug.
 """
 
@@ -81,13 +81,13 @@ except ImportError:  # pragma: no cover - POSIX-only module
 
 # ─── Constants ─────────────────────────────────────────────────────────────
 
-UDEV_RULE_PATH = Path("/etc/udev/rules.d/99-voice-typer.rules")
-UDEV_RULE_SOURCE = Path(__file__).resolve().parent / "99-voice-typer.rules"
+UDEV_RULE_PATH = Path("/etc/udev/rules.d/99-lausu.rules")
+UDEV_RULE_SOURCE = Path(__file__).resolve().parent / "99-lausu.rules"
 
-XKB_CONF_PATH = Path("/etc/X11/xorg.conf.d/00-voice-typer-capslock.conf")
-XKB_CONF_SOURCE = Path(__file__).resolve().parent / "00-voice-typer-capslock.conf"
+XKB_CONF_PATH = Path("/etc/X11/xorg.conf.d/00-lausu-capslock.conf")
+XKB_CONF_SOURCE = Path(__file__).resolve().parent / "00-lausu-capslock.conf"
 
-MANIFEST_DIR = Path("/var/lib/voice-typer")
+MANIFEST_DIR = Path("/var/lib/lausu")
 MANIFEST_PATH = MANIFEST_DIR / "permissions-manifest.json"
 
 # Root directory scanned as a defensive fallback when removing the
@@ -96,48 +96,48 @@ MANIFEST_PATH = MANIFEST_DIR / "permissions-manifest.json"
 # monkeypatch this constant to redirect the scan at a temp dir.
 HOME_ROOT_SCAN = Path("/home")
 
-# Filename of the per-user autostart entry that Voice Typer creates
+# Filename of the per-user autostart entry that Lausu creates
 # (via the OS's autostart mechanism, not by this script). On uninstall
 # we remove it so the DE doesn't keep trying to launch the (now-deleted)
 # binary on every login.
-AUTOSTART_DESKTOP_NAME = "voice-typer.desktop"
+AUTOSTART_DESKTOP_NAME = "lausu.desktop"
 
 INPUT_GROUP = "input"
 
 # Polkit-stable path: the polkit policy hard-codes this absolute path
-# (see ``voice-typer.polkit``) because polkit requires an absolute,
+# (see ``lausu.polkit``) because polkit requires an absolute,
 # stable path that does not change across AppImage versions or
 # .deb / .rpm upgrades. Tauri v2 installs the script at a different
-# physical path (``/usr/lib/voice-typer/resources/linux-scripts/`` for
+# physical path (``/usr/lib/lausu/resources/linux-scripts/`` for
 # .deb / .rpm, or inside the AppImage squashfs mount for AppImage), so
 # this script self-installs a symlink (or copy, for AppImage) at the
 # polkit-stable path on every invocation. The Debian / RPM ``postinst``
 # also installs this symlink; the self-install here is a defensive
 # fallback for AppImage installs (which have no ``postinst``) and for
 # repair scenarios (e.g. the symlink was deleted manually).
-POLKIT_STABLE_DIR = Path("/usr/share/voice-typer/scripts")
+POLKIT_STABLE_DIR = Path("/usr/share/lausu/scripts")
 POLKIT_STABLE_PATH = POLKIT_STABLE_DIR / "install_permissions.py"
 
 # The polkit policy file. Installed to the canonical polkit actions
-# directory so ``pkexec com.voicetyper.install-permissions`` resolves
+# directory so ``pkexec com.Lausu.install-permissions`` resolves
 # to the custom authentication prompt (instead of the generic pkexec
-# prompt). The filename matches the action ID's ``com.voicetyper.*``
-# RDNN root (see voice-typer.polkit header, review finding #54). The
+# prompt). The filename matches the action ID's ``com.Lausu.*``
+# RDNN root (see lausu.polkit header, review finding #54). The
 # Debian / RPM postinst installs this via the package manager; AppImage
 # installs require this script to install it.
-POLKIT_POLICY_SOURCE = Path(__file__).resolve().parent / "voice-typer.polkit"
-POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/com.voicetyper.policy")
+POLKIT_POLICY_SOURCE = Path(__file__).resolve().parent / "lausu.polkit"
+POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/com.Lausu.policy")
 
 # Legacy polkit policy filename from the pre-Tauri era, when
-# the action ID + filename used the ``org.voice-typer.*`` RDNN root.
+# the action ID + filename used the ``org.lausu.*`` RDNN root.
 # Upgraded systems that installed the legacy package may still
-# have this file at ``/usr/share/polkit-1/actions/org.voice-typer.policy``.
+# have this file at ``/usr/share/polkit-1/actions/org.lausu.policy``.
 # ``_install_polkit_policy`` removes it on every install/upgrade run (so
 # the upgrade itself converges the system) and the uninstaller removes
 # it (alongside the current policy) so an uninstalled system fully
-# converges on the ``com.voicetyper.*`` namespace, see
+# converges on the ``com.Lausu.*`` namespace, see
 # ``_remove_polkit_policies``.
-LEGACY_POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/org.voice-typer.policy")
+LEGACY_POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/org.lausu.policy")
 
 # AppImage squashfs mounts under ``/tmp/.mount_<name><rand>/``. The
 # mount is ephemeral, it disappears when the AppImage process exits.
@@ -152,7 +152,7 @@ _APPIMAGE_MOUNT_PREFIX = "/tmp/.mount_"
 
 def log(msg: str) -> None:
     """Print to stdout (captured by package managers / pkexec)."""
-    print(f"[voice-typer-permissions] {msg}", flush=True)
+    print(f"[lausu-permissions] {msg}", flush=True)
 
 
 def fail(code: int, msg: str) -> None:  # noqa: ANN401
@@ -229,9 +229,9 @@ def _install_polkit_policy() -> None:
     this script (it is bundled as a Tauri resource sibling in
     ``src-tauri/resources/linux-scripts/``).
 
-    Also removes the legacy ``org.voice-typer.policy`` (see
+    Also removes the legacy ``org.lausu.policy`` (see
     ``LEGACY_POLKIT_POLICY_DEST``) so an UPGRADE from a pre-Tauri
-    install converges on the ``com.voicetyper.*`` namespace at
+    install converges on the ``com.Lausu.*`` namespace at
     install time, the legacy file is inert (pkexec matches by
     ``exec.path``, not action ID) but must not linger. The removal runs
     BEFORE the idempotent-match early return so a no-op install still
@@ -242,8 +242,8 @@ def _install_polkit_policy() -> None:
         log(f"WARNING: polkit policy source not found at {POLKIT_POLICY_SOURCE}, skipping polkit policy install")
         return
 
-    # Converge upgraded systems on the com.voicetyper.* namespace: a
-    # legacy org.voice-typer.policy from a pre-Tauri install
+    # Converge upgraded systems on the com.Lausu.* namespace: a
+    # legacy org.lausu.policy from a pre-Tauri install
     # defines the old action ID and would otherwise linger until
     # uninstall. Tolerant of absence / OSError (non-fatal).
     _remove_polkit_policy_file(LEGACY_POLKIT_POLICY_DEST)
@@ -283,13 +283,13 @@ def _remove_polkit_policy_file(policy: Path) -> None:
 
 
 def _remove_polkit_policies() -> None:
-    """Remove the polkit policy files Voice Typer has ever shipped.
+    """Remove the polkit policy files Lausu has ever shipped.
 
-    Removes the current ``com.voicetyper.policy`` (installed by
-    ``_install_polkit_policy``) and the legacy ``org.voice-typer.policy``
+    Removes the current ``com.Lausu.policy`` (installed by
+    ``_install_polkit_policy``) and the legacy ``org.lausu.policy``
     (installed by the pre-Tauri installer, which used the
-    ``org.voice-typer.*`` RDNN root). Removing the legacy file ensures
-    upgraded systems fully converge on the ``com.voicetyper.*``
+    ``org.lausu.*`` RDNN root). Removing the legacy file ensures
+    upgraded systems fully converge on the ``com.Lausu.*``
     namespace after uninstall.
 
     Tolerant of absent files (silent no-op) and ``OSError`` (logged as
@@ -304,13 +304,13 @@ def _remove_polkit_stable_path() -> None:
     """Remove the polkit-stable script path (symlink or copy) + its dir.
 
     ``setup_polkit_stable_path`` installs this script to
-    ``/usr/share/voice-typer/scripts/install_permissions.py`` (a
+    ``/usr/share/lausu/scripts/install_permissions.py`` (a
     symlink for .deb / .rpm, a copy for AppImage). After the polkit
     policies are gone (``_remove_polkit_policies``), the stable path has
     no consumer: the file at it is now inert, and on uninstall the
     symlink would dangle (its target is being deleted). Removal happens
     at uninstall only, during normal operation the path must keep
-    resolving for ``pkexec com.voicetyper.install-permissions``.
+    resolving for ``pkexec com.Lausu.install-permissions``.
 
     The dir is removed only if it becomes empty (``rmdir`` semantics —
     never delete foreign files that may share the directory).
@@ -337,16 +337,16 @@ def _remove_polkit_stable_path() -> None:
 def setup_polkit_stable_path() -> None:
     """Ensure the polkit-stable path resolves to this script.
 
-    The polkit policy (``voice-typer.polkit``) hard-codes
-    ``/usr/share/voice-typer/scripts/install_permissions.py`` as the
+    The polkit policy (``lausu.polkit``) hard-codes
+    ``/usr/share/lausu/scripts/install_permissions.py`` as the
     ``org.freedesktop.policykit.exec.path`` annotation. Polkit requires
     an absolute, stable path, it does not follow symlinks at invoke
     time, but the path must EXIST when ``pkexec
-    com.voicetyper.install-permissions`` is invoked.
+    com.Lausu.install-permissions`` is invoked.
 
     For Debian / RPM installs, the package's ``postinst`` creates a
     symlink at the polkit-stable path pointing to the actually-installed
-    script (under ``/usr/lib/voice-typer/resources/linux-scripts/``).
+    script (under ``/usr/lib/lausu/resources/linux-scripts/``).
     This function is a defensive fallback for:
 
     1. **AppImage installs**, no ``postinst`` runs, so the polkit-stable
@@ -562,7 +562,7 @@ def add_user_to_input_group(username: str) -> None:
     try:
         # Equivalent shell form: `usermod -aG input <username>`, append
         # the user to the `input` group so they have read access to the
-        # /dev/input/event* devices (per the 99-voice-typer.rules udev
+        # /dev/input/event* devices (per the 99-lausu.rules udev
         # rule, owned by root:input mode 0660). The list form is used so
         # subprocess.run doesn't shell-escape `username` (which could
         # contain spaces or shell metachars on some systems).
@@ -662,7 +662,7 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
             # the user's other XKB options (e.g. altwin:swap_alt_win).
             # Capture the raw original in the manifest so uninstall can
             # restore it via ``gsettings set`` instead of ``gsettings reset``
-            # (which would lose user customization that predated Voice Typer).
+            # (which would lose user customization that predated Lausu).
             get_proc = subprocess.run(
                 [
                     "sudo",
@@ -756,8 +756,12 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
             existing = sway_config.read_text() if sway_config.exists() else ""
             lines = existing.splitlines(keepends=True)
             match_indices = _find_sway_xkb_options_lines(lines)
-            marker = "# Voice Typer. Caps Lock neutralization"
-            restore_marker = "# Voice Typer (original, preserved for restore):"
+            marker = "# Lausu. Caps Lock neutralization"
+            restore_marker = "# Lausu (original, preserved for restore):"
+            legacy_markers = (
+                "# Lausu. Caps Lock neutralization",
+                "# Lausu — Caps Lock neutralization",
+            )
             if match_indices:
                 # Merge caps:none into the FIRST matched line's options.
                 first_idx = match_indices[0]
@@ -770,19 +774,19 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
                 merged_value = _format_comma_options(merged_options)
                 new_line = f"input * xkb_options {merged_value}\n"
                 # Replace the matched line with a commented-out backup of the
-                # original (so the user can see what Voice Typer changed) plus
+                # original (so the user can see what Lausu changed) plus
                 # the new merged line.
                 lines[first_idx] = f"{restore_marker} {original_line}\n{new_line}"
                 # Drop subsequent duplicate ``input * xkb_options`` lines
-                # (Voice Typer consolidates them into the first).
+                # (Lausu consolidates them into the first).
                 for idx in reversed(match_indices[1:]):
                     del lines[idx]
                 sway_config.write_text("".join(lines))
                 log(f"Updated existing sway xkb_options line at {sway_config}")
                 result["sway_config_modified"] = True
                 result["sway_xkb_options_original"] = original_line
-            elif marker not in existing:
-                # No existing xkb_options line, append Voice Typer's marker block.
+            elif marker not in existing and all(lm not in existing for lm in legacy_markers):
+                # No existing xkb_options line, append Lausu's marker block.
                 with sway_config.open("a") as f:
                     if existing and not existing.endswith("\n"):
                         f.write("\n")
@@ -836,7 +840,7 @@ def write_manifest(
         # config rewrite, instead of ``gsettings reset`` (which would lose
         # the user's other XKB options) or "remove the line manually" (which
         # leaves the user to clean up). Empty string = no prior value (the
-        # uninstaller removes Voice Typer's added line / key entirely).
+        # uninstaller removes Lausu's added line / key entirely).
         "caps_lock_originals": {
             "gnome_xkb_options": session_info.get("gnome_xkb_options_original", ""),
             "kde_xkb_options": session_info.get("kde_xkb_options_original", ""),
@@ -868,7 +872,7 @@ def install() -> None:
         fail(
             5,
             "no target user detected. Run as: sudo -E env PKEXEC_UID=$(id -u) "
-            "pkexec /usr/share/voice-typer/scripts/install_permissions.py",
+            "pkexec /usr/share/lausu/scripts/install_permissions.py",
         )
         return  # unreachable, fail() exits; explicit return for type narrowing
 
@@ -879,7 +883,7 @@ def install() -> None:
         "(auth_admin_keep). Re-running within that window will not re-prompt for a password."
     )
 
-    log(f"Installing Voice Typer keyboard permissions for user '{username}'...")
+    log(f"Installing Lausu keyboard permissions for user '{username}'...")
 
     # 1. udev rule
     udev_backup = backup_if_exists(UDEV_RULE_PATH)
@@ -898,7 +902,7 @@ def install() -> None:
     write_manifest(username, session_info, udev_backup, None)
 
     log("")
-    log("Voice Typer keyboard permissions installed successfully.")
+    log("Lausu keyboard permissions installed successfully.")
     log(f"IMPORTANT: user '{username}' must log out and log back in for the 'input' group change to take effect.")
     log("")
 
@@ -909,7 +913,7 @@ def install() -> None:
 def _unlink_autostart_desktop_at(home_dir: Path) -> None:
     """Remove the per-user autostart ``.desktop`` file under ``home_dir``.
 
-    Looks for ``<home_dir>/.config/autostart/voice-typer.desktop`` and
+    Looks for ``<home_dir>/.config/autostart/lausu.desktop`` and
     unlinks it if present. Silent no-op if absent. Logs a non-fatal
     warning on ``OSError`` (e.g. permission denied, common when the
     uninstaller runs as root but a home dir is owned by a service
@@ -943,7 +947,7 @@ def _remove_autostart_desktop(target_user: str) -> None:
     the ``.desktop`` file. As a defensive fallback for multi-user
     systems (and for cases where ``target_user`` is empty, ``"root"``,
     or unknown), also scans ``HOME_ROOT_SCAN/*`` (defaults to ``/home/*``)
-    and removes any stray ``voice-typer.desktop`` files.
+    and removes any stray ``lausu.desktop`` files.
 
     Behaviour:
     - ``target_user`` empty or ``"root"`` → skip ``pwd.getpwnam``
@@ -998,7 +1002,7 @@ def _restore_gnome_xkb_options(manifest: dict) -> None:
     ``manifest["caps_lock_originals"]["gnome_xkb_options"]``. This helper
     re-applies that value via ``gsettings set`` (round-trip restore) —
     instead of ``gsettings reset``, which would lose user customization
-    that predated Voice Typer (e.g. ``altwin:swap_alt_win``).
+    that predated Lausu (e.g. ``altwin:swap_alt_win``).
 
     If no prior value was saved (empty string), falls back to
     ``gsettings reset`` (returns the setting to its factory default).
@@ -1096,7 +1100,7 @@ def _restore_sway_config_options(manifest: dict) -> None:
     1. **Replaced** an existing ``input * xkb_options`` line (saving the
        original to the manifest) and wrote a restore-marker comment above
        the new merged line, OR
-    2. **Appended** a new ``# Voice Typer. Caps Lock neutralization``
+    2. **Appended** a new ``# Lausu. Caps Lock neutralization``
        marker block + ``input * xkb_options caps:none`` line (no prior
        line existed).
 
@@ -1122,8 +1126,16 @@ def _restore_sway_config_options(manifest: dict) -> None:
     try:
         existing = sway_config.read_text()
         lines = existing.splitlines(keepends=True)
-        marker = "# Voice Typer. Caps Lock neutralization"
-        restore_marker = "# Voice Typer (original, preserved for restore):"
+        marker = "# Lausu. Caps Lock neutralization"
+        # Pre-rename installs carry the old brand spellings; restore all.
+        legacy_markers = (
+            "# Lausu. Caps Lock neutralization",
+            "# Lausu — Caps Lock neutralization",
+        )
+        restore_markers = (
+            "# Lausu (original, preserved for restore):",
+            "# Lausu (original, preserved for restore):",
+        )
         new_lines: list[str] = []
         i = 0
         restored = False
@@ -1131,12 +1143,12 @@ def _restore_sway_config_options(manifest: dict) -> None:
             line = lines[i]
             stripped = line.strip()
             # Drop the restore-marker backup comment we wrote at install time.
-            if stripped.startswith(restore_marker):
+            if any(stripped.startswith(rm) for rm in restore_markers):
                 i += 1
                 continue
-            # Drop Voice Typer's append-mode marker block (marker + the
+            # Drop the append-mode marker block (marker + the
             # ``input * xkb_options`` line that follows it).
-            if stripped == marker:
+            if stripped in (marker, *legacy_markers):
                 i += 1
                 if i < len(lines):
                     nxt = lines[i].split()
@@ -1146,7 +1158,7 @@ def _restore_sway_config_options(manifest: dict) -> None:
                     new_lines.append(original_line + "\n")
                     restored = True
                 continue
-            # Replace Voice Typer's rewritten ``input * xkb_options`` line
+            # Replace the rewritten ``input * xkb_options`` line
             # with the saved original (replace-mode case, no marker, just
             # the merged line we wrote below the restore-marker comment).
             if (
@@ -1169,17 +1181,17 @@ def _restore_sway_config_options(manifest: dict) -> None:
         if original_line:
             log(f"Restored sway xkb_options line for user '{username}'")
         else:
-            log(f"Removed Voice Typer sway xkb_options block for user '{username}'")
+            log(f"Removed sway xkb_options block for user '{username}'")
     except OSError as exc:
         log(f"WARNING: sway config restore failed (non-fatal): {exc}")
 
 
 def uninstall() -> None:
-    """Remove all Voice Typer system modifications."""
+    """Remove all Lausu system modifications."""
     if not is_root():
         fail(1, "must run as root to uninstall")
 
-    log("Removing Voice Typer keyboard permissions...")
+    log("Removing Lausu keyboard permissions...")
 
     # Read the manifest to know what to remove
     manifest = None
@@ -1217,9 +1229,9 @@ def uninstall() -> None:
         log(f"Removed {XKB_CONF_PATH}")
 
     # Remove the polkit policy files (current + legacy). The legacy
-    # ``org.voice-typer.policy`` may linger from pre-Tauri
+    # ``org.lausu.policy`` may linger from pre-Tauri
     # installs, removing it converges the polkit actions directory on
-    # the ``com.voicetyper.*`` namespace. Runs before the backup
+    # the ``com.Lausu.*`` namespace. Runs before the backup
     # restoration so a failure here can't skip the rest of the cleanup
     # (the helper is non-fatal anyway).
     _remove_polkit_policies()
@@ -1244,7 +1256,7 @@ def uninstall() -> None:
 
         # Revert GNOME gsettings: restore the saved original value
         # via ``gsettings set`` instead of ``gsettings reset`` (which would
-        # lose user customization that predated Voice Typer).
+        # lose user customization that predated Lausu).
         if manifest.get("gnome_settings_modified"):
             _restore_gnome_xkb_options(manifest)
 
@@ -1256,7 +1268,7 @@ def uninstall() -> None:
 
         # Revert sway config: restore the saved original line via
         # config rewrite (instead of telling the user to remove the
-        # ``# Voice Typer`` block manually).
+        # ``# Lausu`` (or legacy ``# Lausu``) block manually).
         if manifest.get("sway_config_modified"):
             _restore_sway_config_options(manifest)
 

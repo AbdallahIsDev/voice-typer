@@ -3,7 +3,7 @@
 //! `dispatch_inner` (never renderer invoke). C-BRAND-1: APP_NAME only.
 
 const TRAY_TOOLTIP: &str = crate::branding::APP_NAME;
-const TRAY_ID: &str = "voice-typer-tray";
+const TRAY_ID: &str = "lausu-tray";
 
 mod events;
 mod icon_cache;

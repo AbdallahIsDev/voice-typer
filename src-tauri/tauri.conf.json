@@ -1,148 +1,142 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Voice Typer",
-  "version": "1.0.0",
-  "identifier": "com.voicetyper.desktop",
-  "build": {
-    "frontendDist": "../voice_typer/client/out/renderer",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": {
-      "script": "npm run build:renderer",
-      "cwd": "../voice_typer/client",
-      "wait": true
-    },
-    "beforeBuildCommand": {
-      "script": "npm run build:renderer",
-      "cwd": "../voice_typer/client"
-    }
-  },
-  "app": {
-    "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "Voice Typer",
-        "width": 1000,
-        "height": 700,
-        "minWidth": 850,
-        "minHeight": 550,
-        "resizable": true,
-        "fullscreen": false,
-        "transparent": false,
-        "decorations": true,
-        "center": true,
-        "hiddenTitle": true,
-        "titleBarStyle": "Overlay",
-        "trafficLightPosition": {
-          "x": 12,
-          "y": 10
-        },
-        "visible": true,
-        "create": false,
-        "label": "main",
-        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
-      },
-      {
-        "title": "Voice Typer Bubble",
-        "url": "bubble.html",
-        "width": 240,
-        "height": 80,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "label": "bubble"
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
-      "capabilities": [
-        "main-runtime",
-        "bubble-runtime"
-      ]
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": "all",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "externalBin": [
-      "bin/python-sidecar",
-      "bin/voice-typer-worker"
-    ],
-    "resources": [
-      "resources/native/windows-key-listener.exe",
-      "resources/native/macos-key-listener",
-      "resources/native/linux-key-listener",
-      "resources/linux-scripts/install_permissions.py",
-      "resources/linux-scripts/uninstall_permissions.py",
-      "resources/linux-scripts/99-voice-typer.rules",
-      "resources/linux-scripts/00-voice-typer-capslock.conf",
-      "resources/linux-scripts/voice-typer.polkit",
-      "icons/tray/"
-    ],
-    "linux": {
-      "deb": {
-        "depends": [
-          "libnotify4",
-          "libxtst6",
-          "libwebkit2gtk-4.1-0",
-          "wl-clipboard",
-          "wtype",
-          "xclip",
-          "python3"
-        ],
-        "desktopTemplate": "voice-typer.desktop.template",
-        "postInstallScript": "../scripts/linux/postinst",
-        "preRemoveScript": "../scripts/linux/prerm"
-      },
-      "rpm": {
-        "depends": [
-          "libnotify",
-          "libXtst",
-          "webkit2gtk4.1",
-          "wl-clipboard",
-          "wtype",
-          "xclip",
-          "python3"
-        ],
-        "postInstallScript": "../scripts/linux/postinst.rpm",
-        "preRemoveScript": "../scripts/linux/prerm.rpm"
-      }
-    },
-    "windows": {
-      "webviewInstallMode": {
-        "type": "downloadBootstrapper"
-      },
-      "nsis": {
-        "installMode": "currentUser",
-        "installerIcon": "icons/icon.ico",
-        "uninstallerIcon": "icons/icon.ico",
-        "installerHooks": "../scripts/windows/tauri-installer-hooks.nsh"
-      },
-      "signCommand": "..\\scripts\\tauri-sign.cmd %1"
-    },
-    "macOS": {
-      "entitlements": "entitlements.plist",
-      "minimumSystemVersion": "13.0",
-      "infoPlist": "Info.plist"
-    }
-  },
-  "plugins": {
-    "notification": null,
-    "single-instance": null,
-    "dialog": null,
-    "shell": {
-      "open": false
-    }
-  }
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Lausu",
+	"version": "1.0.0",
+	"identifier": "com.Lausu.desktop",
+	"build": {
+		"frontendDist": "../voice_typer/client/out/renderer",
+		"devUrl": "http://localhost:1420",
+		"beforeDevCommand": {
+			"script": "npm run build:renderer",
+			"cwd": "../voice_typer/client",
+			"wait": true
+		},
+		"beforeBuildCommand": {
+			"script": "npm run build:renderer",
+			"cwd": "../voice_typer/client"
+		}
+	},
+	"app": {
+		"withGlobalTauri": true,
+		"windows": [
+			{
+				"title": "Lausu",
+				"width": 1000,
+				"height": 700,
+				"minWidth": 850,
+				"minHeight": 550,
+				"resizable": true,
+				"fullscreen": false,
+				"transparent": false,
+				"decorations": true,
+				"center": true,
+				"hiddenTitle": true,
+				"titleBarStyle": "Overlay",
+				"trafficLightPosition": {
+					"x": 12,
+					"y": 10
+				},
+				"visible": true,
+				"create": false,
+				"label": "main",
+				"additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+			},
+			{
+				"title": "Lausu Bubble",
+				"url": "bubble.html",
+				"width": 240,
+				"height": 80,
+				"resizable": false,
+				"decorations": false,
+				"transparent": true,
+				"shadow": false,
+				"alwaysOnTop": true,
+				"skipTaskbar": true,
+				"visible": false,
+				"label": "bubble"
+			}
+		],
+		"security": {
+			"csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+			"capabilities": ["main-runtime", "bubble-runtime"]
+		}
+	},
+	"bundle": {
+		"active": true,
+		"targets": "all",
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.png",
+			"icons/icon.icns",
+			"icons/icon.ico"
+		],
+		"externalBin": ["bin/python-sidecar", "bin/lausu-worker"],
+		"resources": [
+			"resources/native/windows-key-listener.exe",
+			"resources/native/macos-key-listener",
+			"resources/native/linux-key-listener",
+			"resources/linux-scripts/install_permissions.py",
+			"resources/linux-scripts/uninstall_permissions.py",
+			"resources/linux-scripts/99-lausu.rules",
+			"resources/linux-scripts/00-lausu-capslock.conf",
+			"resources/linux-scripts/lausu.polkit",
+			"icons/tray/"
+		],
+		"linux": {
+			"deb": {
+				"depends": [
+					"libnotify4",
+					"libxtst6",
+					"libwebkit2gtk-4.1-0",
+					"wl-clipboard",
+					"wtype",
+					"xclip",
+					"python3"
+				],
+				"desktopTemplate": "lausu.desktop.template",
+				"postInstallScript": "../scripts/linux/postinst",
+				"preRemoveScript": "../scripts/linux/prerm"
+			},
+			"rpm": {
+				"depends": [
+					"libnotify",
+					"libXtst",
+					"webkit2gtk4.1",
+					"wl-clipboard",
+					"wtype",
+					"xclip",
+					"python3"
+				],
+				"postInstallScript": "../scripts/linux/postinst.rpm",
+				"preRemoveScript": "../scripts/linux/prerm.rpm"
+			}
+		},
+		"windows": {
+			"webviewInstallMode": {
+				"type": "downloadBootstrapper"
+			},
+			"nsis": {
+				"installMode": "currentUser",
+				"installerIcon": "icons/icon.ico",
+				"uninstallerIcon": "icons/icon.ico",
+				"installerHooks": "../scripts/windows/tauri-installer-hooks.nsh"
+			},
+			"signCommand": "..\\scripts\\tauri-sign.cmd %1"
+		},
+		"macOS": {
+			"entitlements": "entitlements.plist",
+			"minimumSystemVersion": "13.0",
+			"infoPlist": "Info.plist"
+		}
+	},
+	"plugins": {
+		"notification": null,
+		"single-instance": null,
+		"dialog": null,
+		"shell": {
+			"open": false
+		}
+	}
 }

@@ -197,16 +197,16 @@ fn migrate_inner(new_dir: &Path) {
         }
     }
 
-    // 4d. voice-typer-recovery.json: copy if target absent.
-    let old_rec = old_dir.join("voice-typer-recovery.json");
-    let new_rec = new_dir.join("voice-typer-recovery.json");
+    // 4d. lausu-recovery.json: copy if target absent.
+    let old_rec = old_dir.join("lausu-recovery.json");
+    let new_rec = new_dir.join("lausu-recovery.json");
     if old_rec.is_file() && !new_rec.exists() {
         if let Err(e) = util::atomic_copy(&old_rec, &new_rec) {
-            log::error!("[MIGRATE] voice-typer-recovery.json copy failed: {}", e);
+            log::error!("[MIGRATE] lausu-recovery.json copy failed: {}", e);
             migration_failed += 1;
         } else {
             recovery_copied = true;
-            log::info!("[MIGRATE] voice-typer-recovery.json copied");
+            log::info!("[MIGRATE] lausu-recovery.json copied");
         }
     }
 

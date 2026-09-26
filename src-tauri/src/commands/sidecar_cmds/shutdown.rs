@@ -1,8 +1,7 @@
 #![allow(clippy::unreachable)] // tauri command macro expansion emits `unreachable!()` fallbacks
 
-
 use crate::commands::require_main_window;
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 use crate::state::SidecarState;
 // state::lock (aliased `mutex_lock`): poison-safe Mutex helper, same rationale as the dispatch path.
 use crate::state::lock as mutex_lock;
@@ -20,15 +19,13 @@ pub async fn shutdown_sidecar(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     require_main_window(&window)?;
     let _ = app;
     shutdown_sidecar_inner(state.inner()).await
 }
 
-pub(super) async fn shutdown_sidecar_inner(
-    state: &Arc<SidecarState>,
-) -> Result<(), VoiceTyperError> {
+pub(super) async fn shutdown_sidecar_inner(state: &Arc<SidecarState>) -> Result<(), LausuError> {
     if state.begin_shutdown() {
         log::info!("[SHUTDOWN] already in progress, duplicate call short-circuited");
         return Ok(());

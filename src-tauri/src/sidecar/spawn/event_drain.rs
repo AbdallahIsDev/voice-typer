@@ -10,7 +10,7 @@ fn tee(log_tag: &'static str, stream: ChildStream, bytes: &[u8]) {
     }
 }
 
-pub(super) fn spawn_child_event_drain(
+pub(crate) fn spawn_child_event_drain(
     log_tag: &'static str,
     rx: mpsc::Receiver<CommandEvent>,
 ) -> mpsc::Receiver<CommandEvent> {

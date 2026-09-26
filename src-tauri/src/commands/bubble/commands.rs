@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{Emitter, Manager, PhysicalPosition};
 
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 use crate::state::SidecarState;
 
 use super::math::{
@@ -28,8 +28,8 @@ use super::window::{hide_bubble_window, show_bubble_window};
 
 /// Show the bubble window. Not main-window-gated (hover UX + WS reader path).
 #[tauri::command]
-pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
-    show_bubble_window(&app).map_err(VoiceTyperError::Host)
+pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), LausuError> {
+    show_bubble_window(&app).map_err(LausuError::Host)
 }
 
 /// Signal bubble page mounted + ready for `bubble_level`.
@@ -38,10 +38,10 @@ pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
 pub async fn bubble_signal_ready(
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     crate::commands::require_bubble_window(&window)?;
     app.emit_to("bubble", "bubble:ready", ())
-        .map_err(|e| VoiceTyperError::Host(e.to_string()))
+        .map_err(|e| LausuError::Host(e.to_string()))
 }
 
 /// Place bubble on the cursor's monitor from a `"top"|"bottom"` keyword.
@@ -51,10 +51,10 @@ pub async fn bubble_signal_ready(
 pub async fn bubble_set_position(
     position: String,
     app: tauri::AppHandle,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     let window = app
         .get_webview_window("bubble")
-        .ok_or(VoiceTyperError::Host("bubble window not found".into()))?;
+        .ok_or(LausuError::Host("bubble window not found".into()))?;
     let monitor = resolve_cursor_monitor(&app)?;
     // Programmatic placement: suppress Moved-event persistence before the move.
     crate::commands::bubble::suppress_persist_for_window();
@@ -70,7 +70,7 @@ pub async fn bubble_set_position(
     let (px, py) = bubble_position_in_work_area(&position, &wa_rect, bubble_w, bubble_h, margin)?;
     window
         .set_position(PhysicalPosition::new(px, py))
-        .map_err(|e| VoiceTyperError::Host(e.to_string()))
+        .map_err(|e| LausuError::Host(e.to_string()))
 }
 
 /// Resolve monitor the bubble should appear on (cursor display, then primary).
@@ -114,9 +114,9 @@ fn resolve_cursor_monitor(app: &tauri::AppHandle) -> Result<tauri::window::Monit
 pub async fn bubble_set_draggable(
     draggable: bool,
     app: tauri::AppHandle,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     app.emit_to("bubble", "bubble:draggable", draggable)
-        .map_err(|e| VoiceTyperError::Host(e.to_string()))
+        .map_err(|e| LausuError::Host(e.to_string()))
 }
 
 /// Move bubble by (dx, dy) physical pixels; returns new {x,y}.
@@ -124,11 +124,7 @@ pub async fn bubble_set_draggable(
 /// spawn_blocking: OS-IPC outer_position+set_position at ~60 Hz mousemove
 /// must not pin an async worker (C-TOKIO-1 adjacent).
 #[tauri::command]
-pub async fn bubble_move_by(
-    dx: f64,
-    dy: f64,
-    app: tauri::AppHandle,
-) -> Result<Value, VoiceTyperError> {
+pub async fn bubble_move_by(dx: f64, dy: f64, app: tauri::AppHandle) -> Result<Value, LausuError> {
     let join_result = tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
         let window = app
             .get_webview_window("bubble")
@@ -147,7 +143,7 @@ pub async fn bubble_move_by(
     .await;
     match join_result {
         Ok(inner) => Ok(inner?),
-        Err(join_err) => Err(VoiceTyperError::Host(format!(
+        Err(join_err) => Err(LausuError::Host(format!(
             "bubble_move_by blocking task failed: {join_err}"
         ))),
     }
@@ -158,9 +154,9 @@ pub async fn bubble_move_by(
 pub async fn bubble_hide_complete(
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     crate::commands::require_bubble_window(&window)?;
-    hide_bubble_window(&app).map_err(VoiceTyperError::from)
+    hide_bubble_window(&app).map_err(LausuError::from)
 }
 
 /// Dismiss bubble from its own '×' button. Same hide path as hide_complete.
@@ -169,9 +165,9 @@ pub async fn bubble_hide_complete(
 pub async fn bubble_dismiss(
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     crate::commands::require_bubble_window(&window)?;
-    hide_bubble_window(&app).map_err(VoiceTyperError::from)
+    hide_bubble_window(&app).map_err(LausuError::from)
 }
 
 /// Resize bubble to (width, height) physical pixels; clamped to pill MIN/MAX.
@@ -181,10 +177,10 @@ pub async fn bubble_resize(
     width: f64,
     height: f64,
     app: tauri::AppHandle,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     let window = app
         .get_webview_window("bubble")
-        .ok_or(VoiceTyperError::Host("bubble window not found".into()))?;
+        .ok_or(LausuError::Host("bubble window not found".into()))?;
     // Saturating f64→u32, then clamp to predecessor pill bounds.
     let w = round_f64_to_u32_saturating(width);
     let h = round_f64_to_u32_saturating(height);
@@ -193,7 +189,7 @@ pub async fn bubble_resize(
     use tauri::PhysicalSize;
     window
         .set_size(PhysicalSize::new(capped_w, capped_h))
-        .map_err(|e| VoiceTyperError::Host(e.to_string()))
+        .map_err(|e| LausuError::Host(e.to_string()))
 }
 
 /// Bubble mic-button toggle. ONLY sanctioned dispatch-allowlist bypass (SEC-026):
@@ -203,7 +199,7 @@ pub async fn bubble_resize(
 #[tauri::command]
 pub async fn bubble_toggle_dictation(
     state: tauri::State<'_, Arc<SidecarState>>,
-) -> Result<(), VoiceTyperError> {
+) -> Result<(), LausuError> {
     // Rate limiter: drop rapid toggles silently (UI tracks actual status_change).
     if !toggle_rate_limiter_allows() {
         log::warn!("[BUBBLE] toggle_dictation rate-limited (last toggle <500ms ago), dropping");

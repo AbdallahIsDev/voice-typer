@@ -1,4 +1,3 @@
-
 use std::sync::OnceLock;
 
 use super::paths::APP_SLUG;
@@ -9,7 +8,7 @@ pub(crate) const DEFAULT_PACK_VERSION: &str = "v1";
 /// the versioned runtime-pack directories (`runtime-pack/<version>/`).
 pub(crate) const RUNTIME_PACK_DIR: &str = "runtime-pack";
 
-pub(crate) const WORKER_BIN_BASE_NAME: &str = "voice-typer-worker";
+pub(crate) const WORKER_BIN_BASE_NAME: &str = "lausu-worker";
 
 pub(crate) fn worker_exe_path() -> &'static std::path::Path {
     static CACHED: OnceLock<std::path::PathBuf> = OnceLock::new();
@@ -77,7 +76,7 @@ pub(crate) fn pack_dir_from_env(env: WorkerPathEnv) -> std::path::PathBuf {
     {
         let _ = local_appdata;
         let _ = xdg_data_home;
-        // macOS: ~/Library/Application Support/voice-typer/runtime-pack/
+        // macOS: ~/Library/Application Support/lausu/runtime-pack/
         let home = home.unwrap_or_else(|| {
             let warn_msg = format!(
                 "[worker_path] HOME env var is not set: falling back to \
@@ -99,8 +98,8 @@ pub(crate) fn pack_dir_from_env(env: WorkerPathEnv) -> std::path::PathBuf {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let _ = local_appdata;
-        // Linux: $XDG_DATA_HOME/voice-typer/runtime-pack/
-        // (default ~/.local/share/voice-typer/runtime-pack/)
+        // Linux: $XDG_DATA_HOME/lausu/runtime-pack/
+        // (default ~/.local/share/lausu/runtime-pack/)
         if let Some(xdg) = xdg_data_home {
             return std::path::PathBuf::from(xdg)
                 .join(APP_SLUG)

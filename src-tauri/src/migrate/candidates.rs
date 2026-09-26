@@ -1,11 +1,10 @@
-
 use std::path::PathBuf;
 
 pub(crate) fn legacy_userdata_candidates() -> Vec<PathBuf> {
     /// The three predecessor `userData` directory names ever used, in probe
     /// order. See the module-level docstring for the naming history.
     const CANDIDATE_NAMES: &[&str] = &[
-        "voice-typer-desktop",
+        "lausu-desktop",
         crate::platform::paths::APP_SLUG,
         crate::branding::APP_NAME,
     ];

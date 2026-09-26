@@ -11,7 +11,7 @@ use super::*;
 /// Smoke test: assert `APP_NAME` is the expected literal.
 ///
 /// This is a forward-looking drift detector, if a future change
-/// accidentally renames the constant (e.g. to "VoiceTyper" without
+/// accidentally renames the constant (e.g. to "LausuTyper" without
 /// the space, or to a marketing rebrand), this test fails before
 /// the cross-language `sync_branding.py` script ever runs.
 ///
@@ -19,7 +19,7 @@ use super::*;
 /// `branding.ts::APP_NAME`) MUST be updated in lockstep, a future
 /// CI step can grep all three constants and assert equality.
 #[test]
-fn app_name_is_voice_typer() {
+fn app_name_is_lausu() {
     assert!(!APP_NAME.is_empty(), "APP_NAME must not be empty");
-    assert_eq!(APP_NAME, "Voice Typer");
+    assert_eq!(APP_NAME, "Lausu");
 }

@@ -4,7 +4,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Voice Typer",
+        "title": "Lausu",
         "width": 900,
         "height": 700,
         "minWidth": 720,
@@ -20,7 +20,7 @@
         "label": "main"
       },
       {
-        "title": "Voice Typer Bubble",
+        "title": "Lausu Bubble",
         "url": "bubble.html",
         "width": 240,
         "height": 80,

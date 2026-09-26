@@ -1,7 +1,7 @@
 [package]
-name = "voice-typer-tauri"
+name = "lausu-tauri"
 version = "1.0.0"
-description = "Tauri v2 host for Voice Typer: Rust shell + Python sidecar (ADR-0020)"
+description = "Tauri v2 host for Lausu: Rust shell + Python sidecar (ADR-0020)"
 authors = ["Abdallah IsDev <noreply@github.com>"]
 license = "MIT"
 repository = "https://github.com/AbdallahIsDev/voice-typer"
@@ -12,7 +12,7 @@ rust-version = "1.77"
 # mechanism appends the target triple at runtime to find the right
 # per-platform binary (e.g. `python-sidecar-x86_64-pc-windows-msvc.exe`).
 [[bin]]
-name = "voice-typer-tauri"
+name = "lausu-tauri"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -78,6 +78,7 @@ rand = "0.9"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+csv = "1.4.0"
 thiserror = "2"
 
 # MO-121: `save_stats_image` decodes the renderer's PNG data URL on the

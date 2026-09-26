@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Voice Typer: macOS hardened-runtime entitlements
+  Lausu: macOS hardened-runtime entitlements
   (ADR-0020 §13.2 + docs/migration/signing-guide.md "Hardened runtime entitlements")
 
   Consumed by the codesign invocation with the entitlements flag pointing

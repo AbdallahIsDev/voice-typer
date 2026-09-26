@@ -29,8 +29,7 @@ use tokio::sync::oneshot;
 //the  /  envelope shape contract.
 use crate::commands::require_main_window;
 use crate::commands::system_cmds::{localized_title_for, DialogTitle};
-use crate::error::VoiceTyperError;
-
+use crate::error::LausuError;
 
 const JSON_AND_CSV_FILTERS: &[(&str, &[&str])] = &[("JSON", &["json"]), ("CSV", &["csv"])];
 
@@ -53,13 +52,13 @@ pub async fn export_history(
     format: String,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     export_data(
         data,
         format,
         app,
-        "voice-typer-history",
+        "lausu-history",
         DialogTitle::ExportHistory,
     )
     .await
@@ -73,13 +72,13 @@ pub async fn export_vocabulary(
     format: String,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     require_main_window(&window)?;
     export_data(
         data,
         format,
         app,
-        "voice-typer-vocabulary",
+        "lausu-vocabulary",
         DialogTitle::ExportVocabulary,
     )
     .await
@@ -114,7 +113,7 @@ pub(crate) async fn export_data(
     app: tauri::AppHandle,
     default_filename: &str,
     title_kind: DialogTitle,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     // Locale-aware title from the renderer-pushed host_locale
     // (English until the first `set_host_locale` push resolves).
     let title = localized_title_for(title_kind, &app);
@@ -166,28 +165,33 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
             }
         }
     }
-    let mut out = String::new();
-    out.reserve(arr.len().saturating_mul(64));
-    for (i, k) in keys.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        csv_escape_into(&mut out, k);
-    }
-    out.push('\n');
+    // RFC 4180 quoting is owned by the `csv` crate writer (default `\n`
+    // terminator matches the previous hand-rolled output byte-for-byte);
+    // only the SEC-015 formula prefix is applied here, on top.
+    let mut wtr = csv::Writer::from_writer(Vec::new());
+    let header: Vec<String> = keys
+        .iter()
+        .map(|k| apply_formula_prefix(k).into_owned())
+        .collect();
+    wtr.write_record(&header)
+        .map_err(|e| format!("CSV encode failed: {e}"))?;
     for item in arr {
         let empty_map = serde_json::Map::new();
         let obj = item.as_object().unwrap_or(&empty_map);
-        for (i, k) in keys.iter().enumerate() {
-            if i > 0 {
-                out.push(',');
-            }
-            let cell = obj.get(k).map(value_to_string).unwrap_or_default();
-            csv_escape_into(&mut out, &cell);
-        }
-        out.push('\n');
+        let record: Vec<String> = keys
+            .iter()
+            .map(|k| {
+                let cell = obj.get(k).map(value_to_string).unwrap_or_default();
+                apply_formula_prefix(&cell).into_owned()
+            })
+            .collect();
+        wtr.write_record(&record)
+            .map_err(|e| format!("CSV encode failed: {e}"))?;
     }
-    Ok(out)
+    let bytes = wtr
+        .into_inner()
+        .map_err(|e| format!("CSV encode failed: {e}"))?;
+    String::from_utf8(bytes).map_err(|e| format!("CSV encode failed: {e}"))
 }
 
 /// Render a JSON value as a single CSV cell (no quoting).
@@ -214,57 +218,34 @@ pub(crate) fn value_to_string_into(out: &mut String, v: &Value) {
     }
 }
 
-/// RFC 4180 CSV cell escaping: wrap in double quotes if the cell
-/// contains a comma, double-quote, newline, or carriage return; double
-/// any embedded double-quotes.
+/// SEC-015 CSV formula-injection defense, applied on top of the `csv`
+/// crate writer (which owns RFC 4180 quoting). Cells starting with
+/// `=`, `+`, `-`, `@`, `\t`, or `\r` are prefixed with a single quote
+/// `'` so spreadsheet apps treat them as text rather than executing
+/// them as formulas. Without this defense, a user who dictates
+/// `=cmd|'/C calc'!A1` and then exports history to CSV would be
+/// vulnerable to formula injection when opening the file.
 ///
-/// SEC-015 CSV formula-injection defense.
-/// Cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` are prefixed
-/// with a single quote `'` before quoting so spreadsheet apps (Excel,
-/// LibreOffice) treat them as text rather than executing them as
-/// formulas. Without this defense, a user who dictates `=cmd|'/C calc'!A1`
-/// and then exports history to CSV would be vulnerable to formula
-/// injection when opening the file in a spreadsheet.
-///
-/// The escaping rules are pinned by the CSV-escape cases in
+/// The prefix rules are pinned by the SEC-015 cases in
 /// `export_tests.rs`.
-///
-/// Writes the escaped form of `s` directly into `out`, appending to
-/// any existing content (never overwriting) and allocating no per-cell
-/// `String`: [`json_to_csv`] relies on both properties to reuse one
-/// output buffer across every header cell + data cell of an export.
-pub(crate) fn csv_escape_into(out: &mut String, s: &str) {
-    // SEC-015: prefix formula-injection-prone cells with a single quote.
-    let needs_prefix = s.starts_with('=')
+pub(crate) fn needs_formula_prefix(s: &str) -> bool {
+    s.starts_with('=')
         || s.starts_with('+')
         || s.starts_with('-')
         || s.starts_with('@')
         || s.starts_with('\t')
-        || s.starts_with('\r');
-    let needs_quote = s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r');
-    if needs_quote {
-        out.push('"');
-        if needs_prefix {
-            out.push('\'');
-        }
-        for ch in s.chars() {
-            if ch == '"' {
-                out.push('"');
-                out.push('"');
-            } else {
-                out.push(ch);
-            }
-        }
-        out.push('"');
-    } else if needs_prefix {
-        out.push('\'');
-        out.push_str(s);
+        || s.starts_with('\r')
+}
+
+pub(crate) fn apply_formula_prefix(s: &str) -> std::borrow::Cow<'_, str> {
+    if needs_formula_prefix(s) {
+        std::borrow::Cow::Owned(format!("'{s}"))
     } else {
-        out.push_str(s);
+        std::borrow::Cow::Borrowed(s)
     }
 }
 
-// Unit tests for `csv_escape_into`, `value_to_string`,
+// Unit tests for the SEC-015 prefix helpers, `value_to_string`,
 // `value_to_string_into`, `json_to_csv`, and the `atomic_write_bytes`
 // contract live in the sibling `export_tests.rs` file (C-TEST-5, keeps
 // production source free of inline test code, matching the

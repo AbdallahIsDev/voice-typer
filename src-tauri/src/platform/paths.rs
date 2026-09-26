@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 /// Machine-readable slug for the config-dir leaf (not the display APP_NAME).
 /// Twin: `voice_typer/server/_paths.py::APP_SLUG`.
-pub(crate) const APP_SLUG: &str = "voice-typer";
+pub(crate) const APP_SLUG: &str = "lausu";
 
 // ─── ADR-0020 §8: per-platform config-dir resolution ─────────────────
 
@@ -45,7 +45,7 @@ pub(crate) fn config_dir_from_env(
 
     // VOICE_TYPER_CONFIG_DIR env-var override. Mirrors the
     // Python side's _config_dir() resolution order: env var wins,
-    // then legacy ~/.voice-typer, then platform default. Without this
+    // then legacy ~/.lausu, then platform default. Without this
     // check, a user who sets VOICE_TYPER_CONFIG_DIR (e.g. for a
     // portable / snap install) would have the Tauri host and Python
     // sidecar disagree on the config dir.
@@ -87,7 +87,7 @@ pub(crate) fn config_dir_from_env(
     }
 
     if let Some(h) = home {
-        let legacy = std::path::PathBuf::from(h).join(".voice-typer");
+        let legacy = std::path::PathBuf::from(h).join(".lausu");
         if legacy.exists() {
             return legacy;
         }

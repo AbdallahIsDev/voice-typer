@@ -65,7 +65,7 @@ pub(crate) struct TrayMenuPayload {
 /// Python sidecar. `icon` is a logical name (`"idle"`, `"recording"`,
 /// `"transcribing"`, `"error"`) that the Rust host maps to a bundled
 /// tray icon resource. `tooltip` is the new tooltip string (e.g.
-/// "Voice Typer: Recording (12s)"). Both fields are optional, the
+/// "Lausu: Recording (12s)"). Both fields are optional, the
 /// host only updates the fields present in the payload.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct TrayStatePayload {

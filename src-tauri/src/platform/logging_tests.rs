@@ -66,7 +66,7 @@ static LOGGER_INSTALL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_rotating_file_writer_basic_write() {
-    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-basic", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-basic", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     writer.write_line_level("hello", log::Level::Info).unwrap();
@@ -85,7 +85,7 @@ fn test_rotating_file_writer_truncates_in_place() {
     // Single-file policy: writing past LOG_MAX_BYTES (40 MB) truncates
     // the log IN PLACE: the file keeps its single identity and a
     // numbered backup (`.log.1`) is NEVER created.
-    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-rotate", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-rotate", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // ~45 MB total, 100 KB per line → ~450 lines (crosses the 40 MB
@@ -127,10 +127,7 @@ fn test_rotating_file_writer_truncates_in_place() {
 fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
     // Write well past the cap many times over, the file count on disk
     // must stay EXACTLY ONE (no `.log.N` backups ever).
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-gt67-count",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-gt67-count", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // ~50 MB total (100 KB/line × 500 lines), ~10 truncation cycles.
@@ -166,7 +163,7 @@ fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
 fn test_rotating_file_writer_thread_safety() {
     // Spawn multiple threads writing to the same writer, should
     // not panic or corrupt (Mutex protects the inner File).
-    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-threads", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-threads", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = std::sync::Arc::new(RotatingFileWriter::new(tmp.clone(), "test-log"));
     let mut handles = Vec::new();
@@ -212,8 +209,7 @@ fn test_rotating_file_writer_concurrent_truncation_no_deadlock() {
     // each thread triggers many truncate-in-place cycles. All writes
     // serialize on the `inner` Mutex; the test passes if all threads
     // join (no deadlock / panic) and no numbered backup is created.
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-conc-rot", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-conc-rot", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = std::sync::Arc::new(RotatingFileWriter::new(tmp.clone(), "test-log"));
     let big_line = "x".repeat(100_000);
@@ -270,7 +266,7 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
     // continue. This test simulates the poison by manually
     // poisoning the mutex via `std::sync::PoisonError`, then
     // verifies that `write_line_level` and `flush` do NOT panic.
-    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-poison", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-poison", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // Write an initial line so the inner File handle is opened.
@@ -551,7 +547,7 @@ fn test_combined_logger_log_format_is_clean() {
     // constructing a logger and calling `log()` with a synthetic
     // Record. We can't capture stderr (eprintln! goes to fd 2) but we
     // CAN capture the file write and assert the line shape.
-    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-fmt", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-fmt", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -625,10 +621,7 @@ fn test_combined_logger_log_format_renders_without_file_line() {
     // paths or release builds with debuginfo stripped), so the line
     // must render cleanly regardless: no panic, no `Option` debug
     // string, no `?` / `0` fallback markers.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-fmt-nofile",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-fmt-nofile", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -682,8 +675,7 @@ fn test_combined_logger_file_line_has_no_session_id() {
     // startup banner (see the init_file_logger banner test below).
     // The file sink and the stderr sink are built from the same
     // parts, so pinning the file line pins the terminal line too.
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-fmt-nosid", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-fmt-nosid", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -728,8 +720,7 @@ fn test_combined_logger_file_line_matches_canonical_shape() {
     //   [12..20) time        [20..22)  two spaces (after the ts)
     //   [22..27) level + pad [27]      one space
     //   [28..)   message
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-fmt-shape", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-fmt-shape", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -855,7 +846,7 @@ fn test_init_file_logger_startup_banner_first_line_session_once() {
     // its value, so a brief window with it set to "info" is safe).
     let rust_log_prev = std::env::var("RUST_LOG").ok();
     std::env::set_var("RUST_LOG", "info");
-    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-banner", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-banner", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     init_file_logger(&tmp).expect("init_file_logger must succeed on a fresh temp config dir");
     // Restore the ambient env BEFORE any assertion can fail (a
@@ -873,7 +864,7 @@ fn test_init_file_logger_startup_banner_first_line_session_once() {
     // flush barrier (the warn/error records flush on write, but be
     // explicit: the banner itself is INFO).
     log::logger().flush();
-    let log_path = tmp.join("logs").join("voice-typer-rust.log");
+    let log_path = tmp.join("logs").join("lausu-rust.log");
     let content = std::fs::read_to_string(&log_path).unwrap_or_else(|e| {
         panic!(
             "log file {} must exist after init: {}",
@@ -930,8 +921,7 @@ fn test_rotating_file_writer_log_file_mode_is_0o600_on_posix() {
     // The dictation log may contain raw transcription text + PII
     //(), so it must be owner-only.
     use std::os::unix::fs::PermissionsExt;
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-pi7-mode", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-pi7-mode", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     writer
@@ -958,10 +948,8 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
     // exist. `set_len(0)` preserves the existing file mode, and the
     // belt-and-suspenders `chmod` in the write path re-asserts it.
     use std::os::unix::fs::PermissionsExt;
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-pi7-rotate-mode",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("lausu-test-{}-pi7-rotate-mode", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // Write ~45 MB total to trigger at least one truncate
@@ -1007,10 +995,7 @@ fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {
     // permissive default), then re-apply the same chmod call
     // `init_file_logger` does, and verify the mode is 0o700.
     use std::os::unix::fs::PermissionsExt;
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-pi7-dir-mode",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-pi7-dir-mode", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let logs_dir = tmp.join("logs");
     std::fs::create_dir_all(&logs_dir).unwrap();
@@ -1020,11 +1005,7 @@ fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {
     let _ = std::fs::set_permissions(&logs_dir, std::fs::Permissions::from_mode(0o700));
     let meta = std::fs::metadata(&logs_dir).unwrap();
     let mode = meta.permissions().mode() & 0o777;
-    assert_eq!(
-        mode, 0o700,
-        "logs dir mode must be 0o700; got 0o{:o}",
-        mode
-    );
+    assert_eq!(mode, 0o700, "logs dir mode must be 0o700; got 0o{:o}", mode);
     std::fs::remove_dir_all(&tmp).ok();
 }
 
@@ -1042,8 +1023,7 @@ fn test_fr33_bubble_level_filter_drops_info_record() {
     // INFO-level bubble_level event must be dropped from the file
     // log (the original ADR-0020 §11 behavior, 60 Hz events would
     // fill disk fast).
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-fr33-info", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-fr33-info", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -1075,8 +1055,7 @@ fn test_fr33_bubble_level_filter_preserves_warn_record() {
     //WARN-level bubble_level record must be PRESERVED in
     // the file log even though the message starts with the
     // filtered prefix. Pre-fix this was silently dropped.
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-fr33-warn", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-fr33-warn", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -1111,8 +1090,7 @@ fn test_fr33_bubble_level_filter_preserves_error_record() {
     // This is the most important case, a future
     // `log::error!("[WS-READER] bubble_level event handler crashed")`
     // would be silently lost without the level guard.
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-fr33-err", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-fr33-err", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -1289,7 +1267,7 @@ fn test_redact_pii_no_false_positive_on_normal_log_lines() {
     let inputs = [
         "[WS-READER] bubble_level event rms=0.42",
         "[SUPERVISOR] respawn attempt 1/3 after 500ms backoff",
-        "config dir: /home/user/.local/share/voice-typer",
+        "config dir: /home/user/.local/share/lausu",
         "shutdown ack timeout (2000ms): force-killing",
     ];
     for input in inputs {
@@ -1810,9 +1788,9 @@ fn test_no_false_positive_on_normal_paths() {
     // 20+ char catch-all (they contain `/`, `:`, etc. which break
     // the alphanumeric run).
     let inputs = [
-        "/home/user/.local/share/voice-typer/config.json",
+        "/home/user/.local/share/lausu/config.json",
         "https://api.openai.com/v1/audio/transcriptions",
-        "C:\\Users\\user\\AppData\\Roaming\\voice-typer",
+        "C:\\Users\\user\\AppData\\Roaming\\lausu",
     ];
     for input in inputs {
         let out = redact_pii(input);
@@ -1841,17 +1819,17 @@ fn test_sweep_stale_logs_deletes_old_and_oversized() {
     // Tier 1: a file older than LOG_AGE_RETENTION_SECS is deleted.
     // Tier 2: a file larger than LOG_SIZE_FALLBACK_BYTES is deleted
     // even when freshly written. Recent + small files survive.
-    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-sweep", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-sweep", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
 
     // Old file (mtime pushed past the retention window).
-    let old_path = tmp.join("voice-typer-rust.log.1");
+    let old_path = tmp.join("lausu-rust.log.1");
     std::fs::write(&old_path, b"ancient").unwrap();
     _backdate_mtime(&old_path, crate::util::LOG_AGE_RETENTION_SECS + 60);
 
     // Oversized fresh file (Tier 2, size only).
-    let oversized_path = tmp.join("voice-typer-rust.log");
+    let oversized_path = tmp.join("lausu-rust.log");
     std::fs::write(
         &oversized_path,
         vec![b'x'; crate::util::LOG_SIZE_FALLBACK_BYTES as usize + 1],
@@ -1859,11 +1837,11 @@ fn test_sweep_stale_logs_deletes_old_and_oversized() {
     .unwrap();
 
     // Recent + small file: must survive.
-    let recent_path = tmp.join("voice-typer-rust.log.2");
+    let recent_path = tmp.join("lausu-rust.log.2");
     std::fs::write(&recent_path, b"recent").unwrap();
 
     // Lock file: must survive even when ancient.
-    let lock_path = tmp.join("voice-typer-rust.log.lock");
+    let lock_path = tmp.join("lausu-rust.log.lock");
     std::fs::write(&lock_path, b"").unwrap();
     _backdate_mtime(&lock_path, crate::util::LOG_AGE_RETENTION_SECS * 10);
 
@@ -1882,10 +1860,7 @@ fn test_sweep_stale_logs_deletes_old_and_oversized() {
 #[test]
 fn test_sweep_stale_logs_missing_dir_is_noop() {
     // A missing logs dir must be a silent no-op (no panic).
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-sweep-missing",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-sweep-missing", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     super::logging::sweep_stale_logs(&tmp); // must not panic
 }
@@ -2071,10 +2046,7 @@ fn test_rotating_flush_barrier_timeout_returns_instead_of_hanging() {
     // the panic hook, which fires while panic-point locks are still
     // held). Post-fix: the deadline expires, the flush returns
     // best-effort Ok, and the calling thread keeps running.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-flush-timeout",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-flush-timeout", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     writer
@@ -2113,10 +2085,7 @@ fn test_rotating_flush_barrier_gate_pins_at_most_one_in_flight() {
     // at a time. Pinned directly on the gate helpers (no timing) —
     // the swap semantics are what `flush_with_timeout` relies on to
     // collapse concurrent warn-level barriers into one.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-barrier-gate",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-barrier-gate", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // Fresh gate: first claim succeeds.
@@ -2146,8 +2115,7 @@ fn test_rotating_sequential_flushes_still_each_flush() {
     // before the next is issued, so the gate is free and every flush
     // is a real barrier. This is the property the existing
     // read-after-flush tests (and the panic-hook flush path) rely on.
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-seq-flush", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-seq-flush", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     writer.write_line_level("first", log::Level::Info).unwrap();
@@ -2172,10 +2140,7 @@ fn test_rotating_writer_idle_autoflush_lands_unflushed_lines() {
     // explicit flush() call, the line must still land on disk within
     // the idle window. Under cfg(test) the idle interval is 60 ms, so
     // polling up to a few seconds is a generous, load-tolerant bound.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-idle-flush",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-idle-flush", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     writer
@@ -2243,10 +2208,7 @@ fn test_rotating_queue_byte_gate_drops_non_error_keeps_error() {
     // meaningful.
     const TEST_QUEUE_BYTE_CEILING: usize = 4 * 1024 * 1024;
 
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-queue-gate",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-queue-gate", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // Stall the writer thread BEFORE any write: it will receive the
@@ -2373,8 +2335,7 @@ fn test_combined_logger_file_level_gate_suppresses_info_keeps_warn() {
     // terminal level. Pin BOTH halves: an INFO record is filtered out of
     // the file, a WARN record is written, and a logger constructed with
     // the opt-in INFO file level writes INFO again.
-    let tmp =
-        std::env::temp_dir().join(format!("voice-typer-test-{}-file-level", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("lausu-test-{}-file-level", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -2440,20 +2401,14 @@ fn test_breaker_should_exit_policy_counts_within_window() {
     // The first `MAX - 1` panics inside the window do NOT trip it.
     for (index, offset) in offsets.iter().enumerate() {
         assert!(
-            !breaker_should_exit(
-                &mut recent,
-                start + std::time::Duration::from_secs(*offset)
-            ),
+            !breaker_should_exit(&mut recent, start + std::time::Duration::from_secs(*offset)),
             "panic #{} must not trip the breaker",
             index + 1
         );
     }
     // The MAX-th panic inside the window trips it.
     assert!(
-        breaker_should_exit(
-            &mut recent,
-            start + std::time::Duration::from_secs(5)
-        ),
+        breaker_should_exit(&mut recent, start + std::time::Duration::from_secs(5)),
         "the {}th panic inside the window must trip the breaker",
         PANIC_BREAKER_MAX
     );

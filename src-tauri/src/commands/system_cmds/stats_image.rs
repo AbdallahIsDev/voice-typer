@@ -33,7 +33,7 @@ use tokio::sync::oneshot;
 use crate::commands::export::await_dialog_bridge;
 use crate::commands::require_main_window;
 use crate::commands::system_cmds::dialog_titles::{localized_title_for, DialogTitle};
-use crate::error::VoiceTyperError;
+use crate::error::LausuError;
 use crate::util::atomic_write_bytes;
 
 /// Cap on the accepted PNG data-URL payload (25 MB, mirrors
@@ -57,9 +57,7 @@ pub(crate) fn decode_png_data_url(data_url: &str) -> Option<Vec<u8>> {
         return None;
     }
     let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
-    if bytes.len() < PNG_SIGNATURE.len()
-        || bytes[..PNG_SIGNATURE.len()] != PNG_SIGNATURE
-    {
+    if bytes.len() < PNG_SIGNATURE.len() || bytes[..PNG_SIGNATURE.len()] != PNG_SIGNATURE {
         return None;
     }
     Some(bytes)
@@ -113,7 +111,7 @@ pub(crate) fn safe_png_stem(raw: Option<&str>) -> String {
         stem.as_str()
     };
     if stem.is_empty() {
-        "voice-typer-stats".to_string()
+        "lausu-stats".to_string()
     } else {
         stem.to_string()
     }
@@ -172,15 +170,14 @@ pub async fn save_stats_image(
     payload: Value,
     app: tauri::AppHandle,
     window: tauri::Window,
-) -> Result<Value, VoiceTyperError> {
+) -> Result<Value, LausuError> {
     require_main_window(&window)?;
 
     let data_url = payload
         .get("dataUrl")
         .and_then(Value::as_str)
         .ok_or_else(|| "Invalid PNG data".to_string())?;
-    let png = decode_png_data_url(data_url)
-        .ok_or_else(|| "Invalid PNG data".to_string())?;
+    let png = decode_png_data_url(data_url).ok_or_else(|| "Invalid PNG data".to_string())?;
     let stem = safe_png_stem(payload.get("defaultName").and_then(Value::as_str));
     let save_as = payload.get("mode").and_then(Value::as_str) == Some("saveAs");
 
@@ -188,16 +185,14 @@ pub async fn save_stats_image(
         // Instant save to the OS Downloads folder, no dialog. The
         // collision probe + atomic write are blocking filesystem work.
         let dir = downloads_dir(&app)?;
-        let result = tauri::async_runtime::spawn_blocking(
-            move || -> Result<std::path::PathBuf, String> {
+        let result =
+            tauri::async_runtime::spawn_blocking(move || -> Result<std::path::PathBuf, String> {
                 let target = non_colliding_png_path(&dir, &stem);
-                atomic_write_bytes(&target, &png)
-                    .map_err(|e| format!("write failed: {e}"))?;
+                atomic_write_bytes(&target, &png).map_err(|e| format!("write failed: {e}"))?;
                 Ok(target)
-            },
-        )
-        .await
-        .map_err(|e| format!("save_stats_image task failed: {e}"))?;
+            })
+            .await
+            .map_err(|e| format!("save_stats_image task failed: {e}"))?;
         return match result {
             Ok(path) => Ok(json!({
                 "success": true,
@@ -227,14 +222,13 @@ pub async fn save_stats_image(
     let path = file_path
         .into_path()
         .map_err(|e| format!("invalid path: {e}"))?;
-    let result = tauri::async_runtime::spawn_blocking(
-        move || -> Result<std::path::PathBuf, String> {
+    let result =
+        tauri::async_runtime::spawn_blocking(move || -> Result<std::path::PathBuf, String> {
             atomic_write_bytes(&path, &png).map_err(|e| format!("write failed: {e}"))?;
             Ok(path)
-        },
-    )
-    .await
-    .map_err(|e| format!("save_stats_image task failed: {e}"))?;
+        })
+        .await
+        .map_err(|e| format!("save_stats_image task failed: {e}"))?;
     match result {
         Ok(path) => Ok(json!({
             "success": true,
