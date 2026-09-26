@@ -23,19 +23,19 @@ def _seed_manifest(path: Path) -> dict:
         "_comment": "test manifest",
         "version": 1,
         "binaries": {
-            "voice-typer-tauri": {
+            "lausu-tauri": {
                 "sha256": {"linux-x86_64": "", "linux-aarch64": ""},
                 "version": "1.0.0",
                 "min_proto_version": 1,
                 "_platforms": ["linux-x86_64", "linux-aarch64"],
-                "_install_paths": ["/usr/bin/voice-typer-tauri"],
+                "_install_paths": ["/usr/bin/lausu-tauri"],
             },
-            "voice-typer-tauri.exe": {
+            "lausu-tauri.exe": {
                 "sha256": {"windows-x86_64": "", "windows-aarch64": ""},
                 "version": "1.0.0",
                 "min_proto_version": 1,
             },
-            "voice-typer-tauri.app": {
+            "lausu-tauri.app": {
                 "sha256": {"macos": ""},
                 "version": "1.0.0",
                 "min_proto_version": 1,
@@ -58,7 +58,7 @@ def _write_binary(target_dir: Path, triple: str, content: bytes) -> Path:
     """Write a linux/windows-style binary and return its path."""
     rel = target_dir / triple / "release"
     rel.mkdir(parents=True)
-    name = "voice-typer-tauri" + (".exe" if "pc-windows" in triple else "")
+    name = "lausu-tauri" + (".exe" if "pc-windows" in triple else "")
     p = rel / name
     p.write_bytes(content)
     return p
@@ -66,17 +66,7 @@ def _write_binary(target_dir: Path, triple: str, content: bytes) -> Path:
 
 def _write_macos_app(target_dir: Path, triple: str, content: bytes) -> Path:
     """Write a macOS ``.app`` bundle layout and return the inner executable."""
-    exe = (
-        target_dir
-        / triple
-        / "release"
-        / "bundle"
-        / "macos"
-        / "Voice Typer.app"
-        / "Contents"
-        / "MacOS"
-        / "voice-typer-tauri"
-    )
+    exe = target_dir / triple / "release" / "bundle" / "macos" / "Lausu.app" / "Contents" / "MacOS" / "lausu-tauri"
     exe.parent.mkdir(parents=True)
     exe.write_bytes(content)
     return exe
@@ -91,12 +81,12 @@ def test_record_linux_hashes_into_linux_x86_64_key(manifest_path: Path, tmp_path
 
     assert sha == expected
     manifest = json.loads(manifest_path.read_text())
-    entry = manifest["binaries"]["voice-typer-tauri"]["sha256"]
+    entry = manifest["binaries"]["lausu-tauri"]["sha256"]
     assert entry["linux-x86_64"] == expected
     # Other platforms' keys untouched.
     assert entry["linux-aarch64"] == ""
-    assert manifest["binaries"]["voice-typer-tauri.exe"]["sha256"]["windows-x86_64"] == ""
-    assert manifest["binaries"]["voice-typer-tauri.app"]["sha256"]["macos"] == ""
+    assert manifest["binaries"]["lausu-tauri.exe"]["sha256"]["windows-x86_64"] == ""
+    assert manifest["binaries"]["lausu-tauri.app"]["sha256"]["macos"] == ""
     # The hash on disk MUST equal what we compute manually.
     assert utm._sha256_of(binary) == expected
 
@@ -109,8 +99,8 @@ def test_record_windows_hashes_exe_key(manifest_path: Path, tmp_path: Path) -> N
     utm.record_sha256(manifest_path, target, "x86_64-pc-windows-msvc")
 
     manifest = json.loads(manifest_path.read_text())
-    assert manifest["binaries"]["voice-typer-tauri.exe"]["sha256"]["windows-x86_64"] == expected
-    assert manifest["binaries"]["voice-typer-tauri.exe"]["sha256"]["windows-aarch64"] == ""
+    assert manifest["binaries"]["lausu-tauri.exe"]["sha256"]["windows-x86_64"] == expected
+    assert manifest["binaries"]["lausu-tauri.exe"]["sha256"]["windows-aarch64"] == ""
 
 
 def test_record_macos_discovers_app_inner_executable(manifest_path: Path, tmp_path: Path) -> None:
@@ -121,12 +111,12 @@ def test_record_macos_discovers_app_inner_executable(manifest_path: Path, tmp_pa
     utm.record_sha256(manifest_path, target, "universal-apple-darwin")
 
     manifest = json.loads(manifest_path.read_text())
-    assert manifest["binaries"]["voice-typer-tauri.app"]["sha256"]["macos"] == expected
+    assert manifest["binaries"]["lausu-tauri.app"]["sha256"]["macos"] == expected
 
 
 def test_record_macos_ambiguous_app_bundles_raise(manifest_path: Path, tmp_path: Path) -> None:
     target = tmp_path / "target"
-    for app in ("Voice Typer.app", "Other.app"):
+    for app in ("Lausu.app", "Other.app"):
         exe = (
             target
             / "aarch64-apple-darwin"
@@ -136,7 +126,7 @@ def test_record_macos_ambiguous_app_bundles_raise(manifest_path: Path, tmp_path:
             / app
             / "Contents"
             / "MacOS"
-            / "voice-typer-tauri"
+            / "lausu-tauri"
         )
         exe.parent.mkdir(parents=True)
         exe.write_bytes(b"x")
@@ -145,7 +135,7 @@ def test_record_macos_ambiguous_app_bundles_raise(manifest_path: Path, tmp_path:
 
 
 def test_record_with_explicit_binary(manifest_path: Path, tmp_path: Path) -> None:
-    binary = tmp_path / "custom-place" / "voice-typer-tauri"
+    binary = tmp_path / "custom-place" / "lausu-tauri"
     binary.parent.mkdir()
     binary.write_bytes(b"custom path payload")
     expected = hashlib.sha256(b"custom path payload").hexdigest()
@@ -153,7 +143,7 @@ def test_record_with_explicit_binary(manifest_path: Path, tmp_path: Path) -> Non
     utm.record_sha256(manifest_path, tmp_path / "target", "aarch64-unknown-linux-gnu", binary=binary)
 
     manifest = json.loads(manifest_path.read_text())
-    assert manifest["binaries"]["voice-typer-tauri"]["sha256"]["linux-aarch64"] == expected
+    assert manifest["binaries"]["lausu-tauri"]["sha256"]["linux-aarch64"] == expected
 
 
 def test_record_missing_binary_raises_file_not_found(manifest_path: Path, tmp_path: Path) -> None:
@@ -172,10 +162,10 @@ def test_record_preserves_other_fields(manifest_path: Path, tmp_path: Path) -> N
     utm.record_sha256(manifest_path, tmp_path / "target", "x86_64-unknown-linux-gnu")
     after = json.loads(manifest_path.read_text())
 
-    entry = after["binaries"]["voice-typer-tauri"]
+    entry = after["binaries"]["lausu-tauri"]
     assert entry["version"] == "1.0.0"
     assert entry["min_proto_version"] == 1
-    assert entry["_install_paths"] == ["/usr/bin/voice-typer-tauri"]
+    assert entry["_install_paths"] == ["/usr/bin/lausu-tauri"]
     assert entry["_platforms"] == ["linux-x86_64", "linux-aarch64"]
     assert after["_comment"] == before["_comment"]
     assert after["version"] == before["version"]
@@ -224,7 +214,7 @@ def test_check_full_passes_when_all_keys_populated(manifest_path: Path, tmp_path
 
 def test_check_rejects_malformed_hex(manifest_path: Path) -> None:
     manifest = json.loads(manifest_path.read_text())
-    manifest["binaries"]["voice-typer-tauri"]["sha256"]["linux-x86_64"] = "ABC"
+    manifest["binaries"]["lausu-tauri"]["sha256"]["linux-x86_64"] = "ABC"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     violations = utm.check_manifest(manifest_path, triple="x86_64-unknown-linux-gnu")
     assert violations

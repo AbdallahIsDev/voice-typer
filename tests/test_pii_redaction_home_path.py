@@ -17,7 +17,7 @@ def _make_record(msg: str, level: int = logging.INFO, exc_info=None) -> logging.
 def test_home_path_linux_style_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
     """A Linux-style home path in a log message must not leak the username."""
     monkeypatch.setenv("HOME", "/home/testuser")
-    record = _make_record("Opening log file: /home/testuser/.voice-typer/foo.log")
+    record = _make_record("Opening log file: /home/testuser/.lausu/foo.log")
     PIIRedactionFilter().filter(record)
     assert "testuser" not in record.msg, f"OS username leaked via Linux home path in log message: {record.msg!r}"
     assert "~" in record.msg, f"Home prefix was not replaced with '~': {record.msg!r}"
@@ -26,7 +26,7 @@ def test_home_path_linux_style_redacted(monkeypatch: pytest.MonkeyPatch) -> None
 def test_home_path_windows_style_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
     """A Windows-style home path in a log message must not leak the username."""
     monkeypatch.setenv("HOME", "C:\\Users\\testuser")
-    record = _make_record("Opening log file: C:\\Users\\testuser\\.voice-typer\\foo.log")
+    record = _make_record("Opening log file: C:\\Users\\testuser\\.lausu\\foo.log")
     PIIRedactionFilter().filter(record)
     assert "testuser" not in record.msg, f"OS username leaked via Windows home path in log message: {record.msg!r}"
     assert "~" in record.msg, f"Home prefix was not replaced with '~': {record.msg!r}"
@@ -38,7 +38,7 @@ def test_home_path_in_traceback_redacted(
     """A home path embedded in a formatted traceback must not leak the username."""
     monkeypatch.setenv("HOME", "/home/testuser")
     try:
-        raise FileNotFoundError("/home/testuser/.voice-typer/foo.log")
+        raise FileNotFoundError("/home/testuser/.lausu/foo.log")
     except FileNotFoundError:
         exc_info = sys.exc_info()
     record = _make_record("Failed to open config file", level=logging.ERROR, exc_info=exc_info)
@@ -52,7 +52,7 @@ def test_home_path_in_traceback_redacted(
 def test_non_home_path_not_mangled(monkeypatch: pytest.MonkeyPatch) -> None:
     """A path that is NOT under the home dir must pass through unchanged."""
     monkeypatch.setenv("HOME", "/home/testuser")
-    original = "System log at /var/log/voice-typer.log"
+    original = "System log at /var/log/lausu.log"
     record = _make_record(original)
     PIIRedactionFilter().filter(record)
-    assert "/var/log/voice-typer.log" in record.msg, f"Non-home path was incorrectly redacted: {record.msg!r}"
+    assert "/var/log/lausu.log" in record.msg, f"Non-home path was incorrectly redacted: {record.msg!r}"

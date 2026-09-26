@@ -236,7 +236,7 @@ class TestStableNameAndLegacySweep:
 
         logs_dir = tmp_path / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
-        keepers = [logs_dir / "voice-typer.log", logs_dir / "native-linux.log"]
+        keepers = [logs_dir / "lausu.log", logs_dir / "native-linux.log"]
         for k in keepers:
             k.write_text("keep", encoding="utf-8")
         legacy = logs_dir / "native-windows-17068.log"

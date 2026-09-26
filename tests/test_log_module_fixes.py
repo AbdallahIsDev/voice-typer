@@ -356,7 +356,7 @@ class TestUe4F13LockFailureNoPathLeak:
         from voice_typer.server import log as log_module
 
         # Path containing a "home directory" sentinel string.
-        sensitive_path = str(tmp_path / "home" / "user" / ".voice-typer" / "lock")
+        sensitive_path = str(tmp_path / "home" / "user" / ".lausu" / "lock")
         # An exception whose str() includes the path.
         exc_with_path = OSError(f"[Errno 13] Permission denied: '{sensitive_path}'")
 

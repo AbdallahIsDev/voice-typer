@@ -58,22 +58,22 @@ class TestCancelModelDownloadMechanism:
     """Verify the cancel mechanism works at the Python service level."""
 
     def test_cancel_returns_false_when_no_download_active(self, tmp_config_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         result = service.cancel_model_download()
         assert result == {"cancelled": False}
 
     def test_cancel_returns_true_when_download_active(self, tmp_config_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         download_id = service._register_download("test-model")
         event = service._download_cancel_events[download_id]
         assert not event.is_set()
@@ -86,12 +86,12 @@ class TestCancelModelDownloadMechanism:
         service._unregister_download(download_id)
 
     def test_cancel_event_is_clearable(self, tmp_config_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         download_id = service._register_download("test-model")
         service.cancel_model_download()
         # Unregistering the download clears the active id and removes
@@ -101,12 +101,12 @@ class TestCancelModelDownloadMechanism:
 
     def test_download_cancel_events_starts_empty(self, tmp_config_dir):
         """A fresh service has no registered downloads."""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         assert service._download_cancel_events == {}
         assert service._active_download_id is None
 
@@ -115,7 +115,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
     """:data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)"""
 
     def _make_service(self):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type(
@@ -124,7 +124,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
                 {"asr_backend": "whisper", "model_size": "tiny"},
             )()
 
-        return VoiceTyperService(FakeApp())
+        return LausuService(FakeApp())
 
     def test_parakeet_uses_registry_repo_id(self, tmp_config_dir, monkeypatch):
         """``delete_model(\"parakeet\")`` looks up the registry's"""
@@ -172,7 +172,7 @@ class TestGetModelStatusCache:
     """SVC-9 / PERF-10: ``get_model_status`` caches its result for 5 s"""
 
     def _make_service(self):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type(
@@ -181,7 +181,7 @@ class TestGetModelStatusCache:
                 {"asr_backend": "whisper", "model_size": "tiny"},
             )()
 
-        return VoiceTyperService(FakeApp())
+        return LausuService(FakeApp())
 
     def test_two_consecutive_calls_return_same_cached_object(self, tmp_config_dir, monkeypatch):
         """Within the 5 s TTL window, the second call returns the SAME"""
@@ -297,7 +297,7 @@ class TestDeleteStaleActiveModel:
     def test_active_missing_clears_config_to_downloaded_fallback(self, tmp_config_dir, monkeypatch):
         """disk. delete_model('tiny') succeeds AND switches the active model"""
         from voice_typer.server.model_registry import get_model_metadata
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         cache_dir = self._make_cache_dir(tmp_config_dir)
         fallback_meta = get_model_metadata("large-v3-turbo")
@@ -311,7 +311,7 @@ class TestDeleteStaleActiveModel:
         )
 
         app = self._make_app(model_size="tiny")
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
@@ -330,7 +330,7 @@ class TestDeleteStaleActiveModel:
         from unittest.mock import Mock
 
         from voice_typer.server.model_registry import get_model_metadata
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         cache_dir = self._make_cache_dir(tmp_config_dir)
         fallback_meta = get_model_metadata("large-v3-turbo")
@@ -343,7 +343,7 @@ class TestDeleteStaleActiveModel:
 
         app = self._make_app(model_size="tiny")
         app.config.save_strict = Mock(side_effect=RuntimeError("disk full"))
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"delete must still succeed, got: {result}"
@@ -358,11 +358,11 @@ class TestDeleteStaleActiveModel:
     def test_active_missing_no_fallback_enters_no_model_state(self, tmp_config_dir):
         """No model is downloaded at all, there is no valid replacement."""
         from voice_typer.server.model_registry import NO_MODEL_SIZE
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         self._make_cache_dir(tmp_config_dir)  # empty hub
         app = self._make_app(model_size="tiny")
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
@@ -384,7 +384,7 @@ class TestDeleteStaleActiveModel:
     def test_active_on_disk_deletes_and_switches(self, tmp_config_dir, monkeypatch):
         """old refuse-and-switch guard dead-ended single-model users,"""
         from voice_typer.server.model_registry import get_model_metadata
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         cache_dir = self._make_cache_dir(tmp_config_dir)
         tiny_meta = get_model_metadata("tiny")
@@ -402,7 +402,7 @@ class TestDeleteStaleActiveModel:
         )
 
         app = self._make_app(model_size="tiny")
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"active delete must succeed, got: {result}"
@@ -421,7 +421,7 @@ class TestDeleteStaleActiveModel:
     def test_active_on_disk_no_fallback_enters_no_model_state(self, tmp_config_dir, monkeypatch):
         """ACTIVE-DELETE with nothing else downloaded: files go and"""
         from voice_typer.server.model_registry import NO_MODEL_SIZE, get_model_metadata
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         cache_dir = self._make_cache_dir(tmp_config_dir)
         tiny_meta = get_model_metadata("tiny")
@@ -435,7 +435,7 @@ class TestDeleteStaleActiveModel:
         )
 
         app = self._make_app(model_size="tiny")
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"active delete must succeed, got: {result}"
@@ -454,7 +454,7 @@ class TestDeleteStaleActiveModel:
     def test_active_delete_refused_while_recording(self, tmp_config_dir):
         """logged reason), files untouched."""
         from voice_typer.server.model_registry import get_model_metadata
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         cache_dir = self._make_cache_dir(tmp_config_dir)
         tiny_meta = get_model_metadata("tiny")
@@ -464,7 +464,7 @@ class TestDeleteStaleActiveModel:
 
         app = self._make_app(model_size="tiny")
         app.recorder.recording = True
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.delete_model("tiny")
         assert result["success"] is False

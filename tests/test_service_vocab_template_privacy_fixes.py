@@ -28,9 +28,9 @@ def _bundled_corrections(tmp_path: Path) -> Path:
 
 
 def _make_service(tmp_path: Path):
-    """Build a ``VoiceTyperService`` against a tmp config dir."""
+    """Build a ``LausuService`` against a tmp config dir."""
     from voice_typer.server import config as cfg_mod
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
     from voice_typer.server.templates import TemplateManager
     from voice_typer.server.vocabulary import VocabularyManager
 
@@ -49,12 +49,12 @@ def _make_service(tmp_path: Path):
         _cloud_engine = None
 
         def __init__(self):
-            # Bypass the @property setter on VoiceTyperApp: this stub
+            # Bypass the @property setter on LausuApp: this stub
             self._vocabulary_manager = vm
             self._template_manager = tm
 
     app = _StubApp()
-    svc = VoiceTyperService(app)
+    svc = LausuService(app)
     return svc, app, vm, tm, mp
 
 
@@ -145,7 +145,7 @@ class TestGetVocabularyReusesLiveManager:
     def test_get_vocabulary_fallback_when_no_live_manager(self, tmp_path):
         """When ``app._vocabulary_manager`` is None (cold-start /"""
         from voice_typer.server import config as cfg_mod
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         mp = pytest.MonkeyPatch()
         mp.setattr(cfg_mod, "_config_dir", lambda: tmp_path)
@@ -160,7 +160,7 @@ class TestGetVocabularyReusesLiveManager:
                 _llm_polisher = None
                 _cloud_engine = None
 
-            svc = VoiceTyperService(_StubApp())
+            svc = LausuService(_StubApp())
             data = svc.get_vocabulary()
             # Fallback read the REAL bundled corrections.json
             assert "misspellings" in data

@@ -8,15 +8,15 @@ import pytest
 
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked dependencies for None-guard tests."""
+    """Create a LausuApp with mocked dependencies for None-guard tests."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
     return instance

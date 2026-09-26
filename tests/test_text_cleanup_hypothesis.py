@@ -181,7 +181,7 @@ class TestCorrectionsJsonFuzzing:
         """Parser should handle malformed/random JSON gracefully (no crashes)."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         try:
             corrections_file.write_text(json.dumps(obj), encoding="utf-8")
         except (TypeError, ValueError):
@@ -201,7 +201,7 @@ class TestCorrectionsJsonFuzzing:
         """Parser should handle random misspelling dictionaries without crashing."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         try:
             corrections_file.write_text(json.dumps({"misspellings": misspellings}), encoding="utf-8")
         except (TypeError, ValueError):
@@ -224,7 +224,7 @@ class TestCorrectionsJsonFuzzing:
 
         # Convert tuples to lists for JSON serialization
         phrase_lists = [list(p) for p in phrase]
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         try:
             corrections_file.write_text(json.dumps({"phrase_corrections": phrase_lists}), encoding="utf-8")
         except (TypeError, ValueError):
@@ -239,7 +239,7 @@ class TestCorrectionsJsonFuzzing:
         """After loading random corrections, cleanup should still work."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text(json.dumps({"misspellings": {}}), encoding="utf-8")
         text_cleanup.configure_corrections(config_dir=tmp_path)
         result = clean_transcribed_text(text)

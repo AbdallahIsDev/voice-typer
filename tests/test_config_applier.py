@@ -18,7 +18,7 @@ def _has_module(name: str) -> bool:
 
 @pytest.fixture
 def fake_app() -> MagicMock:
-    """Build a fake VoiceTyperApp with the minimal attribute surface"""
+    """Build a fake LausuApp with the minimal attribute surface"""
     app = MagicMock()
     app.config.autostart = False
     app.config.hotkey = "<f2>"
@@ -71,10 +71,10 @@ def test_service_apply_config_delegates_to_module(fake_app) -> None:
     if not _has_module("voice_typer.server.config_applier"):
         pytest.skip("Fix-D not yet landed")
 
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
     mod = importlib.import_module("voice_typer.server.config_applier")
-    svc = VoiceTyperService(fake_app)
+    svc = LausuService(fake_app)
 
     captured: list = []
     if hasattr(mod, "ConfigApplier"):
@@ -95,50 +95,50 @@ def test_service_apply_config_delegates_to_module(fake_app) -> None:
     updates = {"hotkey": "<f3>"}
     svc.apply_config_side_effects(updates)
     assert captured, (
-        "Expected VoiceTyperService.apply_config_side_effects to delegate to the extracted config_applier module."
+        "Expected LausuService.apply_config_side_effects to delegate to the extracted config_applier module."
     )
 
 
 def test_extraction_preserves_hotkey_restart_behavior(fake_app) -> None:
     """After extraction, a hotkey change must still trigger"""
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    svc = VoiceTyperService(fake_app)
+    svc = LausuService(fake_app)
     svc.apply_config_side_effects({"hotkey": "<f3>"})
     fake_app.hotkeys.restart.assert_called()
 
 
 def test_extraction_preserves_esc_hotkey_register(fake_app) -> None:
     """``esc_cancel_enabled=True`` must trigger ``register_esc``."""
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    svc = VoiceTyperService(fake_app)
+    svc = LausuService(fake_app)
     svc.apply_config_side_effects({"esc_cancel_enabled": True})
     fake_app.hotkeys.register_esc.assert_called()
 
 
 def test_extraction_preserves_esc_hotkey_unregister(fake_app) -> None:
     """``esc_cancel_enabled=False`` must trigger ``unregister_esc``."""
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    svc = VoiceTyperService(fake_app)
+    svc = LausuService(fake_app)
     svc.apply_config_side_effects({"esc_cancel_enabled": False})
     fake_app.hotkeys.unregister_esc.assert_called()
 
 
 def test_extraction_preserves_tray_invalidation(fake_app) -> None:
     """``tray_left_click_action`` change must invalidate tray menu cache."""
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    svc = VoiceTyperService(fake_app)
+    svc = LausuService(fake_app)
     svc.apply_config_side_effects({"tray_left_click_action": "open_settings"})
     fake_app.tray.invalidate_menu_cache.assert_called()
 
 
 def test_extraction_preserves_notifications_toggle(fake_app) -> None:
     """``show_notifications=False`` must disable notifications."""
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    svc = VoiceTyperService(fake_app)
+    svc = LausuService(fake_app)
     svc.apply_config_side_effects({"show_notifications": False})
     fake_app.tray.set_notifications_enabled.assert_called_with(False)

@@ -12,9 +12,9 @@ _MANIFEST_PATH = _REPO_ROOT / "tauri-binaries.json"
 
 # The three Tauri binary file names the manifest must cover (one per
 _REQUIRED_BINARY_ENTRIES: tuple[str, ...] = (
-    "voice-typer-tauri",  # Linux
-    "voice-typer-tauri.exe",  # Windows
-    "voice-typer-tauri.app",  # macOS
+    "lausu-tauri",  # Linux
+    "lausu-tauri.exe",  # Windows
+    "lausu-tauri.app",  # macOS
 )
 
 # Each binary entry must declare these top-level fields. The loader
@@ -27,9 +27,9 @@ _REQUIRED_ENTRY_FIELDS: tuple[str, ...] = (
 )
 
 _PER_ARCH_SHA256_KEYS: dict[str, tuple[str, ...]] = {
-    "voice-typer-tauri": ("linux-x86_64", "linux-aarch64"),
-    "voice-typer-tauri.exe": ("windows-x86_64", "windows-aarch64"),
-    "voice-typer-tauri.app": ("macos",),
+    "lausu-tauri": ("linux-x86_64", "linux-aarch64"),
+    "lausu-tauri.exe": ("windows-x86_64", "windows-aarch64"),
+    "lausu-tauri.app": ("macos",),
 }
 
 
@@ -70,8 +70,8 @@ class TestTauriBinariesManifest:
         )
         assert isinstance(data["binaries"], dict), (
             "XZ-R6-AS-01: `manifest['binaries']` must be a dict keyed by "
-            "binary file name (e.g. 'voice-typer-tauri', "
-            "'voice-typer-tauri.exe', 'voice-typer-tauri.app')."
+            "binary file name (e.g. 'lausu-tauri', "
+            "'lausu-tauri.exe', 'lausu-tauri.app')."
         )
 
     @pytest.mark.parametrize("binary_name", _REQUIRED_BINARY_ENTRIES)

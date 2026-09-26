@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-# These must be in place before VoiceTyperApp is imported, so we apply
+# These must be in place before LausuApp is imported, so we apply
 
 
 @pytest.fixture(autouse=True)
@@ -111,15 +111,15 @@ class FakeBackend:
 
 @pytest.fixture
 def app_with_fake_ducker(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with a FakeBackend wired into _volume_ducker."""
+    """Create a LausuApp with a FakeBackend wired into _volume_ducker."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     instance.config.esc_cancel_enabled = False
     instance.config.streaming_transcription = False
     # (revised): RecordingController.start() now enforces
@@ -508,14 +508,14 @@ class TestPerSessionDuckGatedOnSupport:
 
     def test_per_session_attempted_when_supported(self, monkeypatch, tmp_config_dir):
         """supports it AND the config says True, the app must NOT attempt"""
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         instance.config.esc_cancel_enabled = False
         # Keep the real streaming pipeline out of this test (mock
         instance.config.streaming_transcription = False

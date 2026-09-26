@@ -139,12 +139,12 @@ class TestGetVocabularyHandler:
 
         monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
 
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         app = MagicMock()
         app.config.config_dir = tmp_path
         app._vocabulary_manager = None
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.get_vocabulary()
         assert isinstance(result, dict)
@@ -168,8 +168,8 @@ class TestGetVocabularyHandler:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app` +
-class TestVoiceTyperAppSingleton:
-    """VoiceTyperApp uses _ensure_single_instance for singleton enforcement."""
+class TestLausuAppSingleton:
+    """LausuApp uses _ensure_single_instance for singleton enforcement."""
 
     def test_ensure_single_instance_exists(self):
         from voice_typer.server import app as app_module
@@ -346,7 +346,7 @@ class TestMacOSAccessibilityCheck:
         assert "tray.notify" in src
 
 
-# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app.VoiceTyperApp`
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app.LausuApp`
 class TestRestartAppStopsBackends:
     """restart_app stops all hotkey backends."""
 
@@ -369,7 +369,7 @@ class TestRestartAppStopsBackends:
             patch.object(server_platform, "disable_autostart"),
             patch.object(server_platform, "list_microphones", return_value=[]),
         ):
-            app = app_module.VoiceTyperApp()
+            app = app_module.LausuApp()
             hotkey_backend_mock = MagicMock()
             esc_backend_mock = MagicMock()
             repaste_backend_mock = MagicMock()
@@ -389,16 +389,16 @@ class TestRestartAppStopsBackends:
             assert stops_called >= 1
 
 
-# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app.VoiceTyperApp`
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app.LausuApp`
 class TestRestartFiltersEnvVarsWithAllowlist:
     """restart_app does not leak env vars via os.environ.copy()."""
 
     def test_app_uses_env_allowlist(self):
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
         for name in ("_restart_app", "restart_app", "_do_restart"):
-            if hasattr(VoiceTyperApp, name):
-                source = inspect.getsource(getattr(VoiceTyperApp, name))
+            if hasattr(LausuApp, name):
+                source = inspect.getsource(getattr(LausuApp, name))
                 assert "os.environ.copy()" not in source
                 return
-        pytest.fail("Could not find restart method on VoiceTyperApp")
+        pytest.fail("Could not find restart method on LausuApp")

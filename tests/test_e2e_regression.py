@@ -127,9 +127,9 @@ class TestCoreModulesExtractedFromApp:
         """ARCH-REFAC-003: the @property delegates (transcriber,"""
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         # The legacy @property delegates must no longer exist on the app.
         for removed in (
             "transcriber",
@@ -146,7 +146,7 @@ class TestCoreModulesExtractedFromApp:
             "_repaste_backend",
         ):
             assert not hasattr(type(app), removed), (
-                f"ARCH-REFAC-003 regression: VoiceTyperApp still has a "
+                f"ARCH-REFAC-003 regression: LausuApp still has a "
                 f"class-level attribute {removed!r} (expected the "
                 f"@property delegate to be removed)"
             )

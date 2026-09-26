@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 
 def _build_onboarding_service():
-    """Build a minimal VoiceTyperService (via ``__new__``, no heavy"""
+    """Build a minimal LausuService (via ``__new__``, no heavy"""
     from voice_typer.server.config import Config
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
     app = MagicMock()
     cfg = Config()
@@ -18,7 +18,7 @@ def _build_onboarding_service():
     app.tray.invalidate_menu_cache = MagicMock()
     app.change_model = MagicMock()
 
-    service = VoiceTyperService.__new__(VoiceTyperService)
+    service = LausuService.__new__(LausuService)
     service._app = app  # type: ignore[attr-defined]
     return service, cfg
 

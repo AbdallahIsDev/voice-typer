@@ -164,7 +164,7 @@ class TestExternalCorrectionsFallback:
         from voice_typer.server.text_cleanup import _corrections_data as text_cleanup
 
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text(
             json.dumps(
                 {
@@ -197,7 +197,7 @@ class TestExternalCorrectionsFallback:
 
         from voice_typer.server.text_cleanup import configure_corrections
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text(
             json.dumps(
                 {
@@ -254,7 +254,7 @@ class TestConfigureCorrectionsSurfacesLoadErrors:
         """Malformed user corrections file → error message string."""
         from voice_typer.server.text_cleanup import configure_corrections
 
-        bad_file = tmp_path / "voice-typer-corrections.json"
+        bad_file = tmp_path / "lausu-corrections.json"
         bad_file.write_text("{ this is not valid json", encoding="utf-8")
         result = configure_corrections(config_dir=tmp_path)
         assert result is not None
@@ -266,7 +266,7 @@ class TestConfigureCorrectionsSurfacesLoadErrors:
 
         from voice_typer.server.text_cleanup import configure_corrections
 
-        good_file = tmp_path / "voice-typer-corrections.json"
+        good_file = tmp_path / "lausu-corrections.json"
         good_file.write_text(json.dumps({"misspellings": {"teh": "the"}}), encoding="utf-8")
         result = configure_corrections(config_dir=tmp_path)
         assert result is None
@@ -275,7 +275,7 @@ class TestConfigureCorrectionsSurfacesLoadErrors:
         """Empty file → error (not valid JSON)."""
         from voice_typer.server.text_cleanup import configure_corrections
 
-        empty_file = tmp_path / "voice-typer-corrections.json"
+        empty_file = tmp_path / "lausu-corrections.json"
         empty_file.write_text("", encoding="utf-8")
         result = configure_corrections(config_dir=tmp_path)
         assert result is not None
@@ -438,7 +438,7 @@ class TestCorruptionsRecoveryWithBuiltins:
         from voice_typer.server.text_cleanup import configure_corrections
 
         # Create corrupted corrections.json
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text("CORRUPTED JSON {{{", encoding="utf-8")
         configure_corrections(config_dir=tmp_path)
 
@@ -450,7 +450,7 @@ class TestCorruptionsRecoveryWithBuiltins:
         """After loading a corrupted corrections.json, duplicate removal"""
         from voice_typer.server.text_cleanup import configure_corrections
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text("NOT JSON", encoding="utf-8")
         configure_corrections(config_dir=tmp_path)
 
@@ -464,7 +464,7 @@ class TestCorruptionsRecoveryWithBuiltins:
         from voice_typer.server.text_cleanup import configure_corrections
 
         # First, load with corrupted file
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text("BROKEN", encoding="utf-8")
         result1 = configure_corrections(config_dir=tmp_path)
         assert result1 is not None  # Should return error message

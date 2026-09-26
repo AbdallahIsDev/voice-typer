@@ -306,7 +306,7 @@ class TestWindowsCloseProcessHandle:
 
 
 class TestOpenWaitCloseLifecycle:
-    """``VoiceTyperApp._open_config_file``::"""
+    """``LausuApp._open_config_file``::"""
 
     def test_full_lifecycle_dispatches_all_three_win32_calls(self, monkeypatch):
         """open() → wait() → close() calls ShellExecuteExW,"""
@@ -322,7 +322,7 @@ class TestOpenWaitCloseLifecycle:
 
         mock_shell32.ShellExecuteExW.side_effect = _side_effect
 
-        # Mirror VoiceTyperApp._open_config_file's call sequence.
+        # Mirror LausuApp._open_config_file's call sequence.
         handle = _windows_open_with_default_app(r"C:\config.json")
         assert handle == 0xCAFE
         try:

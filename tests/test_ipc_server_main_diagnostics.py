@@ -16,12 +16,12 @@ import voice_typer.server.ipc_server  # noqa: F401
 
 
 def _boom(*_args: object, **_kwargs: object) -> None:
-    """Side effect that simulates a fatal failure in VoiceTyperApp()."""
-    raise RuntimeError("simulated VoiceTyperApp() construction failure")
+    """Side effect that simulates a fatal failure in LausuApp()."""
+    raise RuntimeError("simulated LausuApp() construction failure")
 
 
 def _patch_main_dependencies(config_dir: Path):
-    """Patch every symbol ``main()`` touches before reaching VoiceTyperApp()."""
+    """Patch every symbol ``main()`` touches before reaching LausuApp()."""
     return (
         patch("voice_typer.server.ipc_server._set_process_metadata"),
         patch("voice_typer.server.logging_setup._setup_logging"),
@@ -29,7 +29,7 @@ def _patch_main_dependencies(config_dir: Path):
             "voice_typer.server.single_instance._ensure_single_instance",
             return_value=None,
         ),
-        patch("voice_typer.server.app.VoiceTyperApp", side_effect=_boom),
+        patch("voice_typer.server.app.LausuApp", side_effect=_boom),
         patch(
             "voice_typer.server.config._secure_atomic_write",
             side_effect=OSError("read-only filesystem"),
@@ -73,16 +73,14 @@ class TestStartupDiagnosticsFallback:
 
         assert excinfo.value.code == 1
 
-        fallback_file = tmp_path / "voice-typer-startup-error.log"
+        fallback_file = tmp_path / "lausu-startup-error.log"
         assert fallback_file.exists(), f"tempfile fallback not written; tmp_path contains: {list(tmp_path.iterdir())}"
 
         # The fallback file must contain the *full* diagnostic payload —
         content = fallback_file.read_text(encoding="utf-8")
-        assert "Voice Typer startup failed at" in content, (
-            "fallback file missing the diagnostic header, got:\n" + content
-        )
+        assert "Lausu startup failed at" in content, "fallback file missing the diagnostic header, got:\n" + content
         assert "Traceback" in content
-        assert "simulated VoiceTyperApp() construction failure" in content
+        assert "simulated LausuApp() construction failure" in content
 
     def test_stderr_fallback_when_tempfile_unwritable(
         self,
@@ -109,10 +107,8 @@ class TestStartupDiagnosticsFallback:
 
         captured = capsys.readouterr()
         stderr_text = captured.err
-        assert "Voice Typer startup failed at" in stderr_text, (
-            "stderr fallback did not fire; stderr was:\n" + stderr_text
-        )
-        assert "simulated VoiceTyperApp() construction failure" in stderr_text
+        assert "Lausu startup failed at" in stderr_text, "stderr fallback did not fire; stderr was:\n" + stderr_text
+        assert "simulated LausuApp() construction failure" in stderr_text
 
         # The tempfile fallback must NOT have been created in this case
         assert not nonexistent_tmp.exists()

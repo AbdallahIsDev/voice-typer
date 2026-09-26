@@ -165,14 +165,14 @@ class TestDiscardIdleFastPath:
         gen_before = r._stop_generation
         user_stop_before = r._user_stop_pending
 
-        from voice_typer.server.recording import _recorder_split
+        from voice_typer.server.recording import recording_lifecycle
 
         full_body_calls: list[int] = []
 
         def _tracking_discard(recorder):
             full_body_calls.append(1)
 
-        monkeypatch.setattr(_recorder_split, "discard_recording", _tracking_discard)
+        monkeypatch.setattr(recording_lifecycle, "discard_recording", _tracking_discard)
 
         r.discard()
 
@@ -200,7 +200,7 @@ class TestDiscardIdleFastPath:
         gen_before = r._stop_generation
 
         # Stub out the heavy parts of discard_recording so it doesn't
-        from voice_typer.server.recording import _recorder_split
+        from voice_typer.server.recording import recording_lifecycle
 
         def _stub_discard(recorder):
             recorder._recording_event.clear()
@@ -208,7 +208,7 @@ class TestDiscardIdleFastPath:
             recorder._stop_generation += 1
             recorder._stream_lifecycle._stream = None
 
-        monkeypatch.setattr(_recorder_split, "discard_recording", _stub_discard)
+        monkeypatch.setattr(recording_lifecycle, "discard_recording", _stub_discard)
 
         r.discard()
 
@@ -236,9 +236,9 @@ class TestDiscardIdleFastPath:
 
         mock_stream.close = _tracking_close
 
-        from voice_typer.server.recording import _recorder_split
+        from voice_typer.server.recording import recording_lifecycle
 
-        monkeypatch.setattr(_recorder_split, "discard_recording", lambda rec: None)
+        monkeypatch.setattr(recording_lifecycle, "discard_recording", lambda rec: None)
 
         r.discard()
 

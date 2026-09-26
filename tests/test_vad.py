@@ -63,7 +63,7 @@ class FakeOrtSession:
         else:
             prob = float(self._prob_seq[-1])
         self._prob_idx += 1
-        # Silero v4 ONNX ``output`` shape is ``(1, 1)`` for a single
+        # Silero ONNX ``output`` shape is ``(1, 1)`` for a single
         out_prob = np.array([[prob]], dtype=np.float32)
         # Return the input state + delta so the next call's input state
         new_state = state_arr + self._state_delta
@@ -99,8 +99,8 @@ class TestSileroVadHandlesNon512SampleChunks:
         # 1136 // 512 = 2 sub-chunks; trailing 112 samples dropped.
         assert len(session.calls) == 2
         for call in session.calls:
-            assert call["input"].shape == (1, 512), (
-                f"Each sub-chunk must be reshaped to (1, 512); got {call['input'].shape}"
+            assert call["input"].shape == (1, 576), (
+                f"Each sub-chunk must be context + window (1, 576); got {call['input'].shape}"
             )
         vad.reset()
 
@@ -117,7 +117,7 @@ class TestSileroVadHandlesNon512SampleChunks:
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
         assert prob == pytest.approx(0.3)
         assert len(session.calls) == 1
-        assert session.calls[0]["input"].shape == (1, 512)
+        assert session.calls[0]["input"].shape == (1, 576)
         vad.reset()
 
     def test_compute_vad_prob_handles_exact_512_chunk(self, monkeypatch):
@@ -133,7 +133,7 @@ class TestSileroVadHandlesNon512SampleChunks:
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
         assert prob == pytest.approx(0.9)
         assert len(session.calls) == 1
-        assert session.calls[0]["input"].shape == (1, 512)
+        assert session.calls[0]["input"].shape == (1, 576)
         vad.reset()
 
 
@@ -154,7 +154,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
 
         assert len(session.calls) == 2, f"Expected 2 sub-chunk calls for 1136 samples, got {len(session.calls)}"
         for call in session.calls:
-            assert call["input"].shape == (1, 512)
+            assert call["input"].shape == (1, 576)
         assert prob == pytest.approx(0.5)
         vad.reset()
 
@@ -188,7 +188,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
 
         assert len(session.calls) == 10, f"Expected 10 sub-chunk calls for 5120 samples, got {len(session.calls)}"
         for call in session.calls:
-            assert call["input"].shape == (1, 512)
+            assert call["input"].shape == (1, 576)
         assert prob == pytest.approx(0.6)
         vad.reset()
 
@@ -206,7 +206,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
 
         assert len(session.calls) == 2, f"Expected 2 sub-chunk calls for 1500 samples, got {len(session.calls)}"
         for call in session.calls:
-            assert call["input"].shape == (1, 512)
+            assert call["input"].shape == (1, 576)
         assert prob == pytest.approx(0.4)
         vad.reset()
 
@@ -226,7 +226,7 @@ class TestHiddenStateThreading:
         vad._load_model()
         assert vad._state is not None
         assert vad._state.shape == (2, 1, 128), (
-            f"Silero v4 LSTM state shape must be (2, 1, 128); got {vad._state.shape}"
+            f"Silero LSTM state shape must be (2, 1, 128); got {vad._state.shape}"
         )
         assert vad._state.dtype == np.float32
         vad.reset()
@@ -325,6 +325,146 @@ class TestHiddenStateThreading:
             "First load must initialize _state to zeros"
         )
         vad.reset()
+
+
+class TestStreamingContext:
+    """Official Silero streaming contract: every ONNX input is a rolling
+    context (64 samples at 16 kHz, 32 at 8 kHz) prepended to the new
+    512/256-sample window, and the context refreshes to the trailing
+    samples of the previous window after every call."""
+
+    def _load(self, monkeypatch, session):
+        import voice_typer.server.vad as vad
+
+        _install_fake_ort(monkeypatch, session)
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path(__file__))
+        vad.reset()
+        return vad
+
+    def test_first_call_feeds_zero_context_plus_window(self, monkeypatch):
+        session = FakeOrtSession(prob_sequence=[0.5])
+        vad = self._load(monkeypatch, session)
+
+        audio = np.full(512, 0.1, dtype=np.float32)
+        vad.compute_vad_prob(audio, sample_rate=16000)
+
+        assert len(session.calls) == 1
+        fed = session.calls[0]["input"]
+        assert fed.shape == (1, 576)
+        assert np.array_equal(fed[0, :64], np.zeros(64, dtype=np.float32)), (
+            "First call must prepend a zero context"
+        )
+        assert np.array_equal(fed[0, 64:], audio)
+        vad.reset()
+
+    def test_context_carries_previous_window_tail(self, monkeypatch):
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5])
+        vad = self._load(monkeypatch, session)
+
+        first = np.full(512, 0.11, dtype=np.float32)
+        second = np.full(512, 0.22, dtype=np.float32)
+        vad.compute_vad_prob(first, sample_rate=16000)
+        vad.compute_vad_prob(second, sample_rate=16000)
+
+        fed = session.calls[1]["input"]
+        assert np.allclose(fed[0, :64], 0.11), (
+            "Context must be the trailing 64 samples of the previous window"
+        )
+        assert np.allclose(fed[0, 64:], 0.22)
+        vad.reset()
+
+    def test_context_threads_across_subchunks(self, monkeypatch):
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5])
+        vad = self._load(monkeypatch, session)
+
+        audio = np.arange(1024, dtype=np.float32) * 1e-4
+        vad.compute_vad_prob(audio, sample_rate=16000)
+
+        assert len(session.calls) == 2
+        tail_of_first = session.calls[0]["input"][0, -64:]
+        context_of_second = session.calls[1]["input"][0, :64]
+        assert np.array_equal(context_of_second, tail_of_first)
+        assert np.array_equal(context_of_second, audio[448:512])
+        vad.reset()
+
+    def test_reset_states_restarts_context(self, monkeypatch):
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5])
+        vad = self._load(monkeypatch, session)
+
+        vad.compute_vad_prob(np.full(512, 0.1, dtype=np.float32), sample_rate=16000)
+        assert vad._context is not None
+
+        vad.reset_states()
+        assert vad._context is None, "reset_states() must clear the rolling context"
+
+        vad.compute_vad_prob(np.full(512, 0.2, dtype=np.float32), sample_rate=16000)
+        fed = session.calls[1]["input"]
+        assert np.array_equal(fed[0, :64], np.zeros(64, dtype=np.float32))
+        vad.reset()
+
+    def test_reset_restarts_context(self, monkeypatch):
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5])
+        vad = self._load(monkeypatch, session)
+
+        vad.compute_vad_prob(np.full(512, 0.1, dtype=np.float32), sample_rate=16000)
+        vad.reset()
+        assert vad._context is None
+
+        # Fake ORT + model path survive reset(); the reload must restart the
+        # context from zeros.
+        vad.compute_vad_prob(np.full(512, 0.2, dtype=np.float32), sample_rate=16000)
+        fed = session.calls[1]["input"]
+        assert fed.shape == (1, 576)
+        assert np.array_equal(fed[0, :64], np.zeros(64, dtype=np.float32))
+        vad.reset()
+
+    def test_8khz_uses_32_sample_context(self, monkeypatch):
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5])
+        vad = self._load(monkeypatch, session)
+
+        first = np.full(256, 0.11, dtype=np.float32)
+        second = np.full(256, 0.22, dtype=np.float32)
+        vad.compute_vad_prob(first, sample_rate=8000)
+        vad.compute_vad_prob(second, sample_rate=8000)
+
+        assert session.calls[0]["input"].shape == (1, 288)
+        fed = session.calls[1]["input"]
+        assert fed.shape == (1, 288)
+        assert np.allclose(fed[0, :32], 0.11)
+        assert np.allclose(fed[0, 32:], 0.22)
+        vad.reset()
+
+    def test_sample_rate_switch_restarts_context_and_state(self, monkeypatch):
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5])
+        vad = self._load(monkeypatch, session)
+
+        vad.compute_vad_prob(np.full(512, 0.1, dtype=np.float32), sample_rate=16000)
+        vad.compute_vad_prob(np.full(256, 0.1, dtype=np.float32), sample_rate=8000)
+
+        fed = session.calls[1]["input"]
+        assert fed.shape == (1, 288)
+        assert np.array_equal(fed[0, :32], np.zeros(32, dtype=np.float32)), (
+            "A sample-rate switch must restart the context at the new size"
+        )
+        assert np.array_equal(
+            session.calls[1]["state"], np.zeros((2, 1, 128), dtype=np.float32)
+        ), "A sample-rate switch must also restart the LSTM state"
+        vad.reset()
+
+    def test_preload_warmup_leaves_clean_context(self, monkeypatch):
+        session = FakeOrtSession(prob_sequence=[0.5, 0.5])
+        vad = self._load(monkeypatch, session)
+
+        assert vad.preload() is True
+        assert vad._context is None, (
+            "preload() must clear the warmup context via reset_states()"
+        )
+
+        vad.compute_vad_prob(np.full(512, 0.1, dtype=np.float32), sample_rate=16000)
+        fed = session.calls[-1]["input"]
+        assert np.array_equal(fed[0, :64], np.zeros(64, dtype=np.float32))
+        vad.reset()
+
 
 
 @pytest.fixture
@@ -679,7 +819,7 @@ class TestPreloadWarmup:
         assert vad.preload() is True
         # Exactly one warmup call.
         assert len(session.calls) == 1
-        assert session.calls[0]["input"].shape == (1, 512)
+        assert session.calls[0]["input"].shape == (1, 576)
         assert np.array_equal(vad._state, np.zeros((2, 1, 128), dtype=np.float32)), (
             "preload() must reset_states() after warmup so the first real audio chunk starts from a clean LSTM state"
         )

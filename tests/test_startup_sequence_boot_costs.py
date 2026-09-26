@@ -14,15 +14,15 @@ _MIC_LIST = "voice_typer.server.server_platform.microphone_list"
 
 @pytest.fixture
 def app_for_boot_costs(tmp_config_dir, monkeypatch):
-    """A real VoiceTyperApp with hardware/GUI deps mocked (mirrors the"""
+    """A real LausuApp with hardware/GUI deps mocked (mirrors the"""
     monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
     monkeypatch.setattr(f"{_MIC_LIST}.list_microphones", lambda: [], raising=False)
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
     instance.models.transcriber = MagicMock()
@@ -72,9 +72,9 @@ class TestSingleVadPreloadSpawn:
 
         threads_before = set(threading.enumerate())
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         app.config.esc_cancel_enabled = False
         app.config.voice_biometric_consent = True
         app.config.bubble_behavior = "hidden"
@@ -102,16 +102,16 @@ class TestSingleVadPreloadSpawn:
         )
 
     def test_app_construction_alone_does_not_spawn_vad_preload(self, tmp_config_dir, monkeypatch):
-        """A bare ``VoiceTyperApp()`` construction (startup sequence not"""
+        """A bare ``LausuApp()`` construction (startup sequence not"""
         from voice_typer.server import vad
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
         calls: list[str] = []
         monkeypatch.setattr(vad, "preload", lambda: calls.append("preload"))
         _stub_platform_helpers(monkeypatch)
 
         threads_before = set(threading.enumerate())
-        app = VoiceTyperApp()
+        app = LausuApp()
         app.config.bubble_behavior = "hidden"
 
         preload_threads = [t for t in threading.enumerate() if t not in threads_before and "vad-preload" in t.name]
@@ -119,7 +119,7 @@ class TestSingleVadPreloadSpawn:
             t.join(timeout=5.0)
 
         assert calls == [], (
-            "VoiceTyperApp construction must not invoke vad.preload(), "
+            "LausuApp construction must not invoke vad.preload(), "
             f"observed {len(calls)} invocation(s) from "
             f"{[t.name for t in preload_threads]}."
         )

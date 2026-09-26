@@ -245,13 +245,13 @@ class TestModuleLevelPushHook:
     """module-level global, not via ``app._ipc_server``."""
 
     def test_show_pushes_event_when_hook_registered(self, bubble):
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
         from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
 
         real_bubble = RealBubble()
 
-        app = MagicMock(spec=VoiceTyperApp)
+        app = MagicMock(spec=LausuApp)
         app._waveform_bubble = real_bubble
         app._thread_registry = MagicMock()
         app.waveform_wiring = WaveformBubbleWiring(app)
@@ -268,12 +268,12 @@ class TestModuleLevelPushHook:
         assert sent[0] == {"type": "bubble_show"}
 
     def test_show_drops_event_when_no_hook_registered(self, bubble):
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
         from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
 
         real_bubble = RealBubble()
-        app = MagicMock(spec=VoiceTyperApp)
+        app = MagicMock(spec=LausuApp)
         app._waveform_bubble = real_bubble
         app._thread_registry = MagicMock()
         app.waveform_wiring = WaveformBubbleWiring(app)
@@ -288,12 +288,12 @@ class TestModuleLevelPushHook:
         real_bubble.hide()  # must not raise
 
     def test_level_pushes_via_hook(self, bubble):
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
         from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
 
         real_bubble = RealBubble()
-        app = MagicMock(spec=VoiceTyperApp)
+        app = MagicMock(spec=LausuApp)
         app._waveform_bubble = real_bubble
         app._thread_registry = MagicMock()
         app.waveform_wiring = WaveformBubbleWiring(app)
@@ -380,7 +380,7 @@ class TestAppMainWiresIpcHook:
                 calls["app_started"] += 1
                 # Don't actually block on the tray event loop
 
-        monkeypatch.setattr(app_module, "VoiceTyperApp", FakeApp)
+        monkeypatch.setattr(app_module, "LausuApp", FakeApp)
 
         class FakeServer:
             # ``event_bus._SubscriberSet`` stores bound-method
@@ -406,7 +406,7 @@ class TestAppMainWiresIpcHook:
 
         # Patch the IPCServer class.  app.main() imports it
         monkeypatch.setattr(ipc_server, "IPCServer", FakeServer)
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", FakeApp)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", FakeApp)
         monkeypatch.setattr("voice_typer.server.sidecar_ws.run", lambda server: 0)
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
         import threading as _threading
@@ -433,7 +433,7 @@ class TestAppMainWiresIpcHook:
                 ipc_server.main()
             assert exc_info.value.code in (0, None)
             assert calls["ipc_started"] == 1, "IPCServer.start was not called by ipc_server.main()"
-            assert calls["app_started"] == 1, "VoiceTyperApp.start was not called"
+            assert calls["app_started"] == 1, "LausuApp.start was not called"
             with event_bus._lock:
                 assert len(event_bus._subscribers) > 0, "ipc_server.main() did not register the IPC push hook"
         finally:

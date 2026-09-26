@@ -56,7 +56,7 @@ def _this_install_command(monkeypatch) -> tuple[str, str]:
 
 
 class TestRunKeyLegacySweep:
-    """``sweep_legacy_autostart_entries`` must remove legacy ``VoiceTyper*``"""
+    """``sweep_legacy_autostart_entries`` must remove legacy ``Lausu*``"""
 
     @staticmethod
     def _make_sweep_inert(monkeypatch):
@@ -67,12 +67,12 @@ class TestRunKeyLegacySweep:
         monkeypatch.setattr(_ast, "_resolve_tauri_binary_for_autostart", lambda: None)
 
     def test_removes_legacy_same_install_runkey(self, tmp_path, monkeypatch, fake_winreg):
-        """A legacy ``VoiceTyper_<oldhash>`` value whose command embeds this"""
+        """A legacy ``Lausu_<oldhash>`` value whose command embeds this"""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         self._make_sweep_inert(monkeypatch)
         _launcher, cmd = _this_install_command(monkeypatch)
-        legacy_name = "VoiceTyper_5a1b2c3d"
+        legacy_name = "Lausu_5a1b2c3d"
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(legacy_name, cmd, fake_winreg.REG_SZ)])
 
         result = sweep_legacy_autostart_entries(tmp_path)
@@ -88,7 +88,7 @@ class TestRunKeyLegacySweep:
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         self._make_sweep_inert(monkeypatch)
-        other_name = "VoiceTyper_99999999"
+        other_name = "Lausu_99999999"
         other_value = (
             '"C:\\OtherInstall\\pythonw.exe" '
             '"C:\\OtherInstall\\voice_typer\\server\\autostart_launcher.py" '
@@ -116,16 +116,16 @@ class TestRunKeyLegacySweep:
         assert result["removed"]["runkeys"] == []
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_preserves_non_voicetyper_and_empty_values(self, tmp_path, monkeypatch, fake_winreg):
-        """Non-``VoiceTyper`` entries and empty/malformed values are never"""
+    def test_preserves_non_lausu_and_empty_values(self, tmp_path, monkeypatch, fake_winreg):
+        """Non-``Lausu`` entries and empty/malformed values are never"""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         self._make_sweep_inert(monkeypatch)
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
             [
                 ("OneDrive", "C:\\Users\\me\\OneDrive.exe", fake_winreg.REG_SZ),
-                ("VoiceTyper_ab12cd34", "", fake_winreg.REG_SZ),
-                ("VoiceTyper_ef56ab78", "not-a-command", fake_winreg.REG_SZ),
+                ("Lausu_ab12cd34", "", fake_winreg.REG_SZ),
+                ("Lausu_ef56ab78", "not-a-command", fake_winreg.REG_SZ),
             ]
         )
 
@@ -141,7 +141,7 @@ class TestRunKeyLegacySweep:
 
         self._make_sweep_inert(monkeypatch)
         _launcher, cmd = _this_install_command(monkeypatch)
-        legacy_name = "VoiceTyper_5a1b2c3d"
+        legacy_name = "Lausu_5a1b2c3d"
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(legacy_name, cmd, fake_winreg.REG_SZ)])
 
         first = sweep_legacy_autostart_entries(tmp_path)
@@ -202,7 +202,7 @@ class TestRunKeyLegacySweep:
 
 
 class TestTaskSweep:
-    """``_sweep_legacy_tasks`` must remove legacy ``VoiceTyperAutostart*``"""
+    """``_sweep_legacy_tasks`` must remove legacy ``LausuAutostart*``"""
 
     def _install_task_fakes(self, monkeypatch, xml_for_task):
         """Stub the platform + scheduler + PowerShell surfaces so the unit"""
@@ -254,15 +254,15 @@ class TestTaskSweep:
         delete_calls = self._install_task_fakes(monkeypatch, _xml_for)
         fake_run = MagicMock()
         fake_run.returncode = 0
-        fake_run.stdout = f"VoiceTyperAutostart_deadbeef\nVoiceTyperAutostart_cafebabe\n{current_name}\n"
+        fake_run.stdout = f"LausuAutostart_deadbeef\nLausuAutostart_cafebabe\n{current_name}\n"
         monkeypatch.setattr("subprocess.run", lambda *a, **k: fake_run)
 
         deleted = _sweep_legacy_tasks()
 
-        assert deleted == ["VoiceTyperAutostart_deadbeef", "VoiceTyperAutostart_cafebabe"]
+        assert deleted == ["LausuAutostart_deadbeef", "LausuAutostart_cafebabe"]
         assert deleted is not None  # type narrowing for pyrefly
         assert current_name not in deleted
-        assert delete_calls == ["VoiceTyperAutostart_deadbeef", "VoiceTyperAutostart_cafebabe"]
+        assert delete_calls == ["LausuAutostart_deadbeef", "LausuAutostart_cafebabe"]
 
     def test_preserves_other_install_tasks(self, monkeypatch):
         """Tasks whose command points at a DIFFERENT install are left alone."""
@@ -275,7 +275,7 @@ class TestTaskSweep:
         delete_calls = self._install_task_fakes(monkeypatch, lambda _name: other_xml)
         fake_run = MagicMock()
         fake_run.returncode = 0
-        fake_run.stdout = "VoiceTyperAutostart_deadbeef\n"
+        fake_run.stdout = "LausuAutostart_deadbeef\n"
         monkeypatch.setattr("subprocess.run", lambda *a, **k: fake_run)
 
         deleted = _sweep_legacy_tasks()
@@ -319,7 +319,7 @@ class TestTaskSweep:
 
 
 class TestStartupBatSweep:
-    """``_sweep_legacy_startup_bats`` must remove legacy ``VoiceTyper*.bat``"""
+    """``_sweep_legacy_startup_bats`` must remove legacy ``Lausu*.bat``"""
 
     def _install_bat_fakes(self, monkeypatch, autostart_dir: Path):
         from voice_typer.server.server_platform import autostart_windows as _awindows
@@ -330,13 +330,13 @@ class TestStartupBatSweep:
         return _awindows
 
     def test_removes_same_install_legacy_bat(self, tmp_path, monkeypatch):
-        """A legacy ``VoiceTyper_<oldhash>.bat`` whose content embeds this"""
+        """A legacy ``Lausu_<oldhash>.bat`` whose content embeds this"""
         from voice_typer.server.server_platform.autostart_windows import _sweep_legacy_startup_bats
 
         _awin = self._install_bat_fakes(monkeypatch, tmp_path)
         launcher = _ast._install_identifier()
 
-        legacy = tmp_path / "VoiceTyper_deadbeef.bat"
+        legacy = tmp_path / "Lausu_deadbeef.bat"
         legacy_cmd = f'start "" /B "{sys.executable}" "{launcher}" --hidden --delay 15'
         legacy.write_text(
             f"@echo off\r\nset VT_START_HIDDEN=1\r\n{legacy_cmd}\r\n",
@@ -347,7 +347,7 @@ class TestStartupBatSweep:
             f'@echo off\r\nset VT_START_HIDDEN=1\r\nstart "" /B "{launcher}" --hidden --delay 15\r\n',
             encoding="utf-8",
         )
-        other = tmp_path / "VoiceTyper_99999999.bat"
+        other = tmp_path / "Lausu_99999999.bat"
         other.write_text(
             '@echo off\r\nset VT_START_HIDDEN=1\r\nstart "" /B "C:\\OtherInstall\\app.exe" --hidden\r\n',
             encoding="utf-8",
@@ -372,7 +372,7 @@ class TestSyncAutostartHook:
 
         def _fake_sweep(config_dir):
             captured["config_dir"] = str(config_dir)
-            return {"swept": True, "removed": {"runkeys": ["VoiceTyper_old"], "tasks": [], "bats": []}}
+            return {"swept": True, "removed": {"runkeys": ["Lausu_old"], "tasks": [], "bats": []}}
 
         monkeypatch.setattr(_pkg, "sweep_legacy_autostart_entries", _fake_sweep)
         monkeypatch.setattr(_ast, "is_autostart_enabled", lambda: True)

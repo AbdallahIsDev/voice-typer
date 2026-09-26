@@ -77,7 +77,7 @@ class TestStaleEntryMigratesOnLogon:
         import voice_typer.server.autostart_launcher as launcher
         from voice_typer.server import startup_tasks
 
-        binary = _fake_binary(tmp_path, "voice-typer-tauri.exe")
+        binary = _fake_binary(tmp_path, "lausu-tauri.exe")
         # Packaged conditions: no usable interpreter, binary resolvable.
         monkeypatch.setattr(autostart_mod, "_prefer_pythonw", lambda p: str(tmp_path / "missing-pythonw.exe"))
         monkeypatch.setattr(autostart_mod, "_probe_system_python", lambda name: None)
@@ -121,7 +121,7 @@ class TestStaleEntryMigratesOnLogon:
             autostart_windows as autostart_windows_mod,
         )
 
-        binary = _fake_binary(tmp_path, "voice-typer-tauri.exe")
+        binary = _fake_binary(tmp_path, "lausu-tauri.exe")
         launcher_py = tmp_path / "autostart_launcher.py"
         launcher_py.write_text("# launcher")
         venv_python = tmp_path / "pythonw.exe"
@@ -167,7 +167,7 @@ class TestLauncherLogonHiddenSpawn:
     def test_hidden_env_and_result_success_line(self, _launcher_noops, _no_backend_pid, monkeypatch, tmp_path, caplog):
         import voice_typer.server.autostart_launcher as launcher
 
-        binary = _fake_binary(tmp_path, "voice-typer-tauri")
+        binary = _fake_binary(tmp_path, "lausu-tauri")
         monkeypatch.setattr(launcher, "_is_tauri_mode", lambda: True)
         monkeypatch.setattr(launcher, "_tauri_binary", lambda: str(binary))
         monkeypatch.setattr(launcher, "verify_tauri_binary_or_skip", lambda path: True)
@@ -239,16 +239,16 @@ class TestManifestGateEndToEnd:
     def test_empty_hash_refuses(self, monkeypatch, tmp_path):
         from voice_typer.server.autostart_launcher import verify_tauri_binary_or_skip
 
-        binary = _fake_binary(tmp_path, "voice-typer-tauri")
-        monkeypatch.setenv("VT_TAURI_MANIFEST", self._manifest(tmp_path, "voice-typer-tauri", ""))
+        binary = _fake_binary(tmp_path, "lausu-tauri")
+        monkeypatch.setenv("VT_TAURI_MANIFEST", self._manifest(tmp_path, "lausu-tauri", ""))
         assert verify_tauri_binary_or_skip(binary) is False
 
     def test_populated_hash_passes(self, monkeypatch, tmp_path):
         from voice_typer.server.autostart_launcher import verify_tauri_binary_or_skip
 
-        binary = _fake_binary(tmp_path, "voice-typer-tauri")
+        binary = _fake_binary(tmp_path, "lausu-tauri")
         sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-        monkeypatch.setenv("VT_TAURI_MANIFEST", self._manifest(tmp_path, "voice-typer-tauri", sha))
+        monkeypatch.setenv("VT_TAURI_MANIFEST", self._manifest(tmp_path, "lausu-tauri", sha))
         assert verify_tauri_binary_or_skip(binary) is True
 
 

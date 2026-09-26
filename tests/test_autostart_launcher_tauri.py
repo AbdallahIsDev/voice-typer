@@ -41,7 +41,7 @@ class TestTauriBinaryLookup:
 
     def test_returns_path_from_env_override(self, monkeypatch, tmp_path):
         """``VT_TAURI_BINARY`` env var short-circuits the install-path scan."""
-        fake_bin = tmp_path / "voice-typer-tauri"
+        fake_bin = tmp_path / "lausu-tauri"
         fake_bin.write_text("#!/bin/sh\nexit 0\n")
         fake_bin.chmod(0o755)
         monkeypatch.setenv("VT_TAURI_BINARY", str(fake_bin))
@@ -59,10 +59,10 @@ class TestTauriBinaryLookup:
 
     @pytest.mark.skipif(
         sys.platform != "linux",
-        reason="Linux-only: verifies the /usr/bin/voice-typer-tauri install-path scan (POSIX-specific)",
+        reason="Linux-only: verifies the /usr/bin/lausu-tauri install-path scan (POSIX-specific)",
     )
     def test_returns_path_from_install_paths_linux(self, monkeypatch, tmp_path):
-        """On Linux, the binary at ``/usr/bin/voice-typer-tauri`` is found"""
+        """On Linux, the binary at ``/usr/bin/lausu-tauri`` is found"""
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -71,7 +71,7 @@ class TestTauriBinaryLookup:
         real_is_file = Path.is_file
 
         def patched_is_file(self):
-            if str(self) == "/usr/bin/voice-typer-tauri":
+            if str(self) == "/usr/bin/lausu-tauri":
                 return True
             return real_is_file(self)
 
@@ -79,7 +79,7 @@ class TestTauriBinaryLookup:
         monkeypatch.setattr(os, "access", lambda p, m: True)
 
         result = _tauri_binary()
-        assert result == "/usr/bin/voice-typer-tauri"
+        assert result == "/usr/bin/lausu-tauri"
 
     @pytest.mark.skipif(
         sys.platform == "win32",
@@ -87,7 +87,7 @@ class TestTauriBinaryLookup:
     )
     def test_skips_non_executable_posix_candidate(self, monkeypatch, tmp_path):
         """On POSIX, a non-executable file at an install path is skipped"""
-        stale = tmp_path / "stale-voice-typer-tauri"
+        stale = tmp_path / "stale-lausu-tauri"
         stale.write_text("not executable")
         stale.chmod(0o644)  # no execute bit
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
@@ -97,11 +97,11 @@ class TestTauriBinaryLookup:
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-        # Pretend /usr/bin/voice-typer-tauri exists but is not executable.
+        # Pretend /usr/bin/lausu-tauri exists but is not executable.
         real_is_file = Path.is_file
 
         def patched_is_file(self):
-            if str(self) == "/usr/bin/voice-typer-tauri":
+            if str(self) == "/usr/bin/lausu-tauri":
                 return True
             return real_is_file(self)
 
@@ -137,7 +137,7 @@ class TestIsTauriMode:
         monkeypatch.setattr(sys, "executable", "C:/Python/python.exe")
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
         assert _is_tauri_mode() is True
 
@@ -145,7 +145,7 @@ class TestIsTauriMode:
         """When sys.executable is the Tauri host binary, mode is ON."""
         monkeypatch.delenv("VT_TAURI_AUTOSTART", raising=False)
         monkeypatch.delenv("VOICE_TYPER_TAURI", raising=False)
-        monkeypatch.setattr(sys, "executable", "/opt/VoiceTyper/voice-typer-tauri")
+        monkeypatch.setattr(sys, "executable", "/opt/Lausu/lausu-tauri")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: None)
         assert _is_tauri_mode() is True
 
@@ -165,9 +165,9 @@ class TestLaunchTauriApp:
             return proc
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        result = _launch_tauri_app("/fake/voice-typer-tauri", hidden=True)
+        result = _launch_tauri_app("/fake/lausu-tauri", hidden=True)
         assert result is not None
-        assert captured["cmd"] == ["/fake/voice-typer-tauri"]
+        assert captured["cmd"] == ["/fake/lausu-tauri"]
         assert captured["env"].get("VT_START_HIDDEN") == "1"
 
     def test_spawns_tauri_binary_without_hidden_env(self, monkeypatch):
@@ -182,7 +182,7 @@ class TestLaunchTauriApp:
             return proc
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        result = _launch_tauri_app("/fake/voice-typer-tauri", hidden=False)
+        result = _launch_tauri_app("/fake/lausu-tauri", hidden=False)
         assert result is not None
         assert captured["env"].get("VT_START_HIDDEN") is None
 
@@ -193,7 +193,7 @@ class TestLaunchTauriApp:
             raise FileNotFoundError("binary not found")
 
         monkeypatch.setattr(subprocess, "Popen", boom)
-        result = _launch_tauri_app("/fake/voice-typer-tauri", hidden=False)
+        result = _launch_tauri_app("/fake/lausu-tauri", hidden=False)
         assert result is None
 
 
@@ -205,7 +205,7 @@ class TestFocusRunningAppTauriPath:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
         captured = {}
 
@@ -218,7 +218,7 @@ class TestFocusRunningAppTauriPath:
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
         assert _focus_running_app() is True
-        assert captured["cmd"] == ["/usr/bin/voice-typer-tauri"]
+        assert captured["cmd"] == ["/usr/bin/lausu-tauri"]
         assert captured["env"].get("VT_FOCUS_ONLY") == "1"
 
     def test_returns_false_when_tauri_mode_but_no_binary(self, monkeypatch):
@@ -232,7 +232,7 @@ class TestFocusRunningAppTauriPath:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
 
         def boom(cmd, env=None, **kwargs):
@@ -256,7 +256,7 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
         monkeypatch.setattr("voice_typer.server.autostart_launcher._setup_logging", lambda: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._write_pid_file", lambda lp, cp: None)
@@ -284,7 +284,7 @@ class TestLaunchTauriFreshStart:
 
         ret = launch()
         assert ret == 0
-        assert captured["cmd"] == ["/usr/bin/voice-typer-tauri"]
+        assert captured["cmd"] == ["/usr/bin/lausu-tauri"]
         assert captured["env"].get("VT_START_HIDDEN") == "1"
 
     def test_tauri_mode_exits_one_when_spawn_fails(self, monkeypatch):
@@ -296,7 +296,7 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
         monkeypatch.setattr("voice_typer.server.autostart_launcher._setup_logging", lambda: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._write_pid_file", lambda lp, cp: None)

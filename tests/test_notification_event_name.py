@@ -78,7 +78,7 @@ class TestShowNotificationEventName:
         ):
             server._handle_show_notification({}, resp)
         assert captured["type"] == "notification"
-        assert captured["data"]["title"] == "Voice Typer"
+        assert captured["data"]["title"] == "Lausu"
         assert captured["data"]["message"] == ""
         assert captured["data"]["duration_ms"] == 0
         assert captured["data"]["critical"] is False
@@ -88,7 +88,7 @@ class TestStartupSequenceCrashNotificationEventName:
     """the crash-recovery startup branch publishes ``notification``."""
 
     def _make_app_with_crash_summary(self, crash_summary: str):
-        """Build a mock VoiceTyperApp sufficient for ``StartupSequence.run``"""
+        """Build a mock LausuApp sufficient for ``StartupSequence.run``"""
         app = MagicMock()
         app._shutting_down = True  # abort run() right after the crash branch
         mock_event = MagicMock()

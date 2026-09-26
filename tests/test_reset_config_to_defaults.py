@@ -1,4 +1,4 @@
-"""G4-L-25 regression guard: ``VoiceTyperService.reset_config_to_defaults``."""
+"""G4-L-25 regression guard: ``LausuService.reset_config_to_defaults``."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ import pytest
 
 
 def _build_service(tmp_path: Path):
-    """Build a real VoiceTyperService backed by a tmp config dir."""
+    """Build a real LausuService backed by a tmp config dir."""
     from voice_typer.server import config as cfg_mod
     from voice_typer.server.config import Config
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
     app = MagicMock()
     cfg = Config()
@@ -22,7 +22,7 @@ def _build_service(tmp_path: Path):
     # Real lock, MagicMock would silently accept the `with` statement
     app._config_mutation_lock = threading.Lock()
     app.tray.notify = MagicMock()
-    svc = VoiceTyperService(app)
+    svc = LausuService(app)
 
     import pytest as _pt
 
@@ -32,11 +32,11 @@ def _build_service(tmp_path: Path):
 
 
 def test_reset_config_to_defaults_method_exists() -> None:
-    """``VoiceTyperService.reset_config_to_defaults`` must exist."""
-    from voice_typer.server.service import VoiceTyperService
+    """``LausuService.reset_config_to_defaults`` must exist."""
+    from voice_typer.server.service import LausuService
 
-    assert hasattr(VoiceTyperService, "reset_config_to_defaults"), (
-        "VoiceTyperService must define reset_config_to_defaults: see G4-L-25."
+    assert hasattr(LausuService, "reset_config_to_defaults"), (
+        "LausuService must define reset_config_to_defaults: see G4-L-25."
     )
 
 
@@ -182,13 +182,13 @@ def test_reset_config_to_defaults_does_not_touch_vocabulary_or_templates(tmp_pat
             pytest.skip("G4-L-25 not yet landed")
         (tmp_path / "vocabulary.json").write_text(json.dumps({"custom": ["my-secret-term"]}))
         (tmp_path / "templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
-        (tmp_path / "voice-typer-corrections.json").write_text(json.dumps({"recieve": "receive"}))
+        (tmp_path / "lausu-corrections.json").write_text(json.dumps({"recieve": "receive"}))
 
         svc.reset_config_to_defaults()
 
         assert (tmp_path / "vocabulary.json").exists()
         assert (tmp_path / "templates.json").exists()
-        assert (tmp_path / "voice-typer-corrections.json").exists()
+        assert (tmp_path / "lausu-corrections.json").exists()
         vocab = json.loads((tmp_path / "vocabulary.json").read_text())
         assert vocab["custom"] == ["my-secret-term"]
     finally:

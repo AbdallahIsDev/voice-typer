@@ -240,7 +240,7 @@ class TestMicrophoneFallbackWording:
     """System Default resolution is not a failure; genuine fallbacks name it."""
 
     def test_system_default_resolution_logs_debug_not_failure(self, caplog):
-        from voice_typer.server.recording._recorder_split import start_recording
+        from voice_typer.server.recording.recording_lifecycle import start_recording
 
         recorder = _build_mock_recorder(device=None)
         recorder._devices._resolve_device.return_value = None
@@ -259,7 +259,7 @@ class TestMicrophoneFallbackWording:
         )
 
     def test_system_default_genuine_fallback_names_default(self, caplog):
-        from voice_typer.server.recording._recorder_split import start_recording
+        from voice_typer.server.recording.recording_lifecycle import start_recording
 
         recorder = _build_mock_recorder(device=None, open_success=False)
         recorder._devices._resolve_device.return_value = None
@@ -285,7 +285,7 @@ class TestMicrophoneFallbackWording:
         assert "[None]" not in infos[0].getMessage()
 
     def test_concrete_fallback_keeps_saved_selection_notice(self, caplog):
-        from voice_typer.server.recording._recorder_split import start_recording
+        from voice_typer.server.recording.recording_lifecycle import start_recording
 
         recorder = _build_mock_recorder(device=5)
         recorder._devices._resolve_device.return_value = 5

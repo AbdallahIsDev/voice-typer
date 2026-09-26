@@ -517,14 +517,14 @@ class TestEndToEndAppToIpc:
     def test_dictation_to_service_snapshot(self, tmp_path: Path, empty_bundled: Path):
         from types import SimpleNamespace
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
         from voice_typer.server.service.vocabulary import VocabularyMixin
 
         vm = VocabularyManager(config_dir=tmp_path, bundled_path=empty_bundled)
         vm.add_entry("misspellings", "recieve", "receive")
 
-        # Build an app WITHOUT running ``VoiceTyperApp.__init__`` (it
-        app = object.__new__(VoiceTyperApp)
+        # Build an app WITHOUT running ``LausuApp.__init__`` (it
+        app = object.__new__(LausuApp)
         app._vocabulary_manager_backing = vm
         app.config = SimpleNamespace(config_dir=tmp_path)
 

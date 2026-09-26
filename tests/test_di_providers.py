@@ -13,7 +13,7 @@ from voice_typer.server.providers import (  # noqa: E402
     ServiceProtocol,
     build_ipc_server,
 )
-from voice_typer.server.service import VoiceTyperService  # noqa: E402
+from voice_typer.server.service import LausuService  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _HANDLERS_DIR = _REPO_ROOT / "voice_typer" / "server" / "handlers"
@@ -105,7 +105,7 @@ class TestDIInjection:
     """Verify ``IPCServer(app, service=fake)`` DI mode."""
 
     def test_ipc_server_accepts_injected_service(self):
-        """``service=<fake>`` is stored verbatim; no VoiceTyperService constructed."""
+        """``service=<fake>`` is stored verbatim; no LausuService constructed."""
         from tests.fixtures.ipc_test_helpers import (
             make_fake_app,
             make_fake_service,
@@ -119,8 +119,8 @@ class TestDIInjection:
         assert server.service is fake_service
         assert server.app is fake_app
         # Type check: confirms the DI seam is in effect.
-        assert not isinstance(server.service, VoiceTyperService), (
-            "DI mode must NOT construct a real VoiceTyperService, "
+        assert not isinstance(server.service, LausuService), (
+            "DI mode must NOT construct a real LausuService, "
             "the whole point is to substitute a fake for the service "
             "layer so the IPC dispatch path can be tested in isolation."
         )
@@ -151,16 +151,16 @@ class TestBackwardCompat:
     """Verify ``IPCServer(app)`` (no service) still constructs a real service."""
 
     def test_ipc_server_backward_compat_constructs_service_from_app(self):
-        """``IPCServer(app)`` must construct a real ``VoiceTyperService``."""
+        """``IPCServer(app)`` must construct a real ``LausuService``."""
         from tests.fixtures.ipc_test_helpers import make_fake_app
 
         fake_app = make_fake_app()
         server = IPCServer(fake_app)
 
-        # The server must have constructed a real VoiceTyperService
-        assert isinstance(server.service, VoiceTyperService), (
+        # The server must have constructed a real LausuService
+        assert isinstance(server.service, LausuService), (
             "IPCServer(app) without `service=` must construct a real "
-            "VoiceTyperService over `app`, this is the backward-compat "
+            "LausuService over `app`, this is the backward-compat "
             "path that all existing call sites depend on."
         )
         # And the service must have been wired to the same app.
@@ -185,7 +185,7 @@ class TestBackwardCompat:
         app._shutting_down = False
         server = IPCServer(app)
         # Just confirm construction succeeds and the service is real.
-        assert isinstance(server.service, VoiceTyperService)
+        assert isinstance(server.service, LausuService)
         # And dispatching a simple command doesn't crash.
         app.tray.state.value = "idle"
         result = server._dispatch({"type": "get_status"})
@@ -343,8 +343,8 @@ class TestBuildIPCServer:
         assert isinstance(server, IPCServer)
         # Must have wired the app.
         assert server.app is fake_app
-        # Must have constructed a real VoiceTyperService (the factory
-        assert isinstance(server.service, VoiceTyperService)
+        # Must have constructed a real LausuService (the factory
+        assert isinstance(server.service, LausuService)
         # The server must be dispatch-ready: a basic get_status call
         fake_app.tray.state.value = "idle"
         result = server._dispatch({"id": 42, "type": "get_status"})
@@ -417,13 +417,13 @@ class TestProtocolStructuralCompat:
         )
 
     def test_real_voice_typer_service_satisfies_service_protocol(self):
-        """The real ``VoiceTyperService`` must structurally satisfy ``ServiceProtocol``."""
+        """The real ``LausuService`` must structurally satisfy ``ServiceProtocol``."""
         from tests.fixtures.ipc_test_helpers import make_fake_app
 
         fake_app = make_fake_app()
-        real_service = VoiceTyperService(fake_app)
+        real_service = LausuService(fake_app)
         assert isinstance(real_service, ServiceProtocol), (
-            "VoiceTyperService must structurally satisfy "
+            "LausuService must structurally satisfy "
             "ServiceProtocol, if not, the protocol has drifted "
             "from the implementation."
         )

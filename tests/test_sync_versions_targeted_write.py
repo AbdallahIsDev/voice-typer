@@ -13,7 +13,7 @@ SYNC_VERSIONS_SCRIPT = PROJECT_ROOT / "scripts" / "build" / "sync_versions.py"
 
 _TAB_PACKAGE_JSON = (
     "{\n"
-    '\t"name": "voice-typer-desktop",\n'
+    '\t"name": "lausu-desktop",\n'
     '\t"version": "1.0.0",\n'
     '\t"private": true,\n'
     '\t"engines": {\n'
@@ -57,12 +57,12 @@ class TestWritePackageJsonVersion:
 
         data = json.loads(path.read_text(encoding="utf-8"))
         assert data["version"] == "2.0.0"
-        assert data["name"] == "voice-typer-desktop"
+        assert data["name"] == "lausu-desktop"
         assert data["engines"] == {"node": ">=24"}
         # The read side must observe the new value too.
         assert sync_versions.read_package_json_version() == "2.0.0"
         raw = path.read_text(encoding="utf-8")
-        assert '\t"name": "voice-typer-desktop",' in raw  # tabs preserved
+        assert '\t"name": "lausu-desktop",' in raw  # tabs preserved
         assert '\t\t"node": ">=24"' in raw  # nested tabs preserved
         assert '  "name"' not in raw  # no space-indentation churn
         assert '\t"version": "2.0.0",' in raw  # targeted line rewritten
@@ -93,7 +93,7 @@ class TestWritePackageJsonVersion:
         self, sync_versions, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ):
         """No top-level ``version`` key → no injection (mirrors the other"""
-        text = '{\n\t"name": "voice-typer-desktop"\n}\n'
+        text = '{\n\t"name": "lausu-desktop"\n}\n'
         path = _write_package(sync_versions, monkeypatch, tmp_path, text)
         before = path.read_bytes()
 

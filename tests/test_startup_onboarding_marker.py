@@ -24,9 +24,9 @@ def app_for_onboarding(tmp_path, monkeypatch):
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
     # Force the onboarding branch to execute.

@@ -1437,7 +1437,7 @@ class TestRec8BufferOpsLocked:
         import inspect
 
         from voice_typer.server.recording import Recorder
-        from voice_typer.server.recording._recorder_split import (
+        from voice_typer.server.recording.recording_lifecycle import (
             discard_recording,
             start_recording,
         )
@@ -1447,7 +1447,7 @@ class TestRec8BufferOpsLocked:
         assert "with recorder._audio_pipeline._lock:" in discard_src, (
             "discard_recording does not acquire recorder._audio_pipeline._lock for buffer ops"
         )
-        assert "recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(" in discard_src, (
+        assert "recorder._audio_pipeline._buffer = recording_buffer._fresh_recording_buffer_like(" in discard_src, (
             "discard_recording does not swap in a fresh recording buffer"
         )
         assert "_secure_clear_array_background(_old_buffer)" in discard_src, (
@@ -1464,18 +1464,18 @@ class TestRec8BufferOpsLocked:
     def test_buffer_rebind_under_lock(self):
         import inspect
 
-        from voice_typer.server.recording._recorder_split import (
+        from voice_typer.server.recording.recording_lifecycle import (
             discard_recording,
             stop_recording,
         )
 
-        # The buffer swap (``recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(...)``)
+        # The buffer swap (``recorder._audio_pipeline._buffer = recording_buffer._fresh_recording_buffer_like(...)``)
         for fn in (discard_recording, stop_recording):
             src = inspect.getsource(fn)
             assert "with recorder._audio_pipeline._lock:" in src, (
                 f"{fn.__name__} does not acquire recorder._audio_pipeline._lock for buffer rebind"
             )
-            assert "recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(" in src, (
+            assert "recorder._audio_pipeline._buffer = recording_buffer._fresh_recording_buffer_like(" in src, (
                 f"{fn.__name__} does not swap in a fresh recording buffer"
             )
 

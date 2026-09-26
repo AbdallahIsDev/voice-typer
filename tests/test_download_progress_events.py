@@ -4,16 +4,16 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.service import VoiceTyperService
+from voice_typer.server.service import LausuService
 
 
 @pytest.fixture
 def service():
-    """Build a VoiceTyperService with a mock app."""
+    """Build a LausuService with a mock app."""
     app = MagicMock()
     app.config.qwen_model_path = None
     app.tray.notify = MagicMock()
-    return VoiceTyperService(app)
+    return LausuService(app)
 
 
 @pytest.fixture

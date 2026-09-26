@@ -74,10 +74,10 @@ class TestStaleEntryCleanupParsing:
             _run_key_name,
         )
 
-        other_name = "VoiceTyper_aaaaaaaa"
-        other_value = r'"C:\Program Files\VoiceTyper\app.exe" --delay 15'
+        other_name = "Lausu_aaaaaaaa"
+        other_value = r'"C:\Program Files\Lausu\app.exe" --delay 15'
         # The exe file actually exists on disk (the other install is live).
-        _make_path_existing(monkeypatch, {r"C:\Program Files\VoiceTyper\app.exe"})
+        _make_path_existing(monkeypatch, {r"C:\Program Files\Lausu\app.exe"})
 
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(other_name, other_value, fake_winreg.REG_SZ)])
 
@@ -102,8 +102,8 @@ class TestStaleEntryCleanupParsing:
             _register_app_autostart_runkey,
         )
 
-        stale_name = "VoiceTyper_deadbeef"
-        stale_value = r'"C:\Program Files\OldVoiceTyper\app.exe" --delay 15'
+        stale_name = "Lausu_deadbeef"
+        stale_value = r'"C:\Program Files\OldLausu\app.exe" --delay 15'
         # The exe file does NOT exist (the install was uninstalled).
         _make_path_existing(monkeypatch, set())
 
@@ -134,11 +134,11 @@ class TestStaleEntryCleanupParsing:
             _register_app_autostart_runkey,
         )
 
-        live_name = "VoiceTyper_aaaaaaaa"
+        live_name = "Lausu_aaaaaaaa"
         # UNQUOTED spaced path, the  regression trigger.
-        live_value = r"C:\Program Files\VoiceTyper\app.exe --delay 15"
+        live_value = r"C:\Program Files\Lausu\app.exe --delay 15"
         # The FULL exe path exists on disk.
-        _make_path_existing(monkeypatch, {r"C:\Program Files\VoiceTyper\app.exe"})
+        _make_path_existing(monkeypatch, {r"C:\Program Files\Lausu\app.exe"})
 
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(live_name, live_value, fake_winreg.REG_SZ)])
 
@@ -159,10 +159,10 @@ class TestStaleEntryCleanupParsing:
             _register_app_autostart_runkey,
         )
 
-        stale_name = "VoiceTyper_deadbeef"
-        stale_value = r'"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe" --hidden --delay 15'
+        stale_name = "Lausu_deadbeef"
+        stale_value = r'"C:\\Users\\11\\.lausu\\venv\\Scripts\\pythonw.exe" --hidden --delay 15'
         # The real ``Path.exists()`` collapses the doubled separators,
-        _make_path_existing(monkeypatch, {r"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe"})
+        _make_path_existing(monkeypatch, {r"C:\\Users\\11\\.lausu\\venv\\Scripts\\pythonw.exe"})
 
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(stale_name, stale_value, fake_winreg.REG_SZ)])
 
@@ -186,8 +186,8 @@ class TestStaleEntryCleanupParsing:
         )
 
         # An unquoted spaced path whose first token ('C:\\Program')
-        maybe_stale_name = "VoiceTyper_deadbeef"
-        maybe_stale_value = r"C:\Program Files\OldVoiceTyper\app.exe --delay 15"
+        maybe_stale_name = "Lausu_deadbeef"
+        maybe_stale_value = r"C:\Program Files\OldLausu\app.exe --delay 15"
         _make_path_existing(monkeypatch, set())  # nothing exists
 
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
@@ -211,7 +211,7 @@ class TestStaleEntryCleanupParsing:
             _register_app_autostart_runkey,
         )
 
-        stale_name = "VoiceTyper_deadbeef"
+        stale_name = "Lausu_deadbeef"
         # Single token, no spaces, the parse is unambiguous.
         stale_value = r"C:\nonexistent_path\app.exe"
         _make_path_existing(monkeypatch, set())
@@ -236,7 +236,7 @@ class TestStaleEntryCleanupParsing:
             _register_app_autostart_runkey,
         )
 
-        live_name = "VoiceTyper_aaaaaaaa"
+        live_name = "Lausu_aaaaaaaa"
         live_value = r"C:\live\app.exe"
         _make_path_existing(monkeypatch, {r"C:\live\app.exe"})
 
@@ -252,13 +252,13 @@ class TestStaleEntryCleanupParsing:
         assert result is True
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_non_voicetyper_entries_not_touched(self, monkeypatch, fake_winreg, win32_platform):
-        """Non-VoiceTyper entries (e.g. ``OneDrive``, ``Discord``) must"""
+    def test_non_lausu_entries_not_touched(self, monkeypatch, fake_winreg, win32_platform):
+        """Non-Lausu entries (e.g. ``OneDrive``, ``Discord``) must"""
         from voice_typer.server.server_platform import (
             _register_app_autostart_runkey,
         )
 
-        # A non-VoiceTyper entry with a clearly-non-existent path.
+        # A non-Lausu entry with a clearly-non-existent path.
         onedrive_name = "OneDrive"
         onedrive_value = r"C:\Program Files\OneDrive\OneDrive.exe /background"
         _make_path_existing(monkeypatch, set())  # nothing exists
@@ -309,7 +309,7 @@ class TestStaleEntryCleanupParsing:
             _register_app_autostart_runkey,
         )
 
-        malformed_name = "VoiceTyper_zzzzzzzz"
+        malformed_name = "Lausu_zzzzzzzz"
         malformed_value = ""  # empty string
         _make_path_existing(monkeypatch, set())
 
@@ -334,20 +334,20 @@ class TestStaleEntryCleanupParsing:
         )
 
         # Live dev install. UNQUOTED spaced path, exe EXISTS.
-        live_dev_name = "VoiceTyper_aaaaaaaa"
-        live_dev_value = r"C:\Program Files\VoiceTyperDev\app.exe --delay 15"
+        live_dev_name = "Lausu_aaaaaaaa"
+        live_dev_value = r"C:\Program Files\LausuDev\app.exe --delay 15"
         # Live stable install. QUOTED spaced path, exe EXISTS.
-        live_stable_name = "VoiceTyper_bbbbbbbb"
-        live_stable_value = r'"C:\Program Files\VoiceTyper\app.exe" --delay 15'
+        live_stable_name = "Lausu_bbbbbbbb"
+        live_stable_value = r'"C:\Program Files\Lausu\app.exe" --delay 15'
         # Stale install. QUOTED spaced path, exe does NOT exist.
-        stale_name = "VoiceTyper_deadbeef"
-        stale_value = r'"C:\Program Files\OldVoiceTyper\app.exe" --delay 15'
+        stale_name = "Lausu_deadbeef"
+        stale_value = r'"C:\Program Files\OldLausu\app.exe" --delay 15'
 
         _make_path_existing(
             monkeypatch,
             {
-                r"C:\Program Files\VoiceTyperDev\app.exe",
-                r"C:\Program Files\VoiceTyper\app.exe",
+                r"C:\Program Files\LausuDev\app.exe",
+                r"C:\Program Files\Lausu\app.exe",
             },
         )
 
@@ -380,9 +380,9 @@ class TestShlexParsingLogic:
         "value, expected_exe_token, expected_exe_after_strip_quotes",
         [
             (
-                r'"C:\Program Files\VoiceTyper\app.exe" --delay 15',
-                r'"C:\Program Files\VoiceTyper\app.exe"',
-                r"C:\Program Files\VoiceTyper\app.exe",
+                r'"C:\Program Files\Lausu\app.exe" --delay 15',
+                r'"C:\Program Files\Lausu\app.exe"',
+                r"C:\Program Files\Lausu\app.exe",
             ),
             # Quoted path with no args
             (r'"C:\app.exe"', r'"C:\app.exe"', r"C:\app.exe"),
@@ -392,7 +392,7 @@ class TestShlexParsingLogic:
             (r"C:\app.exe --delay 15", r"C:\app.exe", r"C:\app.exe"),
             # Network-style path
             (r"\\server\share\app.exe --delay 15", r"\\server\share\app.exe", r"\\server\share\app.exe"),
-            (r"C:\Program Files\VoiceTyper\app.exe --delay 15", r"C:\Program", r"C:\Program"),
+            (r"C:\Program Files\Lausu\app.exe --delay 15", r"C:\Program", r"C:\Program"),
         ],
     )
     def test_shlex_split_extracts_exe_token(self, value, expected_exe_token, expected_exe_after_strip_quotes):

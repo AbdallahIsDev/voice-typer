@@ -1011,7 +1011,7 @@ class TestUpdateAvailableBodyLocalized:
 
         assert "disponible" in _TRAY_LABELS_ES["update_available_body"]
         set_tray_locale("es")
-        body = _("update_available_body").format(app="Voice Typer", version="2.0.0", current="1.0.0")
+        body = _("update_available_body").format(app="Lausu", version="2.0.0", current="1.0.0")
         assert "disponible" in body
         assert "2.0.0" in body
         set_tray_locale("en")
@@ -1020,8 +1020,8 @@ class TestUpdateAvailableBodyLocalized:
         """Translators can reorder placeholders for grammar (e.g. JA-style)."""
         # The template uses str.format() so {app}, {version}, {current}
         template = "{version} of {app} is available (current: {current})"
-        body = template.format(app="Voice Typer", version="2.0.0", current="1.0.0")
-        assert body == "2.0.0 of Voice Typer is available (current: 1.0.0)"
+        body = template.format(app="Lausu", version="2.0.0", current="1.0.0")
+        assert body == "2.0.0 of Lausu is available (current: 1.0.0)"
 
 
 # --- VT-1: run() must degrade gracefully when the tray event loop

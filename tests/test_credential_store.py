@@ -1050,15 +1050,15 @@ class TestAlreadyFixedVerifications:
 
     def test_xz_sec_08_service_name_is_reverse_dns(self):
         """``KEYRING_SERVICE_NAME`` must be the canonical"""
-        assert credential_store.KEYRING_SERVICE_NAME == "com.voicetyper.keyring", (
+        assert credential_store.KEYRING_SERVICE_NAME == "com.Lausu.keyring", (
             "regression: KEYRING_SERVICE_NAME no longer uses the canonical "
-            "com.voicetyper.* reverse-DNS root, another app registering "
-            "the same service name could read Voice Typer secrets, and "
+            "com.Lausu.* reverse-DNS root, another app registering "
+            "the same service name could read Lausu secrets, and "
             "the product-namespace drift guard "
             "(tests/test_product_namespace_consistency.py) would fail."
         )
         # Legacy names must include the bare form so one-time migration
-        assert "voice-typer" in credential_store._LEGACY_KEYRING_SERVICE_NAMES
+        assert "lausu" in credential_store._LEGACY_KEYRING_SERVICE_NAMES
 
 
 class TestLegacyServiceNameCutover:

@@ -48,9 +48,9 @@ class TestDeleteModelRouteRemovesFiles:
     """delete_model IPC route exists."""
 
     def test_service_has_delete_model(self):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        assert hasattr(VoiceTyperService, "delete_model")
+        assert hasattr(LausuService, "delete_model")
 
     def test_ipc_has_delete_model_route(self):
         from voice_typer.server.ipc_server import IPCServer

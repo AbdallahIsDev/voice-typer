@@ -131,7 +131,7 @@ def win32_platform(monkeypatch, fake_winreg):
 
 
 class TestUnregisterAllTasksCreateNoWindow:
-    """``_unregister_all_voicetyper_tasks`` passes"""
+    """``_unregister_all_lausu_tasks`` passes"""
 
     def test_powershell_call_includes_create_no_window(self, monkeypatch, fake_winreg, win32_platform):
         """The PowerShell subprocess.run call MUST pass"""
@@ -155,20 +155,20 @@ class TestUnregisterAllTasksCreateNoWindow:
             captured["cmd"] = list(cmd)
             r = MagicMock()
             r.returncode = 0
-            r.stdout = "VoiceTyperAutostart_aaaaaaaa\ncom.voicetyper.prewarm\ncom.voicetyper.autostart_bbbbbbbb\n"
+            r.stdout = "LausuAutostart_aaaaaaaa\ncom.Lausu.prewarm\ncom.Lausu.autostart_bbbbbbbb\n"
             r.stderr = ""
             return r
 
         monkeypatch.setattr(subprocess, "run", fake_run)
 
-        deleted = autostart_windows._unregister_all_voicetyper_tasks()
+        deleted = autostart_windows._unregister_all_lausu_tasks()
         assert sorted(deleted) == [
-            "VoiceTyperAutostart_aaaaaaaa",
-            "com.voicetyper.autostart_bbbbbbbb",
-            "com.voicetyper.prewarm",
+            "LausuAutostart_aaaaaaaa",
+            "com.Lausu.autostart_bbbbbbbb",
+            "com.Lausu.prewarm",
         ], f"expected the stubbed task names in the deleted list; got {deleted}"
         assert "creationflags" in captured, (
-            "_unregister_all_voicetyper_tasks must pass creationflags "
+            "_unregister_all_lausu_tasks must pass creationflags "
             "to subprocess.run so powershell.exe doesn't flash a console "
             "during uninstall"
         )

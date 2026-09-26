@@ -37,17 +37,15 @@ class TestVerifyTauriBinaryOrSkip:
 
     def test_matching_sha256_returns_true(self, tmp_path, monkeypatch):
         """A binary whose SHA-256 matches the manifest entry passes."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         binary.write_bytes(b"fake tauri binary bytes")
         sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-        monkeypatch.setenv(
-            "VT_TAURI_MANIFEST", _write_manifest(tmp_path, "voice-typer-tauri", _tauri_manifest_key(), sha)
-        )
+        monkeypatch.setenv("VT_TAURI_MANIFEST", _write_manifest(tmp_path, "lausu-tauri", _tauri_manifest_key(), sha))
         assert verify_tauri_binary_or_skip(binary) is True
 
     def test_manifest_missing_fails_closed(self, tmp_path, monkeypatch):
         """No manifest anywhere → refuse to spawn (False)."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         binary.write_bytes(b"bytes")
         monkeypatch.delenv("VT_TAURI_MANIFEST", raising=False)
         # Point the repo-root lookup at a dir with no manifest by
@@ -56,7 +54,7 @@ class TestVerifyTauriBinaryOrSkip:
 
     def test_unreadable_manifest_fails_closed(self, tmp_path, monkeypatch):
         """A malformed manifest file → refuse to spawn (False)."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         binary.write_bytes(b"bytes")
         manifest = tmp_path / "tauri-binaries.json"
         manifest.write_text("{not valid json", encoding="utf-8")
@@ -65,7 +63,7 @@ class TestVerifyTauriBinaryOrSkip:
 
     def test_missing_entry_fails_closed(self, tmp_path, monkeypatch):
         """Binary name not in the manifest → refuse to spawn (False)."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         binary.write_bytes(b"bytes")
         monkeypatch.setenv(
             "VT_TAURI_MANIFEST",
@@ -75,22 +73,22 @@ class TestVerifyTauriBinaryOrSkip:
 
     def test_empty_sha256_fails_closed(self, tmp_path, monkeypatch):
         """Empty per-arch sha256 (dev tree, not release-built) → FAIL CLOSED."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         binary.write_bytes(b"bytes")
         monkeypatch.setenv(
             "VT_TAURI_MANIFEST",
-            _write_manifest(tmp_path, "voice-typer-tauri", _tauri_manifest_key(), ""),
+            _write_manifest(tmp_path, "lausu-tauri", _tauri_manifest_key(), ""),
         )
         assert verify_tauri_binary_or_skip(binary) is False
 
     def test_missing_arch_key_fails_closed(self, tmp_path, monkeypatch):
         """Manifest entry lacks the running platform/arch sub-key → False."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         binary.write_bytes(b"bytes")
         manifest = {
             "version": 1,
             "binaries": {
-                "voice-typer-tauri": {
+                "lausu-tauri": {
                     "sha256": {"linux-aarch64": "a" * 64},
                     "_platforms": [],
                     "_install_paths": [],
@@ -104,33 +102,31 @@ class TestVerifyTauriBinaryOrSkip:
 
     def test_sha256_mismatch_fails_closed(self, tmp_path, monkeypatch):
         """Tampered binary (hash differs from manifest) → refuse to spawn."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         binary.write_bytes(b"original bytes")
         monkeypatch.setenv(
             "VT_TAURI_MANIFEST",
-            _write_manifest(tmp_path, "voice-typer-tauri", _tauri_manifest_key(), "b" * 64),
+            _write_manifest(tmp_path, "lausu-tauri", _tauri_manifest_key(), "b" * 64),
         )
         binary.write_bytes(b"tampered bytes")
         assert verify_tauri_binary_or_skip(binary) is False
 
     def test_binary_read_failure_fails_closed(self, tmp_path, monkeypatch):
         """Binary unreadable at hash time → refuse to spawn (False)."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         # Do NOT create the file, read_bytes() raises FileNotFoundError.
         monkeypatch.setenv(
             "VT_TAURI_MANIFEST",
-            _write_manifest(tmp_path, "voice-typer-tauri", _tauri_manifest_key(), "c" * 64),
+            _write_manifest(tmp_path, "lausu-tauri", _tauri_manifest_key(), "c" * 64),
         )
         assert verify_tauri_binary_or_skip(binary) is False
 
     def test_accepts_str_path(self, tmp_path, monkeypatch):
         """The helper accepts a ``str`` path as well as ``Path``."""
-        binary = tmp_path / "voice-typer-tauri"
+        binary = tmp_path / "lausu-tauri"
         binary.write_bytes(b"fake tauri binary bytes")
         sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-        monkeypatch.setenv(
-            "VT_TAURI_MANIFEST", _write_manifest(tmp_path, "voice-typer-tauri", _tauri_manifest_key(), sha)
-        )
+        monkeypatch.setenv("VT_TAURI_MANIFEST", _write_manifest(tmp_path, "lausu-tauri", _tauri_manifest_key(), sha))
         assert verify_tauri_binary_or_skip(str(binary)) is True
 
 
@@ -176,10 +172,10 @@ class TestTauriManifestPathExeAdjacent:
         # Exe-adjacent manifest with a matching hash.
         exe_dir = tmp_path / "exe_dir"
         exe_dir.mkdir()
-        binary = exe_dir / "voice-typer-tauri"
+        binary = exe_dir / "lausu-tauri"
         binary.write_bytes(b"exe-adjacent binary bytes")
         sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-        self._write_manifest_at(exe_dir / "tauri-binaries.json", "voice-typer-tauri", sha)
+        self._write_manifest_at(exe_dir / "tauri-binaries.json", "lausu-tauri", sha)
         monkeypatch.setattr(sys, "executable", str(exe_dir / "python-sidecar.exe"))
         assert _tauri_manifest_path() == exe_dir / "tauri-binaries.json"
         assert verify_tauri_binary_or_skip(binary) is True
@@ -197,10 +193,10 @@ class TestTauriManifestPathExeAdjacent:
         exe_dir = tmp_path / "install"
         resources_dir = exe_dir / "resources"
         resources_dir.mkdir(parents=True)
-        binary = exe_dir / "voice-typer-tauri"
+        binary = exe_dir / "lausu-tauri"
         binary.write_bytes(b"frozen layout binary bytes")
         sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-        self._write_manifest_at(resources_dir / "tauri-binaries.json", "voice-typer-tauri", sha)
-        monkeypatch.setattr(sys, "executable", str(exe_dir / "voice-typer-sidecar.exe"))
+        self._write_manifest_at(resources_dir / "tauri-binaries.json", "lausu-tauri", sha)
+        monkeypatch.setattr(sys, "executable", str(exe_dir / "lausu-sidecar.exe"))
         assert _tauri_manifest_path() == resources_dir / "tauri-binaries.json"
         assert verify_tauri_binary_or_skip(binary) is True

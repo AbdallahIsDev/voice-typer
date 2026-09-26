@@ -56,50 +56,50 @@ def automation(vm, config):
     return VocabularyAutomation(vm, config)
 
 
-class TestLevenshtein:
+class TestSimilarity:
     def test_identical_strings(self):
-        from voice_typer.server.vocabulary_automation import _levenshtein
+        from voice_typer.server.vocabulary_automation import _match_ratio
 
-        assert _levenshtein("hello", "hello") == 0
+        assert _match_ratio("hello", "hello") == 1.0
 
     def test_single_substitution(self):
-        from voice_typer.server.vocabulary_automation import _levenshtein
+        from voice_typer.server.vocabulary_automation import _match_ratio, _ratio_cutoff
 
-        assert _levenshtein("cat", "cut") == 1
+        assert _match_ratio("cat", "cut") >= _ratio_cutoff(3, 3, 2)
 
     def test_single_insertion(self):
-        from voice_typer.server.vocabulary_automation import _levenshtein
+        from voice_typer.server.vocabulary_automation import _match_ratio, _ratio_cutoff
 
-        assert _levenshtein("cat", "cats") == 1
+        assert _match_ratio("cat", "cats") >= _ratio_cutoff(3, 4, 2)
 
     def test_single_deletion(self):
-        from voice_typer.server.vocabulary_automation import _levenshtein
+        from voice_typer.server.vocabulary_automation import _match_ratio, _ratio_cutoff
 
-        assert _levenshtein("cats", "cat") == 1
+        assert _match_ratio("cats", "cat") >= _ratio_cutoff(4, 3, 2)
 
     def test_classic_example(self):
-        from voice_typer.server.vocabulary_automation import _levenshtein
+        from voice_typer.server.vocabulary_automation import _match_ratio, _ratio_cutoff
 
-        assert _levenshtein("kitten", "sitting") == 3
+        assert _match_ratio("kitten", "sitting") < _ratio_cutoff(6, 7, 2)
 
     def test_bounded_short_circuit(self):
-        from voice_typer.server.vocabulary_automation import _levenshtein
+        from voice_typer.server.vocabulary_automation import _find_closest_vocabulary_match
 
         # Length difference exceeds the bound, can't match.
-        assert _levenshtein("cat", "abcdefg", max_distance=2) == 3
+        assert _find_closest_vocabulary_match("cat", ["abcdefg"], max_distance=2) is None
 
     def test_bounded_within_range(self):
-        from voice_typer.server.vocabulary_automation import _levenshtein
+        from voice_typer.server.vocabulary_automation import _find_closest_vocabulary_match
 
         # Distance is 1, within bound of 2.
-        assert _levenshtein("cat", "cut", max_distance=2) == 1
+        assert _find_closest_vocabulary_match("cat", ["cut"], max_distance=2) == "cut"
 
     def test_empty_string(self):
-        from voice_typer.server.vocabulary_automation import _levenshtein
+        from voice_typer.server.vocabulary_automation import _find_closest_vocabulary_match, _match_ratio
 
-        assert _levenshtein("", "abc") == 3
-        assert _levenshtein("abc", "") == 3
-        assert _levenshtein("", "") == 0
+        assert _match_ratio("", "abc") == 0.0
+        assert _find_closest_vocabulary_match("", ["abc"], max_distance=2) is None
+        assert _find_closest_vocabulary_match("abc", [""], max_distance=2) is None
 
 
 class TestCorrectionSuggestion:
@@ -156,7 +156,7 @@ class TestAnalyzeTranscription:
             segments=[],
             confidence=0.95,  # high confidence, low-confidence branch won't fire
         )
-        # Should have flagged "definately" via the Levenshtein-match
+        # Should have flagged "definately" via the close-match
         matches = [s for s in suggestions if s.original == "definately"]
         assert len(matches) >= 1
         assert matches[0].corrected == "definitely"

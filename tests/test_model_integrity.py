@@ -76,7 +76,7 @@ def test_model_hashes_revisions_are_pinned_commit_shas():
             f"model_hashes.json entry '{repo_id}' has revision={revision!r}, "
             f"must be a 40-char hex commit SHA, not 'main' or another mutable branch. "
             f"A mutable-branch revision allows a compromised HuggingFace repo to push "
-            f"a malicious new commit that Voice Typer would silently download and load."
+            f"a malicious new commit that Lausu would silently download and load."
         )
 
 

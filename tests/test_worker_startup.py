@@ -31,14 +31,14 @@ from voice_typer.worker import __main__ as worker_main  # noqa: E402
 _TEST_TOKEN = "test-worker-token-12345"
 
 # The worker validates ``VOICE_TYPER_CONFIG_DIR`` via the SEC-005
-_test_root = Path.home() / ".voice-typer-test-tmp"
+_test_root = Path.home() / ".lausu-test-tmp"
 _test_root.mkdir(parents=True, exist_ok=True)
 for _stale in _test_root.iterdir():
-    if _stale.is_dir() and _stale.name.startswith("voice-typer-worker-test-"):
+    if _stale.is_dir() and _stale.name.startswith("lausu-worker-test-"):
         shutil.rmtree(_stale, ignore_errors=True)
 
 _worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
-_TEST_CONFIG_DIR = Path(tempfile.mkdtemp(prefix=f"voice-typer-worker-test-{_worker_id}-", dir=_test_root))
+_TEST_CONFIG_DIR = Path(tempfile.mkdtemp(prefix=f"lausu-worker-test-{_worker_id}-", dir=_test_root))
 
 
 def _cleanup_test_config_dir() -> None:

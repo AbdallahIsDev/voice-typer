@@ -82,7 +82,7 @@ class TestValidateRunkeyCommand:
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
 
         monkeypatch.setattr(Path, "exists", lambda self: False)
-        value = r"C:\Program Files\VoiceTyper\app.exe --delay 15"
+        value = r"C:\Program Files\Lausu\app.exe --delay 15"
         # Ambiguous, can't determine the full exe path, so preserve.
         assert _validate_runkey_command(value) is True
 
@@ -92,8 +92,8 @@ class TestValidateRunkeyCommand:
 
         monkeypatch.setattr(Path, "exists", lambda self: True)
         value = (
-            r'"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe" '
-            r'"C:\\Users\\11\\voice-typer\\server\\autostart_launcher.py" '
+            r'"C:\\Users\\11\\.lausu\\venv\\Scripts\\pythonw.exe" '
+            r'"C:\\Users\\11\\lausu\\server\\autostart_launcher.py" '
             r"--hidden --delay 15"
         )
         with monkeypatch.context() as m:
@@ -105,7 +105,7 @@ class TestValidateRunkeyCommand:
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
 
         monkeypatch.setattr(Path, "exists", lambda self: True)
-        value = r'"\\server\share\VoiceTyper\pythonw.exe" "\\server\share\VoiceTyper\launcher.py" --hidden'
+        value = r'"\\server\share\Lausu\pythonw.exe" "\\server\share\Lausu\launcher.py" --hidden'
         with monkeypatch.context() as m:
             m.setattr(sys, "platform", "win32")
             assert _validate_runkey_command(value) is True
@@ -115,13 +115,13 @@ class TestValidateRunkeyCommand:
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
 
         existing = {
-            r"C:\Users\11\.voice-typer\venv\Scripts\pythonw.exe",
-            r"C:\Users\11\voice-typer\server\autostart_launcher.py",
+            r"C:\Users\11\.lausu\venv\Scripts\pythonw.exe",
+            r"C:\Users\11\lausu\server\autostart_launcher.py",
         }
         monkeypatch.setattr(Path, "exists", lambda self: str(self) in existing)
         value = (
-            r'"C:\Users\11\.voice-typer\venv\Scripts\pythonw.exe" '
-            r'"C:\Users\11\voice-typer\server\autostart_launcher.py" '
+            r'"C:\Users\11\.lausu\venv\Scripts\pythonw.exe" '
+            r'"C:\Users\11\lausu\server\autostart_launcher.py" '
             r"--hidden --delay 15"
         )
         with monkeypatch.context() as m:
@@ -344,8 +344,8 @@ class TestStartupFolderBatFallback:
 
         result = server_platform._register_app_autostart_startup()
         assert result is True
-        # The .bat file should exist (canonical com.voicetyper.* namespace).
-        bat_files = list(tmp_path.glob("com.voicetyper*.bat"))
+        # The .bat file should exist (canonical com.Lausu.* namespace).
+        bat_files = list(tmp_path.glob("com.Lausu*.bat"))
         assert len(bat_files) == 1
         content = bat_files[0].read_text()
         assert "VT_START_HIDDEN=1" in content
@@ -450,8 +450,8 @@ class TestThreeMechanismIntegration:
 
         result = server_platform._enable_autostart_windows()
         assert result is True
-        # The .bat file should exist (canonical com.voicetyper.* namespace).
-        bat_files = list(tmp_path.glob("com.voicetyper*.bat"))
+        # The .bat file should exist (canonical com.Lausu.* namespace).
+        bat_files = list(tmp_path.glob("com.Lausu*.bat"))
         assert len(bat_files) == 1
 
     def test_enable_runkey_cleans_up_startup_bat(self, monkeypatch, fake_winreg, win32_platform, tmp_path):
@@ -548,13 +548,13 @@ class TestAutostartCommandValidation:
             s = str(self)
             if s == sys.executable:
                 return False
-            if "python" in s.lower() and "voice-typer-tauri" not in s.lower():
+            if "python" in s.lower() and "lausu-tauri" not in s.lower():
                 return False
             return real_exists(self)
 
         monkeypatch.setattr(Path, "exists", fake_exists)
         # Force the Tauri binary to be found at a tmp path.
-        fake_tauri = tmp_path / "voice-typer-tauri"
+        fake_tauri = tmp_path / "lausu-tauri"
         fake_tauri.write_text("#!/bin/sh\nexit 0\n")
         fake_tauri.chmod(0o755)
         monkeypatch.setenv("VT_TAURI_BINARY", str(fake_tauri))
@@ -588,7 +588,7 @@ class TestAutostartCommandValidation:
             s = str(self)
             if s == sys.executable:
                 return False
-            if "python" in s.lower() and "voice-typer-tauri" not in s.lower():
+            if "python" in s.lower() and "lausu-tauri" not in s.lower():
                 return False
             return real_exists(self)
 
@@ -622,12 +622,12 @@ class TestAppAutostartCommandAndArgsValidation:
 
         def fake_exists(self):
             s = str(self)
-            if "python" in s.lower() and "voice-typer-tauri" not in s.lower():
+            if "python" in s.lower() and "lausu-tauri" not in s.lower():
                 return False
             return real_exists(self)
 
         monkeypatch.setattr(Path, "exists", fake_exists)
-        fake_tauri = tmp_path / "voice-typer-tauri.exe"
+        fake_tauri = tmp_path / "lausu-tauri.exe"
         fake_tauri.write_text("")
         monkeypatch.setenv("VT_TAURI_BINARY", str(fake_tauri))
 

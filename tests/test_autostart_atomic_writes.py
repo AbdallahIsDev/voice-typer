@@ -50,11 +50,11 @@ class TestAutostartMacOsAtomicWrite:
             "(matches the existing prewarm/autostart pattern)"
         )
         called_path = spy_atomic.call_args.args[0]
-        assert Path(called_path).name == "com.voicetyper.plist"
+        assert Path(called_path).name == "com.Lausu.plist"
         # Path.write_text must NOT have been called on the plist path
         for c in spy_write_text.call_args_list:
             self_arg = c.args[0] if c.args else c.kwargs.get("self")
-            if self_arg is not None and Path(self_arg).name == "com.voicetyper.plist":
+            if self_arg is not None and Path(self_arg).name == "com.Lausu.plist":
                 pytest.fail("Path.write_text must NOT be used for the plist; use _secure_atomic_write instead")
 
     def test_chmod_0o600_preserved_after_atomic_write(self, monkeypatch, tmp_path):
@@ -83,7 +83,7 @@ class TestAutostartMacOsAtomicWrite:
 
         assert platform_mod._enable_autostart_macos() is True
 
-        plist_path = tmp_path / "com.voicetyper.plist"
+        plist_path = tmp_path / "com.Lausu.plist"
         assert (plist_path).exists(), "plist must be written by _secure_atomic_write"
         assert any(p == plist_path and m == 0o600 for p, m in chmod_calls), (
             f"expected chmod(0o600) on plist; got: {chmod_calls}"
@@ -113,10 +113,10 @@ class TestAutostartLinuxAtomicWrite:
         assert spy_atomic.called, "_secure_atomic_write must be called for the .desktop"
         assert spy_atomic.call_args.kwargs.get("durability") is False
         called_path = spy_atomic.call_args.args[0]
-        assert Path(called_path).name == "voice-typer.desktop"
+        assert Path(called_path).name == "lausu.desktop"
         for c in spy_write_text.call_args_list:
             self_arg = c.args[0] if c.args else c.kwargs.get("self")
-            if self_arg is not None and Path(self_arg).name == "voice-typer.desktop":
+            if self_arg is not None and Path(self_arg).name == "lausu.desktop":
                 pytest.fail("Path.write_text must NOT be used for the .desktop file; use _secure_atomic_write instead")
 
     def test_no_chmod_0o600_applied(self, monkeypatch, tmp_path):
@@ -140,7 +140,7 @@ class TestAutostartLinuxAtomicWrite:
 
         assert platform_mod._enable_autostart_linux() is True
 
-        desktop_path = tmp_path / "voice-typer.desktop"
+        desktop_path = tmp_path / "lausu.desktop"
         assert not any(p == desktop_path and m == 0o600 for p, m in chmod_calls), (
             f"chmod(0o600) must NOT be applied to .desktop file; got: {chmod_calls}"
         )

@@ -37,7 +37,7 @@ class TestUnlinkAutostartDesktopAt:
         """When the ``.desktop`` file exists, it is unlinked and logged."""
         autostart_dir = tmp_path / ".config" / "autostart"
         autostart_dir.mkdir(parents=True)
-        desktop_path = autostart_dir / "voice-typer.desktop"
+        desktop_path = autostart_dir / "lausu.desktop"
         desktop_path.write_text("[Desktop Entry]\nType=Application\n")
 
         ip_module._unlink_autostart_desktop_at(tmp_path)
@@ -58,7 +58,7 @@ class TestUnlinkAutostartDesktopAt:
         """When ``unlink()`` raises ``OSError``, a warning is logged (non-fatal)."""
         autostart_dir = tmp_path / ".config" / "autostart"
         autostart_dir.mkdir(parents=True)
-        desktop_path = autostart_dir / "voice-typer.desktop"
+        desktop_path = autostart_dir / "lausu.desktop"
         desktop_path.write_text("[Desktop Entry]\n")
 
         # Force unlink() to raise OSError.
@@ -107,7 +107,7 @@ class TestRemoveAutostartDesktop:
         """When ``target_user`` is a real user, ``pwd.getpwnam`` resolves"""
         autostart_dir = tmp_path / ".config" / "autostart"
         autostart_dir.mkdir(parents=True)
-        desktop_path = autostart_dir / "voice-typer.desktop"
+        desktop_path = autostart_dir / "lausu.desktop"
         desktop_path.write_text("[Desktop Entry]\n")
 
         # Fake pwd entry, pw_dir points at tmp_path.
@@ -144,8 +144,8 @@ class TestRemoveAutostartDesktop:
         user2_autostart = user2 / ".config" / "autostart"
         user1_autostart.mkdir(parents=True)
         user2_autostart.mkdir(parents=True)
-        desktop1 = user1_autostart / "voice-typer.desktop"
-        desktop2 = user2_autostart / "voice-typer.desktop"
+        desktop1 = user1_autostart / "lausu.desktop"
+        desktop2 = user2_autostart / "lausu.desktop"
         desktop1.write_text("[Desktop Entry]\n")
         desktop2.write_text("[Desktop Entry]\n")
 
@@ -165,7 +165,7 @@ class TestRemoveAutostartDesktop:
         user_bad = fake_home_root / "user_bad"
         good_autostart = user_good / ".config" / "autostart"
         good_autostart.mkdir(parents=True)
-        good_desktop = good_autostart / "voice-typer.desktop"
+        good_desktop = good_autostart / "lausu.desktop"
         good_desktop.write_text("[Desktop Entry]\n")
         user_bad.mkdir(parents=True)
 

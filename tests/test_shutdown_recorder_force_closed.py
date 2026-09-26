@@ -11,7 +11,7 @@ from voice_typer.server.shutdown_controller import ShutdownController
 
 
 class _FakeApp:
-    """Minimal duck-typed stand-in for ``VoiceTyperApp``."""
+    """Minimal duck-typed stand-in for ``LausuApp``."""
 
     def __init__(self):
         self._shutting_down = False

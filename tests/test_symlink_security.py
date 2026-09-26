@@ -39,7 +39,7 @@ class TestSymlinkConfigAttack:
         c.save()
         # Verify the original sensitive file was not overwritten
         if link.is_symlink():
-            # If still a symlink, target should not have Voice Typer config
+            # If still a symlink, target should not have Lausu config
             target_content = sensitive.read_text(encoding="utf-8")
             assert "secret" in target_content or "hotkey" not in target_content
 
@@ -50,7 +50,7 @@ class TestSymlinkConfigAttack:
         sensitive.write_text('{"sensitive": "data"}', encoding="utf-8")
 
         # Create symlink pointing to the sensitive file
-        link = tmp_path / "voice-typer-corrections.json"
+        link = tmp_path / "lausu-corrections.json"
         try:
             link.symlink_to(sensitive)
         except OSError:
@@ -68,7 +68,7 @@ class TestSymlinkConfigAttack:
 
     def test_dangling_symlink_handled_gracefully(self, tmp_path):
         """A dangling symlink (target doesn't exist) should be handled gracefully."""
-        link = tmp_path / "voice-typer-corrections.json"
+        link = tmp_path / "lausu-corrections.json"
         try:
             link.symlink_to(tmp_path / "nonexistent_target.json")
         except OSError:
@@ -88,7 +88,7 @@ class TestSymlinkConfigAttack:
             pytest.skip("Cannot create symlinks on this system")
 
         # Regular corrections file should work fine
-        corrections = tmp_path / "voice-typer-corrections.json"
+        corrections = tmp_path / "lausu-corrections.json"
         corrections.write_text(json.dumps({"misspellings": {"teh": "the"}}), encoding="utf-8")
 
         result = configure_corrections(config_dir=tmp_path)

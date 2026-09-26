@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from voice_typer.server.service import VoiceTyperService
+from voice_typer.server.service import LausuService
 
 
-def _make_service() -> VoiceTyperService:
-    """Build a VoiceTyperService with a permissive mock app."""
+def _make_service() -> LausuService:
+    """Build a LausuService with a permissive mock app."""
     app = MagicMock()
     app.config.qwen_model_path = None
     app.config.huggingface_consent = True
     app.tray.notify = MagicMock()
-    return VoiceTyperService(app)
+    return LausuService(app)
 
 
 def test_unknown_model_return_includes_model_field() -> None:

@@ -68,7 +68,7 @@ class TestSchtasksNonElevated:
             return r
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.voicetyper.autostart"])
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.Lausu.autostart"])
         assert rc == 0
         assert "SUCCESS" in output
 
@@ -81,7 +81,7 @@ class TestSchtasksNonElevated:
             return r
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.voicetyper.autostart"])
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.Lausu.autostart"])
         assert rc == 1
         assert "Access denied" in output
 
@@ -90,7 +90,7 @@ class TestSchtasksNonElevated:
             raise FileNotFoundError("schtasks.exe")
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.voicetyper.autostart"])
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.Lausu.autostart"])
         assert rc == 127
         assert "not found" in output.lower()
 
@@ -99,6 +99,6 @@ class TestSchtasksNonElevated:
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=30)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.voicetyper.autostart"])
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", "com.Lausu.autostart"])
         assert rc == 124
         assert "timed out" in output.lower()

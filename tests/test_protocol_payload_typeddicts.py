@@ -24,7 +24,7 @@ from voice_typer.server.providers import (
 
 @pytest.fixture
 def fake_app() -> MagicMock:
-    """Minimal VoiceTyperApp double for the config side-effect dispatch."""
+    """Minimal LausuApp double for the config side-effect dispatch."""
     app = MagicMock()
     app.config.autostart = False
     app.config.hotkey = "<f2>"

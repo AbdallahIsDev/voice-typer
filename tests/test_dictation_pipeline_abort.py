@@ -14,6 +14,12 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _accept_mock_http_peer(accept_mock_http_peer):
+    """Mocked responses expose a MagicMock socket peer (see the conftest fixture)."""
+
+
+
+@pytest.fixture(autouse=True)
 def mock_faster_whisper(monkeypatch):
     """Mock faster_whisper so no real model is loaded."""
     mock_fw = MagicMock()

@@ -291,7 +291,7 @@ def _drain(sock: socket.socket, timeout: float = 0.3) -> list[dict]:
 
 
 class _MockApp:
-    """Minimal VoiceTyperApp stub for live TCP dispatch tests."""
+    """Minimal LausuApp stub for live TCP dispatch tests."""
 
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self.tray = MagicMock()
@@ -321,9 +321,9 @@ class _MockApp:
         except Exception:
             self.history_db = MagicMock()
 
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        self._service = VoiceTyperService(self)
+        self._service = LausuService(self)
 
     def quit_app(self) -> None:
         self._quit_called = True

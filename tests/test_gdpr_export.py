@@ -12,15 +12,15 @@ import pytest
 
 
 def _build_service(tmp_path: Path):
-    """Build a real VoiceTyperService backed by a tmp config dir."""
+    """Build a real LausuService backed by a tmp config dir."""
     from voice_typer.server import config as cfg_mod
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
     app = MagicMock()
     app.config.huggingface_consent = True
     app.config.qwen_model_path = None
     app.tray.notify = MagicMock()
-    svc = VoiceTyperService(app)
+    svc = LausuService(app)
 
     mp = pytest.MonkeyPatch()
     mp.setattr(cfg_mod, "_config_dir", lambda: tmp_path)
@@ -47,13 +47,13 @@ def _seed_personal_data(tmp_path: Path) -> None:
             }
         )
     )
-    (tmp_path / "voice-typer-corrections.json").write_text(json.dumps({"recieve": "receive"}))
+    (tmp_path / "lausu-corrections.json").write_text(json.dumps({"recieve": "receive"}))
     (tmp_path / "vocabulary.json").write_text(json.dumps({"custom": ["my-secret-term"]}))
     (tmp_path / "templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
     (tmp_path / "mic-test-20240101-120000.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
-    (tmp_path / "voice-typer.log").write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
-    (tmp_path / "voice-typer.log.1").write_text("2024-01-01 11:00:00 DEBUG transcript='rotated secret 1'\n")
-    (tmp_path / "voice-typer.log.2").write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
+    (tmp_path / "lausu.log").write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
+    (tmp_path / "lausu.log.1").write_text("2024-01-01 11:00:00 DEBUG transcript='rotated secret 1'\n")
+    (tmp_path / "lausu.log.2").write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
     _pid = os.getpid()
     (tmp_path / f"crash_diagnostics.{_pid}.txt").write_text(
         f"VEH crash dump for PID {_pid}\nstack trace with secret='pii'\n"
@@ -74,11 +74,11 @@ def _seed_model_artifacts(tmp_path: Path) -> None:
 
 
 def test_export_gdpr_bundle_method_exists() -> None:
-    """``VoiceTyperService.export_gdpr_bundle`` must exist."""
-    from voice_typer.server.service import VoiceTyperService
+    """``LausuService.export_gdpr_bundle`` must exist."""
+    from voice_typer.server.service import LausuService
 
-    assert hasattr(VoiceTyperService, "export_gdpr_bundle"), (
-        "VoiceTyperService must define export_gdpr_bundle: see CR-88 / Fix-D."
+    assert hasattr(LausuService, "export_gdpr_bundle"), (
+        "LausuService must define export_gdpr_bundle: see CR-88 / Fix-D."
     )
 
 
@@ -178,7 +178,7 @@ def test_export_gdpr_bundle_includes_recovery_json(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_corrections(tmp_path) -> None:
-    """The zip must contain voice-typer-corrections.json."""
+    """The zip must contain lausu-corrections.json."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -188,7 +188,7 @@ def test_export_gdpr_bundle_includes_corrections(tmp_path) -> None:
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
             assert any("corrections" in n.lower() and n.endswith(".json") for n in names), (
-                f"voice-typer-corrections.json not in export: {names}"
+                f"lausu-corrections.json not in export: {names}"
             )
     finally:
         mp.undo()
@@ -246,7 +246,7 @@ def test_export_gdpr_bundle_includes_mic_test_recordings(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_log(tmp_path) -> None:
-    """The zip must contain voice-typer.log."""
+    """The zip must contain lausu.log."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -255,15 +255,13 @@ def test_export_gdpr_bundle_includes_log(tmp_path) -> None:
         result = svc.export_gdpr_bundle()
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
-            assert any(n.endswith(".log") or "voice-typer.log" in n for n in names), (
-                f"voice-typer.log not in export: {names}"
-            )
+            assert any(n.endswith(".log") or "lausu.log" in n for n in names), f"lausu.log not in export: {names}"
     finally:
         mp.undo()
 
 
 def test_export_gdpr_bundle_includes_rotated_log_backups(tmp_path) -> None:
-    """PI-4: the zip must contain voice-typer.log.{1,2} rotated backups."""
+    """PI-4: the zip must contain lausu.log.{1,2} rotated backups."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -272,8 +270,8 @@ def test_export_gdpr_bundle_includes_rotated_log_backups(tmp_path) -> None:
         result = svc.export_gdpr_bundle()
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
-            assert "voice-typer.log.1" in names, f"voice-typer.log.1 (rotated backup) not in export: {names} (PI-4)"
-            assert "voice-typer.log.2" in names, f"voice-typer.log.2 (rotated backup) not in export: {names} (PI-4)"
+            assert "lausu.log.1" in names, f"lausu.log.1 (rotated backup) not in export: {names} (PI-4)"
+            assert "lausu.log.2" in names, f"lausu.log.2 (rotated backup) not in export: {names} (PI-4)"
     finally:
         mp.undo()
 
@@ -363,14 +361,14 @@ def test_export_gdpr_bundle_includes_rust_logs_subdir(tmp_path) -> None:
         _seed_personal_data(tmp_path)
         logs_dir = tmp_path / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
-        (logs_dir / "voice-typer.log").write_text("2024-01-01 12:00:00 INFO [rust] transcript='secret from rust'\n")
-        (logs_dir / "voice-typer.log.1").write_text("2024-01-01 11:00:00 INFO [rust] rotated secret\n")
+        (logs_dir / "lausu.log").write_text("2024-01-01 12:00:00 INFO [rust] transcript='secret from rust'\n")
+        (logs_dir / "lausu.log.1").write_text("2024-01-01 11:00:00 INFO [rust] rotated secret\n")
         result = svc.export_gdpr_bundle()
         assert result["success"] is True
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
-            assert "logs/voice-typer.log" in names, f"logs/voice-typer.log not in export: {names}"
-            assert "logs/voice-typer.log.1" in names, f"logs/voice-typer.log.1 (rotated backup) not in export: {names}"
+            assert "logs/lausu.log" in names, f"logs/lausu.log not in export: {names}"
+            assert "logs/lausu.log.1" in names, f"logs/lausu.log.1 (rotated backup) not in export: {names}"
     finally:
         mp.undo()
 

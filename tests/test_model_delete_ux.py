@@ -106,7 +106,7 @@ class TestModelDeleteRationale:
 
         # Locate the delete_model method body.
         fn_idx = src.find("def delete_model(")
-        assert fn_idx != -1, "VoiceTyperService.delete_model not found"
+        assert fn_idx != -1, "LausuService.delete_model not found"
         next_def = src.find("\n    def ", fn_idx + 1)
         method_body = src[fn_idx : next_def if next_def != -1 else fn_idx + 4000]
 

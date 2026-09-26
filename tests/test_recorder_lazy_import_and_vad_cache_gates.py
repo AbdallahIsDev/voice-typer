@@ -23,7 +23,7 @@ class TestRecorderLazyImport:
         assert not hasattr(_app_mod, "Recorder"), (
             "Recorder should NOT be a module-top attribute of "
             "voice_typer.server.app, it should be imported inside "
-            "VoiceTyperApp.__init__ to defer the recording package "
+            "LausuApp.__init__ to defer the recording package "
             "(and its eager numpy import chain) to first construction."
         )
 
@@ -32,12 +32,12 @@ class TestRecorderLazyImport:
         The ``from voice_typer.server.recording import Recorder``
         ``self.recorder = Recorder(...)`` assignment must NOT appear
         """
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        init_src = inspect.getsource(VoiceTyperApp._init_recording)
+        init_src = inspect.getsource(LausuApp._init_recording)
         # The lazy import statement must appear in the builder's body.
         assert "from voice_typer.server.recording import Recorder" in init_src, (
-            "VoiceTyperApp._init_recording must contain the lazy import "
+            "LausuApp._init_recording must contain the lazy import "
             "'from voice_typer.server.recording import Recorder' so the "
             "recording package is not imported at module top."
         )
@@ -53,7 +53,7 @@ class TestRecorderLazyImport:
         assert import_idx < construct_idx, (
             "The lazy 'from voice_typer.server.recording import Recorder' "
             "statement must appear BEFORE 'self._recorder_backing = "
-            "recorder' inside VoiceTyperApp._init_recording."
+            "recorder' inside LausuApp._init_recording."
         )
 
     def test_recorder_import_absent_from_module_top(self) -> None:

@@ -19,10 +19,10 @@ _MIC_LIST = "voice_typer.server.server_platform.microphone_list"
 
 
 class _FakeApp:
-    """Minimal duck-typed stand-in for ``VoiceTyperApp``."""
+    """Minimal duck-typed stand-in for ``LausuApp``."""
 
     def __init__(self):
-        # Shutdown state (mirrors VoiceTyperApp.__init__)
+        # Shutdown state (mirrors LausuApp.__init__)
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
@@ -47,12 +47,12 @@ class _FakeApp:
         self._cancel_pending_timers = MagicMock()
         self._restore_volume = MagicMock()
 
-        # Bubble level worker (optional on VoiceTyperApp, _do_cleanup
+        # Bubble level worker (optional on LausuApp, _do_cleanup
         self._bubble_level_worker_stop = None
         self._bubble_level_queue = None
         self._bubble_level_worker = None
 
-        # ``_do_cleanup`` delegate on VoiceTyperApp. Default to a no-op
+        # ``_do_cleanup`` delegate on LausuApp. Default to a no-op
         self._do_cleanup = MagicMock()
 
 
@@ -75,7 +75,7 @@ def controller(fake_app):
 
 
 class TestShutdownControllerWiring:
-    """Verify ``VoiceTyperApp.__init__`` wires up ``ShutdownController``."""
+    """Verify ``LausuApp.__init__`` wires up ``ShutdownController``."""
 
     def test_app_has_shutdown_attribute(self, tmp_config_dir, monkeypatch):
         """``self.shutdown`` must be a ``ShutdownController`` instance."""
@@ -84,24 +84,24 @@ class TestShutdownControllerWiring:
         monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
         monkeypatch.setattr(f"{_MIC_LIST}.list_microphones", lambda: [], raising=False)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
-        assert hasattr(instance, "shutdown"), "VoiceTyperApp.__init__ must construct self.shutdown (ShutdownController)"
+        instance = LausuApp()
+        assert hasattr(instance, "shutdown"), "LausuApp.__init__ must construct self.shutdown (ShutdownController)"
         assert isinstance(instance.shutdown, ShutdownController), "self.shutdown must be a ShutdownController instance"
 
     def test_shutdown_back_references_app(self, tmp_config_dir, monkeypatch):
-        """``ShutdownController._app`` must be the ``VoiceTyperApp`` instance."""
+        """``ShutdownController._app`` must be the ``LausuApp`` instance."""
         monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
         monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
         monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
         monkeypatch.setattr(f"{_MIC_LIST}.list_microphones", lambda: [], raising=False)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance.shutdown._app is instance, (
-            "ShutdownController._app must be the VoiceTyperApp instance that "
+            "ShutdownController._app must be the LausuApp instance that "
             "constructed it (back-reference for state access)"
         )
 

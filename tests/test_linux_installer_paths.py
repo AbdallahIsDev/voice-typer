@@ -20,15 +20,15 @@ POSTINST_RPM = _REPO_ROOT / "scripts" / "linux" / "postinst.rpm"
 PRERM_RPM = _REPO_ROOT / "scripts" / "linux" / "prerm.rpm"
 POSTRM = _REPO_ROOT / "scripts" / "linux" / "postrm"
 POSTRM_RPM = _REPO_ROOT / "scripts" / "linux" / "postrm.rpm"
-POLKIT = _REPO_ROOT / "scripts" / "linux" / "voice-typer.polkit"
+POLKIT = _REPO_ROOT / "scripts" / "linux" / "lausu.polkit"
 
 LINUX_SCRIPTS_DIR = _REPO_ROOT / "src-tauri" / "resources" / "linux-scripts"
 LINUX_SCRIPTS_FILES = (
     "install_permissions.py",
     "uninstall_permissions.py",
-    "99-voice-typer.rules",
-    "00-voice-typer-capslock.conf",
-    "voice-typer.polkit",
+    "99-lausu.rules",
+    "00-lausu-capslock.conf",
+    "lausu.polkit",
 )
 
 # Tauri config files that must list the linux-scripts
@@ -48,22 +48,22 @@ def _launcher_text() -> str:
 
 # The 5 canonical candidate paths that the postinst / prerm probe loops
 INSTALL_CANDIDATES = (
-    "/usr/share/voice-typer/scripts/install_permissions.py",
-    "/usr/lib/voice-typer/scripts/install_permissions.py",
-    "/usr/lib/voice-typer/resources/scripts/install_permissions.py",
-    "/usr/lib/voice-typer/resources/scripts/linux/install_permissions.py",
-    "/usr/lib/voice-typer/resources/linux-scripts/install_permissions.py",
+    "/usr/share/lausu/scripts/install_permissions.py",
+    "/usr/lib/lausu/scripts/install_permissions.py",
+    "/usr/lib/lausu/resources/scripts/install_permissions.py",
+    "/usr/lib/lausu/resources/scripts/linux/install_permissions.py",
+    "/usr/lib/lausu/resources/linux-scripts/install_permissions.py",
 )
 UNINSTALL_CANDIDATES = tuple(p.replace("install_permissions", "uninstall_permissions") for p in INSTALL_CANDIDATES)
 
 # Tauri v2 resource path substrings (used by the simpler
-TAURI_V2_PATH = "/usr/lib/voice-typer/resources/scripts"
-TAURI_V2_PATH_NESTED = "/usr/lib/voice-typer/resources/scripts/linux"
-TAURI_V2_LINUX_SCRIPTS = "/usr/lib/voice-typer/resources/linux-scripts"
-LEGACY_PATH = "/usr/share/voice-typer/scripts"
+TAURI_V2_PATH = "/usr/lib/lausu/resources/scripts"
+TAURI_V2_PATH_NESTED = "/usr/lib/lausu/resources/scripts/linux"
+TAURI_V2_LINUX_SCRIPTS = "/usr/lib/lausu/resources/linux-scripts"
+LEGACY_PATH = "/usr/share/lausu/scripts"
 
 # The polkit-stable path : the polkit policy hard-codes this path,
-POLKIT_STABLE_PATH = "/usr/share/voice-typer/scripts/install_permissions.py"
+POLKIT_STABLE_PATH = "/usr/share/lausu/scripts/install_permissions.py"
 
 # Skip bash -n syntax checks on hosts without a USABLE bash. A mere
 _skip_no_bash = pytest.mark.skipif(
@@ -118,7 +118,7 @@ class TestLinuxScriptsResourceDir:
         assert path.is_file(), (
             f"{path} missing, the Tauri v2 bundle must ship this file so "
             "the postinst probe loop finds it at "
-            f"/usr/lib/voice-typer/resources/linux-scripts/{filename}."
+            f"/usr/lib/lausu/resources/linux-scripts/{filename}."
         )
 
     @pytest.mark.parametrize("filename", LINUX_SCRIPTS_FILES)
@@ -379,12 +379,12 @@ class TestPrermRemovesAutostart:
 
     @pytest.mark.parametrize("path,label", [(PRERM, "prerm"), (PRERM_RPM, "prerm.rpm")])
     def test_prerm_removes_autostart_desktop(self, path, label):
-        """prerm removes ``~/.config/autostart/voice-typer.desktop``."""
+        """prerm removes ``~/.config/autostart/lausu.desktop``."""
         assert path.is_file()
         text = path.read_text()
         # Must reference the autostart .desktop filename.
-        assert "voice-typer.desktop" in text, (
-            f"{label} must reference 'voice-typer.desktop' so the per-user autostart entry is removed on uninstall ."
+        assert "lausu.desktop" in text, (
+            f"{label} must reference 'lausu.desktop' so the per-user autostart entry is removed on uninstall ."
         )
         # Must reference the autostart directory pattern.
         assert ".config/autostart" in text, f"{label} must reference the autostart directory '.config/autostart' ."
@@ -429,8 +429,8 @@ class TestPostrmPurgeSemantics:
             "only purge user data on `apt purge`, not on `apt remove`)."
         )
         # Must remove at least one of the known user data dirs.
-        assert ".local/share/voice-typer" in text or ".config/voice-typer" in text or ".voice-typer" in text, (
-            "postrm must remove the user data directory (~/.local/share/voice-typer/ or equivalent) on purge."
+        assert ".local/share/lausu" in text or ".config/lausu" in text or ".lausu" in text, (
+            "postrm must remove the user data directory (~/.local/share/lausu/ or equivalent) on purge."
         )
         # Must use rm -rf for directory removal.
         assert "rm -rf" in text, "postrm must use `rm -rf` to remove user data dirs."
@@ -461,7 +461,7 @@ class TestPostrmPurgeSemantics:
 
 
 class TestAutostartLauncherTauriMode:
-    """``autostart_launcher.py`` detects Tauri mode + spawns voice-typer-tauri."""
+    """``autostart_launcher.py`` detects Tauri mode + spawns lausu-tauri."""
 
     def test_autostart_launcher_references_tauri_env_var(self):
         """The launcher references the ``VOICE_TYPER_TAURI`` env var."""
@@ -471,7 +471,7 @@ class TestAutostartLauncherTauriMode:
             "autostart_launcher.py must check the VOICE_TYPER_TAURI env var "
             " to detect Tauri mode. The Tauri Rust host sets this "
             "before spawning the Python sidecar so the launcher knows to "
-            "spawn voice-typer-tauri."
+            "spawn lausu-tauri."
         )
 
     def test_autostart_launcher_has_is_tauri_mode_helper(self):
@@ -490,9 +490,9 @@ class TestAutostartLauncherTauriMode:
         text = _launcher_text()
         # Must reference sys.executable AND the Tauri host binary name.
         assert "sys.executable" in text
-        assert "voice-typer-tauri" in text, (
+        assert "lausu-tauri" in text, (
             "autostart_launcher.py must check that sys.executable basename "
-            "contains 'voice-typer-tauri' as a fallback Tauri-mode signal."
+            "contains 'lausu-tauri' as a fallback Tauri-mode signal."
         )
 
     def test_autostart_launcher_has_tauri_binary_helper(self):
@@ -501,7 +501,7 @@ class TestAutostartLauncherTauriMode:
         text = _launcher_text()
         assert re.search(r"def\s+_tauri_binary\s*\(\s*\)\s*->\s*str\s*\|\s*None\s*:", text), (
             "autostart_launcher.py must define a `_tauri_binary() -> str | None` "
-            "helper  that looks up voice-typer-tauri on PATH and in "
+            "helper  that looks up lausu-tauri on PATH and in "
             "well-known install dirs."
         )
 
@@ -510,12 +510,11 @@ class TestAutostartLauncherTauriMode:
         assert AUTOSTART_LAUNCHER.is_file()
         text = _launcher_text()
         assert re.search(r"def\s+_spawn_tauri_host\s*\(", text), (
-            "autostart_launcher.py must define a `_spawn_tauri_host()` "
-            "helper  that spawns the voice-typer-tauri binary."
+            "autostart_launcher.py must define a `_spawn_tauri_host()` helper  that spawns the lausu-tauri binary."
         )
 
     def test_autostart_launcher_exits_1_when_tauri_binary_missing(self):
-        """In Tauri mode, the launcher exits 1 if voice-typer-tauri is not found."""
+        """In Tauri mode, the launcher exits 1 if lausu-tauri is not found."""
         assert AUTOSTART_LAUNCHER.is_file()
         text = _launcher_text()
         assert "_is_tauri_mode()" in text, "launch() must call _is_tauri_mode() to detect Tauri mode."
@@ -562,12 +561,11 @@ class TestPrewarmCleanupPortedToRpm:
     def test_prerm_rpm_references_prewarm_unit_names(self):
         """prerm.rpm references the prewarm systemd unit names."""
         text = PRERM_RPM.read_text(encoding="utf-8")
-        assert "voice-typer-prewarm.timer" in text, (
-            "prerm.rpm must reference 'voice-typer-prewarm.timer'  "
-            "so the systemd timer is disabled + removed on uninstall."
+        assert "lausu-prewarm.timer" in text, (
+            "prerm.rpm must reference 'lausu-prewarm.timer'  so the systemd timer is disabled + removed on uninstall."
         )
-        assert "voice-typer-prewarm.service" in text, (
-            "prerm.rpm must reference 'voice-typer-prewarm.service'  "
+        assert "lausu-prewarm.service" in text, (
+            "prerm.rpm must reference 'lausu-prewarm.service'  "
             "so the systemd service is disabled + removed on uninstall."
         )
 
@@ -595,15 +593,15 @@ class TestPrewarmCleanupPortedToRpm:
 
 
 class TestProcessTerminationBeforeCleanup:
-    """prerm + prerm.rpm terminate voice-typer processes before file removal."""
+    """prerm + prerm.rpm terminate lausu processes before file removal."""
 
     @pytest.mark.parametrize("path,label", [(PRERM, "prerm"), (PRERM_RPM, "prerm.rpm")])
     def test_prerm_has_pkill_voice_typer_tauri(self, path, label):
-        """prerm + prerm.rpm send SIGTERM to ``voice-typer-tauri`` via pkill -x."""
+        """prerm + prerm.rpm send SIGTERM to ``lausu-tauri`` via pkill -x."""
         assert path.is_file()
         text = path.read_text(encoding="utf-8")
-        assert re.search(r"pkill\s+-TERM\s+-x\s+voice-typer-tauri", text), (
-            f"{label} must run `pkill -TERM -x voice-typer-tauri`  so "
+        assert re.search(r"pkill\s+-TERM\s+-x\s+lausu-tauri", text), (
+            f"{label} must run `pkill -TERM -x lausu-tauri`  so "
             "the Tauri host binary receives SIGTERM before file removal. "
             "Without this, the running app may re-create the autostart / "
             "prewarm files that prerm is about to delete."
@@ -645,7 +643,7 @@ class TestProcessTerminationBeforeCleanup:
         assert "backend.pid" in text, (
             f"{label} must reference 'backend.pid', the single-"
             "instance lockfile written by single_instance.py at "
-            "~/.local/share/voice-typer/backend.pid. Reading the PID "
+            "~/.local/share/lausu/backend.pid. Reading the PID "
             "lets the script send a targeted SIGTERM so the app runs "
             "its shutdown teardown (flush history DB, release audio, "
             "clear the PID file) before the catch-all pkill."
@@ -663,16 +661,16 @@ class TestProcessTerminationBeforeCleanup:
         """Process termination (pkill) appears BEFORE the autostart / prewarm cleanup calls."""
         assert path.is_file()
         text = path.read_text(encoding="utf-8")
-        pkill_pos = text.find("pkill -TERM -x voice-typer-tauri")
+        pkill_pos = text.find("pkill -TERM -x lausu-tauri")
         # The autostart cleanup call inside the user loop.
         autostart_call_pos = text.find('remove_autostart_for_home "$home_dir"')
-        assert pkill_pos != -1, f"{label} must contain `pkill -TERM -x voice-typer-tauri` "
+        assert pkill_pos != -1, f"{label} must contain `pkill -TERM -x lausu-tauri` "
         assert autostart_call_pos != -1, (
             f'{label} must call `remove_autostart_for_home "$home_dir"` '
             "(the autostart cleanup that the pkill must precede)."
         )
         assert pkill_pos < autostart_call_pos, (
-            f"{label}: the `pkill -TERM -x voice-typer-tauri` call MUST "
+            f"{label}: the `pkill -TERM -x lausu-tauri` call MUST "
             f'appear BEFORE `remove_autostart_for_home "$home_dir"` '
             "(terminate processes before file removal). "
             f"pkill_pos={pkill_pos}, autostart_call_pos={autostart_call_pos}."

@@ -38,6 +38,14 @@ class TestConfigDeclaresConsentFlags:
         assert hasattr(cfg, "voice_biometric_consent")
         assert cfg.voice_biometric_consent is False
 
+    def test_media_url_consent_field_exists(self):
+        """ADR-0023: consent to send media URLs to the yt-dlp extractor."""
+        from voice_typer.server.config import Config
+
+        cfg = Config()
+        assert hasattr(cfg, "media_url_consent")
+        assert cfg.media_url_consent is False  # default: not given
+
     def test_consent_fields_round_trip_via_save_load(self, tmp_config_dir):
         """Consent flags must survive save → load round trip."""
         from voice_typer.server.config import Config
@@ -65,6 +73,7 @@ class TestConfigDeclaresConsentFlags:
                 "cloud_groq_consent": False,
                 "cloud_deepgram_consent": True,
                 "voice_biometric_consent": True,
+                "media_url_consent": True,
             }
         )
         assert errors == []
@@ -72,6 +81,7 @@ class TestConfigDeclaresConsentFlags:
         assert validated["cloud_openai_consent"] is True
         assert validated["cloud_deepgram_consent"] is True
         assert validated["voice_biometric_consent"] is True
+        assert validated["media_url_consent"] is True
 
     def test_consent_fields_reject_non_bool(self):
         """Consent fields must be bool, non-bool values are rejected."""

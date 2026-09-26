@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 
 def _patch_app_platform_helpers(monkeypatch):
-    """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches."""
+    """Patch the platform helpers that ``LausuApp.__init__`` touches."""
     from voice_typer.server.server_platform import autostart as autostart_mod
 
     monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
@@ -21,9 +21,9 @@ class TestPassiveManagerProperties:
     def test_template_manager_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """Accessing ``app._template_manager`` immediately after"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._template_manager is None, (
             "Passive accessor: _template_manager must be None "
             "immediately after __init__ (no auto-construction on access)."
@@ -32,9 +32,9 @@ class TestPassiveManagerProperties:
     def test_vocabulary_manager_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """Accessing ``app._vocabulary_manager`` immediately after"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._vocabulary_manager is None, (
             "Passive accessor: _vocabulary_manager must be None "
             "immediately after __init__ (no auto-construction on access)."
@@ -43,9 +43,9 @@ class TestPassiveManagerProperties:
     def test_template_manager_setter_round_trip(self, tmp_config_dir, monkeypatch):
         """The setter stores into the backing; a subsequent getter"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         sentinel = MagicMock(name="fake_template_manager")
         instance._template_manager = sentinel
         assert instance._template_manager is sentinel, (
@@ -56,9 +56,9 @@ class TestPassiveManagerProperties:
     def test_vocabulary_manager_setter_round_trip(self, tmp_config_dir, monkeypatch):
         """The setter stores into the backing; a subsequent getter"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         sentinel = MagicMock(name="fake_vocabulary_manager")
         instance._vocabulary_manager = sentinel
         assert instance._vocabulary_manager is sentinel
@@ -73,9 +73,9 @@ class TestAutoConstructingControllerProperties:
     def test_undo_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """``_undo_backing`` must be ``None`` after ``__init__`` —"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._undo_backing is None, (
             "UndoRepasteController must NOT be eagerly constructed in __init__; _undo_backing should start as None."
         )
@@ -83,9 +83,9 @@ class TestAutoConstructingControllerProperties:
     def test_audio_quality_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """``_audio_quality_backing`` must be ``None`` after ``__init__`` —"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._audio_quality_backing is None, (
             "AudioQualityController must NOT be eagerly constructed in "
             "__init__; _audio_quality_backing should start as None."
@@ -94,9 +94,9 @@ class TestAutoConstructingControllerProperties:
     def test_duck_crash_recovery_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """``_duck_crash_recovery_backing`` must be ``None`` after"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._duck_crash_recovery_backing is None, (
             "DuckCrashRecovery must NOT be eagerly constructed in "
             "__init__; _duck_crash_recovery_backing should start as None."
@@ -105,9 +105,9 @@ class TestAutoConstructingControllerProperties:
     def test_volume_ducker_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """``_volume_ducker_backing`` must be ``None`` after ``__init__`` —"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._volume_ducker_backing is None, (
             "VolumeDucker must NOT be eagerly constructed in __init__; _volume_ducker_backing should start as None."
         )
@@ -119,10 +119,10 @@ class TestAutoConstructOnAccess:
     def test_undo_constructs_on_first_access(self, tmp_config_dir, monkeypatch):
         """Accessing ``app.undo`` constructs an UndoRepasteController"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
         from voice_typer.server.app_undo import UndoRepasteController
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._undo_backing is None
         controller = instance.undo
         assert isinstance(controller, UndoRepasteController), (
@@ -137,12 +137,12 @@ class TestAutoConstructOnAccess:
     def test_audio_quality_constructs_on_first_access(self, tmp_config_dir, monkeypatch):
         """AudioQualityController and caches it."""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
         from voice_typer.server.audio_quality_controller import (
             AudioQualityController,
         )
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._audio_quality_backing is None
         controller = instance.audio_quality
         assert isinstance(controller, AudioQualityController), (
@@ -154,10 +154,10 @@ class TestAutoConstructOnAccess:
     def test_duck_crash_recovery_constructs_on_first_access(self, tmp_config_dir, monkeypatch):
         """DuckCrashRecovery and caches it."""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
         from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._duck_crash_recovery_backing is None
         recovery = instance._duck_crash_recovery
         assert isinstance(recovery, DuckCrashRecovery), (
@@ -169,10 +169,10 @@ class TestAutoConstructOnAccess:
     def test_volume_ducker_constructs_on_first_access(self, tmp_config_dir, monkeypatch):
         """Accessing ``app._volume_ducker`` constructs a VolumeDucker"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
         from voice_typer.server.volume_ducker import VolumeDucker
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._volume_ducker_backing is None
         ducker = instance._volume_ducker
         assert isinstance(ducker, VolumeDucker), "First access to app._volume_ducker must construct a VolumeDucker."
@@ -188,9 +188,9 @@ class TestAutoConstructOnAccess:
     def test_setter_bypasses_construction(self, tmp_config_dir, monkeypatch):
         """Assigning via the setter stores directly into the backing —"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         # Each property: assign a sentinel via the setter, then verify
         for attr, backing in (
             ("undo", "_undo_backing"),
@@ -208,7 +208,7 @@ class TestAutoConstructOnAccess:
 
 
 class TestNoEagerConstructionInInit:
-    """``VoiceTyperApp.__init__`` must NOT eagerly construct the four"""
+    """``LausuApp.__init__`` must NOT eagerly construct the four"""
 
     def test_undo_repaste_controller_not_constructed_in_init(self, tmp_config_dir, monkeypatch):
         _patch_app_platform_helpers(monkeypatch)
@@ -222,12 +222,11 @@ class TestNoEagerConstructionInInit:
             return real_cls(*args, **kwargs)
 
         monkeypatch.setattr(app_undo_mod, "UndoRepasteController", _counting_ctor)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        VoiceTyperApp()
+        LausuApp()
         assert construct_count["n"] == 0, (
-            "VoiceTyperApp.__init__ must NOT eagerly construct "
-            f"UndoRepasteController (got {construct_count['n']} call(s))."
+            f"LausuApp.__init__ must NOT eagerly construct UndoRepasteController (got {construct_count['n']} call(s))."
         )
 
     def test_audio_quality_controller_not_constructed_in_init(self, tmp_config_dir, monkeypatch):
@@ -242,12 +241,11 @@ class TestNoEagerConstructionInInit:
             return real_cls(*args, **kwargs)
 
         monkeypatch.setattr(aqc_mod, "AudioQualityController", _counting_ctor)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        VoiceTyperApp()
+        LausuApp()
         assert construct_count["n"] == 0, (
-            "VoiceTyperApp.__init__ must NOT eagerly construct "
-            f"AudioQualityController (got {construct_count['n']} call(s))."
+            f"LausuApp.__init__ must NOT eagerly construct AudioQualityController (got {construct_count['n']} call(s))."
         )
 
     def test_duck_crash_recovery_not_constructed_in_init(self, tmp_config_dir, monkeypatch):
@@ -262,11 +260,11 @@ class TestNoEagerConstructionInInit:
             return real_cls(*args, **kwargs)
 
         monkeypatch.setattr(dcr_mod, "DuckCrashRecovery", _counting_ctor)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        VoiceTyperApp()
+        LausuApp()
         assert construct_count["n"] == 0, (
-            f"VoiceTyperApp.__init__ must NOT eagerly construct DuckCrashRecovery (got {construct_count['n']} call(s))."
+            f"LausuApp.__init__ must NOT eagerly construct DuckCrashRecovery (got {construct_count['n']} call(s))."
         )
 
     def test_volume_ducker_not_constructed_in_init(self, tmp_config_dir, monkeypatch):
@@ -281,9 +279,9 @@ class TestNoEagerConstructionInInit:
             return real_cls(*args, **kwargs)
 
         monkeypatch.setattr(vd_mod, "VolumeDucker", _counting_ctor)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        VoiceTyperApp()
+        LausuApp()
         assert construct_count["n"] == 0, (
-            f"VoiceTyperApp.__init__ must NOT eagerly construct VolumeDucker (got {construct_count['n']} call(s))."
+            f"LausuApp.__init__ must NOT eagerly construct VolumeDucker (got {construct_count['n']} call(s))."
         )

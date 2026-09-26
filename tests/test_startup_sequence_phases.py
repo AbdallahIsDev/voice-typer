@@ -12,15 +12,15 @@ _MIC_LIST = "voice_typer.server.server_platform.microphone_list"
 
 @pytest.fixture
 def app_for_phases(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp suitable for exercising individual phases."""
+    """Create a LausuApp suitable for exercising individual phases."""
     monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
     monkeypatch.setattr(f"{_MIC_LIST}.list_microphones", lambda: [], raising=False)
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
     instance.models.transcriber = MagicMock()

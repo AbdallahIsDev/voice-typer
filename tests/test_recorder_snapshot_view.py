@@ -39,7 +39,7 @@ class TestSnapshotResamplePathReturnsView:
             return fake_resample(audio, effective_sr, target_sr)
 
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
-        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
+        monkeypatch.setattr("voice_typer.server.recording.recording_snapshot.resample_chunk", _route)
 
         r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -74,7 +74,7 @@ class TestSnapshotResamplePathReturnsView:
             return fake_resample(audio, effective_sr, target_sr)
 
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
-        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
+        monkeypatch.setattr("voice_typer.server.recording.recording_snapshot.resample_chunk", _route)
 
         r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
         r.snapshot()  # populate cache
@@ -117,7 +117,7 @@ class TestSnapshotResamplePathReturnsView:
             return fake_resample(audio, effective_sr, target_sr)
 
         r = _make_recorder(sample_rate=16000, effective_sr=48000)
-        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
+        monkeypatch.setattr("voice_typer.server.recording.recording_snapshot.resample_chunk", _route)
 
         r._audio_pipeline._buffer = [np.ones((6, 1), dtype=np.float32)]
         r.snapshot()  # populate cache (call_count → 1)

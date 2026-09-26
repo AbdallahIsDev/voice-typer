@@ -879,24 +879,24 @@ class TestWinBackendPycaw:
         assert foreign in result
 
     def test_get_other_sessions_excludes_voice_typer_names(self, monkeypatch):
-        """PROC-FILTER-FIX: substring match excludes voice_typer / voice-typer / voicetyper."""
+        """PROC-FILTER-FIX: substring match excludes voice_typer / lausu / Lausu."""
         import os
 
         own_pid = os.getpid()
         voice_typer = self._make_session(own_pid + 100, "voice_typer.exe")
-        voice_typer_hyphen = self._make_session(own_pid + 101, "voice-typer.exe")
-        voicetyper_camel = self._make_session(own_pid + 102, "VoiceTyper.exe")
+        voice_typer_hyphen = self._make_session(own_pid + 101, "lausu.exe")
+        lausu_camel = self._make_session(own_pid + 102, "Lausu.exe")
         foreign = self._make_session(own_pid + 103, "chrome.exe")
         self._install_fake_pycaw(
             monkeypatch,
-            sessions=[voice_typer, voice_typer_hyphen, voicetyper_camel, foreign],
+            sessions=[voice_typer, voice_typer_hyphen, lausu_camel, foreign],
         )
         b = WinVolumeBackend()
         b.initialize()
         result = b.get_other_sessions()
         assert voice_typer not in result
         assert voice_typer_hyphen not in result
-        assert voicetyper_camel not in result
+        assert lausu_camel not in result
         assert foreign in result
 
     def test_get_other_sessions_excludes_python_interpreter_names(self, monkeypatch):

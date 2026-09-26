@@ -63,68 +63,68 @@ def _enum_value_side_effect(entries: list[tuple[str, str, int]]):
     return _side_effect
 
 
-class TestUnregisterAllVoiceTyperRunkeys:
-    """the uninstaller helper removes ALL VoiceTyper_* entries"""
+class TestUnregisterAllLausuRunkeys:
+    """the uninstaller helper removes ALL Lausu_* entries"""
 
     def test_empty_run_key_no_deletions(self, fake_winreg, win32_platform):
-        """An empty Run key (no VoiceTyper entries) results in no"""
+        """An empty Run key (no Lausu entries) results in no"""
         from voice_typer.server.server_platform import autostart_windows
 
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([])
 
-        deleted = autostart_windows._unregister_all_voicetyper_runkeys()
+        deleted = autostart_windows._unregister_all_lausu_runkeys()
         assert deleted == []
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_single_voicetyper_entry_deleted(self, fake_winreg, win32_platform):
-        """A single VoiceTyper_<hash> entry is deleted and its name"""
+    def test_single_lausu_entry_deleted(self, fake_winreg, win32_platform):
+        """A single Lausu_<hash> entry is deleted and its name"""
         from voice_typer.server.server_platform import autostart_windows
 
-        name = "VoiceTyper_a1b2c3d4"
-        value = r'"C:\Program Files\VoiceTyper\app.exe" --delay 15'
+        name = "Lausu_a1b2c3d4"
+        value = r'"C:\Program Files\Lausu\app.exe" --delay 15'
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(name, value, fake_winreg.REG_SZ)])
 
-        deleted = autostart_windows._unregister_all_voicetyper_runkeys()
+        deleted = autostart_windows._unregister_all_lausu_runkeys()
         assert deleted == [name]
         fake_winreg.DeleteValue.assert_called_once()
         # DeleteValue(key, name), name is the second positional arg.
         assert fake_winreg.DeleteValue.call_args.args[1] == name
 
-    def test_multiple_voicetyper_entries_all_deleted(self, fake_winreg, win32_platform):
-        """Multiple VoiceTyper entries (different hashes from previous"""
+    def test_multiple_lausu_entries_all_deleted(self, fake_winreg, win32_platform):
+        """Multiple Lausu entries (different hashes from previous"""
         from voice_typer.server.server_platform import autostart_windows
 
         entries = [
-            ("VoiceTyper_aaaaaaaa", r'"C:\path1\app.exe"', fake_winreg.REG_SZ),
-            ("VoiceTyper_bbbbbbbb", r'"C:\path2\app.exe"', fake_winreg.REG_SZ),
-            ("VoiceTyper_cccccccc", r'"C:\path3\app.exe"', fake_winreg.REG_SZ),
+            ("Lausu_aaaaaaaa", r'"C:\path1\app.exe"', fake_winreg.REG_SZ),
+            ("Lausu_bbbbbbbb", r'"C:\path2\app.exe"', fake_winreg.REG_SZ),
+            ("Lausu_cccccccc", r'"C:\path3\app.exe"', fake_winreg.REG_SZ),
         ]
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect(entries)
 
-        deleted = autostart_windows._unregister_all_voicetyper_runkeys()
+        deleted = autostart_windows._unregister_all_lausu_runkeys()
         # All three must be deleted (order preserved from enumeration).
-        assert sorted(deleted) == sorted(["VoiceTyper_aaaaaaaa", "VoiceTyper_bbbbbbbb", "VoiceTyper_cccccccc"])
+        assert sorted(deleted) == sorted(["Lausu_aaaaaaaa", "Lausu_bbbbbbbb", "Lausu_cccccccc"])
         assert fake_winreg.DeleteValue.call_count == 3
 
-    def test_mixed_entries_only_voicetyper_deleted(self, fake_winreg, win32_platform):
-        """When the Run key contains BOTH VoiceTyper entries AND non-"""
+    def test_mixed_entries_only_lausu_deleted(self, fake_winreg, win32_platform):
+        """When the Run key contains BOTH Lausu entries AND non-"""
         from voice_typer.server.server_platform import autostart_windows
 
         entries = [
             ("OneDrive", r'"C:\Program Files\OneDrive\OneDrive.exe" /background', fake_winreg.REG_SZ),
-            ("VoiceTyper_aaaaaaaa", r'"C:\VoiceTyper\app.exe"', fake_winreg.REG_SZ),
+            ("Lausu_aaaaaaaa", r'"C:\Lausu\app.exe"', fake_winreg.REG_SZ),
             ("Discord", r'"C:\AppData\Discord\Discord.exe"', fake_winreg.REG_SZ),
-            ("VoiceTyper_bbbbbbbb", r'"C:\VoiceTyperOld\app.exe"', fake_winreg.REG_SZ),
+            ("Lausu_bbbbbbbb", r'"C:\LausuOld\app.exe"', fake_winreg.REG_SZ),
         ]
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect(entries)
 
-        deleted = autostart_windows._unregister_all_voicetyper_runkeys()
-        # Only the VoiceTyper_* entries should be in the deleted list.
-        assert sorted(deleted) == ["VoiceTyper_aaaaaaaa", "VoiceTyper_bbbbbbbb"]
-        # Exactly two DeleteValue calls (the two VoiceTyper entries).
+        deleted = autostart_windows._unregister_all_lausu_runkeys()
+        # Only the Lausu_* entries should be in the deleted list.
+        assert sorted(deleted) == ["Lausu_aaaaaaaa", "Lausu_bbbbbbbb"]
+        # Exactly two DeleteValue calls (the two Lausu entries).
         assert fake_winreg.DeleteValue.call_count == 2
         deleted_names = {call.args[1] for call in fake_winreg.DeleteValue.call_args_list}
-        assert deleted_names == {"VoiceTyper_aaaaaaaa", "VoiceTyper_bbbbbbbb"}
+        assert deleted_names == {"Lausu_aaaaaaaa", "Lausu_bbbbbbbb"}
 
     def test_no_winreg_returns_empty_list(self, monkeypatch):
         """empty list, no exception raised. This is the production contract:"""
@@ -141,7 +141,7 @@ class TestUnregisterAllVoiceTyperRunkeys:
 
         monkeypatch.setattr(builtins, "__import__", _fake_import)
 
-        deleted = autostart_windows._unregister_all_voicetyper_runkeys()
+        deleted = autostart_windows._unregister_all_lausu_runkeys()
         assert deleted == []
 
     def test_openkey_oserror_returns_empty_list(self, fake_winreg, win32_platform):
@@ -150,7 +150,7 @@ class TestUnregisterAllVoiceTyperRunkeys:
 
         fake_winreg.OpenKey.side_effect = OSError("key not found")
 
-        deleted = autostart_windows._unregister_all_voicetyper_runkeys()
+        deleted = autostart_windows._unregister_all_lausu_runkeys()
         assert deleted == []
         fake_winreg.DeleteValue.assert_not_called()
 
@@ -162,9 +162,9 @@ class TestUnregisterAllVoiceTyperRunkeys:
         from voice_typer.server.server_platform import autostart_windows
 
         entries = [
-            ("VoiceTyper_aaaaaaaa", r'"C:\path1\app.exe"', fake_winreg.REG_SZ),
-            ("VoiceTyper_bbbbbbbb", r'"C:\path2\app.exe"', fake_winreg.REG_SZ),
-            ("VoiceTyper_cccccccc", r'"C:\path3\app.exe"', fake_winreg.REG_SZ),
+            ("Lausu_aaaaaaaa", r'"C:\path1\app.exe"', fake_winreg.REG_SZ),
+            ("Lausu_bbbbbbbb", r'"C:\path2\app.exe"', fake_winreg.REG_SZ),
+            ("Lausu_cccccccc", r'"C:\path3\app.exe"', fake_winreg.REG_SZ),
         ]
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect(entries)
         # Make DeleteValue fail ONLY for the second entry (by call count).
@@ -177,11 +177,11 @@ class TestUnregisterAllVoiceTyperRunkeys:
 
         fake_winreg.DeleteValue.side_effect = _delete_side_effect
 
-        deleted = autostart_windows._unregister_all_voicetyper_runkeys()
+        deleted = autostart_windows._unregister_all_lausu_runkeys()
         # The second entry should be MISSING from the deleted list
-        assert "VoiceTyper_aaaaaaaa" in deleted
-        assert "VoiceTyper_bbbbbbbb" not in deleted
-        assert "VoiceTyper_cccccccc" in deleted
+        assert "Lausu_aaaaaaaa" in deleted
+        assert "Lausu_bbbbbbbb" not in deleted
+        assert "Lausu_cccccccc" in deleted
         # All three DeleteValue calls were attempted.
         assert fake_winreg.DeleteValue.call_count == 3
 
@@ -190,11 +190,11 @@ class TestUnregisterAllVoiceTyperRunkeys:
         from voice_typer.server.server_platform import autostart_windows
 
         # Simulate: one entry, then OSError to end enumeration.
-        entries = [("VoiceTyper_aaaaaaaa", r'"C:\path\app.exe"', fake_winreg.REG_SZ)]
+        entries = [("Lausu_aaaaaaaa", r'"C:\path\app.exe"', fake_winreg.REG_SZ)]
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect(entries)
 
-        deleted = autostart_windows._unregister_all_voicetyper_runkeys()
-        assert deleted == ["VoiceTyper_aaaaaaaa"]
+        deleted = autostart_windows._unregister_all_lausu_runkeys()
+        assert deleted == ["Lausu_aaaaaaaa"]
         # Verify the loop actually terminated (didn't infinite-loop) —
         assert fake_winreg.EnumValue.call_count <= 2
 
@@ -204,11 +204,11 @@ class TestUnregisterAllVoiceTyperRunkeys:
 
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([])
 
-        autostart_windows._unregister_all_voicetyper_runkeys()
+        autostart_windows._unregister_all_lausu_runkeys()
         fake_winreg.CloseKey.assert_called_once()
 
 
-class TestUnregisterAllVoiceTyperTasks:
+class TestUnregisterAllLausuTasks:
     """the Task Scheduler sweep uses PowerShell because"""
 
     def test_no_task_scheduler_returns_empty_list(self, monkeypatch):
@@ -223,7 +223,7 @@ class TestUnregisterAllVoiceTyperTasks:
         # ALSO pin the package attribute: `from voice_typer.server import
         monkeypatch.setattr(server_pkg, "task_scheduler", fake_task_scheduler, raising=False)
 
-        deleted = autostart_windows._unregister_all_voicetyper_tasks()
+        deleted = autostart_windows._unregister_all_lausu_tasks()
         assert deleted == []
 
     def test_powershell_success_returns_task_names(self, monkeypatch, fake_winreg, win32_platform):
@@ -241,10 +241,7 @@ class TestUnregisterAllVoiceTyperTasks:
         fake_result = MagicMock()
         fake_result.returncode = 0
         fake_result.stdout = (
-            "VoiceTyperAutostart_aaaaaaaa\n"
-            "VoiceTyperAutostart_bbbbbbbb\n"
-            "com.voicetyper.prewarm\n"
-            "com.voicetyper.autostart_cccccccc\n"
+            "LausuAutostart_aaaaaaaa\nLausuAutostart_bbbbbbbb\ncom.Lausu.prewarm\ncom.Lausu.autostart_cccccccc\n"
         )
         fake_result.stderr = ""
         monkeypatch.setattr(
@@ -252,12 +249,12 @@ class TestUnregisterAllVoiceTyperTasks:
             MagicMock(return_value=fake_result),
         )
 
-        deleted = autostart_windows._unregister_all_voicetyper_tasks()
+        deleted = autostart_windows._unregister_all_lausu_tasks()
         assert sorted(deleted) == [
-            "VoiceTyperAutostart_aaaaaaaa",
-            "VoiceTyperAutostart_bbbbbbbb",
-            "com.voicetyper.autostart_cccccccc",
-            "com.voicetyper.prewarm",
+            "LausuAutostart_aaaaaaaa",
+            "LausuAutostart_bbbbbbbb",
+            "com.Lausu.autostart_cccccccc",
+            "com.Lausu.prewarm",
         ]
 
     def test_powershell_failure_returns_empty_list(self, monkeypatch, fake_winreg, win32_platform):
@@ -277,7 +274,7 @@ class TestUnregisterAllVoiceTyperTasks:
             MagicMock(return_value=fake_result),
         )
 
-        deleted = autostart_windows._unregister_all_voicetyper_tasks()
+        deleted = autostart_windows._unregister_all_lausu_tasks()
         assert deleted == []
 
     def test_subprocess_oserror_returns_empty_list(self, monkeypatch, fake_winreg, win32_platform):
@@ -293,7 +290,7 @@ class TestUnregisterAllVoiceTyperTasks:
 
         monkeypatch.setattr("subprocess.run", _raise)
 
-        deleted = autostart_windows._unregister_all_voicetyper_tasks()
+        deleted = autostart_windows._unregister_all_lausu_tasks()
         assert deleted == []
 
 
@@ -307,12 +304,12 @@ class TestUninstallPermissionsScript:
 
         monkeypatch.setattr(
             autostart_windows,
-            "_unregister_all_voicetyper_runkeys",
+            "_unregister_all_lausu_runkeys",
             lambda: [],
         )
         monkeypatch.setattr(
             autostart_windows,
-            "_unregister_all_voicetyper_tasks",
+            "_unregister_all_lausu_tasks",
             lambda: [],
         )
 
@@ -362,12 +359,12 @@ class TestUninstallPermissionsScript:
 
         monkeypatch.setattr(
             autostart_windows,
-            "_unregister_all_voicetyper_runkeys",
+            "_unregister_all_lausu_runkeys",
             lambda: [],
         )
         monkeypatch.setattr(
             autostart_windows,
-            "_unregister_all_voicetyper_tasks",
+            "_unregister_all_lausu_tasks",
             lambda: [],
         )
 
@@ -396,12 +393,12 @@ class TestUninstallPermissionsScript:
 
         monkeypatch.setattr(
             autostart_windows,
-            "_unregister_all_voicetyper_runkeys",
+            "_unregister_all_lausu_runkeys",
             lambda: [],
         )
         monkeypatch.setattr(
             autostart_windows,
-            "_unregister_all_voicetyper_tasks",
+            "_unregister_all_lausu_tasks",
             lambda: [],
         )
 

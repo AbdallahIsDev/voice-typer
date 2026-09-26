@@ -251,7 +251,7 @@ class TestPublicEnvVarNamesNotRedacted:
             ),
             (
                 "[ENV] Sensitive env var HUGGING_FACE_HUB_TOKEN was set in the "
-                "parent shell, Voice Typer does not read it from env.",
+                "parent shell, Lausu does not read it from env.",
                 "HUGGING_FACE_HUB_TOKEN",
             ),
             (
@@ -434,23 +434,23 @@ class TestRedactHomePath:
         return "~" + os.sep + os.sep.join(parts)
 
     def test_replaces_posix_home_prefix(self, monkeypatch):
-        """A POSIX home path ``/home/alice/.voice-typer/...`` becomes"""
+        """A POSIX home path ``/home/alice/.lausu/...`` becomes"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
-        out = _redact_home_path("/home/alice/.voice-typer/.prewarm-sentinel")
-        assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
+        out = _redact_home_path("/home/alice/.lausu/.prewarm-sentinel")
+        assert out == self._expect_home_prefix(".lausu", ".prewarm-sentinel"), out
 
     def test_replaces_macos_home_prefix(self, monkeypatch):
         """A macOS home path ``/Users/alice/...`` becomes ``~/...``."""
         monkeypatch.setattr("os.path.expanduser", lambda p: "/Users/alice" if p == "~" else p)
-        out = _redact_home_path("/Users/alice/.voice-typer/diagnostics.zip")
-        assert out == self._expect_home_prefix(".voice-typer", "diagnostics.zip"), out
+        out = _redact_home_path("/Users/alice/.lausu/diagnostics.zip")
+        assert out == self._expect_home_prefix(".lausu", "diagnostics.zip"), out
 
     def test_replaces_windows_home_prefix(self, monkeypatch):
         """A Windows home path ``C:\\Users\\alice\\...`` becomes"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "C:\\Users\\alice" if p == "~" else p)
         monkeypatch.setattr("os.name", "nt", raising=False)
         # ``os.path.normpath`` on POSIX collapses backslashes inside
-        out = _redact_home_path("C:\\Users\\alice\\.voice-typer\\diagnostics.zip")
+        out = _redact_home_path("C:\\Users\\alice\\.lausu\\diagnostics.zip")
         assert out.startswith("~"), out
         assert "alice" not in out, f"username leaked: {out!r}"
 
@@ -471,20 +471,20 @@ class TestRedactHomePath:
         from pathlib import Path
 
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
-        out = _redact_home_path(Path("/home/alice/.voice-typer/.prewarm-sentinel"))
-        assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
+        out = _redact_home_path(Path("/home/alice/.lausu/.prewarm-sentinel"))
+        assert out == self._expect_home_prefix(".lausu", ".prewarm-sentinel"), out
 
     def test_empty_home_returns_path_unchanged(self, monkeypatch):
         """If ``os.path.expanduser('~')`` returns ``'~'`` (cannot"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "~")
-        out = _redact_home_path("/home/alice/.voice-typer")
-        assert out == "/home/alice/.voice-typer"
+        out = _redact_home_path("/home/alice/.lausu")
+        assert out == "/home/alice/.lausu"
 
     def test_trailing_slash_in_home_handled(self, monkeypatch):
         """If the home dir has a trailing slash (some platforms add"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice/" if p == "~" else p)
-        out = _redact_home_path("/home/alice/.voice-typer/.prewarm-sentinel")
-        assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
+        out = _redact_home_path("/home/alice/.lausu/.prewarm-sentinel")
+        assert out == self._expect_home_prefix(".lausu", ".prewarm-sentinel"), out
 
 
 class TestRedactForExport:

@@ -164,7 +164,7 @@ class TestPathVars:
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_valid_path_preserved(self, monkeypatch, var):
         # the SEC-HFHOME-001 pattern). A path like ``/home/user/...`` is
-        safe_path = str(Path.home() / ".config" / "voice-typer")
+        safe_path = str(Path.home() / ".config" / "lausu")
         monkeypatch.setenv(var, safe_path)
         _validate_env_vars()
         assert os.environ.get(var) == safe_path
@@ -178,7 +178,7 @@ class TestPathVars:
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_whitespace_path_preserved(self, monkeypatch, var):
-        safe_path = str(Path.home() / "voice typer   ")
+        safe_path = str(Path.home() / "Lausu   ")
         monkeypatch.setenv(var, safe_path)
         _validate_env_vars()
         assert os.environ.get(var) == safe_path
@@ -186,7 +186,7 @@ class TestPathVars:
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_unicode_path_preserved(self, monkeypatch, var):
         # Non-ASCII chars are allowed (only NUL is forbidden).
-        safe_path = str(Path.home() / "配置" / "voice-typer")
+        safe_path = str(Path.home() / "配置" / "lausu")
         monkeypatch.setenv(var, safe_path)
         _validate_env_vars()
         assert os.environ.get(var) == safe_path
@@ -214,8 +214,8 @@ class TestAllVarsSet:
     """End-to-end: every validated var present and valid, all preserved."""
 
     def test_all_valid_all_preserved(self, monkeypatch):
-        # ``/tmp/voice-typer`` is outside ``Path.home()`` so it
-        safe_path = str(Path.home() / ".voice-typer-test")
+        # ``/tmp/lausu`` is outside ``Path.home()`` so it
+        safe_path = str(Path.home() / ".lausu-test")
         for var in _BOOL_VARS:
             monkeypatch.setenv(var, "1")
         for var in _TOKEN_VARS:
@@ -334,7 +334,7 @@ class TestGt63EnvVarValuesRedacted:
         )
 
     def test_invalid_config_dir_value_redacted(self, monkeypatch, caplog):
-        secret_path = "/Users/jane.doe/.config/voice-typer" + "x" * 5000
+        secret_path = "/Users/jane.doe/.config/lausu" + "x" * 5000
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", secret_path)
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()

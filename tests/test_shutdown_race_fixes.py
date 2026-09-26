@@ -30,7 +30,7 @@ def _stub_os_exit(monkeypatch):
 
 
 class _FakeApp:
-    """Minimal duck-typed stand-in for ``VoiceTyperApp``."""
+    """Minimal duck-typed stand-in for ``LausuApp``."""
 
     def __init__(self) -> None:
         self._shutting_down = False
@@ -74,7 +74,7 @@ def fake_app(monkeypatch):
     fake_app_module._close_devnull_files = MagicMock()
     fake_app_module._register_devnull_file = MagicMock()
     monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False)
-    fake_app_module._config_dir = lambda: "/tmp/voice-typer-test-race-fixes"
+    fake_app_module._config_dir = lambda: "/tmp/lausu-test-race-fixes"
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
     # The PID-file teardown resolves ``_clear_backend_pid_file`` through

@@ -16,14 +16,14 @@ class TestSetMutationLockWiredInInit:
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
         assert hasattr(app, "_config_mutation_lock"), (
-            "VoiceTyperApp.__init__ must create self._config_mutation_lock (threading.RLock): see app.py:416."
+            "LausuApp.__init__ must create self._config_mutation_lock (threading.RLock): see app.py:416."
         )
         assert isinstance(app._config_mutation_lock, type(threading.RLock())), (
             f"app._config_mutation_lock must be a threading.RLock instance, got {type(app._config_mutation_lock)!r}."
         )
         assert app.config._mutation_lock is app._config_mutation_lock, (
             "SI-2 regression: app.config._mutation_lock is NOT "
-            "app._config_mutation_lock. VoiceTyperApp.__init__ must call "
+            "app._config_mutation_lock. LausuApp.__init__ must call "
             "self.config.set_mutation_lock(self._config_mutation_lock) "
             "AFTER both self.config and self._config_mutation_lock are "
             "set. Without this wiring, Config.save() skips the in-process "
@@ -129,7 +129,7 @@ class TestSetMutationLockRewiredAfterReload:
         )
 
     def test_reload_does_not_share_lock_across_apps(self, tmp_config_dir, monkeypatch):
-        """Two VoiceTyperApp instances must NOT share a mutation lock."""
+        """Two LausuApp instances must NOT share a mutation lock."""
         app1 = make_voice_typer_app(tmp_config_dir, monkeypatch)
         # Wipe config.json so app2's Config.load() starts clean
         config_path = tmp_config_dir / "config.json"
@@ -142,7 +142,7 @@ class TestSetMutationLockRewiredAfterReload:
         assert app1.config._mutation_lock is app1._config_mutation_lock
         assert app2.config._mutation_lock is app2._config_mutation_lock
         assert app1.config._mutation_lock is not app2.config._mutation_lock, (
-            "SI-2: two VoiceTyperApp instances must not share a mutation "
+            "SI-2: two LausuApp instances must not share a mutation "
             "lock, set_mutation_lock stores the reference per-Config-instance "
             "(config.py:1107 uses self.__dict__ so the ClassVar is shadowed "
             "per-instance). A shared class-level lock would serialize "
@@ -170,14 +170,14 @@ class TestWiringOrderMatters:
 
         assert len(recorded) >= 1, (
             "SI-2: Config.set_mutation_lock was never called during "
-            "VoiceTyperApp.__init__. The wiring call "
+            "LausuApp.__init__. The wiring call "
             "`self.config.set_mutation_lock(self._config_mutation_lock)` "
             "is missing from app.py."
         )
         # The lock passed was NOT None (would clear the lock, opposite
         assert recorded[0] is not None, (
             "SI-2: Config.set_mutation_lock was called with None during "
-            "VoiceTyperApp.__init__, this CLEARS the lock (the opposite "
+            "LausuApp.__init__, this CLEARS the lock (the opposite "
             "of the fix). The wiring must run AFTER "
             "self._config_mutation_lock = threading.RLock() so a real "
             "RLock reference is passed, not None."

@@ -12,6 +12,11 @@ from voice_typer.server.cloud import _defaults, _retry, _transport
 from voice_typer.server.cloud._providers import deepgram as deepgram_provider, openai as openai_provider
 
 
+@pytest.fixture(autouse=True)
+def _accept_mock_http_peer(accept_mock_http_peer):
+    """Mocked responses expose a MagicMock socket peer (see the conftest fixture)."""
+
+
 class TestReadCappedLeaf:
     def test_streams_chunks_until_eof(self):
         resp = MagicMock()

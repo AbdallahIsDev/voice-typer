@@ -149,7 +149,7 @@ class _FakeModels:
 
 
 class _FakeApp:
-    """Minimal ``VoiceTyperApp`` look-alike for ``_teardown_asr_models``."""
+    """Minimal ``LausuApp`` look-alike for ``_teardown_asr_models``."""
 
     def __init__(self) -> None:
         self.models = _FakeModels()

@@ -72,7 +72,7 @@ class TestNoRawTranscriptionTextInLogCalls:
             "XZ-LOG-12: the dictation_pipeline package contains log.<level>(...) calls "
             "that interpolate a raw transcription-text variable as a format "
             "argument. This leaks the user's dictated content into "
-            "voice-typer.log. Wrap the variable with `redact_pii(...)`, "
+            "lausu.log. Wrap the variable with `redact_pii(...)`, "
             "log only `len(text)` / a SHA-256 prefix, or omit it. "
             "Offenders:\n  " + "\n  ".join(offenders)
         )

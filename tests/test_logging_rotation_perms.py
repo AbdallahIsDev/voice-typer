@@ -106,9 +106,9 @@ def test_truncate_in_place_keeps_mode_0o600(tmp_path, monkeypatch):
     )
 
     # Single-file policy: NO numbered backup may exist.
-    backup = vt_log.get_logs_dir(tmp_path) / "voice-typer.log.1"
+    backup = vt_log.get_logs_dir(tmp_path) / "lausu.log.1"
     assert not backup.exists(), (
-        "single-file policy: voice-typer.log.1 must NOT be created, the log "
+        "single-file policy: lausu.log.1 must NOT be created, the log "
         "truncates in place instead of rotating to numbered backups"
     )
     vt_log.reset()
@@ -249,6 +249,8 @@ def test_do_rollover_chmod_runs_inside_lock(tmp_path, monkeypatch):
 
     record = logging.LogRecord("vt", logging.INFO, __file__, 1, "x" * 128, None, None)
     handler.emit(record)
+    # Drop the setup emit's own lock release: only the rollover below counts.
+    call_order.clear()
     handler.doRollover()
     handler.close()
 

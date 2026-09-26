@@ -297,7 +297,7 @@ class TestApplyStateStopRaceNoTornDownIconWrite:
                     tray._icon = _FakeIcon(
                         menu=_FakeMenu(lambda: ()),
                         icon=MagicMock(),
-                        title="Voice Typer",
+                        title="Lausu",
                     )
                     tray._last_applied_state = None
             except Exception as e:  # noqa: BLE001

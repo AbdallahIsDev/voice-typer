@@ -84,7 +84,7 @@ class TestGt14CriticalLevel:
         assert "[FATAL]" not in msg
         assert "wrote to" in msg
         # The fallback file must actually have been written.
-        assert (tmp_path / "voice-typer-startup-error.log").exists()
+        assert (tmp_path / "lausu-startup-error.log").exists()
 
     def test_all_fallbacks_fail_logs_at_critical(
         self, diag_dir: Path, tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture
@@ -176,9 +176,9 @@ class TestStderrRedaction:
         assert call_count["n"] >= 2, (
             f"expected redact_for_export to be called ≥2 times (primary write + stderr fallback); got {call_count['n']}"
         )
-        assert any("Voice Typer startup failed at" in p for p in captured_payloads), (
+        assert any("Lausu startup failed at" in p for p in captured_payloads), (
             "expected at least one redact_for_export call to receive the "
-            "diagnostic payload (with the 'Voice Typer startup failed at' "
+            "diagnostic payload (with the 'Lausu startup failed at' "
             f"header); captured payloads: {captured_payloads!r}"
         )
 
@@ -207,7 +207,7 @@ class TestStderrRedaction:
         captured = capsys.readouterr()
         stderr_text = captured.err
         # The traceback header survives, proves the print path fired.
-        assert "Voice Typer startup failed at" in stderr_text
+        assert "Lausu startup failed at" in stderr_text
         # The secret must NOT survive.
         assert secret_key not in stderr_text, (
             f"GT-B1-5 regression: raw secret leaked to stderr; stderr was:\n{stderr_text}"
@@ -260,7 +260,7 @@ class TestStderrRedaction:
             f"expected redact_for_export to be called >=3 times (argv + "
             f"primary write + stderr fallback); got {call_state['n']}"
         )
-        assert "Voice Typer startup failed at" not in stderr_text, (
+        assert "Lausu startup failed at" not in stderr_text, (
             f"regression: raw buf content leaked to stderr when redact_for_export raised; stderr was:\n{stderr_text}"
         )
         # The traceback content of the caller-passed exception must
@@ -367,7 +367,7 @@ class TestHeaderPreservation:
             write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
         assert written_payloads, "primary write did not capture any payload"
-        assert "Voice Typer startup failed at" in written_payloads[0]
+        assert "Lausu startup failed at" in written_payloads[0]
         assert "sys.executable:" in written_payloads[0]
         assert "sys.argv:" in written_payloads[0]
 
@@ -439,7 +439,7 @@ class TestPi12TmpFallbackOverwrite:
             # Second crash dump, must NOT raise. Pre-, this would
             write_startup_diagnostic("construction", exc=RuntimeError("second crash"))
 
-        tmp_file = tmp_path / "voice-typer-startup-error.log"
+        tmp_file = tmp_path / "lausu-startup-error.log"
         # The fallback file must still exist (not deleted by the second
         assert tmp_file.exists(), (
             "PI-12 regression: the /tmp fallback file should still exist after the second consecutive crash dump"

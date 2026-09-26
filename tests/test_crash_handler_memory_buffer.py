@@ -47,7 +47,7 @@ class TestMemoryBufferInstallation:
 
     def test_target_file_is_voice_typer_crash_buffer_log(self, tmp_path: Path):
         install_memory_buffer(tmp_path)
-        assert _ch._crash_buffer_handler.baseFilename == str(tmp_path / "logs" / "voice-typer-crash-buffer.log")
+        assert _ch._crash_buffer_handler.baseFilename == str(tmp_path / "logs" / "lausu-crash-buffer.log")
 
     def test_install_is_idempotent(self, tmp_path: Path):
         """Calling ``install_memory_buffer`` twice with the same"""
@@ -79,7 +79,7 @@ class TestMemoryBufferInstallation:
     def test_delay_true_prevents_file_on_clean_startup(self, tmp_path: Path):
         """file is NOT created on a clean startup, only when a crash"""
         install_memory_buffer(tmp_path)
-        buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
+        buffer_path = tmp_path / "logs" / "lausu-crash-buffer.log"
         assert not buffer_path.exists(), (
             "crash-buffer file must NOT be created on install (delay=True keeps it absent until the first crash flush)"
         )
@@ -109,7 +109,7 @@ class TestMemoryBufferFlush:
         flush_memory_handler()
         if _ch._crash_buffer_handler is not None:
             _ch._crash_buffer_handler.flush()
-        buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
+        buffer_path = tmp_path / "logs" / "lausu-crash-buffer.log"
         assert buffer_path.exists(), "crash-buffer log file must exist after flush"
         contents = buffer_path.read_text(encoding="utf-8", errors="replace")
         assert "crash-buffer test message A" in contents
@@ -118,7 +118,7 @@ class TestMemoryBufferFlush:
     def test_records_are_not_written_until_explicit_flush(self, tmp_path: Path):
         """The crash buffer is a RING buffer for the VEH callback, it"""
         install_memory_buffer(tmp_path)
-        buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
+        buffer_path = tmp_path / "logs" / "lausu-crash-buffer.log"
 
         test_log = logging.getLogger("voice_typer.test.crash_buffer")
         # auto-flush at 200; our override must NOT.
@@ -128,7 +128,7 @@ class TestMemoryBufferFlush:
             _ch._crash_buffer_handler.flush()
 
         assert not buffer_path.exists() or buffer_path.read_text(encoding="utf-8", errors="replace").strip() == "", (
-            "crash buffer must NOT write records to disk before explicit flush (it would duplicate voice-typer.log)"
+            "crash buffer must NOT write records to disk before explicit flush (it would duplicate lausu.log)"
         )
 
         # Explicit flush (the VEH callback) writes the buffered tail.
@@ -148,7 +148,7 @@ class TestMemoryBufferFlush:
     def test_close_discards_buffer_without_flushing(self, tmp_path: Path):
         """On clean shutdown the logging framework calls"""
         install_memory_buffer(tmp_path)
-        buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
+        buffer_path = tmp_path / "logs" / "lausu-crash-buffer.log"
 
         test_log = logging.getLogger("voice_typer.test.crash_buffer")
         for i in range(50):

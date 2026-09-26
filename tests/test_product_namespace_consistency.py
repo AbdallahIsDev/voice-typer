@@ -14,26 +14,22 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # The canonical root: every product namespace must start with this.
-CANONICAL_ROOT = "com.voicetyper"
+CANONICAL_ROOT = "com.Lausu"
 
 _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
     # Uninstaller/installer script (both copies), the explicit legacy
-    "scripts/linux/install_permissions.py": frozenset({"org.voice-typer.policy", "org.voice-typer.*"}),
-    "src-tauri/resources/linux-scripts/install_permissions.py": frozenset(
-        {"org.voice-typer.policy", "org.voice-typer.*"}
-    ),
+    "scripts/linux/install_permissions.py": frozenset({"org.lausu.policy", "org.lausu.*"}),
+    "src-tauri/resources/linux-scripts/install_permissions.py": frozenset({"org.lausu.policy", "org.lausu.*"}),
     # Tests pinning that cleanup.
-    "tests/test_install_permissions_polkit_stable.py": frozenset({"org.voice-typer.policy"}),
+    "tests/test_install_permissions_polkit_stable.py": frozenset({"org.lausu.policy"}),
     # to be meaningful.
-    "scripts/linux/voice-typer.polkit": frozenset({"org.voice-typer.policy", "org.voice-typer.install-permissions"}),
-    "src-tauri/resources/linux-scripts/voice-typer.polkit": frozenset(
-        {"org.voice-typer.policy", "org.voice-typer.install-permissions"}
-    ),
-    "voice_typer/server/credential_store/_schema.py": frozenset({"app.voicetyper"}),
-    "voice_typer/server/credential_store/_migration.py": frozenset({"app.voicetyper"}),
-    "docs/security/credential-store.md": frozenset({"app.voicetyper"}),
+    "scripts/linux/lausu.polkit": frozenset({"org.lausu.policy", "org.lausu.install-permissions"}),
+    "src-tauri/resources/linux-scripts/lausu.polkit": frozenset({"org.lausu.policy", "org.lausu.install-permissions"}),
+    "voice_typer/server/credential_store/_schema.py": frozenset({"app.Lausu"}),
+    "voice_typer/server/credential_store/_migration.py": frozenset({"app.Lausu"}),
+    "docs/security/credential-store.md": frozenset({"app.Lausu"}),
     # The drift-guard test module pins the credential_store legacy
-    "tests/tauri/test_config_script_drift.py": frozenset({"app.voicetyper"}),
+    "tests/tauri/test_config_script_drift.py": frozenset({"app.Lausu"}),
 }
 
 # This test module itself: its docstring defines the exact banned
@@ -50,7 +46,7 @@ _SESSION_LOG_FILES = frozenset(
 _RDNN_RE = re.compile(
     r"(?<![A-Za-z0-9_.-])"  # token boundary (not mid-identifier / after a dot)
     r"((?:com|org|io|net|dev|app|me|co|uk|us|xyz|ai|tech|so|cc|tv)\."
-    r"(?:voicetyper|voice-typer|voice_typer)"
+    r"(?:Lausu|lausu|voice_typer)"
     r"(?:\.[A-Za-z0-9_*-]+)?)"  # optional rest of token (e.g. .desktop, .policy, .*)
 )
 
@@ -81,10 +77,10 @@ def _tracked_text_files() -> list[Path]:
 
 
 class TestProductNamespaceConsistency:
-    """No non-``com.voicetyper.*`` product namespace anywhere in the repo."""
+    """No non-``com.Lausu.*`` product namespace anywhere in the repo."""
 
     def test_no_legacy_or_wrong_product_namespaces(self):
-        """Every reverse-DNS token in the voicetyper family is canonical"""
+        """Every reverse-DNS token in the Lausu family is canonical"""
         violations: list[tuple[str, int, str]] = []
         for path in _tracked_text_files():
             rel = path.relative_to(_REPO_ROOT).as_posix()
@@ -109,7 +105,7 @@ class TestProductNamespaceConsistency:
             f"root is '{CANONICAL_ROOT}.*' (tauri.conf.json identifier, "
             "polkit action, macOS LaunchAgents, "
             "keyring service name).\n" + "\n".join(f"  {rel}:{line}: {token}" for rel, line, token in violations) + "\n"
-            "Fix: rename the token to the canonical com.voicetyper.* root (or, only "
+            "Fix: rename the token to the canonical com.Lausu.* root (or, only "
             "for the legacy polkit artifacts the installer/uninstaller explicitly "
             "cleans up, extend the per-file scope in "
             "tests/test_product_namespace_consistency.py::_LEGACY_TOKEN_ALLOWLIST "

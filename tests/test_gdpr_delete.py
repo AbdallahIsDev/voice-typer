@@ -11,15 +11,15 @@ import pytest
 
 
 def _build_service(tmp_path: Path):
-    """Build a real VoiceTyperService backed by a tmp config dir."""
+    """Build a real LausuService backed by a tmp config dir."""
     from voice_typer.server import config as cfg_mod
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
     app = MagicMock()
     app.config.huggingface_consent = True
     app.config.qwen_model_path = None
     app.tray.notify = MagicMock()
-    svc = VoiceTyperService(app)
+    svc = LausuService(app)
 
     # Redirect config_dir lookups to tmp_path.
     import pytest as _pt  # local alias
@@ -61,8 +61,8 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     )
     artifacts["config.json"] = cfg_path
 
-    # 4. voice-typer-corrections.json
-    corr_path = tmp_path / "voice-typer-corrections.json"
+    # 4. lausu-corrections.json
+    corr_path = tmp_path / "lausu-corrections.json"
     corr_path.write_text(json.dumps({"recieve": "receive"}))
     artifacts["corrections.json"] = corr_path
 
@@ -81,18 +81,18 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     mic_test_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
     artifacts["mic-test.wav"] = mic_test_path
 
-    # 8. voice-typer.log (active log file)
-    log_path = tmp_path / "voice-typer.log"
+    # 8. lausu.log (active log file)
+    log_path = tmp_path / "lausu.log"
     log_path.write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
-    artifacts["voice-typer.log"] = log_path
+    artifacts["lausu.log"] = log_path
 
-    # 8b. : voice-typer.log.{1,2}, rotated backups produced by
-    log1_path = tmp_path / "voice-typer.log.1"
+    # 8b. : lausu.log.{1,2}, rotated backups produced by
+    log1_path = tmp_path / "lausu.log.1"
     log1_path.write_text("2024-01-01 11:00:00 DEBUG transcript='rotated secret 1'\n")
-    artifacts["voice-typer.log.1"] = log1_path
-    log2_path = tmp_path / "voice-typer.log.2"
+    artifacts["lausu.log.1"] = log1_path
+    log2_path = tmp_path / "lausu.log.2"
     log2_path.write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
-    artifacts["voice-typer.log.2"] = log2_path
+    artifacts["lausu.log.2"] = log2_path
 
     # 9. : real crash files, crash_diagnostics.<PID>.txt
     _pid = os.getpid()
@@ -115,12 +115,12 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     # 11. : Rust host logs/ subdirectory (written by
     rust_logs_dir = tmp_path / "logs"
     rust_logs_dir.mkdir(parents=True, exist_ok=True)
-    rust_log_path = rust_logs_dir / "voice-typer.log"
+    rust_log_path = rust_logs_dir / "lausu.log"
     rust_log_path.write_text("2024-01-01 12:00:00 INFO [rust] transcript='secret from rust'\n")
-    artifacts["logs/voice-typer.log"] = rust_log_path
-    rust_log1_path = rust_logs_dir / "voice-typer.log.1"
+    artifacts["logs/lausu.log"] = rust_log_path
+    rust_log1_path = rust_logs_dir / "lausu.log.1"
     rust_log1_path.write_text("2024-01-01 11:00:00 INFO [rust] rotated secret\n")
-    artifacts["logs/voice-typer.log.1"] = rust_log1_path
+    artifacts["logs/lausu.log.1"] = rust_log1_path
 
     return artifacts
 
@@ -144,11 +144,11 @@ def _seed_model_artifacts(tmp_path: Path) -> dict[str, Path]:
 
 
 def test_delete_all_personal_data_method_exists() -> None:
-    """``VoiceTyperService.delete_all_personal_data`` must exist."""
-    from voice_typer.server.service import VoiceTyperService
+    """``LausuService.delete_all_personal_data`` must exist."""
+    from voice_typer.server.service import LausuService
 
-    assert hasattr(VoiceTyperService, "delete_all_personal_data"), (
-        "VoiceTyperService must define delete_all_personal_data: see CR-87 / Fix-D."
+    assert hasattr(LausuService, "delete_all_personal_data"), (
+        "LausuService must define delete_all_personal_data: see CR-87 / Fix-D."
     )
 
 
@@ -211,7 +211,7 @@ def test_delete_all_personal_data_erases_config_json(tmp_path) -> None:
 
 
 def test_delete_all_personal_data_erases_corrections(tmp_path) -> None:
-    """voice-typer-corrections.json must be deleted."""
+    """lausu-corrections.json must be deleted."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "delete_all_personal_data"):
@@ -266,39 +266,39 @@ def test_delete_all_personal_data_erases_mic_test_recordings(tmp_path) -> None:
 
 
 def test_delete_all_personal_data_truncates_log(tmp_path) -> None:
-    """voice-typer.log must be deleted or truncated."""
+    """lausu.log must be deleted or truncated."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "delete_all_personal_data"):
             pytest.skip("Fix-D not yet landed")
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
-        log_path = artifacts["voice-typer.log"]
+        log_path = artifacts["lausu.log"]
         if log_path.exists():
-            assert log_path.stat().st_size == 0, "voice-typer.log still has content after GDPR delete"
+            assert log_path.stat().st_size == 0, "lausu.log still has content after GDPR delete"
     finally:
         mp.undo()
 
 
 def test_delete_all_personal_data_erases_rotated_log_backups(tmp_path) -> None:
-    """PI-4: voice-typer.log.{1,2} rotated backups must be unlinked."""
+    """PI-4: lausu.log.{1,2} rotated backups must be unlinked."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "delete_all_personal_data"):
             pytest.skip("Fix-D not yet landed")
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
-        assert not artifacts["voice-typer.log.1"].exists(), (
-            "voice-typer.log.1 (rotated backup) must be deleted, may contain "
+        assert not artifacts["lausu.log.1"].exists(), (
+            "lausu.log.1 (rotated backup) must be deleted, may contain "
             "user-spoken text per XZ-PII-01/XZ-PRIV-04 (PI-4)."
         )
-        assert not artifacts["voice-typer.log.2"].exists(), (
-            "voice-typer.log.2 (rotated backup) must be deleted, may contain "
+        assert not artifacts["lausu.log.2"].exists(), (
+            "lausu.log.2 (rotated backup) must be deleted, may contain "
             "user-spoken text per XZ-PII-01/XZ-PRIV-04 (PI-4)."
         )
-        # ALL voice-typer.log.* files should be gone, not just .1 and .2.
-        remaining = list(tmp_path.glob("voice-typer.log.*"))
-        assert remaining == [], f"voice-typer.log.* rotated backups still present after GDPR delete: {remaining}"
+        # ALL lausu.log.* files should be gone, not just .1 and .2.
+        remaining = list(tmp_path.glob("lausu.log.*"))
+        assert remaining == [], f"lausu.log.* rotated backups still present after GDPR delete: {remaining}"
     finally:
         mp.undo()
 
@@ -353,12 +353,12 @@ def test_delete_all_personal_data_erases_rust_logs_subdir(tmp_path) -> None:
             pytest.skip("Fix-D not yet landed")
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
-        rust_log = artifacts["logs/voice-typer.log"]
-        rust_log1 = artifacts["logs/voice-typer.log.1"]
+        rust_log = artifacts["logs/lausu.log"]
+        rust_log1 = artifacts["logs/lausu.log.1"]
         assert not rust_log.exists(), (
-            "<config_dir>/logs/voice-typer.log must be deleted, Rust host log with no PII redaction (PI-6, XZ-LOG-02)."
+            "<config_dir>/logs/lausu.log must be deleted, Rust host log with no PII redaction (PI-6, XZ-LOG-02)."
         )
-        assert not rust_log1.exists(), "<config_dir>/logs/voice-typer.log.1 (rotated) must be deleted (PI-6)."
+        assert not rust_log1.exists(), "<config_dir>/logs/lausu.log.1 (rotated) must be deleted (PI-6)."
         # The entire logs/ subdirectory should be gone (rmtree).
         assert not (tmp_path / "logs").exists(), (
             "<config_dir>/logs/ subdirectory still exists after GDPR delete, should have been rmtree'd (PI-6)."
@@ -440,9 +440,9 @@ def _seed_xz_sec_03_artifacts(tmp_path: Path) -> dict[str, Path]:
     corrupt_path.write_bytes(b"corrupt sqlite plaintext secret='pii'")
     artifacts["history.db.corrupt-*"] = corrupt_path
 
-    diag_path = tmp_path / "voice-typer-diagnostics-20240101-120000.zip"
+    diag_path = tmp_path / "lausu-diagnostics-20240101-120000.zip"
     diag_path.write_bytes(b"PK\x03\x04 fake zip with pii markers")
-    artifacts["voice-typer-diagnostics-*.zip"] = diag_path
+    artifacts["lausu-diagnostics-*.zip"] = diag_path
 
     export_path = tmp_path / "gdpr-export-20240101-120000.zip"
     export_path.write_bytes(b"PK\x03\x04 fake gdpr export with pii")
@@ -514,18 +514,18 @@ def test_delete_all_personal_data_erases_history_db_corrupt(tmp_path) -> None:
 
 
 def test_delete_all_personal_data_erases_diagnostics_zip(tmp_path) -> None:
-    """XZ-SEC-03: ``voice-typer-diagnostics-*.zip`` must be erased."""
+    """XZ-SEC-03: ``lausu-diagnostics-*.zip`` must be erased."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "delete_all_personal_data"):
             pytest.skip("Fix-D not yet landed")
         artifacts = _seed_xz_sec_03_artifacts(tmp_path)
         svc.delete_all_personal_data()
-        assert not artifacts["voice-typer-diagnostics-*.zip"].exists(), (
-            "voice-typer-diagnostics-*.zip must be deleted, contains history + log fragments (XZ-SEC-03)."
+        assert not artifacts["lausu-diagnostics-*.zip"].exists(), (
+            "lausu-diagnostics-*.zip must be deleted, contains history + log fragments (XZ-SEC-03)."
         )
-        remaining = list(tmp_path.glob("voice-typer-diagnostics-*.zip"))
-        assert remaining == [], f"voice-typer-diagnostics-*.zip files still present after GDPR delete: {remaining}"
+        remaining = list(tmp_path.glob("lausu-diagnostics-*.zip"))
+        assert remaining == [], f"lausu-diagnostics-*.zip files still present after GDPR delete: {remaining}"
     finally:
         mp.undo()
 

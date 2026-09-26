@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from voice_typer.server.recording._recorder_split import (
+from voice_typer.server.recording.recording_lifecycle import (
     start_recording,
     stop_recording,
 )
@@ -20,7 +20,7 @@ _mock_bindings_holder: dict = {}
 
 @pytest.fixture(autouse=True)
 def _mock_split_bindings(monkeypatch):
-    import voice_typer.server.recording._recorder_split as split_mod
+    import voice_typer.server.recording.recording_lifecycle as split_mod
 
     refresh_mock = MagicMock(name="refresh_vad_caches")
     prepare_mock = MagicMock(name="prepare_audio", side_effect=lambda rec, audio, effective_sr_in, **kw: audio)

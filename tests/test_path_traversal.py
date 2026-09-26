@@ -10,8 +10,8 @@ def test_validate_path_safety_normal_path():
     """Normal paths within parent are accepted."""
     from voice_typer.server.config import _validate_path_safety
 
-    parent = Path("/home/user/.voice-typer")
-    child = Path("/home/user/.voice-typer/config.json")
+    parent = Path("/home/user/.lausu")
+    child = Path("/home/user/.lausu/config.json")
     # This may not work on all systems, so use tmp paths
     import tempfile
 
@@ -40,13 +40,13 @@ class TestIsPathWithin:
     def test_same_path_is_within_itself(self):
         from voice_typer.server.config import _is_path_within
 
-        p = Path("/home/user/.voice-typer")
+        p = Path("/home/user/.lausu")
         assert _is_path_within(p, p) is True
 
     def test_direct_child_is_within(self):
         from voice_typer.server.config import _is_path_within
 
-        root = Path("/home/user/.voice-typer")
+        root = Path("/home/user/.lausu")
         child = root / "config.json"
         assert _is_path_within(child, root) is True
 
@@ -62,7 +62,7 @@ class TestIsPathWithin:
         # A ".." segment that escapes root must resolve to a path
         from voice_typer.server.config import _is_path_within
 
-        root = Path("/home/user/.voice-typer")
+        root = Path("/home/user/.lausu")
         escaped = root / ".." / ".." / "etc"
         assert _is_path_within(escaped, root) is False
 
@@ -94,6 +94,6 @@ class TestIsPathWithin:
         from voice_typer.server import config
 
         monkeypatch.setattr(sys, "platform", "win32")
-        root = Path("C:/voice-typer")
-        child = Path("D:/voice-typer/data")
+        root = Path("C:/lausu")
+        child = Path("D:/lausu/data")
         assert config._is_path_within(child, root, case_sensitive=False) is False

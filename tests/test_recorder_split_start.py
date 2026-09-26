@@ -1,4 +1,4 @@
-"""Tests for ``_recorder_split.start_recording``."""
+"""Tests for ``recording_lifecycle.start_recording``."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.recording._recorder_split import start_recording
+from voice_typer.server.recording.recording_lifecycle import start_recording
 
 
 def _build_mock_recorder(
@@ -93,7 +93,7 @@ class TestStartRecordingHappyPath:
     def test_runs_all_steps_in_order(self, monkeypatch):
         """When the stream opens on the first candidate,"""
         recorder = _build_mock_recorder()
-        import voice_typer.server.recording._recorder_split as split_mod
+        import voice_typer.server.recording.recording_lifecycle as split_mod
 
         refresh_vad_mock = MagicMock()
         monkeypatch.setattr(split_mod, "refresh_vad_caches", refresh_vad_mock)
@@ -143,7 +143,7 @@ class TestStartRecordingHappyPath:
         recorder._session_state.resize_buffers_for_sample_rate.side_effect = log_call("resize_buffers")
         recorder._recording_event = MagicMock(wraps=threading.Event())
         recorder._recording_event.set.side_effect = log_call("event.set")
-        import voice_typer.server.recording._recorder_split as split_mod
+        import voice_typer.server.recording.recording_lifecycle as split_mod
 
         monkeypatch.setattr(split_mod, "refresh_vad_caches", log_call("refresh_vad"))
         recorder._start_audio_worker.side_effect = log_call("start_audio_worker")

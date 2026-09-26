@@ -47,15 +47,15 @@ def _install_fake_sounddevice(monkeypatch) -> None:
 
 @pytest.fixture
 def ws_mode_app(tmp_config_dir, monkeypatch):
-    """A ``VoiceTyperApp`` shaped exactly like the ``--ws`` sidecar's."""
+    """A ``LausuApp`` shaped exactly like the ``--ws`` sidecar's."""
     monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
     monkeypatch.setenv("TAURI_SIDECAR", "1")
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _AUTH_TOKEN)
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    return VoiceTyperApp()
+    return LausuApp()
 
 
 @pytest.fixture(autouse=True)

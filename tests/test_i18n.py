@@ -47,11 +47,11 @@ class TestTranslate:
         # ``notify.update_available_body`` =
         result = t(
             "notify.update_available_body",
-            app="Voice Typer",
+            app="Lausu",
             version="2.0.0",
             current="1.5.0",
         )
-        assert result == "Voice Typer 2.0.0 is available (you have 1.5.0)"
+        assert result == "Lausu 2.0.0 is available (you have 1.5.0)"
 
     def test_empty_fmt_does_not_attempt_format_call(self):
         """When ``fmt`` is empty, the format path is skipped entirely"""

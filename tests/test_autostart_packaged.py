@@ -36,7 +36,7 @@ def _blob(result) -> str:
     return " ".join(str(p) for p in parts)
 
 
-def _fake_tauri_binary(tmp_path: Path, name: str = "voice-typer-tauri") -> Path:
+def _fake_tauri_binary(tmp_path: Path, name: str = "lausu-tauri") -> Path:
     """Create an executable stand-in for the installed desktop binary."""
     import os as _os
 
@@ -85,7 +85,7 @@ class TestPackagedFallbackQuoting:
 
     def test_windows_fallback_is_single_list2cmdline_token(self, win32_platform, monkeypatch, tmp_path):
         """Windows packaged command is one list2cmdline line: binary + flags."""
-        binary = _fake_tauri_binary(tmp_path, name="voice-typer-tauri.exe")
+        binary = _fake_tauri_binary(tmp_path, name="lausu-tauri.exe")
         monkeypatch.setattr(autostart_mod, "_prefer_pythonw", lambda p: str(tmp_path / "missing-pythonw.exe"))
         monkeypatch.setattr(autostart_mod, "_probe_system_python", lambda name: None)
         monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
@@ -108,7 +108,7 @@ class TestPackagedFallbackQuoting:
 
     def test_windows_backslash_paths_stay_literal(self, win32_platform, monkeypatch, tmp_path):
         """A spaced Windows binary path is quoted once, backslashes intact."""
-        win_path = r"C:\Program Files\VoiceTyper\voice-typer-tauri.exe"
+        win_path = r"C:\Program Files\Lausu\lausu-tauri.exe"
         quoted = subprocess.list2cmdline([win_path])
         assert "\\\\" not in quoted
         assert quoted.startswith('"') and quoted.endswith('"')
@@ -119,7 +119,7 @@ class TestTaskXmlPackagedShape:
     """The Task XML splits a packaged (binary + flags) resolver result"""
 
     def test_command_is_binary_and_arguments_carry_hidden(self, win32_platform, monkeypatch, tmp_path):
-        binary = _fake_tauri_binary(tmp_path, name="voice-typer-tauri.exe")
+        binary = _fake_tauri_binary(tmp_path, name="lausu-tauri.exe")
         monkeypatch.setattr(
             autostart_windows_mod,
             "_app_autostart_command_and_args",
@@ -134,7 +134,7 @@ class TestTaskXmlPackagedShape:
 
     def test_run_key_value_has_no_doubled_backslashes(self, win32_platform, monkeypatch):
         """A packaged Run-key value is one list2cmdline token: backslashes"""
-        raw = r"C:\Program Files\VoiceTyper\voice-typer-tauri.exe"
+        raw = r"C:\Program Files\Lausu\lausu-tauri.exe"
         value = subprocess.list2cmdline([raw, "--hidden", "--delay", "3"])
         assert "\\\\" not in value
 
@@ -181,7 +181,7 @@ class TestMissingTargetIsStale:
         )
 
         monkeypatch.setattr(Path, "exists", lambda self: False)
-        assert _validate_runkey_command(r'"C:\Deleted\voice-typer-tauri.exe" --hidden') is False
+        assert _validate_runkey_command(r'"C:\Deleted\lausu-tauri.exe" --hidden') is False
         assert _validate_runkey_command(r'"C:\Deleted\pythonw.exe" "C:\app\launcher.py" --hidden') is False
 
     def test_plist_missing_program_is_stale(self, tmp_path):
@@ -189,13 +189,13 @@ class TestMissingTargetIsStale:
             _plist_program_arguments_exist,
         )
 
-        plist = tmp_path / "com.voicetyper.plist"
+        plist = tmp_path / "com.Lausu.plist"
         plist.write_text(
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<plist version="1.0"><dict>'
-            "<key>Label</key><string>com.voicetyper</string>"
+            "<key>Label</key><string>com.Lausu</string>"
             "<key>ProgramArguments</key><array>"
-            "<string>/nonexistent/voice-typer-tauri</string>"
+            "<string>/nonexistent/lausu-tauri</string>"
             "<string>--hidden</string>"
             "</array></dict></plist>",
             encoding="utf-8",
@@ -207,9 +207,9 @@ class TestMissingTargetIsStale:
             _desktop_exec_path_exists,
         )
 
-        desktop = tmp_path / "voice-typer.desktop"
+        desktop = tmp_path / "lausu.desktop"
         desktop.write_text(
-            "[Desktop Entry]\nType=Application\nName=x\nExec=/nonexistent/voice-typer-tauri --hidden\n",
+            "[Desktop Entry]\nType=Application\nName=x\nExec=/nonexistent/lausu-tauri --hidden\n",
             encoding="utf-8",
         )
         assert _desktop_exec_path_exists(desktop) is False
@@ -273,7 +273,7 @@ class TestLauncherSupersededByInstalledBinary:
         launcher.write_text("# launcher")
         interpreter = tmp_path / "pythonw.exe"
         interpreter.write_bytes(b"x")
-        binary = _fake_tauri_binary(tmp_path, name="voice-typer-tauri.exe")
+        binary = _fake_tauri_binary(tmp_path, name="lausu-tauri.exe")
         monkeypatch.setattr(Path, "exists", lambda self: True)
         value = f'"{interpreter}" "{launcher}" --hidden --delay 3'
         # Installed binary present → superseded (stale).
@@ -293,11 +293,11 @@ class TestLauncherSupersededByInstalledBinary:
         interpreter = tmp_path / "python3"
         interpreter.write_bytes(b"x")
         binary = _fake_tauri_binary(tmp_path)
-        plist = tmp_path / "com.voicetyper.plist"
+        plist = tmp_path / "com.Lausu.plist"
         plist.write_text(
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<plist version="1.0"><dict>'
-            "<key>Label</key><string>com.voicetyper</string>"
+            "<key>Label</key><string>com.Lausu</string>"
             "<key>ProgramArguments</key><array>"
             f"<string>{interpreter}</string>"
             f"<string>{launcher}</string>"
@@ -319,7 +319,7 @@ class TestLauncherSupersededByInstalledBinary:
         interpreter = tmp_path / "python3"
         interpreter.write_bytes(b"x")
         binary = _fake_tauri_binary(tmp_path)
-        desktop = tmp_path / "voice-typer.desktop"
+        desktop = tmp_path / "lausu.desktop"
         desktop.write_text(
             f'[Desktop Entry]\nType=Application\nName=x\nExec="{interpreter}" "{launcher}" --hidden --delay 3\n',
             encoding="utf-8",
@@ -335,7 +335,7 @@ class TestLauncherSupersededByInstalledBinary:
             _validate_runkey_command,
         )
 
-        binary = _fake_tauri_binary(tmp_path, name="voice-typer-tauri.exe")
+        binary = _fake_tauri_binary(tmp_path, name="lausu-tauri.exe")
         monkeypatch.setattr(Path, "exists", lambda self: True)
         monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
         assert _validate_runkey_command(f'"{binary}" --hidden --delay 3') is True
@@ -406,7 +406,7 @@ class TestMacosPlistPackagedOutput:
         monkeypatch.setattr(_paths, "autostart_log", lambda: tmp_path / "autostart.log")
 
         assert macos_mod._enable_autostart_macos() is True
-        with (tmp_path / "com.voicetyper.plist").open("rb") as fh:
+        with (tmp_path / "com.Lausu.plist").open("rb") as fh:
             data = plistlib.load(fh)
         args = data["ProgramArguments"]
         assert args[0] == str(binary)
@@ -429,7 +429,7 @@ class TestLinuxDesktopPackagedOutput:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: str(binary))
 
         assert linux_mod._enable_autostart_linux() is True
-        content = (tmp_path / "voice-typer.desktop").read_text(encoding="utf-8")
+        content = (tmp_path / "lausu.desktop").read_text(encoding="utf-8")
         exec_line = next(line for line in content.splitlines() if line.startswith("Exec="))[len("Exec=") :]
         assert exec_line.startswith(autostart_mod._desktop_quote(str(binary)))
         assert "--hidden" in exec_line

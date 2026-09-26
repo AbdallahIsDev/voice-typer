@@ -49,13 +49,13 @@ class TestHelpersReturnPathsUnderConfigDir:
         ``_paths.legacy_hf_cache_dir()`` is the ONE exception, it
         ``_paths._config_dir`` to a tmp path, but this helper must NOT
         """
-        expected = Path.home() / ".voice-typer" / "huggingface"
+        expected = Path.home() / ".lausu" / "huggingface"
         assert _paths.legacy_hf_cache_dir() == expected
         # And confirm the pinned _config_dir is NOT what's returned
         assert _paths.legacy_hf_cache_dir() != self.dir
 
 
-# Files allowed to reference the legacy ``~/.voice-typer`` path directly:
+# Files allowed to reference the legacy ``~/.lausu`` path directly:
 _ALLOWED_FILES = {"_paths.py", "__init__.py"}
 _ALLOWED_REL_PATHS = {"config/__init__.py", "config/_accessors.py"}
 
@@ -92,10 +92,10 @@ def _strip_docstrings(source: str, filename: str) -> list[str]:
     return blanked
 
 
-_LEGACY_PATH_PATTERN = re.compile(r'Path\.home\(\)\s*/\s*"\.voice-typer"')
+_LEGACY_PATH_PATTERN = re.compile(r'Path\.home\(\)\s*/\s*"\.lausu"')
 
 
-class TestNoHardcodedVoiceTyperPaths:
+class TestNoHardcodedLausuPaths:
     """no module in ``voice_typer/server/`` (except"""
 
     def test_no_hardcoded_paths_in_server_modules(self):
@@ -152,7 +152,7 @@ class TestNoHardcodedVoiceTyperPaths:
                 if _LEGACY_PATH_PATTERN.search(line):
                     offenders.append(f"{py_file.relative_to(REPO_ROOT)}:{line_num}: {line.rstrip()}")
         assert not offenders, (
-            "regression: hardcoded Path.home() / '.voice-typer' "
+            "regression: hardcoded Path.home() / '.lausu' "
             "found in executable code. Use voice_typer.server._paths "
             "helpers instead (config_dir, prewarm_launchagent_log, "
             "autostart_log, venv_pythonw, legacy_hf_cache_dir):\n" + "\n".join(offenders)
@@ -172,14 +172,14 @@ class TestNoHardcodedVoiceTyperPaths:
                 break
         assert found, (
             "config/_accessors.py must retain its legacy migration "
-            "probe ('legacy = Path.home() / \".voice-typer\"'), "
+            "probe ('legacy = Path.home() / \".lausu\"'), "
             "removing it would break migration for existing "
-            "~/.voice-typer installs"
+            "~/.lausu installs"
         )
 
     def test_paths_py_has_legacy_hf_cache_dir(self):
-        """defensive fallback that returns ``Path.home() / \".voice-typer\""""
+        """defensive fallback that returns ``Path.home() / \".lausu\""""
         assert hasattr(_paths, "legacy_hf_cache_dir"), (
             "_paths.legacy_hf_cache_dir must exist (prewarm.py delegates its BootTrigger defensive fallback to it)"
         )
-        assert _paths.legacy_hf_cache_dir() == (Path.home() / ".voice-typer" / "huggingface")
+        assert _paths.legacy_hf_cache_dir() == (Path.home() / ".lausu" / "huggingface")

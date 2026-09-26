@@ -46,10 +46,10 @@ def ws_backend(tmp_config_dir, monkeypatch):
 
         monkeypatch.setattr(_mock_sd, "query_devices", _fake_query_devices, raising=False)
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
     from voice_typer.server.providers import build_ipc_server
 
-    app = VoiceTyperApp()
+    app = LausuApp()
     server = build_ipc_server(app)
     server._tcp_mode = True
     server.start()

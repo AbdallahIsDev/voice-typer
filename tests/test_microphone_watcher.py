@@ -480,7 +480,7 @@ class TestMicrophoneDeviceWatcherWindows:
     """Mock-based unit tests for ``_run_windows()``."""
 
     def test_windows_run_registers_window_class(self, fake_windows_windll):
-        """``RegisterClassExW`` is called with class name ``VoiceTyperMicWatcherWnd``."""
+        """``RegisterClassExW`` is called with class name ``LausuMicWatcherWnd``."""
         captured = {}
 
         def capture_register(wc_byref):
@@ -499,8 +499,8 @@ class TestMicrophoneDeviceWatcherWindows:
         # The thread should exit quickly (CreateWindowExW failed).
         watcher._thread.join(timeout=1.0)
 
-        assert captured.get("class_name") == "VoiceTyperMicWatcherWnd", (
-            f"Expected class name 'VoiceTyperMicWatcherWnd', got {captured.get('class_name')!r}"
+        assert captured.get("class_name") == "LausuMicWatcherWnd", (
+            f"Expected class name 'LausuMicWatcherWnd', got {captured.get('class_name')!r}"
         )
         assert captured.get("cbSize", 0) > 0, f"Expected cbSize > 0, got {captured.get('cbSize')!r}"
 
@@ -522,7 +522,7 @@ class TestMicrophoneDeviceWatcherWindows:
             f"Expected dwExStyle=WS_EX_TOOLWINDOW (0x{_WS_EX_TOOLWINDOW:x}), got 0x{args[0]:x}"
         )
         # Second positional arg is lpClassName.
-        assert args[1] == "VoiceTyperMicWatcherWnd"
+        assert args[1] == "LausuMicWatcherWnd"
 
     def test_windows_run_dispatchs_wm_devicechange(self, fake_windows_windll):
         """A ``WM_DEVICECHANGE`` message triggers ``_invoke_callback``."""
@@ -602,7 +602,7 @@ class TestMicrophoneDeviceWatcherWindows:
         user32.DestroyWindow.assert_called_once_with(0x20000)
         # UnregisterClassW called with (class_name, hInstance).
         h_instance = kernel32.GetModuleHandleW.return_value
-        user32.UnregisterClassW.assert_called_once_with("VoiceTyperMicWatcherWnd", h_instance)
+        user32.UnregisterClassW.assert_called_once_with("LausuMicWatcherWnd", h_instance)
 
     def test_windows_run_logs_warning_on_register_failure(self, fake_windows_windll, caplog):
         """When ``RegisterClassExW`` returns 0, a warning is logged."""

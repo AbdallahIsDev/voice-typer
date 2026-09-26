@@ -724,9 +724,9 @@ class TestDiagnosticBundleSurfaceRemoved:
         from unittest.mock import MagicMock
 
         from voice_typer.server.providers import ServiceProtocol
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        svc = VoiceTyperService(MagicMock())
+        svc = LausuService(MagicMock())
         assert not hasattr(svc, "export_diagnostics")
         # The protocol and the implementation stay in lockstep.
         assert not hasattr(ServiceProtocol, "export_diagnostics")

@@ -43,7 +43,7 @@ def _restore_logging_state():
 @pytest.fixture
 def config_dir(tmp_path: Path, monkeypatch) -> Path:
     """Point ``logging_setup._config_dir`` at a tmp_path-based directory."""
-    d = tmp_path / "voice-typer-cfg"
+    d = tmp_path / "lausu-cfg"
     monkeypatch.setattr(logging_setup, "_config_dir", lambda: d)
     monkeypatch.setattr(logging_setup, "_migrate_from_legacy", lambda: None)
     return d
@@ -108,16 +108,16 @@ def test_installs_rotating_file_handler(config_dir, clean_env, stub_side_effects
 
 
 def test_log_file_created_under_config_dir(config_dir, clean_env, stub_side_effects):
-    """The rotating log file lives at <config_dir>/voice-typer.log on disk."""
+    """The rotating log file lives at <config_dir>/lausu.log on disk."""
     logging_setup._setup_logging()
-    assert (config_dir / "logs" / "voice-typer.log").exists()
+    assert (config_dir / "logs" / "lausu.log").exists()
 
 
 def test_handler_baseFilename_points_at_config_dir(config_dir, clean_env, stub_side_effects):  # noqa: N802
-    """The RotatingFileHandler's baseFilename is <config_dir>/voice-typer.log."""
+    """The RotatingFileHandler's baseFilename is <config_dir>/lausu.log."""
     logging_setup._setup_logging()
     rotating = next(h for h in _vt_handlers() if isinstance(h, logging.handlers.RotatingFileHandler))
-    assert Path(rotating.baseFilename) == config_dir / "logs" / "voice-typer.log"
+    assert Path(rotating.baseFilename) == config_dir / "logs" / "lausu.log"
 
 
 def test_rotating_handler_uses_backslashreplace_errors(config_dir, clean_env, stub_side_effects):
@@ -180,7 +180,7 @@ def test_log_message_reaches_file(config_dir, clean_env, stub_side_effects):
     lg = logging.getLogger("voice_typer.server.fake_module")
     lg.info("[HOTKEY] RegisterHotKey succeeded")
     _flush_all()
-    content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
+    content = (config_dir / "logs" / "lausu.log").read_text(encoding="utf-8")
     assert "[HOTKEY] RegisterHotKey succeeded" in content
 
 
@@ -190,7 +190,7 @@ def test_no_session_id_bracket_in_file(config_dir, clean_env, stub_side_effects)
     lg = logging.getLogger("voice_typer.server.fake_module")
     lg.info("[HOTKEY] fired")
     _flush_all()
-    content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
+    content = (config_dir / "logs" / "lausu.log").read_text(encoding="utf-8")
     assert not re.search(r"\[[0-9a-f]{8}\]", content), (
         f"8-char session_id bracket must NOT appear in file log:\n{content}"
     )
@@ -271,15 +271,15 @@ def test_raises_when_config_dir_uncreatable(tmp_path: Path, monkeypatch, clean_e
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX-only file mode check")
 def test_log_file_mode_is_0o600_on_posix(config_dir, clean_env, stub_side_effects):
-    """G4-H-07: ``voice-typer.log`` is created with mode 0o600 on POSIX."""
+    """G4-H-07: ``lausu.log`` is created with mode 0o600 on POSIX."""
     import stat
 
     logging_setup._setup_logging()
-    log_file = config_dir / "logs" / "voice-typer.log"
+    log_file = config_dir / "logs" / "lausu.log"
     assert log_file.exists(), "log file was not created"
     mode = stat.S_IMODE(os.stat(log_file).st_mode)
     assert mode == 0o600, (
-        f"G4-H-07 regression: voice-typer.log has mode {oct(mode)}, expected 0o600. "
+        f"G4-H-07 regression: lausu.log has mode {oct(mode)}, expected 0o600. "
         "Co-located users could read dictated-text previews and exception tracebacks."
     )
 
@@ -305,12 +305,12 @@ def test_log_file_handler_level_debug_when_voice_typer_debug(config_dir, clean_e
 
 
 def test_get_log_file_path_returns_config_dir_voice_typer_log(config_dir):
-    """G4-L-19: ``get_log_file_path`` returns ``<config_dir>/voice-typer.log``."""
+    """G4-L-19: ``get_log_file_path`` returns ``<config_dir>/lausu.log``."""
     from voice_typer.server.log import get_log_file_path
 
     path = get_log_file_path(config_dir)
-    assert path == config_dir / "logs" / "voice-typer.log"
-    assert path.name == "voice-typer.log"
+    assert path == config_dir / "logs" / "lausu.log"
+    assert path.name == "lausu.log"
 
 
 def test_per_module_log_levels_applied_from_env(config_dir, clean_env, stub_side_effects, monkeypatch):
@@ -345,11 +345,11 @@ class TestStartupBanner:  # noqa: N801
 
     def _banner_lines(self, config_dir: Path) -> str:
         """Helper: read the log file and return the banner lines."""
-        content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
+        content = (config_dir / "logs" / "lausu.log").read_text(encoding="utf-8")
         return "\n".join(line for line in content.splitlines() if "[STARTUP]" in line)
 
     def test_banner_appears_in_log_file(self, config_dir, clean_env, stub_side_effects):
-        """``<config_dir>/voice-typer.log`` after ``_emit_startup_banner`` runs."""
+        """``<config_dir>/lausu.log`` after ``_emit_startup_banner`` runs."""
         logging_setup._setup_logging()
         logging_setup._emit_startup_banner()
         _flush_all()
@@ -364,7 +364,7 @@ class TestStartupBanner:  # noqa: N801
         logging_setup._emit_startup_banner()
         _flush_all()
         banner = self._banner_lines(config_dir)
-        expected_file = str(config_dir / "logs" / "voice-typer.log")
+        expected_file = str(config_dir / "logs" / "lausu.log")
         # SEC-009: the PII log filter replaces the home-dir prefix with
         expected_variants = {expected_file, expected_file.replace(str(Path.home()), "~")}
         assert any(f"file={v}" in banner for v in expected_variants), (
@@ -416,7 +416,7 @@ class TestStartupBanner:  # noqa: N801
         logging_setup._setup_logging()
         logging_setup._emit_startup_banner()
         _flush_all()
-        content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
+        content = (config_dir / "logs" / "lausu.log").read_text(encoding="utf-8")
         lines = content.splitlines()
         session_id = _log_module._session_id
         assert session_id, "setup_logging did not populate _session_id"

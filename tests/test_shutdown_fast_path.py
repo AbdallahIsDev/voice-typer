@@ -147,7 +147,7 @@ class TestDoFastCleanup:
 
 
 class _FakeApp:
-    """Minimal ``VoiceTyperApp`` look-alike for ``_do_cleanup``."""
+    """Minimal ``LausuApp`` look-alike for ``_do_cleanup``."""
 
     def __init__(self) -> None:
         self.tray = MagicMock()

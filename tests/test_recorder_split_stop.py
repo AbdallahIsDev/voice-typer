@@ -1,4 +1,4 @@
-"""Tests for ``_recorder_split.stop_recording``."""
+"""Tests for ``recording_lifecycle.stop_recording``."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from voice_typer.server.recording._recorder_split import stop_recording
+from voice_typer.server.recording.recording_lifecycle import stop_recording
 
 # ``stop_recording`` invokes the free function ``prepare_audio``
 
@@ -18,8 +18,8 @@ _prepare_audio_mock_holder: dict = {}
 
 @pytest.fixture(autouse=True)
 def _mock_prepare_audio(monkeypatch):
-    """Patch ``_recorder_split.prepare_audio`` with an identity"""
-    import voice_typer.server.recording._recorder_split as split_mod
+    """Patch ``recording_lifecycle.prepare_audio`` with an identity"""
+    import voice_typer.server.recording.recording_lifecycle as split_mod
 
     mock = MagicMock(name="prepare_audio", side_effect=lambda rec, audio, effective_sr_in, **kw: audio)
     monkeypatch.setattr(split_mod, "prepare_audio", mock)
@@ -311,7 +311,7 @@ class TestBufferSnapshotUnderLock:
 
     def test_buffer_swapped_for_fresh_empty_container(self, monkeypatch):
         import voice_typer.server.recording as rec_pkg
-        from voice_typer.server.recording._recorder_split import GrowableRecordingBuffer
+        from voice_typer.server.recording.recording_buffer import GrowableRecordingBuffer
 
         monkeypatch.setattr(rec_pkg, "_secure_clear_array_background", lambda _old: None)
 
@@ -348,7 +348,7 @@ class TestBufferSnapshotUnderLock:
 
     def test_secure_clear_array_background_called_with_old_buffer(self, monkeypatch):
         """daemon thread (so stop() returns immediately and the secure"""
-        from voice_typer.server.recording._recorder_split import GrowableRecordingBuffer
+        from voice_typer.server.recording.recording_buffer import GrowableRecordingBuffer
 
         bg_clear = MagicMock()
         # Patch the OWNING module: stop_recording calls

@@ -85,7 +85,7 @@ def _make_registry_and_manager(
     mm._idle_unload_lock = threading.Lock()
     mm.touch_model = MagicMock()
 
-    # Wire the manager onto the mock app exactly like VoiceTyperApp does
+    # Wire the manager onto the mock app exactly like LausuApp does
     app.models = mm
 
     return mm, app, config, registry

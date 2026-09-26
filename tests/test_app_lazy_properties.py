@@ -11,7 +11,7 @@ import pytest
 
 
 def _patch_app_platform_helpers(monkeypatch):
-    """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches."""
+    """Patch the platform helpers that ``LausuApp.__init__`` touches."""
     from voice_typer.server.server_platform import autostart as autostart_mod
 
     monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
@@ -36,9 +36,9 @@ class TestHistoryDbLazyConstruction:
     def test_history_db_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """``_history_db_backing`` must be ``None`` after ``__init__`` —"""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._history_db_backing is None, (
             "HistoryDB must NOT be eagerly constructed in __init__; _history_db_backing should start as None."
         )
@@ -52,7 +52,7 @@ class TestHistoryDbLazyConstruction:
         mock_history_db_cls = MagicMock(name="MockHistoryDB")
         monkeypatch.setattr(_app_mod, "HistoryDB", mock_history_db_cls)
 
-        instance = _app_mod.VoiceTyperApp()
+        instance = _app_mod.LausuApp()
 
         # HistoryDB() must NOT have been called during __init__.
         assert mock_history_db_cls.call_count == 0, (
@@ -66,7 +66,7 @@ class TestHistoryDbLazyConstruction:
         from voice_typer.server import app as _app_mod
         from voice_typer.server.history_db import HistoryDB
 
-        instance = _app_mod.VoiceTyperApp()
+        instance = _app_mod.LausuApp()
         assert instance._history_db_backing is None
 
         # First access triggers construction.
@@ -86,7 +86,7 @@ class TestHistoryDbLazyConstruction:
         mock_history_db_cls = MagicMock(name="MockHistoryDB")
         monkeypatch.setattr(_app_mod, "HistoryDB", mock_history_db_cls)
 
-        instance = _app_mod.VoiceTyperApp()
+        instance = _app_mod.LausuApp()
 
         sentinel = MagicMock(name="fake_history_db")
         instance.history_db = sentinel
@@ -110,7 +110,7 @@ class TestHistoryDbLazyConstruction:
         mock_history_db_cls = MagicMock(name="MockHistoryDB")
         monkeypatch.setattr(_app_mod, "HistoryDB", mock_history_db_cls)
 
-        instance = _app_mod.VoiceTyperApp()
+        instance = _app_mod.LausuApp()
         # Simulate shutdown, quit() / restart_app() sets this before
         instance._shutting_down_event.set()
 
@@ -128,9 +128,9 @@ class TestAudioProcessorLazyConstruction:
     def test_audio_processor_backing_is_proxy_after_init(self, tmp_config_dir, monkeypatch):
         """``_LazyAudioProcessorProxy`` (NOT a real ``AudioProcessor``)."""
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server.app import VoiceTyperApp, _LazyAudioProcessorProxy
+        from voice_typer.server.app import LausuApp, _LazyAudioProcessorProxy
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         # STARTUP-9: ``Recorder(...)`` (whose ``audio_processor=`` argument
         assert instance._recorder_build_ready.wait(10.0), "recorder background build did not finish within 10s"
         if instance._recorder_build_error is not None:
@@ -158,7 +158,7 @@ class TestAudioProcessorLazyConstruction:
         mock_ap_cls = MagicMock(name="MockAudioProcessor")
         monkeypatch.setattr(_ap_mod, "AudioProcessor", mock_ap_cls)
 
-        _app_mod.VoiceTyperApp()
+        _app_mod.LausuApp()
 
         # AudioProcessor(...) must NOT have been called during __init__.
         assert mock_ap_cls.call_count == 0, (
@@ -176,7 +176,7 @@ class TestAudioProcessorLazyConstruction:
         mock_ap_cls = MagicMock(name="MockAudioProcessor", return_value=mock_ap_instance)
         monkeypatch.setattr(_ap_mod, "AudioProcessor", mock_ap_cls)
 
-        instance = _app_mod.VoiceTyperApp()
+        instance = _app_mod.LausuApp()
 
         # AudioProcessor NOT constructed yet.
         assert mock_ap_cls.call_count == 0
@@ -198,7 +198,7 @@ class TestAudioProcessorLazyConstruction:
         mock_ap_cls = MagicMock(name="MockAudioProcessor")
         monkeypatch.setattr(_ap_mod, "AudioProcessor", mock_ap_cls)
 
-        instance = _app_mod.VoiceTyperApp()
+        instance = _app_mod.LausuApp()
 
         sentinel = MagicMock(name="fake_audio_processor")
         instance._audio_processor = sentinel
@@ -223,7 +223,7 @@ class TestAudioProcessorLazyConstruction:
         mock_ap_cls = MagicMock(name="MockAudioProcessor", return_value=mock_ap_instance)
         monkeypatch.setattr(_ap_mod, "AudioProcessor", mock_ap_cls)
 
-        instance = _app_mod.VoiceTyperApp()
+        instance = _app_mod.LausuApp()
 
         # First attribute access constructs.
         _ = instance._audio_processor.filter_names
@@ -246,7 +246,7 @@ class TestAudioProcessorLazyConstruction:
         mock_ap_cls = MagicMock(name="MockAudioProcessor", return_value=mock_ap_instance)
         monkeypatch.setattr(_ap_mod, "AudioProcessor", mock_ap_cls)
 
-        instance = _app_mod.VoiceTyperApp()
+        instance = _app_mod.LausuApp()
 
         # Forwarded attribute access.
         assert instance._audio_processor.filter_names == ["highpass", "gate"]
@@ -337,7 +337,7 @@ class TestRecorderDeferredConstruction:
         self._install_fake_recording_modules(monkeypatch, _BlockingRecorder, controller_cls)
 
         try:
-            instance = _app_mod.VoiceTyperApp()
+            instance = _app_mod.LausuApp()
 
             # The recorder must NOT have been built synchronously in __init__.
             assert instance._recorder_backing is _app_mod._RECORDER_MISSING, (
@@ -387,7 +387,7 @@ class TestRecorderDeferredConstruction:
         self._install_fake_recording_modules(monkeypatch, _BlockingRecorder, controller_cls)
 
         try:
-            instance = _app_mod.VoiceTyperApp()
+            instance = _app_mod.LausuApp()
             assert entered.wait(5), "background recorder build thread never started"
 
             injected = MagicMock(name="injected_recorder")

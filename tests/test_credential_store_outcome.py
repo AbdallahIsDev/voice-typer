@@ -372,7 +372,7 @@ class TestSetLastStoreOutcomeInternal:
         """``_set_last_store_outcome`` redacts the reason before storing."""
         credential_store._set_last_store_outcome(
             "plaintext",
-            "failed to write to /home/alice/.config/voice-typer (secret was sk-AbCdEfGhIjKl)",
+            "failed to write to /home/alice/.config/lausu (secret was sk-AbCdEfGhIjKl)",
             provider="openai",
         )
         outcome = credential_store.last_store_outcome()

@@ -309,8 +309,8 @@ class TestPendingTimersLockGuarded:
         app._pending_timers_lock = threading.Lock()
         app._timer_generation = 0
 
-        app._schedule_timer = app_module.VoiceTyperApp._schedule_timer.__get__(app)
-        app._cancel_pending_timers = app_module.VoiceTyperApp._cancel_pending_timers.__get__(app)
+        app._schedule_timer = app_module.LausuApp._schedule_timer.__get__(app)
+        app._cancel_pending_timers = app_module.LausuApp._cancel_pending_timers.__get__(app)
 
         errors: list[Exception] = []
 
@@ -446,12 +446,12 @@ class TestGetStatusReturnsDict:
     def test_get_status_includes_xruns(self):
         from unittest.mock import MagicMock
 
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         app = MagicMock()
         app.tray.state.value = "idle"
         app.recorder._xruns = 7
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.get_status()
 
@@ -463,12 +463,12 @@ class TestGetStatusReturnsDict:
         """get_status exposes the tray-tooltip reason alongside status."""
         from unittest.mock import MagicMock
 
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         app = MagicMock()
         app.tray.state.value = "error"
         app.tray._message = "No speech model is selected. Open Models to choose one."
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.get_status()
 
@@ -479,12 +479,12 @@ class TestGetStatusReturnsDict:
         """A non-str tray ``_message`` (test doubles, mocks) degrades to \"\"."""
         from unittest.mock import MagicMock
 
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         app = MagicMock()
         app.tray.state.value = "idle"
         app.tray._message = object()  # not a str
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.get_status()
 
@@ -788,7 +788,7 @@ class TestServerPackageInit:
         assert spec is not None
 
 
-class TestGetVoiceTyperPythonRemoved:
+class TestGetLausuPythonRemoved:
     """asr_setup.get_voice_typer_python() is deleted."""
 
     def test_function_not_present(self):

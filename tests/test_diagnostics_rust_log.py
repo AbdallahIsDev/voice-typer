@@ -49,67 +49,67 @@ class TestExportCollectsRustLog:
         """Sanity: the legacy Python log is still collected (regression guard)."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "voice-typer.log").write_text("python log line\n", encoding="utf-8")
+        (config_dir / "lausu.log").write_text("python log line\n", encoding="utf-8")
 
         zip_path = _make_bundle(tmp_path, monkeypatch, config_dir)
 
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
-            assert "voice-typer.log" in names, f"Python log missing from bundle: {names}"
-            content = zf.read("voice-typer.log").decode("utf-8")
+            assert "lausu.log" in names, f"Python log missing from bundle: {names}"
+            content = zf.read("lausu.log").decode("utf-8")
             assert "python log line" in content
 
     def test_bundle_includes_rust_current_log(self, tmp_path, monkeypatch):
-        """The Rust host log at ``logs/voice-typer-rust.log`` must be collected under its own name."""
+        """The Rust host log at ``logs/lausu-rust.log`` must be collected under its own name."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "voice-typer.log").write_text("python\n", encoding="utf-8")
+        (config_dir / "lausu.log").write_text("python\n", encoding="utf-8")
         logs_dir = config_dir / "logs"
         logs_dir.mkdir()
-        (logs_dir / "voice-typer-rust.log").write_text("rust host log line\n", encoding="utf-8")
+        (logs_dir / "lausu-rust.log").write_text("rust host log line\n", encoding="utf-8")
 
         zip_path = _make_bundle(tmp_path, monkeypatch, config_dir)
 
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
-            assert "voice-typer-rust.log" in names, f"Rust current log missing from bundle: {names}"
-            content = zf.read("voice-typer-rust.log").decode("utf-8")
+            assert "lausu-rust.log" in names, f"Rust current log missing from bundle: {names}"
+            content = zf.read("lausu-rust.log").decode("utf-8")
             assert "rust host log line" in content
 
     def test_bundle_includes_rotated_rust_logs(self, tmp_path, monkeypatch):
         """Rotated Rust logs under ``logs/`` must be collected under their original names."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "voice-typer.log").write_text("python\n", encoding="utf-8")
+        (config_dir / "lausu.log").write_text("python\n", encoding="utf-8")
         logs_dir = config_dir / "logs"
         logs_dir.mkdir()
-        (logs_dir / "voice-typer-rust.log").write_text("current\n", encoding="utf-8")
-        (logs_dir / "voice-typer-rust.log.1").write_text("rotated-1\n", encoding="utf-8", newline="")
-        (logs_dir / "voice-typer-rust.log.2").write_text("rotated-2\n", encoding="utf-8", newline="")
+        (logs_dir / "lausu-rust.log").write_text("current\n", encoding="utf-8")
+        (logs_dir / "lausu-rust.log.1").write_text("rotated-1\n", encoding="utf-8", newline="")
+        (logs_dir / "lausu-rust.log.2").write_text("rotated-2\n", encoding="utf-8", newline="")
 
         zip_path = _make_bundle(tmp_path, monkeypatch, config_dir)
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
-            assert "voice-typer-rust.log" in names
-            assert "voice-typer-rust.log.1" in names, f"missing rotated log .1 in {sorted(names)}"
-            assert "voice-typer-rust.log.2" in names, f"missing rotated log .2 in {sorted(names)}"
-            assert zf.read("voice-typer-rust.log.1").decode("utf-8") == "rotated-1\n"
-            assert zf.read("voice-typer-rust.log.2").decode("utf-8") == "rotated-2\n"
+            assert "lausu-rust.log" in names
+            assert "lausu-rust.log.1" in names, f"missing rotated log .1 in {sorted(names)}"
+            assert "lausu-rust.log.2" in names, f"missing rotated log .2 in {sorted(names)}"
+            assert zf.read("lausu-rust.log.1").decode("utf-8") == "rotated-1\n"
+            assert zf.read("lausu-rust.log.2").decode("utf-8") == "rotated-2\n"
 
     def test_bundle_omits_rust_log_when_absent(self, tmp_path, monkeypatch):
         """If no Rust log exists, the bundle simply doesn't include it (no crash, no placeholder)."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        (config_dir / "voice-typer.log").write_text("python only\n", encoding="utf-8")
+        (config_dir / "lausu.log").write_text("python only\n", encoding="utf-8")
         # No logs/ dir at all.
 
         zip_path = _make_bundle(tmp_path, monkeypatch, config_dir)
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
-            assert "voice-typer.log" in names
-            assert "voice-typer-rust.log" not in names, f"no Rust log files should be present: {sorted(names)}"
+            assert "lausu.log" in names
+            assert "lausu-rust.log" not in names, f"no Rust log files should be present: {sorted(names)}"
 
 
 class TestCollectLogTail:

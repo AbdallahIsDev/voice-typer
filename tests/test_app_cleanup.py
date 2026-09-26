@@ -10,15 +10,15 @@ from tests.fixtures.history_test_helpers import history_plaintext_mode  # noqa: 
 
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked dependencies for cleanup tests."""
+    """Create a LausuApp with mocked dependencies for cleanup tests."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
     yield instance
@@ -462,9 +462,9 @@ class TestRestartAppReentryGuard:
         """Source-level invariant: the re-entry guard"""
         import inspect
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        src = inspect.getsource(VoiceTyperApp.restart_app)
+        src = inspect.getsource(LausuApp.restart_app)
         doc_end = src.find('"""', src.find('"""') + 3)
         assert doc_end != -1, "restart_app must have a docstring"
         body = src[doc_end + 3 :].lstrip()

@@ -17,9 +17,9 @@ class TestDownloadPollScopedToModelDir:
 
     def test_poll_uses_per_repo_subdir_construction(self):
         """The progress loop must construct ``model_dir = cache_dir /"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        src = inspect.getsource(VoiceTyperService.download_model)
+        src = inspect.getsource(LausuService.download_model)
         # The exact construction line, keep in sync with the source.
         assert 'model_dir = cache_dir / f"models--{repo_id.replace' in src, (
             "XV-2: download_model must construct the per-repo subdir "
@@ -36,12 +36,12 @@ class TestMicrophonesCacheEmptyList:
 
     def test_cache_initialised_to_none(self, tmp_config_dir):
         """The cache must start as ``None`` so we can distinguish"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        svc = VoiceTyperService(FakeApp())
+        svc = LausuService(FakeApp())
         assert svc._microphones_cache is None, (
             "XV-5: _microphones_cache must be initialised to None (not "
             "[]) so the truthiness check doesn't bypass the cache when "
@@ -57,7 +57,7 @@ class TestMicrophonesCacheEmptyList:
             _microphones = []
             tray = MagicMock()
 
-        svc = svc_mod.VoiceTyperService(FakeApp())
+        svc = svc_mod.LausuService(FakeApp())
 
         # Seed the cache with an empty list (simulating PortAudio
         svc._microphones_cache = []
@@ -92,7 +92,7 @@ class TestMicrophonesCacheEmptyList:
             _microphones = []
             tray = MagicMock()
 
-        svc = svc_mod.VoiceTyperService(FakeApp())
+        svc = svc_mod.LausuService(FakeApp())
         cached_mics = [{"name": "USB Mic", "index": 0}]
         svc._microphones_cache = cached_mics
         svc._microphones_cache_ts = time.monotonic()
@@ -109,9 +109,9 @@ class TestMicrophonesCacheEmptyList:
 
     def test_refresh_microphones_source_uses_is_not_none(self):
         """Source guard: the truthiness check must be ``is not None``,"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        src = inspect.getsource(VoiceTyperService.refresh_microphones)
+        src = inspect.getsource(LausuService.refresh_microphones)
         assert "self._microphones_cache is not None" in src, (
             "XV-5: refresh_microphones must use 'is not None' (not bare "
             "truthiness) so an empty cached list is still served from cache."

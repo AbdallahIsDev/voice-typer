@@ -130,7 +130,7 @@ def test_setup_logging_emits_json_when_gated(tmp_path: Path, monkeypatch) -> Non
             with __import__("contextlib").suppress(Exception):
                 h.flush()
 
-        content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
+        content = (config_dir / "logs" / "lausu.log").read_text(encoding="utf-8")
         # JSON mode: every non-empty line must parse as JSON.
         parsed = [json.loads(ln) for ln in content.splitlines() if ln.strip()]
         assert parsed, "no log lines written"
@@ -156,7 +156,7 @@ def test_setup_logging_default_is_text(tmp_path: Path, monkeypatch) -> None:
             with __import__("contextlib").suppress(Exception):
                 h.flush()
 
-        content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
+        content = (config_dir / "logs" / "lausu.log").read_text(encoding="utf-8")
         # Text format: a session_id bracket + level label, not JSON braces.
         assert "[a3f1b2c4]" not in content
         assert "INFO" in content

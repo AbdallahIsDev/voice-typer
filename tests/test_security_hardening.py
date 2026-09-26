@@ -243,7 +243,7 @@ class TestMutexLocalPrefix:
 
         with open(app_module.__file__) as f:
             source = f.read()
-        assert "Local\\\\VoiceTyperSingleInstance" in source or '"Local\\VoiceTyperSingleInstance"' in source
+        assert "Local\\\\LausuSingleInstance" in source or '"Local\\LausuSingleInstance"' in source
 
 
 class TestSecureReadText:

@@ -32,18 +32,18 @@ def test_diagnostics_collects_every_log_in_logs_dir(tmp_path: Path) -> None:
 
     # Ground truth on-disk set (no zip-side rename):
     on_disk = [
-        "voice-typer.log",
-        "voice-typer.log.1",
-        "voice-typer-rust.log",
+        "lausu.log",
+        "lausu.log.1",
+        "lausu-rust.log",
         "sidecar.log",
         "worker.log",
         "startup-error.log",
-        "voice-typer-crash-buffer.log",
+        "lausu-crash-buffer.log",
         "native-windows.log",
     ]
     for name in on_disk:
         (logs_dir / name).write_text(f"content of {name}\n", encoding="utf-8")
-    (logs_dir / "voice-typer.log.lock").write_text("1", encoding="utf-8")
+    (logs_dir / "lausu.log.lock").write_text("1", encoding="utf-8")
     (logs_dir / "nested").mkdir()  # directory: not a log file
 
     dest = tmp_path / "bundle"
@@ -58,31 +58,31 @@ def test_diagnostics_collects_every_log_in_logs_dir(tmp_path: Path) -> None:
     for name in on_disk:
         assert (dest / name).is_file(), f"{name} missing from the bundle"
         assert (dest / name).read_text(encoding="utf-8") == f"content of {name}\n"
-    assert not (dest / "voice-typer.log.lock").exists(), "inter-process truncation locks must not ship in the bundle"
+    assert not (dest / "lausu.log.lock").exists(), "inter-process truncation locks must not ship in the bundle"
 
 
 def test_diagnostics_legacy_root_and_current_python_do_not_collide(tmp_path: Path) -> None:
-    """Legacy root ``<config>/voice-typer.log`` and the current Python log"""
+    """Legacy root ``<config>/lausu.log`` and the current Python log"""
     module = _load_diagnostics_module()
     config_dir = tmp_path / "config"
     (config_dir / "logs").mkdir(parents=True)
-    (config_dir / "voice-typer.log").write_text("legacy python\n", encoding="utf-8")
-    (config_dir / "logs" / "voice-typer.log").write_text("current python\n", encoding="utf-8")
-    (config_dir / "logs" / "voice-typer-rust.log").write_text("rust host\n", encoding="utf-8")
+    (config_dir / "lausu.log").write_text("legacy python\n", encoding="utf-8")
+    (config_dir / "logs" / "lausu.log").write_text("current python\n", encoding="utf-8")
+    (config_dir / "logs" / "lausu-rust.log").write_text("rust host\n", encoding="utf-8")
 
     dest = tmp_path / "bundle"
     dest.mkdir()
     collected = module._collect_logs_into(config_dir, dest)
 
-    # ASCII: '-' (0x2D) < '.' (0x2E), so voice-typer-rust sorts first.
+    # ASCII: '-' (0x2D) < '.' (0x2E), so lausu-rust sorts first.
     assert sorted(collected) == [
-        "voice-typer-rust.log",
-        "voice-typer.log",
-        "voice-typer.log-2",
+        "lausu-rust.log",
+        "lausu.log",
+        "lausu.log-2",
     ]
-    assert (dest / "voice-typer.log").read_text(encoding="utf-8") == "legacy python\n"
-    assert (dest / "voice-typer.log-2").read_text(encoding="utf-8") == "current python\n"
-    assert (dest / "voice-typer-rust.log").read_text(encoding="utf-8") == "rust host\n"
+    assert (dest / "lausu.log").read_text(encoding="utf-8") == "legacy python\n"
+    assert (dest / "lausu.log-2").read_text(encoding="utf-8") == "current python\n"
+    assert (dest / "lausu-rust.log").read_text(encoding="utf-8") == "rust host\n"
 
 
 def test_diagnostics_unexpected_name_collision_is_not_silently_overwritten(
@@ -91,48 +91,48 @@ def test_diagnostics_unexpected_name_collision_is_not_silently_overwritten(
     """A file that would collide with an already-collected zip name is"""
     module = _load_diagnostics_module()
     # Direct unit: `_unique_zip_name` is the never-overwrite backstop.
-    taken = {"voice-typer.log"}
-    assert module._unique_zip_name("voice-typer.log", taken) == "voice-typer.log-2"
-    taken.add("voice-typer.log-2")
-    assert module._unique_zip_name("voice-typer.log", taken) == "voice-typer.log-3"
+    taken = {"lausu.log"}
+    assert module._unique_zip_name("lausu.log", taken) == "lausu.log-2"
+    taken.add("lausu.log-2")
+    assert module._unique_zip_name("lausu.log", taken) == "lausu.log-3"
     assert module._unique_zip_name("sidecar.log", taken) == "sidecar.log"
 
     # Integration: two same-basename logs cannot coexist on disk in one
     config_dir = tmp_path / "config"
     (config_dir / "logs").mkdir(parents=True)
-    (config_dir / "logs" / "voice-typer.log").write_text("current\n", encoding="utf-8")
-    (config_dir / "logs" / "voice-typer-rust.log").write_text("rust host\n", encoding="utf-8")
+    (config_dir / "logs" / "lausu.log").write_text("current\n", encoding="utf-8")
+    (config_dir / "logs" / "lausu-rust.log").write_text("rust host\n", encoding="utf-8")
 
     dest = tmp_path / "bundle"
     dest.mkdir()
     collected = module._collect_logs_into(config_dir, dest)
 
-    # ASCII: '-' < '.', so voice-typer-rust sorts first.
-    assert sorted(collected) == ["voice-typer-rust.log", "voice-typer.log"]
+    # ASCII: '-' < '.', so lausu-rust sorts first.
+    assert sorted(collected) == ["lausu-rust.log", "lausu.log"]
     contents = {name: (dest / name).read_text(encoding="utf-8") for name in collected}
-    assert contents["voice-typer.log"] == "current\n"
-    assert contents["voice-typer-rust.log"] == "rust host\n"
+    assert contents["lausu.log"] == "current\n"
+    assert contents["lausu-rust.log"] == "rust host\n"
 
 
 def test_diagnostics_collects_legacy_root_log(tmp_path: Path) -> None:
-    """A pre-migration profile keeps ``<config_dir>/voice-typer.log`` at"""
+    """A pre-migration profile keeps ``<config_dir>/lausu.log`` at"""
     module = _load_diagnostics_module()
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True)
-    (config_dir / "voice-typer.log").write_text("legacy\n", encoding="utf-8")
+    (config_dir / "lausu.log").write_text("legacy\n", encoding="utf-8")
 
     dest = tmp_path / "bundle"
     dest.mkdir()
     collected = module._collect_logs_into(config_dir, dest)
 
-    assert "voice-typer.log" in collected
-    assert (dest / "voice-typer.log").is_file()
+    assert "lausu.log" in collected
+    assert (dest / "lausu.log").is_file()
 
 
 def test_diagnostics_collector_has_no_hardcoded_log_glob() -> None:
-    """missed ``voice-typer-rust.log`` (the Rust host's log), ``sidecar.log``,"""
+    """missed ``lausu-rust.log`` (the Rust host's log), ``sidecar.log``,"""
     source = _read("scripts/diagnostics.py")
-    assert 'glob("voice-typer.log*")' not in source
+    assert 'glob("lausu.log*")' not in source
     assert "_collect_logs_into" in source
 
 
@@ -152,9 +152,9 @@ def test_rust_sweep_is_directory_scoped() -> None:
 
 
 def test_rust_host_log_basename_matches_diagnostics_expectation() -> None:
-    """The Rust host writes ``voice-typer-rust`` — the name the bundle"""
+    """The Rust host writes ``lausu-rust`` — the name the bundle"""
     init_source = _read("src-tauri/src/platform/logging/init.rs")
-    assert 'RotatingFileWriter::new(logs_dir.clone(), "voice-typer-rust")' in init_source
+    assert 'RotatingFileWriter::new(logs_dir.clone(), "lausu-rust")' in init_source
 
     child_log_source = _read("src-tauri/src/sidecar/child_log.rs")
     assert "sidecar.log" in child_log_source, (

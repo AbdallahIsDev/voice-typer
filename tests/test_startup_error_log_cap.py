@@ -98,7 +98,7 @@ class TestStartupErrorLogOverwrite:
         )
         main_src = inspect.getsource(_entrypoint_module.main)
         assert "_construct_app_with_diagnostics()" in main_src, (
-            "main() must delegate VoiceTyperApp construction to the shared "
+            "main() must delegate LausuApp construction to the shared "
             "_construct_app_with_diagnostics helper (construction-failure "
             "diagnostics live there, EC-8 single source of truth, shared by "
             "both launch orders)."
@@ -116,7 +116,7 @@ class TestStartupErrorLogConstructionFailureAlsoOverwrites:
     """Sanity check: the construction-failure path (which already"""
 
     def test_construction_failure_path_uses_secure_atomic_write(self):
-        """The ``except Exception`` clause around ``VoiceTyperApp()``"""
+        """The ``except Exception`` clause around ``LausuApp()``"""
         src = inspect.getsource(_entrypoint_module._construct_app_with_diagnostics)
         assert "write_startup_diagnostic(" in src, (
             "The construction-failure path must call "

@@ -1,6 +1,6 @@
 """
 Focused unit tests for the extracted ``PrivacyMixin`` helpers.
-These tests do NOT depend on a live ``VoiceTyperService`` /
+These tests do NOT depend on a live ``LausuService`` /
 """
 
 from __future__ import annotations
@@ -66,16 +66,16 @@ def test_checkpoint_history_db_swallows_close_exception() -> None:
 def test_unlink_personal_files_removes_existing_files(tmp_path: Path) -> None:
     """Hardcoded personal files are unlinked and recorded in ``erased``."""
     (tmp_path / "config.json").write_text("{}")
-    (tmp_path / "voice-typer.log").write_text("log line")
+    (tmp_path / "lausu.log").write_text("log line")
 
     erased: list = []
     failed: dict = {}
     PrivacyMixin._gdpr_unlink_personal_files(tmp_path, erased, failed)
 
     assert not (tmp_path / "config.json").exists()
-    assert not (tmp_path / "voice-typer.log").exists()
+    assert not (tmp_path / "lausu.log").exists()
     assert str(tmp_path / "config.json") in erased
-    assert str(tmp_path / "voice-typer.log") in erased
+    assert str(tmp_path / "lausu.log") in erased
     assert failed == {}
 
 
@@ -117,16 +117,16 @@ def test_unlink_personal_files_captures_unlink_failure(tmp_path: Path) -> None:
 
 def test_unlink_personal_globs_removes_matched_files(tmp_path: Path) -> None:
     """Glob-matched files are unlinked and recorded in ``erased``."""
-    (tmp_path / "voice-typer.log.1").write_text("rotated 1")
-    (tmp_path / "voice-typer.log.2").write_text("rotated 2")
+    (tmp_path / "lausu.log.1").write_text("rotated 1")
+    (tmp_path / "lausu.log.2").write_text("rotated 2")
     (tmp_path / "mic-test-20240101.wav").write_bytes(b"RIFF")
 
     erased: list = []
     failed: dict = {}
     PrivacyMixin._gdpr_unlink_personal_globs(tmp_path, erased, failed)
 
-    assert not (tmp_path / "voice-typer.log.1").exists()
-    assert not (tmp_path / "voice-typer.log.2").exists()
+    assert not (tmp_path / "lausu.log.1").exists()
+    assert not (tmp_path / "lausu.log.2").exists()
     assert not (tmp_path / "mic-test-20240101.wav").exists()
     assert len(erased) == 3
     assert failed == {}
@@ -178,8 +178,8 @@ def test_rmtree_rust_logs_removes_directory(tmp_path: Path) -> None:
     """The ``logs/`` subdir is recursively removed and recorded."""
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
-    (logs_dir / "voice-typer.log").write_text("rust log line")
-    (logs_dir / "voice-typer.log.1").write_text("rotated rust log")
+    (logs_dir / "lausu.log").write_text("rust log line")
+    (logs_dir / "lausu.log.1").write_text("rotated rust log")
 
     erased: list = []
     failed: dict = {}
@@ -392,8 +392,8 @@ def test_post_cleanup_sweep_skips_missing_files(tmp_path: Path) -> None:
 def test_build_zip_writes_all_existing_files(tmp_path: Path) -> None:
     """All existing personal-data files are added to the zip."""
     (tmp_path / "config.json").write_text(json.dumps({"key": "secret"}))
-    (tmp_path / "voice-typer.log").write_text("log line")
-    (tmp_path / "voice-typer.log.1").write_text("rotated log")
+    (tmp_path / "lausu.log").write_text("log line")
+    (tmp_path / "lausu.log.1").write_text("rotated log")
     (tmp_path / "mic-test-20240101.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
 
     zip_buf = io.BytesIO()
@@ -404,8 +404,8 @@ def test_build_zip_writes_all_existing_files(tmp_path: Path) -> None:
     with zipfile.ZipFile(zip_buf, "r") as zf:
         names = zf.namelist()
     assert "config.json" in names
-    assert "voice-typer.log" in names
-    assert "voice-typer.log.1" in names
+    assert "lausu.log" in names
+    assert "lausu.log.1" in names
     assert "mic-test-20240101.wav" in names
 
 

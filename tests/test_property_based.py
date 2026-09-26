@@ -211,7 +211,7 @@ class TestCorrectionsJsonFuzzing:
         from voice_typer.server import text_cleanup
 
         # Write random JSON as a corrections file
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         try:
             corrections_file.write_text(json.dumps(obj), encoding="utf-8")
         except (TypeError, ValueError):
@@ -228,7 +228,7 @@ class TestCorrectionsJsonFuzzing:
         from voice_typer.server import text_cleanup
 
         # Write a simple valid corrections file
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text(json.dumps({"misspellings": {}}), encoding="utf-8")
         text_cleanup.configure_corrections(config_dir=tmp_path)
         result = clean_transcribed_text(text)

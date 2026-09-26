@@ -33,7 +33,7 @@ async def test_under_cap_connection_proceeds_to_auth(monkeypatch) -> None:
     # Auth ran (and failed) → auth_failed frame, NOT max_connections_reached.
     assert len(ws._sent_frames) == 1
     frame = json.loads(ws._sent_frames[0])
-    assert frame["data"]["code"] == "auth_failed", (
+    assert frame["data"]["code"] == ErrorCodes.AUTH_FAILED, (
         f"expected auth_failed (connection was under cap), got {frame['data']['code']!r}"
     )
 
@@ -91,7 +91,7 @@ async def test_semaphore_released_after_auth_fail(monkeypatch) -> None:
     ws2 = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
     await sidecar_ws._handle_connection(ws2, server, dispatch)
     frame = json.loads(ws2._sent_frames[0])
-    assert frame["data"]["code"] == "auth_failed", (
+    assert frame["data"]["code"] == ErrorCodes.AUTH_FAILED, (
         f"second connection should proceed to auth (semaphore was released), got {frame['data']['code']!r}"
     )
 

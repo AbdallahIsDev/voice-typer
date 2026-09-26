@@ -1,6 +1,6 @@
 """
 F4 startup-perf regression tests.
-* **DJ-2**: ``VoiceTyperApp.__init__`` must NOT eagerly construct
+* **DJ-2**: ``LausuApp.__init__`` must NOT eagerly construct
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import pytest
 
 @pytest.fixture
 def app_for_startup_perf(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked hardware/GUI deps."""
+    """Create a LausuApp with mocked hardware/GUI deps."""
     # Patch the canonical home of the platform helpers: they are
     from voice_typer.server.server_platform import autostart as autostart_mod
 
@@ -22,9 +22,9 @@ def app_for_startup_perf(tmp_config_dir, monkeypatch):
     monkeypatch.setattr(autostart_mod, "disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
     instance.models.transcriber = MagicMock()
@@ -36,7 +36,7 @@ def app_for_startup_perf(tmp_config_dir, monkeypatch):
 
 
 def _patch_app_platform_helpers(monkeypatch):
-    """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches."""
+    """Patch the platform helpers that ``LausuApp.__init__`` touches."""
     from voice_typer.server.server_platform import autostart as autostart_mod
 
     monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
@@ -46,10 +46,10 @@ def _patch_app_platform_helpers(monkeypatch):
 
 
 class TestNoEagerManagerConstruction:
-    """DJ-2: ``VoiceTyperApp.__init__`` must NOT construct the JSON-reading"""
+    """DJ-2: ``LausuApp.__init__`` must NOT construct the JSON-reading"""
 
     def test_template_manager_not_constructed_in_init(self, tmp_config_dir, monkeypatch):
-        """TemplateManager() must not be called from ``VoiceTyperApp.__init__``."""
+        """TemplateManager() must not be called from ``LausuApp.__init__``."""
         from voice_typer.server import templates as templates_mod
 
         construct_count = {"n": 0}
@@ -71,18 +71,18 @@ class TestNoEagerManagerConstruction:
 
         _patch_app_platform_helpers(monkeypatch)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         # __init__ must NOT eagerly construct TemplateManager.
         assert construct_count["n"] == 0, (
-            "DJ-2: VoiceTyperApp.__init__ eagerly constructed TemplateManager "
+            "DJ-2: LausuApp.__init__ eagerly constructed TemplateManager "
             f"{construct_count['n']} time(s); it should be lazy-constructed on "
             "first access via service/template.py / dictation_pipeline.py."
         )
         # The attribute must still be accessible (preserved public API) —
         assert hasattr(instance, "_template_manager"), (
-            "DJ-2: _template_manager attribute must still exist on VoiceTyperApp (preserved public API)."
+            "DJ-2: _template_manager attribute must still exist on LausuApp (preserved public API)."
         )
         assert instance._template_manager is None, (
             "DJ-2: _template_manager should be None immediately after "
@@ -90,7 +90,7 @@ class TestNoEagerManagerConstruction:
         )
 
     def test_vocabulary_manager_not_constructed_in_init(self, tmp_config_dir, monkeypatch):
-        """VocabularyManager() must not be called from ``VoiceTyperApp.__init__``."""
+        """VocabularyManager() must not be called from ``LausuApp.__init__``."""
         from voice_typer.server import vocabulary as vocabulary_mod
 
         construct_count = {"n": 0}
@@ -111,16 +111,16 @@ class TestNoEagerManagerConstruction:
 
         _patch_app_platform_helpers(monkeypatch)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert construct_count["n"] == 0, (
-            "DJ-2: VoiceTyperApp.__init__ eagerly constructed VocabularyManager "
+            "DJ-2: LausuApp.__init__ eagerly constructed VocabularyManager "
             f"{construct_count['n']} time(s); it should be lazy-constructed on "
             "first access via service/vocabulary.py / dictation_pipeline.py."
         )
         assert hasattr(instance, "_vocabulary_manager"), (
-            "DJ-2: _vocabulary_manager attribute must still exist on VoiceTyperApp (preserved public API)."
+            "DJ-2: _vocabulary_manager attribute must still exist on LausuApp (preserved public API)."
         )
         assert instance._vocabulary_manager is None, (
             "DJ-2: _vocabulary_manager should be None immediately after "
@@ -131,9 +131,9 @@ class TestNoEagerManagerConstruction:
         """The lazy fallback in ``service/template.py`` must still construct"""
         _patch_app_platform_helpers(monkeypatch)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         assert instance._template_manager is None
         # Invoke the lazy fallback path used by service/template.py.
         from voice_typer.server.templates import TemplateManager
@@ -220,10 +220,10 @@ class TestVadPreloadCalled:
 
 
 class TestNoEagerQwenEnsureEngine:
-    """DJ-3: ``VoiceTyperApp.__init__`` must NOT eagerly call"""
+    """DJ-3: ``LausuApp.__init__`` must NOT eagerly call"""
 
     def test_no_ensure_engine_call_in_init(self, tmp_config_dir, monkeypatch):
-        """Constructing VoiceTyperApp with asr_backend='qwen' +"""
+        """Constructing LausuApp with asr_backend='qwen' +"""
         _patch_app_platform_helpers(monkeypatch)
 
         # Patch ModelManager._ensure_engine BEFORE constructing the app
@@ -238,16 +238,16 @@ class TestNoEagerQwenEnsureEngine:
 
         monkeypatch.setattr(ModelManager, "_ensure_engine", _counting_ensure_engine)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        instance = VoiceTyperApp()
+        instance = LausuApp()
         # Configure qwen backend AFTER construction so we can verify
         instance.config.asr_backend = "qwen"
         instance.config.qwen_model_path = "/nonexistent/qwen/model"
 
         # triggered: __init__ must NOT have called _ensure_engine at
         assert ensure_engine_calls == [], (
-            "DJ-3: VoiceTyperApp.__init__ must NOT eagerly call "
+            "DJ-3: LausuApp.__init__ must NOT eagerly call "
             f"_ensure_engine (got calls: {ensure_engine_calls}). The "
             "background load thread constructs the engine on the daemon "
             "thread, see ModelManager.start_background_load."

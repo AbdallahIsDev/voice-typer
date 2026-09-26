@@ -34,7 +34,7 @@ def test_file_log_line_is_clean_end_to_end(tmp_path: Path) -> None:
             with __import__("contextlib").suppress(Exception):
                 h.flush()
 
-        log_file = config_dir / "logs" / "voice-typer.log"
+        log_file = config_dir / "logs" / "lausu.log"
         content = log_file.read_text(encoding="utf-8")
         # The message and level must be present…
         assert "INFO" in content
@@ -94,7 +94,7 @@ def test_file_formatter_exact_line_shape_is_timestamp_level_message() -> None:
         level=logging.INFO,
         pathname=__file__,
         lineno=1,
-        msg="Voice Typer starting -- model=small.en",
+        msg="Lausu starting -- model=small.en",
         args=(),
         exc_info=None,
     )
@@ -115,7 +115,7 @@ def test_file_formatter_exact_line_shape_is_timestamp_level_message() -> None:
     assert "voice_typer.server.app" not in line
     assert "main" not in line
     # 3) The message text is preserved verbatim at the end of the line.
-    assert line.endswith("Voice Typer starting -- model=small.en")
+    assert line.endswith("Lausu starting -- model=small.en")
     # 4) Clean timestamp: space-separated, no T separator, no tz offset.
     ts, _, _ = line.partition("  ")
     assert "T" not in ts and "+" not in ts and not ts.endswith("Z")
@@ -271,12 +271,12 @@ def test_module_docstring_does_not_advertise_get_logger() -> None:
 
 
 def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
-    """shared ``voice-typer.log``."""
+    """shared ``lausu.log``."""
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
 
     worker_path = get_log_file_path(config_dir, process_name="worker")
-    sidecar_path = get_log_file_path(config_dir, process_name="voice-typer")
+    sidecar_path = get_log_file_path(config_dir, process_name="lausu")
     default_path = get_log_file_path(config_dir)
     main_path = get_log_file_path(config_dir, process_name="main")
 
@@ -284,11 +284,11 @@ def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
     assert worker_path == config_dir / "logs" / "worker.log", (
         f"regression: process_name='worker' must route to worker.log, got {worker_path}"
     )
-    assert sidecar_path == config_dir / "logs" / "voice-typer.log", (
-        f"regression: process_name='voice-typer' must route to voice-typer.log, got {sidecar_path}"
+    assert sidecar_path == config_dir / "logs" / "lausu.log", (
+        f"regression: process_name='lausu' must route to lausu.log, got {sidecar_path}"
     )
-    assert default_path == config_dir / "logs" / "voice-typer.log"
-    assert main_path == config_dir / "logs" / "voice-typer.log"
+    assert default_path == config_dir / "logs" / "lausu.log"
+    assert main_path == config_dir / "logs" / "lausu.log"
     # 3) The race-elimination invariant: the two paths MUST differ.
     assert worker_path != sidecar_path, (
         "rotation-race regression: worker and sidecar must NOT share a log file "
@@ -313,13 +313,13 @@ def test_worker_setup_logging_writes_to_worker_log_file(tmp_path: Path) -> None:
                 h.flush()
 
         worker_log = config_dir / "logs" / "worker.log"
-        sidecar_log = config_dir / "logs" / "voice-typer.log"
+        sidecar_log = config_dir / "logs" / "lausu.log"
 
         assert worker_log.exists(), (
             "regression: worker.log was NOT created, process_name='worker' is not routing to worker.log"
         )
         assert not sidecar_log.exists(), (
-            "regression: voice-typer.log WAS created, process_name='worker' "
+            "regression: lausu.log WAS created, process_name='worker' "
             "is racing the slim-core sidecar on the shared file (the exact "
             "race this routing was added to eliminate)."
         )

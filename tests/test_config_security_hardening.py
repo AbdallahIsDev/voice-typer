@@ -132,7 +132,7 @@ class _ReusableFakeLock:
 
 def _make_service_and_app(tmp_config_dir, monkeypatch):
     from voice_typer.server.config import Config
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
     app = MagicMock()
     app._config_mutation_lock = _ReusableFakeLock()
@@ -151,7 +151,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
     app._busy_event.is_set = MagicMock(return_value=True)
     app._shutting_down = False
 
-    service = VoiceTyperService(app)
+    service = LausuService(app)
 
     import voice_typer.server.credential_store as cs
 

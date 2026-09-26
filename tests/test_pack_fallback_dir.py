@@ -18,7 +18,7 @@ class TestFallbackPackRoot:
         root = offline_pack.fallback_offline_pack_root()
         assert root is not None
         assert "Roaming" in str(root)
-        assert "voice-typer" in str(root)
+        assert "lausu" in str(root)
         assert "runtime-pack" in str(root)
 
     def test_posix_home_voice_typer_fallback(self, monkeypatch, tmp_path: Path):
@@ -26,7 +26,7 @@ class TestFallbackPackRoot:
         monkeypatch.setattr(Path, "home", lambda *a, **kw: tmp_path)
         root = offline_pack.fallback_offline_pack_root()
         assert root is not None
-        assert root == tmp_path / ".voice-typer" / "runtime-pack"
+        assert root == tmp_path / ".lausu" / "runtime-pack"
 
     def test_posix_no_home_returns_none(self, monkeypatch):
         """When ``$HOME`` is unset, no fallback is available → None."""
@@ -45,7 +45,7 @@ class TestFallbackPackRoot:
         root = offline_pack.fallback_offline_pack_root()
         assert root is not None
         assert "Roaming" in str(root)
-        assert "voice-typer" in str(root)
+        assert "lausu" in str(root)
 
 
 class TestPackDirUsesFallback:

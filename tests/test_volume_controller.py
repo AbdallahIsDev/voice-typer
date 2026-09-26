@@ -20,7 +20,7 @@ class _FakeState:
 @pytest.fixture
 def fake_app() -> MagicMock:
     """A MagicMock app with ``config`` / ``tray`` / ``_volume_ducker``"""
-    app = MagicMock(name="VoiceTyperApp")
+    app = MagicMock(name="LausuApp")
     # Default config: ducking enabled, sensible levels.
     app.config.volume_duck_enabled = True
     app.config.volume_duck_level = 0.25

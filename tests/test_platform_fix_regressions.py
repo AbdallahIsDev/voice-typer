@@ -348,7 +348,7 @@ class TestSpecManifest:
 
     def test_spec_has_as_invoker_manifest(self):
         repo_root = Path(__file__).resolve().parent.parent
-        spec_path = repo_root / "scripts" / "build" / "voice-typer.spec"
+        spec_path = repo_root / "scripts" / "build" / "lausu.spec"
         spec_content = spec_path.read_text()
         assert "asInvoker" in spec_content
         assert "requestedExecutionLevel" in spec_content
@@ -356,7 +356,7 @@ class TestSpecManifest:
 
     def test_spec_has_dpi_awareness(self):
         repo_root = Path(__file__).resolve().parent.parent
-        spec_path = repo_root / "scripts" / "build" / "voice-typer.spec"
+        spec_path = repo_root / "scripts" / "build" / "lausu.spec"
         spec_content = spec_path.read_text()
         assert "dpiAware" in spec_content
 
@@ -404,8 +404,8 @@ class TestMutexPathHash:
         from voice_typer.server.server_platform import _run_key_name
 
         name = _run_key_name()
-        assert name.startswith("com.voicetyper.autostart_")
-        assert len(name) > len("com.voicetyper.autostart_")
+        assert name.startswith("com.Lausu.autostart_")
+        assert len(name) > len("com.Lausu.autostart_")
 
     def test_different_executables_produce_different_hashes(self, monkeypatch):
         from voice_typer.server.server_platform import _run_key_name
@@ -473,9 +473,9 @@ class TestMutexHandleClose:
             lambda hotkey_str: PynputHotkey(hotkey_str),
         )
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
 
         # Simulate having a mutex handle
         mock_handle = MagicMock()

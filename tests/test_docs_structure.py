@@ -96,10 +96,10 @@ class TestAPIDocs:
         assert api_doc.exists(), "API documentation should exist"
 
     def test_api_docs_mention_key_classes(self):
-        """API docs should document VoiceTyperApp, Recorder, Config."""
+        """API docs should document LausuApp, Recorder, Config."""
         from pathlib import Path
 
         api_doc = Path(__file__).resolve().parent.parent / "docs" / "API.md"
         content = api_doc.read_text()
-        for keyword in ["VoiceTyperApp", "Recorder", "Config", "ClipboardManager", "IPC"]:
+        for keyword in ["LausuApp", "Recorder", "Config", "ClipboardManager", "IPC"]:
             assert keyword in content, f"API docs should mention {keyword}"

@@ -269,7 +269,7 @@ class TestGenericErrorMessage:
 
     def test_tray_notify_does_not_contain_exception_text(self):
         ctrl, app = _make_controller()
-        sensitive_path = "/home/user/.voice-typer/models/secret-model.bin"
+        sensitive_path = "/home/user/.lausu/models/secret-model.bin"
         app.recorder.start.side_effect = RuntimeError(
             f"PortAudio error opening stream on device 'Built-in Microphone' loading model from {sensitive_path}"
         )

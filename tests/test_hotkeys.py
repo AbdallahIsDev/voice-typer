@@ -223,8 +223,8 @@ class TestWaylandSocketPathPerInstance:
 
         backend = WaylandHotkey("<f8>")
         assert backend.SOCKET_PATH is not None
-        assert backend.SOCKET_PATH.endswith("voice-typer-hotkey.sock")
-        assert "voice-typer-hotkey-" not in backend.SOCKET_PATH
+        assert backend.SOCKET_PATH.endswith("lausu-hotkey.sock")
+        assert "lausu-hotkey-" not in backend.SOCKET_PATH
 
     def test_dictation_role_uses_suffixed_path(self, xdg_runtime: str) -> None:
         """A backend constructed with ``role=\"dictation\"`` uses"""
@@ -232,7 +232,7 @@ class TestWaylandSocketPathPerInstance:
 
         backend = WaylandHotkey("<f8>", role="dictation")
         assert backend.SOCKET_PATH is not None
-        assert backend.SOCKET_PATH.endswith("voice-typer-hotkey-dictation.sock")
+        assert backend.SOCKET_PATH.endswith("lausu-hotkey-dictation.sock")
 
     def test_esc_role_uses_suffixed_path(self, xdg_runtime: str) -> None:
         """A backend constructed with ``role=\"esc\"`` uses"""
@@ -240,7 +240,7 @@ class TestWaylandSocketPathPerInstance:
 
         backend = WaylandHotkey("<esc>", role="esc")
         assert backend.SOCKET_PATH is not None
-        assert backend.SOCKET_PATH.endswith("voice-typer-hotkey-esc.sock")
+        assert backend.SOCKET_PATH.endswith("lausu-hotkey-esc.sock")
 
     def test_repaste_role_uses_suffixed_path(self, xdg_runtime: str) -> None:
         """A backend constructed with ``role=\"repaste\"`` uses"""
@@ -248,7 +248,7 @@ class TestWaylandSocketPathPerInstance:
 
         backend = WaylandHotkey("<f6>", role="repaste")
         assert backend.SOCKET_PATH is not None
-        assert backend.SOCKET_PATH.endswith("voice-typer-hotkey-repaste.sock")
+        assert backend.SOCKET_PATH.endswith("lausu-hotkey-repaste.sock")
 
     def test_three_roles_produce_three_distinct_paths(self, xdg_runtime: str) -> None:
         """The three roles used by ``HotkeyDispatcher`` produce three"""
@@ -284,7 +284,7 @@ class TestWaylandSocketPathPerInstance:
         empty_backend = WaylandHotkey("<f8>", role="")
         assert none_backend.SOCKET_PATH == empty_backend.SOCKET_PATH
         assert none_backend.SOCKET_PATH is not None
-        assert none_backend.SOCKET_PATH.endswith("voice-typer-hotkey.sock")
+        assert none_backend.SOCKET_PATH.endswith("lausu-hotkey.sock")
 
     @pytest.mark.skipif(
         sys.platform == "win32",
@@ -371,7 +371,7 @@ class TestFactoryRolePropagation:
             f"Factory did not propagate role='esc' to WaylandHotkey; got role={backend._role!r}"
         )
         assert backend.SOCKET_PATH is not None
-        assert backend.SOCKET_PATH.endswith("voice-typer-hotkey-esc.sock"), (
+        assert backend.SOCKET_PATH.endswith("lausu-hotkey-esc.sock"), (
             f"WaylandHotkey socket path must include the role suffix; got {backend.SOCKET_PATH}"
         )
         backend.stop()
@@ -400,7 +400,7 @@ class TestFactoryRolePropagation:
         assert isinstance(backend, WaylandHotkey)
         assert backend._role is None
         assert backend.SOCKET_PATH is not None
-        assert backend.SOCKET_PATH.endswith("voice-typer-hotkey.sock")
+        assert backend.SOCKET_PATH.endswith("lausu-hotkey.sock")
         backend.stop()
 
 
@@ -463,7 +463,7 @@ class TestAdapterRolePropagation:
             f"Adapter did not propagate role='esc' to legacy WaylandHotkey; got role={legacy._role!r}"
         )
         assert legacy.SOCKET_PATH is not None
-        assert legacy.SOCKET_PATH.endswith("voice-typer-hotkey-esc.sock")
+        assert legacy.SOCKET_PATH.endswith("lausu-hotkey-esc.sock")
 
 
 # --------------------------------------------------------------------------- #

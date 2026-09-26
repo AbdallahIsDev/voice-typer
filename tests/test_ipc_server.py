@@ -2157,7 +2157,14 @@ class TestTranscribeOfflineDegradation:
         from voice_typer.server.service import update_check
 
         monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: "v1")
-        resp = self._dispatch(_make_server())
+        server = _make_server()
+        resp = server._dispatch(
+            {
+                "id": 7,
+                "type": "transcribe_offline",
+                "data": {"audio_path": "C:\\tmp\\clip.wav", "sample_rate": 16000, "language": None},
+            }
+        )
         assert resp["type"] == "ack"
         assert resp["data"]["queued"] is True
         assert "degraded" not in resp["data"]

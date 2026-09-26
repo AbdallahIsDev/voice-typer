@@ -33,7 +33,7 @@ class TestValidatePathSafetyCr17:
         from voice_typer.server.config import _validate_path_safety
 
         parent = Path("/home/user")
-        child = Path("/home/user/.voice-typer/models/qwen/base")
+        child = Path("/home/user/.lausu/models/qwen/base")
         result = _validate_path_safety(child, parent)
         assert result == child.resolve()
 
@@ -90,8 +90,8 @@ class TestIsPathWithinCrossDrive:
 
         # "platform", "win32")``, but ``config`` does NOT import
         monkeypatch.setattr(sys, "platform", "win32")
-        root = Path("D:/voice-typer")
-        child = Path("C:/voice-typer/data")
+        root = Path("D:/lausu")
+        child = Path("C:/lausu/data")
         assert config._is_path_within(child, root, case_sensitive=False) is False
 
     def test_same_drive_windows_accepted(self, monkeypatch):

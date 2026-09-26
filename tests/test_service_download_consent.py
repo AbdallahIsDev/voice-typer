@@ -4,7 +4,7 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.service import VoiceTyperService
+from voice_typer.server.service import LausuService
 
 
 @pytest.fixture
@@ -17,12 +17,12 @@ def captured_events(monkeypatch):
     return events
 
 
-def _build_service(*, consent: bool) -> VoiceTyperService:
-    """Build a VoiceTyperService with a mock app + explicit consent flag."""
+def _build_service(*, consent: bool) -> LausuService:
+    """Build a LausuService with a mock app + explicit consent flag."""
     app = MagicMock()
     app.config.huggingface_consent = consent
     app.tray.notify = MagicMock()
-    return VoiceTyperService(app)
+    return LausuService(app)
 
 
 class TestWhisperBranchConsentGate:
@@ -189,7 +189,7 @@ class TestConsentGateDefensive:
         app = MagicMock()
         app.config = None  # degenerate path
         app.tray.notify = MagicMock()
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         result = service.download_model("tiny")
         assert result["success"] is False

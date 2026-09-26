@@ -39,7 +39,7 @@ _LOCK_DECL_RE = re.compile(
     r"threading\.(Lock|RLock)\(\)"
 )
 
-# Regex matching ``threading.Event()`` declarations on VoiceTyperApp.
+# Regex matching ``threading.Event()`` declarations on LausuApp.
 _EVENT_DECL_RE = re.compile(
     r"self\.(_busy_event|_shutting_down_event|_bubble_level_worker_stop)\s*=\s*"
     r"threading\.Event\(\)"
@@ -252,13 +252,13 @@ class TestLockOrderGraphIsAcyclic:
 
 @pytest.fixture
 def app_shell():
-    """Construct a minimal VoiceTyperApp shell via ``__new__``."""
+    """Construct a minimal LausuApp shell via ``__new__``."""
     from voice_typer.server._busyness import BusynessCoordinator
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
     from voice_typer.server.timer_coordinator import TimerCoordinator
 
-    shell = VoiceTyperApp.__new__(VoiceTyperApp)
-    # Match the production declarations exactly: ``VoiceTyperApp.__init__``
+    shell = LausuApp.__new__(LausuApp)
+    # Match the production declarations exactly: ``LausuApp.__init__``
     shell._busyness = BusynessCoordinator()
     shell._config_mutation_lock = threading.RLock()  # app.py:336
     shell.timers = TimerCoordinator(shell)

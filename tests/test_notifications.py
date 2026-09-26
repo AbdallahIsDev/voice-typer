@@ -112,7 +112,7 @@ class TestNonCriticalNotificationsRespectToggle:
         assert "app.tray.notify(" in block
 
     def test_audio_quality_warning_uses_notify(self):
-        # AudioQualityController. The delegate stub on VoiceTyperApp
+        # AudioQualityController. The delegate stub on LausuApp
         src_app = _read_ux018(APP_PY)
         src_aqc = _read_ux018(AUDIO_QUALITY_CONTROLLER_PY)
         combined = src_app + "\n" + src_aqc
@@ -211,7 +211,7 @@ class TestRepasteLastSplitsErrors:
         from voice_typer.server import app as app_module
         from voice_typer.server.clipboard import ClipboardCopyError
 
-        app = app_module.VoiceTyperApp.__new__(app_module.VoiceTyperApp)
+        app = app_module.LausuApp.__new__(app_module.LausuApp)
         # The undo property reads self._undo_backing; __new__ skips
         app._undo_backing = None
         app._last_transcription = "hello"
@@ -233,7 +233,7 @@ class TestRepasteLastSplitsErrors:
 
         from voice_typer.server import app as app_module
 
-        app = app_module.VoiceTyperApp.__new__(app_module.VoiceTyperApp)
+        app = app_module.LausuApp.__new__(app_module.LausuApp)
         # The undo property reads self._undo_backing; __new__ skips
         app._undo_backing = None
         app._last_transcription = "hello"

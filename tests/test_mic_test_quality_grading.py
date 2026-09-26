@@ -203,6 +203,25 @@ class TestVolumeScorePenalty:
         assert quality["estimated_transcription_quality"] == 60
 
 
+class TestStopVsSecureClearRace:
+    def test_synchronous_secure_clear_does_not_zero_graded_audio(self, monkeypatch):
+        """Stop must grade a private copy: the handed-off buffers are zeroed."""
+        from voice_typer.server import recording as _rec_pkg
+        from voice_typer.server.recording import buffer as _buf
+
+        monkeypatch.setattr(
+            _rec_pkg,
+            "_secure_clear_array_background",
+            lambda handed_off: _buf._secure_clear_handed_off_buffer(handed_off),
+        )
+        raw, hist = _speech_with_pauses()
+        result = _drive_stop(raw, hist, silence_blocks=15)
+
+        assert result["success"] is True
+        assert result["quality"]["volume_level"] == "good"
+        assert result["quality"]["has_voice"] is True
+
+
 class TestCancelGuard:
     def test_raw_only_state_clears_and_reports_inactive(self):
         """A raw-only leftover must be cleared even though no test is"""

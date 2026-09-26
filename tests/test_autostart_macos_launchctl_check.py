@@ -25,7 +25,7 @@ def _setup_darwin_platform(monkeypatch, tmp_path):
     monkeypatch.setattr(server_platform.Path, "home", lambda: home)
 
     # Redirect _paths.config_dir() to tmp via the env override.
-    config_dir = tmp_path / "config" / "voice-typer"
+    config_dir = tmp_path / "config" / "lausu"
     config_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(config_dir))
 

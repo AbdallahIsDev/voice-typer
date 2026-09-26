@@ -215,7 +215,7 @@ class TestWhisperSkipWhenQwenActive:
     """P1 fix: Skip Whisper load when Qwen is active, with lazy Whisper fallback."""
 
     def _make_app_with_qwen(self, monkeypatch, tmp_config_dir, qwen_loaded=True):
-        """Create a VoiceTyperApp with Qwen backend configured."""
+        """Create a LausuApp with Qwen backend configured."""
         import sys
         from unittest.mock import MagicMock
 
@@ -267,9 +267,9 @@ class TestWhisperSkipWhenQwenActive:
         # Create the Qwen model dir so path validation passes
         (tmp_config_dir / "qwen_model").mkdir(exist_ok=True)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
 
         # Mock the Qwen engine
         app.models._qwen_engine = MagicMock()

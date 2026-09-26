@@ -115,7 +115,7 @@ class TestFocusRunningApp:
         """If integrity verification fails, the focus probe is refused."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/fake/voice-typer-tauri",
+            lambda: "/fake/lausu-tauri",
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
@@ -127,7 +127,7 @@ class TestFocusRunningApp:
         """When the binary verifies, spawn Tauri with VT_FOCUS_ONLY=1."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/fake/voice-typer-tauri",
+            lambda: "/fake/lausu-tauri",
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
@@ -211,7 +211,7 @@ class TestLaunchPortClosedPath:
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/fake/voice-typer-tauri",
+            lambda: "/fake/lausu-tauri",
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
@@ -262,7 +262,7 @@ class TestLaunchPortClosedPath:
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/fake/voice-typer-tauri",
+            lambda: "/fake/lausu-tauri",
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
@@ -324,7 +324,7 @@ class TestLegacyDelayClamp:
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/fake/voice-typer-tauri",
+            lambda: "/fake/lausu-tauri",
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",

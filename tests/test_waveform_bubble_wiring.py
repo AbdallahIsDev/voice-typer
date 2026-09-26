@@ -291,7 +291,7 @@ class TestOnLevelPublishes:
 
 
 class TestDoCleanupIntegration:
-    """Document the integration point with ``VoiceTyperApp._do_cleanup``."""
+    """Document the integration point with ``LausuApp._do_cleanup``."""
 
     def test_stop_sets_stop_event(self, wiring):
         wiring._wire_waveform_bubble()

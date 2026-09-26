@@ -10,19 +10,19 @@ import pytest
 from voice_typer.server.app import (
     _LAZY_FAILED,
     RETRY_TTL_SECONDS,
-    VoiceTyperApp,
+    LausuApp,
 )
 
 
-def _make_app() -> VoiceTyperApp:
-    """Build a ``VoiceTyperApp`` via ``__new__`` with only the lazy-init"""
-    app = VoiceTyperApp.__new__(VoiceTyperApp)
+def _make_app() -> LausuApp:
+    """Build a ``LausuApp`` via ``__new__`` with only the lazy-init"""
+    app = LausuApp.__new__(LausuApp)
     app._audio_quality_backing = None
     app._audio_quality_failed_at = None
     return app
 
 
-def _make_delegateless_app() -> VoiceTyperApp:
+def _make_delegateless_app() -> LausuApp:
     """property returns None without re-attempting construction)."""
     app = _make_app()
     app._audio_quality_backing = _LAZY_FAILED

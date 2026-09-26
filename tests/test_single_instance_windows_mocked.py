@@ -13,7 +13,7 @@ HANDLE_FLAG_INHERIT = 0x00000001
 WAIT_ABANDONED = 0x00000080
 WAIT_OBJECT_0 = 0x00000000
 WAIT_TIMEOUT = 0x00000102
-MUTEX_NAME = "Local\\VoiceTyperSingleInstance"
+MUTEX_NAME = "Local\\LausuSingleInstance"
 
 
 @pytest.fixture
@@ -111,7 +111,7 @@ def test_stale_pid_recovery_clears_pid_file(fake_win32, monkeypatch):
     assert result == 0xDEADBEEF
 
 
-def test_mutex_name_is_exactly_local_voicetyper_single_instance(fake_win32):
+def test_mutex_name_is_exactly_local_lausu_single_instance(fake_win32):
     """
     ``CreateMutexW`` MUST be called with the exact name
     Pins SEC-001 / PLAT-RUN-FIXED: the mutex name is a fixed string so

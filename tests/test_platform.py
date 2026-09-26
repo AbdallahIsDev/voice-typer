@@ -55,7 +55,7 @@ class TestLinuxDesktopExec:
         )
         assert platform_mod._enable_autostart_linux() is True
 
-        desktop = (tmp_path / "voice-typer.desktop").read_text()
+        desktop = (tmp_path / "lausu.desktop").read_text()
         # The Exec line must contain the FULL command with quotes intact.
         for line in desktop.splitlines():
             if line.startswith("Exec="):
@@ -74,15 +74,15 @@ class TestLinuxDesktopExec:
         monkeypatch.setattr(
             autostart_mod,
             "_autostart_command",
-            lambda: '"/usr/bin/python3" "/home/my user/voice typer/launcher.py"',
+            lambda: '"/usr/bin/python3" "/home/my user/Lausu/launcher.py"',
         )
         assert platform_mod._enable_autostart_linux() is True
 
-        desktop = (tmp_path / "voice-typer.desktop").read_text()
+        desktop = (tmp_path / "lausu.desktop").read_text()
         for line in desktop.splitlines():
             if line.startswith("Exec="):
                 exec_val = line[len("Exec=") :]
-                assert exec_val == '"/usr/bin/python3" "/home/my user/voice typer/launcher.py"', (
+                assert exec_val == '"/usr/bin/python3" "/home/my user/Lausu/launcher.py"', (
                     f"spaces in path must stay quoted, got: {exec_val}"
                 )
                 return
@@ -98,7 +98,7 @@ class TestMacOsAutostartUnload:
         monkeypatch.setattr(flags_mod, "SYSTEM", "darwin")
         monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         # Pretend the plist exists so the unlink path runs.
-        (tmp_path / "com.voicetyper.plist").write_text("dummy")
+        (tmp_path / "com.Lausu.plist").write_text("dummy")
 
         calls: list[list[str]] = []
 
@@ -119,7 +119,7 @@ class TestMacOsAutostartUnload:
         # Must have invoked launchctl to unload the job.
         assert any("launchctl" in c and "bootout" in c for c in calls), f"expected launchctl bootout, got: {calls}"
         # Plist must be deleted.
-        assert not (tmp_path / "com.voicetyper.plist").exists()
+        assert not (tmp_path / "com.Lausu.plist").exists()
 
 
 class TestListMicrophones:
@@ -237,8 +237,8 @@ class TestCreateLauncherShortcut:
 
         result = create_launcher_shortcut()
         assert result is not None
-        assert result.name == "Voice Typer.lnk"
-        assert str(result) == str(desktop / "Voice Typer.lnk")
+        assert result.name == "Lausu.lnk"
+        assert str(result) == str(desktop / "Lausu.lnk")
         assert mock_shortcut.save.call_count == 2  # Desktop + Start Menu
         assert str(pythonw) == mock_shortcut.Targetpath
         assert "autostart_launcher.py" in mock_shortcut.Arguments
@@ -271,7 +271,7 @@ class TestCreateLauncherShortcut:
         result = create_launcher_shortcut()
         assert result is not None
         assert result.exists()
-        assert result.name == "Voice Typer.lnk"
+        assert result.name == "Lausu.lnk"
 
     def test_returns_none_on_non_windows(self, monkeypatch):
 
@@ -339,9 +339,9 @@ class TestCreateLauncherShortcut:
         desktop, start_menu, mock_shell, _runs = self._fake_windows_env(
             tmp_path, monkeypatch, app_name="Renamed Product"
         )
-        legacy_desktop = desktop / "Voice Typer.lnk"
+        legacy_desktop = desktop / "Lausu.lnk"
         legacy_desktop.write_bytes(b"legacy-desktop-lnk")
-        legacy_start = start_menu / "Voice Typer.lnk"
+        legacy_start = start_menu / "Lausu.lnk"
         legacy_start.write_bytes(b"legacy-start-lnk")
 
         result = create_launcher_shortcut()
@@ -375,7 +375,7 @@ class TestExistingLauncherLnk:
         )
         named = tmp_path / "Renamed Product.lnk"
         named.write_bytes(b"named")
-        legacy = tmp_path / "Voice Typer.lnk"
+        legacy = tmp_path / "Lausu.lnk"
         legacy.write_bytes(b"legacy")
 
         # Both exist → the APP_NAME-named shortcut wins.
@@ -388,14 +388,14 @@ class TestExistingLauncherLnk:
             "voice_typer.server.server_platform.desktop_shortcut.APP_NAME",
             "Renamed Product",
         )
-        legacy = tmp_path / "Voice Typer.lnk"
+        legacy = tmp_path / "Lausu.lnk"
         legacy.write_bytes(b"legacy")
 
         # Only the legacy file exists → it is the existing shortcut.
         assert _existing_launcher_lnk(tmp_path) == legacy
 
-    def test_current_app_name_matches_legacy_name_today(self, tmp_path):
-        """Today APP_NAME equals the legacy filename stem, so the primary"""
+    def test_app_name_shortcut_resolves_without_legacy_file(self, tmp_path):
+        """The APP_NAME-named shortcut resolves even when no legacy file exists."""
         from voice_typer.server.branding import APP_NAME
         from voice_typer.server.server_platform.desktop_shortcut import _existing_launcher_lnk
 
@@ -412,8 +412,8 @@ class TestSetLnkAppUserModelId:
 
     def _stamped_lnk(self, tmp_path):
         """Create a fake .lnk that already contains the AUMID property block."""
-        lnk = tmp_path / "Voice Typer.lnk"
-        lnk.write_bytes(self._AUMID_GUID_BYTES + b"\x00\x00" + "VoiceTyper".encode("utf-16-le"))
+        lnk = tmp_path / "Lausu.lnk"
+        lnk.write_bytes(self._AUMID_GUID_BYTES + b"\x00\x00" + "Lausu".encode("utf-16-le"))
         return lnk
 
     def test_skips_powershell_when_property_already_present(self, tmp_path, monkeypatch):
@@ -439,7 +439,7 @@ class TestSetLnkAppUserModelId:
         import voice_typer.server.server_platform as mod
 
         monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
-        lnk = tmp_path / "Voice Typer.lnk"
+        lnk = tmp_path / "Lausu.lnk"
         lnk.write_bytes(b"\x00\x01\x02")
 
         called = []
@@ -494,13 +494,13 @@ class TestSetLnkAppUserModelId:
         """SEC-10: user-supplied values in the PowerShell script are"""
         import voice_typer.server.server_platform as mod
 
-        lnk = tmp_path / "Voice Typer.lnk"
-        script = mod.desktop_shortcut._build_aumid_powershell_script(lnk, "VoiceTyper")
+        lnk = tmp_path / "Lausu.lnk"
+        script = mod.desktop_shortcut._build_aumid_powershell_script(lnk, "Lausu")
         # C# here-string is literal (no interpolation).
         assert "@'" in script and "'@" in script
         # The .lnk path and AUMID are single-quoted PowerShell literals.
         assert f"'{lnk}'" in script
-        assert "'VoiceTyper'" in script
+        assert "'Lausu'" in script
         # The generic property-store APIs (which DON'T persist) must NOT
         assert "SHGetPropertyStoreFromParsingName" not in script
         assert "} catch {" in script
@@ -520,7 +520,7 @@ class TestGenerateIconIco:
         assert result is not None
         assert result.exists()
         assert result.name == "icon.ico"
-        assert result.parent.name == "voice-typer"
+        assert result.parent.name == "lausu"
 
 
 class TestUniversalLauncherPath:

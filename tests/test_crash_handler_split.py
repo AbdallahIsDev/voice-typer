@@ -446,7 +446,7 @@ class TestFunctionalSmoke:
 
         header = crash_handler._compute_crash_header()
         assert isinstance(header, bytes)
-        assert b"VOICE-TYPER CRASH DIAGNOSTICS HEADER" in header
+        assert b"lausu CRASH DIAGNOSTICS HEADER" in header
         assert b"END HEADER" in header
 
     @pytest.mark.skipif(

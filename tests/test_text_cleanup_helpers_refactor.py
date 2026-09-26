@@ -224,7 +224,7 @@ class TestAc82LoadExternalCorrectionsHelpers:
     def test_load_user_corrections_returns_extensions_when_present(self, tmp_path, monkeypatch):
         """When the user file has ``roman_numeral_context_words`` /"""
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(
             json.dumps(
                 {
@@ -258,7 +258,7 @@ class TestAc82LoadExternalCorrectionsHelpers:
         # No user file → returns None (silent fallback).
         assert result is None
         # With a user file → returns a 3-tuple.
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(json.dumps({"misspellings": {"teh": "the"}}), encoding="utf-8")
         result = _load_external_corrections(config_dir=tmp_path)
         assert result is not None
@@ -293,7 +293,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
 
     def test_user_extensions_make_i_lowercase(self, tmp_path):
         """A user-provided extension word makes a following standalone"""
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(
             json.dumps(
                 {
@@ -312,7 +312,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
 
     def test_user_following_extensions_make_i_lowercase(self, tmp_path):
         """A user-provided following-word extension makes a preceding"""
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(
             json.dumps(
                 {
@@ -327,7 +327,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
 
     def test_extensions_are_case_insensitive(self, tmp_path):
         """user capitalised them in the file."""
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(
             json.dumps(
                 {
@@ -346,7 +346,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
     def test_removing_extensions_reverts_to_bundled_only(self, tmp_path):
         """behaviour to bundled-only (extensions are REPLACED, not"""
         # First load: with extensions.
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(
             json.dumps({"roman_numeral_context_words": ["george"]}),
             encoding="utf-8",
@@ -363,7 +363,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
 
     def test_malformed_extensions_silently_skipped(self, tmp_path):
         """When the extension keys have wrong types (not lists), they're"""
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(
             json.dumps(
                 {
@@ -382,7 +382,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
 
     def test_non_string_items_in_extension_list_filtered(self, tmp_path):
         """Non-string items in the extension list are filtered out"""
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(
             json.dumps(
                 {
@@ -400,7 +400,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
 
     def test_end_to_end_clean_transcribed_text_respects_extensions(self, tmp_path):
         """End-to-end: ``clean_transcribed_text`` honours user-provided"""
-        user_file = tmp_path / "voice-typer-corrections.json"
+        user_file = tmp_path / "lausu-corrections.json"
         user_file.write_text(
             json.dumps(
                 {

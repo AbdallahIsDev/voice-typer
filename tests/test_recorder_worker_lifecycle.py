@@ -207,7 +207,7 @@ class TestWorkerLifecycleLock:
         """Collaborator-source: the event-worker start sequence must be"""
         import inspect
 
-        from voice_typer.server.recording._recorder_split import start_recording
+        from voice_typer.server.recording.recording_lifecycle import start_recording
 
         src = inspect.getsource(start_recording)
         lock_idx = src.find("with recorder._worker_lifecycle_lock:")
@@ -224,7 +224,7 @@ class TestWorkerLifecycleLock:
         """Collaborator-source: the event-worker stop sequence must be"""
         import inspect
 
-        from voice_typer.server.recording._recorder_split import discard_recording, stop_recording
+        from voice_typer.server.recording.recording_lifecycle import discard_recording, stop_recording
 
         for fn in (stop_recording, discard_recording):
             src = inspect.getsource(fn)

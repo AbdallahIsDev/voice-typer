@@ -28,10 +28,10 @@ def _make_model_cache_dir(parent: Path, repo_id: str) -> Path:
 
 @pytest.fixture
 def service():
-    """Build a VoiceTyperService with a mock app for import_model tests."""
-    from voice_typer.server.service import VoiceTyperService
+    """Build a LausuService with a mock app for import_model tests."""
+    from voice_typer.server.service import LausuService
 
-    return VoiceTyperService(MagicMock())
+    return LausuService(MagicMock())
 
 
 class TestImportPathValidation:

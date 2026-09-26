@@ -33,11 +33,11 @@ def _make_model_cache_dir(parent: Path, repo_id: str) -> Path:
 
 @pytest.fixture
 def service():
-    """Build a VoiceTyperService with a mock app."""
-    from voice_typer.server.service import VoiceTyperService
+    """Build a LausuService with a mock app."""
+    from voice_typer.server.service import LausuService
 
     mock_app = MagicMock()
-    return VoiceTyperService(mock_app)
+    return LausuService(mock_app)
 
 
 class TestImportModelHappyPath:
@@ -391,10 +391,10 @@ class TestImportModelProtocolDrift:
         assert hasattr(ServiceProtocol, "import_model"), "ServiceProtocol must declare import_model method"
 
     def test_service_has_import_model_method(self):
-        """``VoiceTyperService`` has the ``import_model`` method."""
-        from voice_typer.server.service import VoiceTyperService
+        """``LausuService`` has the ``import_model`` method."""
+        from voice_typer.server.service import LausuService
 
-        assert hasattr(VoiceTyperService, "import_model"), "VoiceTyperService must have import_model method"
+        assert hasattr(LausuService, "import_model"), "LausuService must have import_model method"
 
     def test_ipc_registers_import_model_command(self):
         """``IPCServer._COMMAND_REGISTRY`` includes ``import_model``."""

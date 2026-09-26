@@ -77,7 +77,7 @@ class TestEndToEndSmoke:
     def test_download_model_pushes_progress_events(self, temp_config, monkeypatch):
         """UX-005: download_model pushes progress events via IPC."""
         import voice_typer.server.event_bus as event_bus_mod
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         events = []
         monkeypatch.setattr(event_bus_mod, "publish", lambda msg: events.append(msg) or True)
@@ -85,7 +85,7 @@ class TestEndToEndSmoke:
         app = MagicMock()
         app.config.qwen_model_path = str(temp_config)
         os.makedirs(temp_config, exist_ok=True)
-        service = VoiceTyperService(app)
+        service = LausuService(app)
         result = service.download_model("qwen")
         assert result["success"] is True
         progress_events = [e for e in events if e.get("type") == "download_progress"]
@@ -119,12 +119,12 @@ class TestEndToEndSmoke:
         assert callable(AsrBackendRegistry.create)
 
     def test_asr_registry_initialized_in_app_init(self, tmp_config_dir, monkeypatch):
-        """ARCH-008: registry is set in VoiceTyperApp.__init__ (now via"""
+        """ARCH-008: registry is set in LausuApp.__init__ (now via"""
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         assert app.models._registry is not None
         assert app.models.registry is not None
 
@@ -184,7 +184,7 @@ class TestBrandingConstants:
         """APP_NAME is the documented product name (guards against silent renames)."""
         from voice_typer.server.branding import APP_NAME
 
-        assert APP_NAME == "Voice Typer"
+        assert APP_NAME == "Lausu"
 
     def test_app_module_uses_branding_app_name(self, monkeypatch):
         """``voice_typer.server.app`` must source its APP_NAME from branding."""

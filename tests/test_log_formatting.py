@@ -124,7 +124,7 @@ def test_exception_log_reaches_file_on_disk(tmp_path: Path) -> None:
         for h in logging.getLogger("voice_typer").handlers:
             with __import__("contextlib").suppress(Exception):
                 h.flush()
-        content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
+        content = (config_dir / "logs" / "lausu.log").read_text(encoding="utf-8")
         assert "Traceback (most recent call last)" in content, (
             f"GT-2 end-to-end regression: no traceback in log file:\n{content}"
         )

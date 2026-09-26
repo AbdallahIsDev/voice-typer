@@ -23,8 +23,8 @@ def fake_assets(tmp_path: Path) -> dict[str, Path]:
     """Create fake asset files for testing."""
     files: dict[str, Path] = {}
     for name, content in [
-        ("voice-typer-slim-core-1.2.3-x86_64-pc-windows-msvc.exe", b"fake-nsis-installer"),
-        ("voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip", b"fake-pack-zip"),
+        ("lausu-slim-core-1.2.3-x86_64-pc-windows-msvc.exe", b"fake-nsis-installer"),
+        ("lausu-runtime-pack-3-x86_64-pc-windows-msvc.zip", b"fake-pack-zip"),
         (
             "pack-manifest.json",
             json.dumps(
@@ -463,13 +463,13 @@ class TestAssetNameBuilders:
 
     def test_slim_core_builder_matches_canonical_naming(self):
         builder = pub.ASSET_NAME_BUILDERS["slim_core"]
-        assert builder("1.2.3", "x86_64-pc-windows-msvc") == "voice-typer-slim-core-1.2.3-x86_64-pc-windows-msvc.exe"
-        assert builder("1.2.3", "aarch64-apple-darwin") == "voice-typer-slim-core-1.2.3-aarch64-apple-darwin"
+        assert builder("1.2.3", "x86_64-pc-windows-msvc") == "lausu-slim-core-1.2.3-x86_64-pc-windows-msvc.exe"
+        assert builder("1.2.3", "aarch64-apple-darwin") == "lausu-slim-core-1.2.3-aarch64-apple-darwin"
 
     def test_runtime_pack_builder_matches_canonical_naming(self):
         builder = pub.ASSET_NAME_BUILDERS["runtime_pack"]
-        assert builder("3", "x86_64-pc-windows-msvc") == "voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"
-        assert builder("3", "aarch64-unknown-linux-gnu") == "voice-typer-runtime-pack-3-aarch64-unknown-linux-gnu.zip"
+        assert builder("3", "x86_64-pc-windows-msvc") == "lausu-runtime-pack-3-x86_64-pc-windows-msvc.zip"
+        assert builder("3", "aarch64-unknown-linux-gnu") == "lausu-runtime-pack-3-aarch64-unknown-linux-gnu.zip"
 
     def test_pack_manifest_builder_is_not_versioned(self):
         """The manifest is NOT versioned: ``releases/latest/download/pack-manifest.json``"""
@@ -477,7 +477,7 @@ class TestAssetNameBuilders:
 
     def test_full_offline_builder_matches_canonical_naming(self):
         builder = pub.ASSET_NAME_BUILDERS["full_offline"]
-        assert builder("1.2.3", "x86_64-pc-windows-msvc") == "voice-typer-full-offline-1.2.3-x86_64-pc-windows-msvc.exe"
+        assert builder("1.2.3", "x86_64-pc-windows-msvc") == "lausu-full-offline-1.2.3-x86_64-pc-windows-msvc.exe"
 
     def test_builders_are_imported_from_the_canonical_module(self):
         """The builders must BE the canonical functions (imported, not"""
@@ -493,7 +493,7 @@ class TestDefaults:
     """Default values are pinned (changing them breaks the URL contract)."""
 
     def test_default_repo(self):
-        assert pub.DEFAULT_REPO == "AbdallahIsDev/voice-typer"
+        assert pub.DEFAULT_REPO == "AbdallahIsDev/lausu"
 
     def test_default_gh_cli(self):
         assert pub.DEFAULT_GH_CLI == "gh"
@@ -521,7 +521,7 @@ class TestCli:
                 "--tag",
                 "v1.2.3",
                 "--pack-onefile",
-                str(fake_assets["voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"]),
+                str(fake_assets["lausu-runtime-pack-3-x86_64-pc-windows-msvc.zip"]),
                 "--notes",
                 "some notes",
                 "--notes-file",
@@ -547,7 +547,7 @@ class TestCli:
                     "--tag",
                     "v1.2.3",
                     "--pack-onefile",
-                    str(fake_assets["voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"]),
+                    str(fake_assets["lausu-runtime-pack-3-x86_64-pc-windows-msvc.zip"]),
                     "--pack-manifest",
                     str(fake_assets["pack-manifest.json"]),
                     "--repo",
@@ -621,7 +621,7 @@ class TestPublishResultDataclass:
             success=True,
             tag="v1.2.3",
             release_url="https://github.com/owner/repo/releases/tag/v1.2.3",
-            uploaded=["voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"],
+            uploaded=["lausu-runtime-pack-3-x86_64-pc-windows-msvc.zip"],
             backend="gh",
         )
         d = asdict(result)

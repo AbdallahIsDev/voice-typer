@@ -26,7 +26,7 @@ def isolated_config_dir(monkeypatch, tmp_path):
     from voice_typer.server import app as app_mod, config as config_mod
 
     # Redirect the OWNING module's binding (C-ARCH-2 canonical contract —
-    config_subdir = tmp_path / "voice-typer-config"
+    config_subdir = tmp_path / "lausu-config"
     monkeypatch.setattr(config_mod, "_config_dir", lambda: config_subdir)
     monkeypatch.setattr(app_mod, "_config_dir", lambda: config_subdir)
     monkeypatch.setattr(

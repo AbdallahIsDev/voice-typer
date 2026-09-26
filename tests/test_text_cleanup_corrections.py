@@ -19,7 +19,7 @@ class TestCorrectionsLoadError:
             _load_external_corrections,
         )
 
-        path = tmp_path / "voice-typer-corrections.json"
+        path = tmp_path / "lausu-corrections.json"
         path.write_text("{not valid json", encoding="utf-8")
         import voice_typer.server.text_cleanup._corrections_data as tc
 

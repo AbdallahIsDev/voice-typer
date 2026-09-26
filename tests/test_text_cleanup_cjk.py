@@ -103,7 +103,7 @@ class TestEmojiInCorrections:
 
         from voice_typer.server.text_cleanup import configure_corrections
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text(
             json.dumps(
                 {

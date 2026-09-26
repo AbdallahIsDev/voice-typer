@@ -16,7 +16,7 @@ NON_ENGLISH_LOCALES = ["ar", "de", "es", "fr", "hi", "ru", "zh"]
 
 # Keys whose values are intentionally identical across all locales (brand
 ALLOWED_UNTRANSLATED = {
-    "app.name",  # "Voice Typer", brand name
+    "app.name",  # "Lausu", brand name
     "settings.apiUrl",  # "API URL", technical acronym, kept as-is
     "settings.languageHindi",  # "Hindi", proper noun
     "nav.microphone",  # "Microphone", technical term
@@ -104,6 +104,8 @@ ALLOWED_UNTRANSLATED = {
     # Universal abbreviations.
     "stats.shareImage.min",  # "min"
     "stats.shareImage.wpm",  # "WPM"
+    # Universal percent notation (pure format string, same in every locale).
+    "media.percent",  # "{percent}%"
     # Social share targets are brand names, kept identical across all
     "stats.shareImage.socialWhatsapp",  # "WhatsApp"
     "stats.shareImage.socialTelegram",  # "Telegram"

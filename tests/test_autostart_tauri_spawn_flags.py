@@ -53,7 +53,7 @@ class TestSpawnTauriHostSpawnFlags:
             return proc
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        result = _spawn_tauri_host("/fake/voice-typer-tauri.exe", hidden=True)
+        result = _spawn_tauri_host("/fake/lausu-tauri.exe", hidden=True)
         assert result is not None
         assert captured.get("creationflags") == 0x08000000
         # start_new_session is POSIX-only, must NOT be set on Windows.
@@ -73,7 +73,7 @@ class TestSpawnTauriHostSpawnFlags:
             return proc
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        result = _spawn_tauri_host("/fake/voice-typer-tauri.exe", hidden=False)
+        result = _spawn_tauri_host("/fake/lausu-tauri.exe", hidden=False)
         assert result is not None
         # No creationflags when hidden=False (matches _spawn_flags contract).
         assert "creationflags" not in captured
@@ -90,7 +90,7 @@ class TestSpawnTauriHostSpawnFlags:
             return proc
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        result = _spawn_tauri_host("/fake/voice-typer-tauri", hidden=False)
+        result = _spawn_tauri_host("/fake/lausu-tauri", hidden=False)
         assert result is not None
         assert captured.get("start_new_session") is True
         # creationflags is Windows-only, must NOT be set on POSIX.
@@ -108,7 +108,7 @@ class TestSpawnTauriHostSpawnFlags:
             return proc
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        result = _spawn_tauri_host("/fake/voice-typer-tauri", hidden=True)
+        result = _spawn_tauri_host("/fake/lausu-tauri", hidden=True)
         assert result is not None
         assert captured.get("start_new_session") is True
         assert "creationflags" not in captured
@@ -125,7 +125,7 @@ class TestSpawnTauriHostSpawnFlags:
             return proc
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
-        result = _spawn_tauri_host("/fake/voice-typer-tauri.exe", hidden=False)
+        result = _spawn_tauri_host("/fake/lausu-tauri.exe", hidden=False)
         assert result is not None
         # ANSI disabled under all three conventions.
         assert captured_env.get("FORCE_COLOR") == "0"
@@ -143,7 +143,7 @@ class TestSpawnTauriHostSpawnFlags:
             raise FileNotFoundError("binary not found")
 
         monkeypatch.setattr(subprocess, "Popen", boom)
-        result = _spawn_tauri_host("/fake/voice-typer-tauri", hidden=False)
+        result = _spawn_tauri_host("/fake/lausu-tauri", hidden=False)
         assert result is None
 
 
@@ -156,7 +156,7 @@ class TestFocusRunningAppTauriSpawnFlags:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
         captured = {}
 
@@ -177,7 +177,7 @@ class TestFocusRunningAppTauriSpawnFlags:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
         captured = {}
 
@@ -198,7 +198,7 @@ class TestFocusRunningAppTauriSpawnFlags:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
         captured_env = {}
 
@@ -218,7 +218,7 @@ class TestFocusRunningAppTauriSpawnFlags:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
         captured_env = {}
 
@@ -243,7 +243,7 @@ class TestFocusRunningAppTauriSpawnFlags:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
+            lambda: "/usr/bin/lausu-tauri",
         )
 
         def boom(cmd, env=None, **kwargs):

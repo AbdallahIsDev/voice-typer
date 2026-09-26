@@ -9,15 +9,15 @@ import pytest
 
 @pytest.fixture
 def app_for_settings(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked dependencies for settings tests."""
+    """Create a LausuApp with mocked dependencies for settings tests."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
     instance.models.transcriber = MagicMock()
@@ -26,14 +26,14 @@ def app_for_settings(tmp_config_dir, monkeypatch):
 
 
 class TestSettingsControllerWiring:
-    """Verify VoiceTyperApp.__init__ wires up SettingsController."""
+    """Verify LausuApp.__init__ wires up SettingsController."""
 
     def test_app_has_settings_attribute(self, app_for_settings):
         """``self.settings`` must be a ``SettingsController`` instance."""
         from voice_typer.server.settings_controller import SettingsController
 
         assert hasattr(app_for_settings, "settings"), (
-            "VoiceTyperApp.__init__ must construct self.settings (SettingsController)"
+            "LausuApp.__init__ must construct self.settings (SettingsController)"
         )
         assert isinstance(app_for_settings.settings, SettingsController), (
             "self.settings must be a SettingsController instance"
@@ -45,13 +45,13 @@ class TestSettingsControllerWiring:
         RW-9 Phase 6 contract: the controller reads/writes app state via
         """
         assert app_for_settings.settings._app is app_for_settings, (
-            "SettingsController._app must be the VoiceTyperApp instance that "
+            "SettingsController._app must be the LausuApp instance that "
             "constructed it (back-reference for state access)"
         )
 
 
 class TestSettingsControllerDelegates:
-    """Each VoiceTyperApp delegate method must call the corresponding"""
+    """Each LausuApp delegate method must call the corresponding"""
 
     def test_toggle_autostart_delegates(self, app_for_settings, monkeypatch):
         called = []

@@ -58,7 +58,7 @@ class TestAuthenticodeSigningHelper:
 
     def test_helper_uses_branding_source_of_truth(self, helper_text: str) -> None:
         assert "voice_typer/server/branding.py" in helper_text
-        assert '"Voice Typer"' not in helper_text
+        assert '"Lausu"' not in helper_text
 
     def test_helper_uses_fixed_signtool_arguments(self, helper_text: str) -> None:
         assert "signtool.exe" in helper_text

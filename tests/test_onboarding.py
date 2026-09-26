@@ -251,7 +251,7 @@ class TestOnboardingWizard:
 
 @pytest.fixture
 def app_with_service(tmp_config_dir, monkeypatch):
-    """Build a real VoiceTyperApp + VoiceTyperService with mocked deps."""
+    """Build a real LausuApp + LausuService with mocked deps."""
     # Mock heavy hardware/GUI deps (in addition to conftest's autouse
     mock_sd = MagicMock()
     mock_sd.query_devices.return_value = []
@@ -286,10 +286,10 @@ def app_with_service(tmp_config_dir, monkeypatch):
         _force_pynput,
     )
 
-    from voice_typer.server.app import VoiceTyperApp
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.app import LausuApp
+    from voice_typer.server.service import LausuService
 
-    app = VoiceTyperApp()
+    app = LausuApp()
     # Deterministic test behavior: no ESC hotkey, opt into voice consent.
     app.config.esc_cancel_enabled = False
     app.config.voice_biometric_consent = True
@@ -297,7 +297,7 @@ def app_with_service(tmp_config_dir, monkeypatch):
     app.models.transcriber = MagicMock()
     app.models.transcriber.is_loaded = True
 
-    service = VoiceTyperService(app)
+    service = LausuService(app)
     return app, service
 
 

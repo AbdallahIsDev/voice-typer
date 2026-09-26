@@ -175,7 +175,7 @@ class TestRingBufferScaling:
 
     def test_48khz_ring_buffer_capacity_is_2s_with_floor_64(self):
         """At 48 kHz the stream delivers rate-scaled ~32 ms chunks"""
-        from voice_typer.server.recording._recorder_split import start_recording
+        from voice_typer.server.recording.recording_lifecycle import start_recording
 
         recorder = self._build_recorder_for_start(effective_sr=48000)
         start_recording(recorder)
@@ -196,7 +196,7 @@ class TestRingBufferScaling:
 
     def test_16khz_ring_buffer_capacity_floors_at_64(self):
         """At 16 kHz / 512-sample blocks, ``int(16000 / 512 * 2.0) = 62``"""
-        from voice_typer.server.recording._recorder_split import start_recording
+        from voice_typer.server.recording.recording_lifecycle import start_recording
 
         recorder = self._build_recorder_for_start(effective_sr=16000)
         start_recording(recorder)
@@ -210,7 +210,7 @@ class TestRingBufferScaling:
 
     def test_8khz_ring_buffer_capacity_floors_at_64(self):
         """At 8 kHz (Bluetooth HFP), ``int(8000 / 512 * 2.0) = 31``"""
-        from voice_typer.server.recording._recorder_split import start_recording
+        from voice_typer.server.recording.recording_lifecycle import start_recording
 
         recorder = self._build_recorder_for_start(effective_sr=8000)
         start_recording(recorder)
@@ -226,7 +226,7 @@ class TestRingBufferScaling:
         import collections
 
         import numpy as np
-        from voice_typer.server.recording._recorder_split import start_recording
+        from voice_typer.server.recording.recording_lifecycle import start_recording
 
         recorder = self._build_recorder_for_start(effective_sr=48000)
         # Simulate stale chunks from a prior session.

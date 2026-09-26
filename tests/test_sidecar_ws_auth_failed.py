@@ -11,6 +11,7 @@ import pytest
 websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
+from voice_typer.server.ipc.validation import ErrorCodes  # noqa: E402
 
 from tests.fixtures.sidecar_ws_test_helpers import make_fake_websocket  # noqa: E402
 
@@ -20,7 +21,9 @@ def _assert_auth_failed_frame(payload: str) -> dict:
     frame = json.loads(payload)
     assert frame.get("type") == "error", f"expected an error frame, got type={frame.get('type')!r} in {frame!r}"
     data = frame.get("data", {})
-    assert data.get("code") == "auth_failed", f"expected code='auth_failed', got {data.get('code')!r} in {frame!r}"
+    assert data.get("code") == ErrorCodes.AUTH_FAILED, (
+        f"expected code={ErrorCodes.AUTH_FAILED!r}, got {data.get('code')!r} in {frame!r}"
+    )
     assert "message" in data and isinstance(data["message"], str), (
         f"expected a string 'message' field, got {data.get('message')!r} in {frame!r}"
     )
@@ -213,5 +216,5 @@ async def test_successful_auth_does_not_emit_auth_failed(monkeypatch) -> None:
     with contextlib.suppress(Exception):
         await sidecar_ws._handle_connection(ws, server, dispatch)
 
-    auth_failed_frames = [f for f in sent_frames if "auth_failed" in f]
+    auth_failed_frames = [f for f in sent_frames if ErrorCodes.AUTH_FAILED in f]
     assert auth_failed_frames == [], f"successful auth must NOT send an auth_failed frame, got {auth_failed_frames}"

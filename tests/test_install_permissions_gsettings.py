@@ -342,7 +342,7 @@ class TestSwayFlow:
             f"merged xkb_options line not found:\n{new_text}"
         )
         # Original line preserved as restore-marker comment.
-        assert "# Voice Typer (original, preserved for restore): input * xkb_options altwin:swap_alt_win" in new_text
+        assert "# Lausu (original, preserved for restore): input * xkb_options altwin:swap_alt_win" in new_text
         # Non-xkb_options lines preserved.
         assert "set $mod Mod4" in new_text
         assert "bindsym Mod4+Return exec foot" in new_text
@@ -351,7 +351,7 @@ class TestSwayFlow:
         assert result["sway_xkb_options_original"] == "input * xkb_options altwin:swap_alt_win"
 
     def test_appends_block_when_no_existing_line(self, ip_module, monkeypatch, tmp_path):
-        """When sway config has no ``input * xkb_options`` line, Voice Typer"""
+        """When sway config has no ``input * xkb_options`` line, Lausu"""
         fake_home = tmp_path
         sway_config = fake_home / ".config" / "sway" / "config"
         sway_config.parent.mkdir(parents=True)
@@ -363,7 +363,7 @@ class TestSwayFlow:
         result = ip_module.configure_caps_lock_neutralization("sway", "alice")
 
         new_text = sway_config.read_text()
-        assert "# Voice Typer — Caps Lock neutralization" in new_text
+        assert "# Lausu. Caps Lock neutralization" in new_text
         assert "input * xkb_options caps:none" in new_text
         # Existing content preserved.
         assert "set $mod Mod4" in new_text
@@ -483,10 +483,10 @@ class TestUninstallRestore:
         fake_home = tmp_path
         sway_config = fake_home / ".config" / "sway" / "config"
         sway_config.parent.mkdir(parents=True)
-        # Post-install state: restore-marker comment + merged line.
+        # Pre-rename install state: old-brand restore-marker comment + merged line.
         sway_config.write_text(
             "set $mod Mod4\n"
-            "# Voice Typer (original, preserved for restore): input * xkb_options altwin:swap_alt_win\n"
+            "# Lausu (original, preserved for restore): input * xkb_options altwin:swap_alt_win\n"
             "input * xkb_options altwin:swap_alt_win,caps:none\n"
             "bindsym Mod4+Return exec foot\n"
         )
@@ -506,20 +506,20 @@ class TestUninstallRestore:
         # Merged line gone.
         assert "altwin:swap_alt_win,caps:none" not in new_text
         # Restore-marker comment gone.
-        assert "Voice Typer (original" not in new_text
+        assert "Lausu (original" not in new_text
         # Other lines preserved.
         assert "set $mod Mod4" in new_text
         assert "bindsym Mod4+Return exec foot" in new_text
 
     def test_sway_restore_removes_block_when_no_prior_line(self, ip_module, monkeypatch, tmp_path):
-        """When no original line was saved (append-mode install), removes the marker block."""
+        """Legacy marker spelling is still cleaned (pre-deslop installs)."""
         fake_home = tmp_path
         sway_config = fake_home / ".config" / "sway" / "config"
         sway_config.parent.mkdir(parents=True)
         # Post-install state: marker + appended xkb_options line.
         sway_config.write_text(
             "set $mod Mod4\n"
-            "# Voice Typer — Caps Lock neutralization\n"
+            "# Lausu — Caps Lock neutralization\n"
             "input * xkb_options caps:none\n"
             "bindsym Mod4+Return exec foot\n"
         )
@@ -535,9 +535,69 @@ class TestUninstallRestore:
 
         new_text = sway_config.read_text()
         # Marker block removed.
-        assert "# Voice Typer — Caps Lock neutralization" not in new_text
+        assert "# Lausu — Caps Lock neutralization" not in new_text
         assert "input * xkb_options caps:none" not in new_text
         # Other lines preserved.
+        assert "set $mod Mod4" in new_text
+        assert "bindsym Mod4+Return exec foot" in new_text
+
+    def test_sway_restore_removes_current_marker_block(self, ip_module, monkeypatch, tmp_path):
+        """Pre-rename dot marker still cleans (backward compat after brand rename)."""
+        fake_home = tmp_path
+        sway_config = fake_home / ".config" / "sway" / "config"
+        sway_config.parent.mkdir(parents=True)
+        sway_config.write_text(
+            "set $mod Mod4\n"
+            "# Lausu. Caps Lock neutralization\n"
+            "input * xkb_options caps:none\n"
+            "bindsym Mod4+Return exec foot\n"
+        )
+        fake_pw = type("FakePw", (), {"pw_dir": str(fake_home), "pw_uid": 1000, "pw_gid": 1000})()
+        monkeypatch.setattr(ip_module.pwd, "getpwnam", lambda u: fake_pw)
+        monkeypatch.setattr(ip_module.shutil, "chown", lambda *a, **k: None)
+
+        manifest = {
+            "target_user": "alice",
+            "caps_lock_originals": {"sway_xkb_options_line": ""},
+        }
+        ip_module._restore_sway_config_options(manifest)
+
+        new_text = sway_config.read_text()
+        assert "# Lausu. Caps Lock neutralization" not in new_text
+        assert "input * xkb_options caps:none" not in new_text
+        assert "set $mod Mod4" in new_text
+        assert "bindsym Mod4+Return exec foot" in new_text
+
+    def test_sway_restore_cleans_new_and_legacy_markers_together(self, ip_module, monkeypatch, tmp_path):
+        """New Lausu markers plus pre-rename markers restore cleanly in one pass."""
+        fake_home = tmp_path
+        sway_config = fake_home / ".config" / "sway" / "config"
+        sway_config.parent.mkdir(parents=True)
+        # Mixed state: current-brand block + pre-rename block + merged line.
+        sway_config.write_text(
+            "set $mod Mod4\n"
+            "# Lausu (original, preserved for restore): input * xkb_options altwin:swap_alt_win\n"
+            "input * xkb_options altwin:swap_alt_win,caps:none\n"
+            "# Lausu. Caps Lock neutralization\n"
+            "input * xkb_options caps:none\n"
+            "bindsym Mod4+Return exec foot\n"
+        )
+        fake_pw = type("FakePw", (), {"pw_dir": str(fake_home), "pw_uid": 1000, "pw_gid": 1000})()
+        monkeypatch.setattr(ip_module.pwd, "getpwnam", lambda u: fake_pw)
+        monkeypatch.setattr(ip_module.shutil, "chown", lambda *a, **k: None)
+
+        manifest = {
+            "target_user": "alice",
+            "caps_lock_originals": {"sway_xkb_options_line": "input * xkb_options altwin:swap_alt_win"},
+        }
+        ip_module._restore_sway_config_options(manifest)
+
+        new_text = sway_config.read_text()
+        assert "# Lausu (original" not in new_text
+        assert "# Lausu. Caps Lock neutralization" not in new_text
+        assert "# Lausu. Caps Lock neutralization" not in new_text
+        assert "altwin:swap_alt_win,caps:none" not in new_text
+        assert "input * xkb_options altwin:swap_alt_win" in new_text
         assert "set $mod Mod4" in new_text
         assert "bindsym Mod4+Return exec foot" in new_text
 

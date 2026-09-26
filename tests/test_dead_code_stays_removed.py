@@ -401,7 +401,7 @@ if __name__ == "__main__":
 Previously ``LLMPolisher.test_connection()`` was dead, defined but
 never invoked by any IPC route or UI button.  The fix:
 
-1. Adds ``VoiceTyperService.test_llm_connection()`` that constructs an
+1. Adds ``LausuService.test_llm_connection()`` that constructs an
    LLMPolisher from the live config and calls ``test_connection()``.
 2. Adds an IPC route ``test_llm_connection`` that delegates to the
    service method.
@@ -411,14 +411,13 @@ never invoked by any IPC route or UI button.  The fix:
 
 
 class TestServiceTestMethod:
-    """NEW-DEAD-015: VoiceTyperService must expose test_llm_connection()."""
+    """NEW-DEAD-015: LausuService must expose test_llm_connection()."""
 
     def test_service_has_test_llm_connection_method(self):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        assert hasattr(VoiceTyperService, "test_llm_connection"), (
-            "VoiceTyperService must have a test_llm_connection method "
-            "so the renderer can test the LLM polish API connection"
+        assert hasattr(LausuService, "test_llm_connection"), (
+            "LausuService must have a test_llm_connection method so the renderer can test the LLM polish API connection"
         )
 
     def test_service_returns_failure_when_no_api_key(self, server_with_mock_app):

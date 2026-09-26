@@ -129,13 +129,13 @@ class TestAsrRegistryInitializedInAppInit:
     """ARCH-008: registry is initialized in __init__ (not lazily)."""
 
     def test_asr_registry_exists_after_init(self, tmp_config_dir, monkeypatch):
-        """VoiceTyperApp.__init__ must initialize ModelManager (and thus"""
+        """LausuApp.__init__ must initialize ModelManager (and thus"""
         # Mock heavy deps so __init__ doesn't fail
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         assert hasattr(app.models, "_registry"), (
             "ModelManager._registry must be set in __init__ so _start_dictation "
             "and other code paths can rely on it existing"

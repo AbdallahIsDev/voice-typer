@@ -14,7 +14,7 @@ class TestPublicAPIPreserved:
 
     def test_constants_are_correct_types(self):
         assert isinstance(cs.KEYRING_SERVICE_NAME, str)
-        assert cs.KEYRING_SERVICE_NAME == "com.voicetyper.keyring"
+        assert cs.KEYRING_SERVICE_NAME == "com.Lausu.keyring"
         assert isinstance(cs.KEYRING_REF_PREFIX, str)
         assert cs.KEYRING_REF_PREFIX == "keyring://"
         assert isinstance(cs.PROVIDER_TO_CONFIG_FIELD, dict)

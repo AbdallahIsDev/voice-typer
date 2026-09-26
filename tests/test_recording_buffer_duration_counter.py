@@ -9,19 +9,19 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from voice_typer.server.recording._recorder_split import (
+from voice_typer.server.recording.audio_pipeline import AudioPipeline
+from voice_typer.server.recording.recorder import Recorder
+from voice_typer.server.recording.recording_lifecycle import (
     discard_recording,
     stop_recording,
 )
-from voice_typer.server.recording.audio_pipeline import AudioPipeline
-from voice_typer.server.recording.recorder import Recorder
 from voice_typer.server.recording.session_state import SessionState
 
 
 @pytest.fixture(autouse=True)
 def _identity_prepare_audio(monkeypatch):
     """``stop_recording`` invokes (the historical"""
-    import voice_typer.server.recording._recorder_split as split_mod
+    import voice_typer.server.recording.recording_lifecycle as split_mod
 
     monkeypatch.setattr(split_mod, "prepare_audio", lambda rec, audio, effective_sr_in, **kw: audio)
 
@@ -379,8 +379,8 @@ class TestStopRecordingStatsSingleAbsAllocation:
                 call_count["n"] += 1
             return real_abs(a, *args, **kwargs)
 
-        # Patch the ``np.abs`` lookup in the _recorder_split module
-        import voice_typer.server.recording._recorder_split as _split
+        # Patch the ``np.abs`` lookup in the recording_lifecycle module
+        import voice_typer.server.recording.recording_lifecycle as _split
 
         original_abs = _split.np.abs
         _split.np.abs = counting_abs
@@ -439,7 +439,7 @@ class TestSourceStringContracts:
 
     def test_stop_recording_uses_max_min_for_peak(self) -> None:
         """``stop_recording`` must compute peak without an ``np.abs`` copy."""
-        from voice_typer.server.recording._recorder_split import stop_recording
+        from voice_typer.server.recording.recording_lifecycle import stop_recording
 
         src = inspect.getsource(stop_recording)
         # The peak/silence math is shared with transcription_result via

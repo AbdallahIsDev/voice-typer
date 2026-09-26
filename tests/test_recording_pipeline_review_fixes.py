@@ -183,26 +183,26 @@ class TestRec8BufferOpsLockContract:
     def test_discard_recording_locks_buffer_rebind(self):
         import inspect
 
-        from voice_typer.server.recording._recorder_split import discard_recording
+        from voice_typer.server.recording.recording_lifecycle import discard_recording
 
         src = inspect.getsource(discard_recording)
         assert "with recorder._audio_pipeline._lock:" in src, (
             "REC-8: discard_recording does not acquire recorder._audio_pipeline._lock"
         )
-        assert "recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(" in src, (
+        assert "recorder._audio_pipeline._buffer = recording_buffer._fresh_recording_buffer_like(" in src, (
             "REC-8: discard_recording does not swap in a fresh recording buffer"
         )
 
     def test_stop_recording_locks_buffer_rebind(self):
         import inspect
 
-        from voice_typer.server.recording._recorder_split import stop_recording
+        from voice_typer.server.recording.recording_lifecycle import stop_recording
 
         src = inspect.getsource(stop_recording)
         assert "with recorder._audio_pipeline._lock:" in src, (
             "REC-8: stop_recording does not acquire recorder._audio_pipeline._lock"
         )
-        assert "recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(" in src, (
+        assert "recorder._audio_pipeline._buffer = recording_buffer._fresh_recording_buffer_like(" in src, (
             "REC-8: stop_recording does not swap in a fresh recording buffer"
         )
 

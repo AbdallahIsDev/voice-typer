@@ -84,7 +84,7 @@ def test_concrete_types_match_runtime_bindings() -> None:
     assert hints["_download_cancel_events"] == dict[str, threading.Event], (
         "_download_cancel_events must be annotated as "
         "dict[str, threading.Event] to match the runtime binding in "
-        "VoiceTyperService.__init__."
+        "LausuService.__init__."
     )
 
     model_status_cache_hint = hints["_model_status_cache"]
@@ -97,7 +97,7 @@ def test_concrete_types_match_runtime_bindings() -> None:
     active_download_id_hint = hints["_active_download_id"]
     assert "str" in str(active_download_id_hint) and "None" in str(active_download_id_hint), (
         "_active_download_id must be annotated as str | None so the "
-        "None-init in VoiceTyperService.__init__ type-checks AND so "
+        "None-init in LausuService.__init__ type-checks AND so "
         "cancel_model_download's read of the attribute sees a real type."
     )
 
@@ -109,13 +109,13 @@ class _FakeApp:
 
 
 def test_active_download_id_initialised_to_none(tmp_config_dir) -> None:
-    """:meth:`VoiceTyperService.__init__`."""
-    from voice_typer.server.service import VoiceTyperService
+    """:meth:`LausuService.__init__`."""
+    from voice_typer.server.service import LausuService
 
-    service = VoiceTyperService(_FakeApp())
+    service = LausuService(_FakeApp())
     assert service._active_download_id is None, (
         "_active_download_id must be initialised to None in "
-        "VoiceTyperService.__init__ so cancel_model_download can "
+        "LausuService.__init__ so cancel_model_download can "
         "safely read it before any download is registered."
     )
 
@@ -124,27 +124,27 @@ def test_cancel_model_download_returns_false_when_no_download_active(
     tmp_config_dir,
 ) -> None:
     """End-to-end regression: ``cancel_model_download`` must NOT raise"""
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    service = VoiceTyperService(_FakeApp())
+    service = LausuService(_FakeApp())
     result = service.cancel_model_download()
     assert result == {"cancelled": False}
 
 
 def test_download_cancel_events_initialised_empty(tmp_config_dir) -> None:
     """The per-download cancellation dict is initialised to ``{}`` and"""
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    service = VoiceTyperService(_FakeApp())
+    service = LausuService(_FakeApp())
     assert service._download_cancel_events == {}
     assert isinstance(service._download_cancel_lock, type(threading.Lock()))
 
 
 def test_model_status_cache_state_initialised(tmp_config_dir) -> None:
-    """:meth:`VoiceTyperService.__init__` so :meth:`ModelMixin.get_model_status`"""
-    from voice_typer.server.service import VoiceTyperService
+    """:meth:`LausuService.__init__` so :meth:`ModelMixin.get_model_status`"""
+    from voice_typer.server.service import LausuService
 
-    service = VoiceTyperService(_FakeApp())
+    service = LausuService(_FakeApp())
     assert service._model_status_cache is None
     assert service._model_status_cache_ts == 0.0
     assert isinstance(service._model_status_cache_lock, type(threading.Lock()))
@@ -152,7 +152,7 @@ def test_model_status_cache_state_initialised(tmp_config_dir) -> None:
 
 def test_onboarding_initialised_to_none(tmp_config_dir) -> None:
     """concrete type annotation on :class:`ServiceMixinBase` is honoured"""
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
-    service = VoiceTyperService(_FakeApp())
+    service = LausuService(_FakeApp())
     assert service._onboarding is None

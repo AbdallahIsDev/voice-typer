@@ -61,7 +61,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
 
     codes = [_extract_error_code(ws) for ws in (ws_a, ws_b)]
     # With the fix: one ``auth_failed`` (acquired, auth failed) + one
-    assert sorted(codes) == ["auth_failed", ErrorCodes.MAX_CONNECTIONS_REACHED], (
+    assert sorted(codes) == [ErrorCodes.AUTH_FAILED, ErrorCodes.MAX_CONNECTIONS_REACHED], (
         f"expected one auth_failed + one max_connections_reached (fix), "
         f"got {codes}, if both are auth_failed, the cap TOCTOU race is "
         f"back (the second connection blocked on sem.acquire() instead "

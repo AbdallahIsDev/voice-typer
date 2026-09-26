@@ -18,7 +18,7 @@ def mock_heavy_imports():
 
 
 class _FakeApp:
-    """Minimal duck-typed stand-in for ``VoiceTyperApp``."""
+    """Minimal duck-typed stand-in for ``LausuApp``."""
 
     def __init__(self) -> None:
         self._shutting_down = False
@@ -53,7 +53,7 @@ def fake_app(monkeypatch):
     fake_app_module._close_devnull_files = MagicMock()
     fake_app_module._register_devnull_file = MagicMock()
     fake_app_module.is_windows = lambda: False
-    fake_app_module._config_dir = lambda: "/tmp/voice-typer-test-xv7"
+    fake_app_module._config_dir = lambda: "/tmp/lausu-test-xv7"
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
     # The PID-file teardown resolves ``_clear_backend_pid_file`` through

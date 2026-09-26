@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 
 def _make_service(tmp_config_dir):
-    """Build a ``VoiceTyperService`` against a minimal fake app."""
+    """Build a ``LausuService`` against a minimal fake app."""
     from voice_typer.server import service as svc_mod
 
     class FakeApp:
@@ -17,7 +17,7 @@ def _make_service(tmp_config_dir):
         _microphones: list = []
         tray = MagicMock()
 
-    return svc_mod.VoiceTyperService(FakeApp())
+    return svc_mod.LausuService(FakeApp())
 
 
 # XV-1 deps-probe tests removed 2026-08-15: ``_check_qwen_deps`` /
@@ -28,9 +28,9 @@ class TestDownloadPollScopedToModelDir:
 
     def test_poll_uses_per_repo_subdir_construction(self):
         """Source guard: the polling loop must construct"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        src = inspect.getsource(VoiceTyperService.download_model)
+        src = inspect.getsource(LausuService.download_model)
         assert 'model_dir = cache_dir / f"models--{repo_id.replace' in src, (
             "XV-2: download_model must construct the per-repo subdir "
             "via cache_dir / f\"models--{repo_id.replace('/', '--')}\" "
@@ -167,9 +167,9 @@ class TestMicrophonesCacheEmptyList:
 
     def test_refresh_uses_is_not_none_source(self):
         """Source guard: the truthiness check must be ``is not None``,"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        src = inspect.getsource(VoiceTyperService.refresh_microphones)
+        src = inspect.getsource(LausuService.refresh_microphones)
         assert "self._microphones_cache is not None" in src, (
             "XV-5: refresh_microphones must use 'is not None' (not bare "
             "truthiness) so an empty cached list is still served from cache."

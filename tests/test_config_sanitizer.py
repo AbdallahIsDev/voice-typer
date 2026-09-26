@@ -338,22 +338,22 @@ class TestDeadBranchesRemoved:
 
     def test_hotkey_restart_still_fires_on_hotkey_change(self):
         """FR-21 behavior parity: removing the dead disjunct must NOT"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         from tests.fixtures.ipc_test_helpers import make_fake_app
 
         fake_app = make_fake_app()
-        svc = VoiceTyperService(fake_app)
+        svc = LausuService(fake_app)
         svc.apply_config_side_effects({"hotkey": "<f3>"})
         fake_app.hotkeys.restart.assert_called()
 
     def test_hotkey_restart_still_fires_on_recording_mode_change(self):
         """FR-21 behavior parity: a ``recording_mode`` change must"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         from tests.fixtures.ipc_test_helpers import make_fake_app
 
         fake_app = make_fake_app()
-        svc = VoiceTyperService(fake_app)
+        svc = LausuService(fake_app)
         svc.apply_config_side_effects({"recording_mode": "push_to_talk"})
         fake_app.hotkeys.restart.assert_called()

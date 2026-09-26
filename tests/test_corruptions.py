@@ -14,7 +14,7 @@ class TestCorrectionsCorruptionRecovery:
         """Truncated JSON should be handled gracefully."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text('{"misspellings": {"teh": "the", "rec', encoding="utf-8")
         result = text_cleanup.configure_corrections(config_dir=tmp_path)
         # Should return an error message, not crash
@@ -27,7 +27,7 @@ class TestCorrectionsCorruptionRecovery:
         """Null bytes in the file should be handled gracefully."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_bytes(b'{"misspellings": \x00 {"teh": "the"}}')
         result = text_cleanup.configure_corrections(config_dir=tmp_path)
         # Should not crash; either succeeds or returns error
@@ -37,7 +37,7 @@ class TestCorrectionsCorruptionRecovery:
         """File with wrong encoding (e.g. UTF-16) should be handled gracefully."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         # Write as UTF-16 LE with BOM
         corrections_file.write_bytes(b'\xff\xfe{"misspellings": {}}'.replace(b"{", b"{".decode().encode("utf-16-le")))
         result = text_cleanup.configure_corrections(config_dir=tmp_path)
@@ -48,7 +48,7 @@ class TestCorrectionsCorruptionRecovery:
         """Random binary data should be handled gracefully."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_bytes(bytes(range(256)))
         result = text_cleanup.configure_corrections(config_dir=tmp_path)
         assert result is not None
@@ -59,7 +59,7 @@ class TestCorrectionsCorruptionRecovery:
         """Empty dict should be valid (no corrections)."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text("{}", encoding="utf-8")
         result = text_cleanup.configure_corrections(config_dir=tmp_path)
         assert result is None
@@ -68,7 +68,7 @@ class TestCorrectionsCorruptionRecovery:
         """After loading corrupted corrections, basic cleanup should still work."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         corrections_file.write_text("THIS IS NOT JSON AT ALL!!!", encoding="utf-8")
         text_cleanup.configure_corrections(config_dir=tmp_path)
 
@@ -80,7 +80,7 @@ class TestCorrectionsCorruptionRecovery:
         """JSON with missing required keys should be handled gracefully."""
         from voice_typer.server import text_cleanup
 
-        corrections_file = tmp_path / "voice-typer-corrections.json"
+        corrections_file = tmp_path / "lausu-corrections.json"
         # Only misspellings, no phrase_corrections or extra_word_patterns
         corrections_file.write_text(json.dumps({"misspellings": {"teh": "the"}}), encoding="utf-8")
         result = text_cleanup.configure_corrections(config_dir=tmp_path)

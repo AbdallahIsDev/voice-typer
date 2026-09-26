@@ -43,7 +43,7 @@ def _make_fake_project_root(tmp_path: Path) -> Path:
     """
     root = tmp_path / "fake_root"
     (root / "voice_typer" / "server").mkdir(parents=True)
-    (root / "voice_typer" / "server" / "branding.py").write_text('APP_NAME = "Voice Typer"\n', encoding="utf-8")
+    (root / "voice_typer" / "server" / "branding.py").write_text('APP_NAME = "Lausu"\n', encoding="utf-8")
     return root
 
 
@@ -61,9 +61,9 @@ def test_tauri_conf_json_is_scanned(tmp_path):
     (root / "src-tauri").mkdir(parents=True)
     (root / "src-tauri" / "tauri.conf.json").write_text(
         "{\n"
-        '  "productName": "Voice Typer",\n'  # allowlisted
-        '  "title": "Voice Typer",\n'  # allowlisted
-        '  "description": "Voice Typer"\n'  # NOT allowlisted → flagged
+        '  "productName": "Lausu",\n'  # allowlisted
+        '  "title": "Lausu",\n'  # allowlisted
+        '  "description": "Lausu"\n'  # NOT allowlisted → flagged
         "}\n",
         encoding="utf-8",
     )
@@ -78,7 +78,7 @@ def test_tauri_conf_json_is_scanned(tmp_path):
     assert len(violations) == 1, (
         f"expected exactly 1 violation (description only); got {len(violations)}:\n{violations}"
     )
-    assert '"description": "Voice Typer"' in violations[0]
+    assert '"description": "Lausu"' in violations[0]
     for v in violations:
         assert "productName" not in v, f"productName should be allowlisted but was flagged: {v!r}"
         assert '"title":' not in v, f"title should be allowlisted but was flagged: {v!r}"
@@ -92,7 +92,7 @@ def test_deleted_builder_yml_is_not_a_scan_target(tmp_path):
     root = _make_fake_project_root(tmp_path)
     (root / "voice_typer" / "client").mkdir(parents=True)
     (root / "voice_typer" / "client" / "legacy-builder.yml").write_text(
-        'description: "Voice Typer"\n',
+        'description: "Lausu"\n',
         encoding="utf-8",
     )
     result = _run_check_branding(root)
@@ -108,7 +108,7 @@ def test_build_config_allowlist_only_passes(tmp_path):
     root = _make_fake_project_root(tmp_path)
     (root / "src-tauri").mkdir(parents=True)
     (root / "src-tauri" / "tauri.conf.json").write_text(
-        '{\n  "productName": "Voice Typer",\n  "title": "Voice Typer"\n}\n',
+        '{\n  "productName": "Lausu",\n  "title": "Lausu"\n}\n',
         encoding="utf-8",
     )
     result = _run_check_branding(root)
@@ -138,7 +138,7 @@ def test_substring_in_literal_in_renderer_ts_source_is_flagged(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/renderer/src/bubble/helpers.ts",
-        'export const label = tf("bubble.blockedIndicatorAria", "Voice Typer blocked indicator");\n',
+        'export const label = tf("bubble.blockedIndicatorAria", "Lausu blocked indicator");\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 1, (
@@ -148,7 +148,7 @@ def test_substring_in_literal_in_renderer_ts_source_is_flagged(tmp_path):
     )
     violations = _violation_lines(result)
     assert len(violations) == 1, f"expected exactly 1 violation; got {len(violations)}:\n{violations}"
-    assert '"Voice Typer blocked indicator"' in violations[0]
+    assert '"Lausu blocked indicator"' in violations[0]
 
 
 def test_substring_in_literal_in_renderer_tsx_source_is_flagged(tmp_path):
@@ -157,12 +157,12 @@ def test_substring_in_literal_in_renderer_tsx_source_is_flagged(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/renderer/src/bubble/Bubble.tsx",
-        'export function Bubble() {\n\treturn <output aria-label="Voice Typer paste failed indicator" />;\n}\n',
+        'export function Bubble() {\n\treturn <output aria-label="Lausu paste failed indicator" />;\n}\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 1, f"expected exit 1; got rc={result.returncode}.\nstdout:\n{result.stdout}"
     violations = _violation_lines(result)
-    assert any('aria-label="Voice Typer paste failed indicator"' in v for v in violations), (
+    assert any('aria-label="Lausu paste failed indicator"' in v for v in violations), (
         f"aria-label substring literal not flagged:\n{violations}"
     )
 
@@ -173,7 +173,7 @@ def test_substring_literal_on_comment_line_is_not_flagged(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/renderer/src/bubble/helpers.ts",
-        '// legacy: "Voice Typer blocked indicator" was removed\nexport const x = 1;\n',
+        '// legacy: "Lausu blocked indicator" was removed\nexport const x = 1;\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 0, (
@@ -187,7 +187,7 @@ def test_substring_literal_in_renderer_locale_file_is_not_flagged(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/renderer/src/i18n/translations/en.json",
-        '{\n\t"bubble": {\n\t\t"blockedIndicatorAria": "Voice Typer blocked indicator"\n\t}\n}\n',
+        '{\n\t"bubble": {\n\t\t"blockedIndicatorAria": "Lausu blocked indicator"\n\t}\n}\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 0, (
@@ -201,7 +201,7 @@ def test_source_of_truth_branding_file_is_not_flagged(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/renderer/src/branding.ts",
-        'export const APP_NAME = "Voice Typer";\n',
+        'export const APP_NAME = "Lausu";\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 0, f"branding.ts must stay exempt; rc={result.returncode}.\nstdout:\n{result.stdout}"
@@ -213,7 +213,7 @@ def test_standalone_literal_in_renderer_source_flagged_exactly_once(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/renderer/src/pages/Home.tsx",
-        'const appName = "Voice Typer";\n',
+        'const appName = "Lausu";\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 1
@@ -221,7 +221,7 @@ def test_standalone_literal_in_renderer_source_flagged_exactly_once(tmp_path):
     assert len(violations) == 1, (
         f"expected exactly 1 violation (no double-report); got {len(violations)}:\n{violations}"
     )
-    assert 'const appName = "Voice Typer";' in violations[0]
+    assert 'const appName = "Lausu";' in violations[0]
 
 
 def test_app_name_composed_line_is_not_flagged(tmp_path):
@@ -244,12 +244,12 @@ def test_renderer_test_files_are_out_of_substring_scope(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/renderer/src/bubble/__tests__/helpers.test.ts",
-        'expect(label).toBe("Voice Typer blocked indicator");\n',
+        'expect(label).toBe("Lausu blocked indicator");\n',
     )
     _write_renderer_source(
         root,
         "voice_typer/client/src/renderer/src/bubble/helpers.spec.tsx",
-        'expect(label).toBe("Voice Typer blocked indicator");\n',
+        'expect(label).toBe("Lausu blocked indicator");\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 0, (
@@ -263,7 +263,7 @@ def test_main_process_ts_substring_literal_is_flagged(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/main/single_instance.ts",
-        "log.warn(`PID ${pid} is alive but is not Voice Typer`);\n",
+        "log.warn(`PID ${pid} is alive but is not Lausu`);\n",
     )
     result = _run_check_branding(root)
     assert result.returncode == 1, (
@@ -272,7 +272,7 @@ def test_main_process_ts_substring_literal_is_flagged(tmp_path):
     )
     violations = _violation_lines(result)
     assert len(violations) == 1, f"expected exactly 1 violation; got {len(violations)}:\n{violations}"
-    assert "is not Voice Typer" in violations[0]
+    assert "is not Lausu" in violations[0]
 
 
 def test_substring_in_literal_in_preload_ts_source_is_flagged(tmp_path):
@@ -281,7 +281,7 @@ def test_substring_in_literal_in_preload_ts_source_is_flagged(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/preload/index.ts",
-        'export const BRIDGE_NAME = "Voice Typer bridge";\n',
+        'export const BRIDGE_NAME = "Lausu bridge";\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 1, (
@@ -289,7 +289,7 @@ def test_substring_in_literal_in_preload_ts_source_is_flagged(tmp_path):
     )
     violations = _violation_lines(result)
     assert len(violations) == 1, f"expected exactly 1 violation; got {len(violations)}:\n{violations}"
-    assert '"Voice Typer bridge"' in violations[0]
+    assert '"Lausu bridge"' in violations[0]
 
 
 def test_substring_in_literal_in_shared_ts_source_is_flagged(tmp_path):
@@ -298,7 +298,7 @@ def test_substring_in_literal_in_shared_ts_source_is_flagged(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/shared/constants.ts",
-        'export const CRASH_TITLE = "Voice Typer crashed";\n',
+        'export const CRASH_TITLE = "Lausu crashed";\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 1, (
@@ -306,7 +306,7 @@ def test_substring_in_literal_in_shared_ts_source_is_flagged(tmp_path):
     )
     violations = _violation_lines(result)
     assert len(violations) == 1, f"expected exactly 1 violation; got {len(violations)}:\n{violations}"
-    assert '"Voice Typer crashed"' in violations[0]
+    assert '"Lausu crashed"' in violations[0]
 
 
 def test_main_process_app_name_composed_line_is_not_flagged(tmp_path):
@@ -329,7 +329,7 @@ def test_main_process_test_files_are_out_of_substring_scope(tmp_path):
     _write_renderer_source(
         root,
         "voice_typer/client/src/main/__tests__/single_instance.test.ts",
-        'expect(msg).toBe("PID 42 is alive but is not Voice Typer");\n',
+        'expect(msg).toBe("PID 42 is alive but is not Lausu");\n',
     )
     result = _run_check_branding(root)
     assert result.returncode == 0, (

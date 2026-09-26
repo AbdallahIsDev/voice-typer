@@ -224,10 +224,10 @@ def test_windows_signs_voice_typer_tauri_exe() -> None:
         pytest.skip("tauri-windows-build.yml not found")
     text = wf.read_text(encoding="utf-8")
     # The signing step exists.
-    assert "Sign standalone voice-typer-tauri.exe " in text, "standalone voice-typer-tauri.exe signing step not found."
+    assert "Sign standalone lausu-tauri.exe " in text, "standalone lausu-tauri.exe signing step not found."
     # SHA256SUMS loop includes the per-triple path.
-    assert "src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe" in text, (
-        "voice-typer-tauri.exe missing from SHA256SUMS loop / SLSA subject-path."
+    assert "src-tauri/target/${{ matrix.target }}/release/lausu-tauri.exe" in text, (
+        "lausu-tauri.exe missing from SHA256SUMS loop / SLSA subject-path."
     )
 
 
@@ -264,9 +264,9 @@ def test_windows_signtool_has_d_du_flags() -> None:
     assert brand_source in text, f"signtool description must be sourced from branding.py (missing `{brand_source}`)."
     # One centralized invocation covers sidecar, prewarm, listener, host,
     d_count = text.count('/d "$sigDescription"')
-    du_count = text.count('/du "https://voicetyper.app"')
+    du_count = text.count('/du "https://Lausu.app"')
     assert d_count == 1, f'expected one centralized `/d "$sigDescription"` flag, got {d_count}.'
-    assert du_count == 1, f'expected one centralized `/du "https://voicetyper.app"` flag, got {du_count}.'
+    assert du_count == 1, f'expected one centralized `/du "https://Lausu.app"` flag, got {du_count}.'
     # The literal app name must NOT be inlined into a signtool /d flag —
     assert f'/d "{APP_NAME}"' not in text, (
         'signtool description hardcodes the app name; use /d "$sigDescription" (C-BRAND-1).'

@@ -107,7 +107,7 @@ class TestOnboardingCheckPermissions:
         )
         monkeypatch.setattr(
             "voice_typer.server.onboarding.resolve_host_bundle_id",
-            lambda: "com.voicetyper.desktop",
+            lambda: "com.Lausu.desktop",
         )
 
         server, _fake_app, _fake_service = make_ipc_server_with_fakes()
@@ -118,7 +118,7 @@ class TestOnboardingCheckPermissions:
         assert data["platform"] == "macos"
         assert data["needed"] is True
         assert data["instructions"] is not None
-        assert data["instructions"]["commands"] == ["tccutil reset Accessibility com.voicetyper.desktop"]
+        assert data["instructions"]["commands"] == ["tccutil reset Accessibility com.Lausu.desktop"]
 
     def test_check_permissions_macos_denied_embeds_any_runtime_bundle_id(self, monkeypatch):
         """The command must follow the resolved value, not a fixed one —"""
@@ -135,14 +135,14 @@ class TestOnboardingCheckPermissions:
         )
         monkeypatch.setattr(
             "voice_typer.server.onboarding.resolve_host_bundle_id",
-            lambda: "com.voicetyper.some-other-build",
+            lambda: "com.Lausu.some-other-build",
         )
 
         server, _fake_app, _fake_service = make_ipc_server_with_fakes()
         resp = server._handle_onboarding_check_permissions({}, {})
         data = resp["data"]
 
-        assert data["instructions"]["commands"] == ["tccutil reset Accessibility com.voicetyper.some-other-build"]
+        assert data["instructions"]["commands"] == ["tccutil reset Accessibility com.Lausu.some-other-build"]
 
     def test_check_permissions_macos_denied_omits_command_when_unresolved(self, monkeypatch):
         """macOS denied + unresolvable bundle ID → ``commands`` is None"""
@@ -276,9 +276,9 @@ class TestOnboardingSetMicrophoneAcceptsNull:
     def test_set_microphone_none_propagates_to_controller(self, tmp_config_dir):
         """End-to-end check: ``mic_id=None`` flows through the IPC"""
         from voice_typer.server.onboarding import OnboardingController
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
-        service = VoiceTyperService.__new__(VoiceTyperService)
+        service = LausuService.__new__(LausuService)
         service._onboarding = OnboardingController(config_dir=tmp_config_dir)  # type: ignore[attr-defined]
 
         server, _fake_app, _ = make_ipc_server_with_fakes()

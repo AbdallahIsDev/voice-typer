@@ -28,7 +28,7 @@ def _set_mtime_days_ago(path: Path, days: float) -> None:
 
 def test_sweeps_old_log_files(tmp_path: Path) -> None:
     """Log files older than the 7-day retention are deleted."""
-    old_rotation = _logs_dir(tmp_path) / "voice-typer.log.1"
+    old_rotation = _logs_dir(tmp_path) / "lausu.log.1"
     old_rotation.write_text("ancient log", encoding="utf-8")
     _set_mtime_days_ago(old_rotation, days=8)
 
@@ -39,7 +39,7 @@ def test_sweeps_old_log_files(tmp_path: Path) -> None:
 
 def test_keeps_recent_log_files(tmp_path: Path) -> None:
     """Log files newer than the retention are kept."""
-    recent_rotation = _logs_dir(tmp_path) / "voice-typer.log.1"
+    recent_rotation = _logs_dir(tmp_path) / "lausu.log.1"
     recent_rotation.write_text("recent log", encoding="utf-8")
     _set_mtime_days_ago(recent_rotation, days=5)
 
@@ -51,7 +51,7 @@ def test_keeps_recent_log_files(tmp_path: Path) -> None:
 
 def test_deletes_stale_active_log(tmp_path: Path) -> None:
     """retention, the sweep runs before the handler opens it, so a stale"""
-    active = _logs_dir(tmp_path) / "voice-typer.log"
+    active = _logs_dir(tmp_path) / "lausu.log"
     active.write_text("stale session", encoding="utf-8")
     _set_mtime_days_ago(active, days=8)
 
@@ -62,7 +62,7 @@ def test_deletes_stale_active_log(tmp_path: Path) -> None:
 
 def test_keeps_fresh_active_log(tmp_path: Path) -> None:
     """A recently-written active log survives the sweep."""
-    active = _logs_dir(tmp_path) / "voice-typer.log"
+    active = _logs_dir(tmp_path) / "lausu.log"
     active.write_text("current session", encoding="utf-8")
     _set_mtime_days_ago(active, days=1)
 
@@ -74,7 +74,7 @@ def test_keeps_fresh_active_log(tmp_path: Path) -> None:
 
 def test_size_fallback_deletes_oversized_fresh_file(tmp_path: Path) -> None:
     """Tier 2: a freshly-written file larger than the size fallback is"""
-    oversized = _logs_dir(tmp_path) / "voice-typer.log"
+    oversized = _logs_dir(tmp_path) / "lausu.log"
     oversized.write_bytes(b"x" * (LOG_SIZE_FALLBACK_BYTES + 1))
 
     vt_log._sweep_stale_logs(tmp_path)
@@ -84,7 +84,7 @@ def test_size_fallback_deletes_oversized_fresh_file(tmp_path: Path) -> None:
 
 def test_size_fallback_keeps_file_under_cap(tmp_path: Path) -> None:
     """A file between the fallback and the ceiling but under the"""
-    under = _logs_dir(tmp_path) / "voice-typer.log"
+    under = _logs_dir(tmp_path) / "lausu.log"
     under.write_bytes(b"x" * (LOG_SIZE_FALLBACK_BYTES - 1024))
 
     vt_log._sweep_stale_logs(tmp_path)
@@ -99,7 +99,7 @@ def test_ceiling_above_fallback_invariant() -> None:
 
 def test_does_not_delete_lock_file(tmp_path: Path) -> None:
     """The inter-process truncation lock file is never deleted."""
-    lock_file = _logs_dir(tmp_path) / "voice-typer.log.lock"
+    lock_file = _logs_dir(tmp_path) / "lausu.log.lock"
     lock_file.write_text("", encoding="utf-8")
     _set_mtime_days_ago(lock_file, days=365)  # very old, should still survive
 
@@ -110,11 +110,11 @@ def test_does_not_delete_lock_file(tmp_path: Path) -> None:
 
 def test_mixed_ages_only_deletes_old(tmp_path: Path) -> None:
     """A mix of old and recent log files: only old ones are swept."""
-    old1 = _logs_dir(tmp_path) / "voice-typer.log.1"
+    old1 = _logs_dir(tmp_path) / "lausu.log.1"
     old1.write_text("old1", encoding="utf-8")
     _set_mtime_days_ago(old1, days=30)
 
-    recent2 = _logs_dir(tmp_path) / "voice-typer.log.2"
+    recent2 = _logs_dir(tmp_path) / "lausu.log.2"
     recent2.write_text("recent2", encoding="utf-8")
     _set_mtime_days_ago(recent2, days=3)
 
@@ -162,7 +162,7 @@ def test_setup_logging_invokes_sweep(tmp_path: Path, monkeypatch) -> None:
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
     (config_dir / "logs").mkdir()
-    old_log = config_dir / "logs" / "voice-typer.log.1"
+    old_log = config_dir / "logs" / "lausu.log.1"
     old_log.write_text("ancient", encoding="utf-8")
     _set_mtime_days_ago(old_log, days=8)
 

@@ -281,7 +281,7 @@ class TestNoDoubleResample:
         r._stop_device_health_checker = MagicMock()
 
         captured_sr: list[int] = []
-        import voice_typer.server.recording._recorder_split as split_mod
+        import voice_typer.server.recording.recording_lifecycle as split_mod
         from voice_typer.server.recording.format import prepare_audio as real_prepare
 
         def spy_prepare(rec, audio, effective_sr, **kw):
@@ -324,7 +324,7 @@ class TestNoDoubleResample:
 
         # removed), it must NOT be called when
         resample_calls: list[tuple[int, int]] = []
-        import voice_typer.server.recording._recorder_split as split_mod
+        import voice_typer.server.recording.recording_snapshot as split_mod
         from voice_typer.server.recording.format import resample_chunk as real_resample
 
         def spy_resample(rec, audio, effective_sr, target_sr):

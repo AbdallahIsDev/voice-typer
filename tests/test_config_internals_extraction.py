@@ -18,8 +18,8 @@ from tests.fixtures.config_helpers import patch_config_dir_refs  # noqa: E402
 
 @pytest.fixture
 def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """user's real ``~/.voice-typer`` directory."""
-    config_dir = tmp_path / "voice-typer"
+    """user's real ``~/.lausu`` directory."""
+    config_dir = tmp_path / "lausu"
     config_dir.mkdir()
     patch_config_dir_refs(monkeypatch, config_dir)
     return config_dir

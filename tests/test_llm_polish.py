@@ -19,6 +19,11 @@ def polisher():
     )
 
 
+@pytest.fixture(autouse=True)
+def _accept_mock_http_peer(accept_mock_http_peer):
+    """Mocked responses expose a MagicMock socket peer (see the conftest fixture)."""
+
+
 class TestLLMPolisherPresets:
     def test_all_presets_exist(self):
         from voice_typer.server.llm_polish import _PRESETS

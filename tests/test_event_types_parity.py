@@ -10,7 +10,7 @@ import pytest
 
 
 def _repo_root() -> Path:
-    """Return the voice-typer repo root (parent of the ``tests`` dir)."""
+    """Return the lausu repo root (parent of the ``tests`` dir)."""
     return Path(__file__).resolve().parent.parent
 
 

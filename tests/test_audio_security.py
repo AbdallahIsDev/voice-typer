@@ -29,7 +29,7 @@ def test_buffer_zeroed_on_stop():
 
     # Stop should zero the buffer before clearing
     with patch(
-        "voice_typer.server.recording._recorder_split.prepare_audio",
+        "voice_typer.server.recording.recording_lifecycle.prepare_audio",
         return_value=np.array([], dtype=np.float32),
     ):
         recorder.stop()

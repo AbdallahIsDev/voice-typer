@@ -48,7 +48,7 @@ def _set_valid_sidecar_env(
     monkeypatch.setenv("TAURI_SIDECAR", "1")
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", ipc_token)
     if native_dir is None:
-        native_dir = str(Path.home() / ".voice-typer" / "native")
+        native_dir = str(Path.home() / ".lausu" / "native")
     monkeypatch.setenv("VOICE_TYPER_NATIVE_DIR", native_dir)
 
 
@@ -85,7 +85,7 @@ class TestPathSafetyValidation:
     """XZ-R3-09: NATIVE_DIR / PREWARM_EXE are run through _validate_path_safety."""
 
     def test_safe_path_under_home_preserved(self, monkeypatch):
-        safe = str(Path.home() / ".voice-typer" / "native")
+        safe = str(Path.home() / ".lausu" / "native")
         _set_valid_sidecar_env(monkeypatch, native_dir=safe)
         _validate_env_vars()
         assert os.environ.get("VOICE_TYPER_NATIVE_DIR") == safe
@@ -98,9 +98,9 @@ class TestPathSafetyValidation:
 
     def test_path_outside_home_popped(self, monkeypatch):
         # /tmp is typically NOT under Path.home(), _validate_path_safety
-        bad = "/tmp/voice-typer-native"
+        bad = "/tmp/lausu-native"
         # Skip this test if /tmp happens to be under home (extremely
-        if Path(bad).resolve() == Path(Path.home(), "tmp", "voice-typer-native").resolve():
+        if Path(bad).resolve() == Path(Path.home(), "tmp", "lausu-native").resolve():
             pytest.skip("/tmp is under home on this host")
         _set_valid_sidecar_env(monkeypatch, native_dir=bad)
         _validate_env_vars()
@@ -175,7 +175,7 @@ class TestEndToEndAllValid:
     """All sidecar env vars valid → all preserved."""
 
     def test_all_valid_sidecar_env_preserved(self, monkeypatch):
-        native = str(Path.home() / ".voice-typer" / "native")
+        native = str(Path.home() / ".lausu" / "native")
         _set_valid_sidecar_env(
             monkeypatch,
             native_dir=native,

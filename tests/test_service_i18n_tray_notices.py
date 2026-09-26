@@ -12,10 +12,10 @@ class TestResumeModelDownloadReturnsRealBool:
 
     def test_resume_returns_false_when_no_active_download(self, monkeypatch):
         from voice_typer.server.asr_setup import clear_download_pause_state
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         clear_download_pause_state()
-        service = VoiceTyperService(MagicMock())
+        service = LausuService(MagicMock())
         result = service.resume_model_download()
         assert result == {"resumed": False}, f"no-active-download resume must return resumed=False, got: {result}"
 
@@ -24,12 +24,12 @@ class TestResumeModelDownloadReturnsRealBool:
         import threading
 
         from voice_typer.server import asr_setup
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         asr_setup._download_pause_event = threading.Event()
         asr_setup._download_pause_event.set()
         try:
-            service = VoiceTyperService(MagicMock())
+            service = LausuService(MagicMock())
             result = service.resume_model_download()
             assert result == {"resumed": True}, f"live-download resume must return resumed=True, got: {result}"
         finally:
@@ -179,7 +179,7 @@ class TestDeleteModelSuccessOmitsMessage:
     """MO-99: success paths omit message; failures carry i18n message."""
 
     def test_not_downloaded_failure_uses_i18n(self, tmp_path, monkeypatch):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         app = MagicMock()
         app.config.qwen_model_path = None
@@ -190,7 +190,7 @@ class TestDeleteModelSuccessOmitsMessage:
             "voice_typer.server.config._config_dir",
             lambda: tmp_path,
         )
-        service = VoiceTyperService(app)
+        service = LausuService(app)
         app.config.model_size = "large-v3-turbo"
         result = service.delete_model("tiny")
         assert result["success"] is False
@@ -198,14 +198,14 @@ class TestDeleteModelSuccessOmitsMessage:
         assert "not downloaded" in result["message"]
 
     def test_unknown_model_failure_uses_i18n(self, tmp_path, monkeypatch):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         app = MagicMock()
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path,
         )
-        service = VoiceTyperService(app)
+        service = LausuService(app)
         result = service.delete_model("nope-not-real")
         assert result["success"] is False
         assert result["reason"] == "unknown_model"

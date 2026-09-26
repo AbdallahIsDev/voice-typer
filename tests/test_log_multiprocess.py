@@ -22,7 +22,7 @@ def _flush_handlers() -> None:
 
 
 def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
-    """Default ``process_name=\"main\"`` writes to ``voice-typer.log``."""
+    """Default ``process_name=\"main\"`` writes to ``lausu.log``."""
     reset()
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
@@ -32,7 +32,7 @@ def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
         log.info("[DJ-49] main-process test line")
         _flush_handlers()
 
-        main_log = config_dir / "logs" / "voice-typer.log"
+        main_log = config_dir / "logs" / "lausu.log"
         prewarm_log = config_dir / "logs" / "prewarm.log"
 
         assert main_log.exists(), "main log file should exist after setup_logging"
@@ -54,14 +54,14 @@ def test_prewarm_process_writes_to_prewarm_log(tmp_path: Path) -> None:
         log.info("[DJ-49] prewarm-process test line")
         _flush_handlers()
 
-        main_log = config_dir / "logs" / "voice-typer.log"
+        main_log = config_dir / "logs" / "lausu.log"
         prewarm_log = config_dir / "logs" / "prewarm.log"
 
         assert prewarm_log.exists(), "prewarm log file should exist when process_name='prewarm'"
         assert not main_log.exists(), (
             "main log file should NOT exist when process_name='prewarm', "
             "this is the core race-elimination invariant (prewarm must not "
-            "touch the shared voice-typer.log)"
+            "touch the shared lausu.log)"
         )
         content = prewarm_log.read_text(encoding="utf-8")
         assert "[DJ-49] prewarm-process test line" in content
@@ -77,7 +77,7 @@ def test_main_and_prewarm_paths_are_disjoint(tmp_path: Path) -> None:
     main_path = get_log_file_path(config_dir, process_name="main")
     prewarm_path = get_log_file_path(config_dir, process_name="prewarm")
 
-    assert main_path == config_dir / "logs" / "voice-typer.log"
+    assert main_path == config_dir / "logs" / "lausu.log"
     assert prewarm_path == config_dir / "logs" / "prewarm.log"
     assert main_path != prewarm_path, (
         "DJ-49 invariant violated: main and prewarm must write to DIFFERENT "
@@ -86,12 +86,12 @@ def test_main_and_prewarm_paths_are_disjoint(tmp_path: Path) -> None:
 
 
 def test_get_log_file_path_defaults_to_main(tmp_path: Path) -> None:
-    """``get_log_file_path(config_dir)`` defaults to ``voice-typer.log``."""
+    """``get_log_file_path(config_dir)`` defaults to ``lausu.log``."""
     config_dir = tmp_path / "cfg"
     default_path = get_log_file_path(config_dir)
     explicit_main_path = get_log_file_path(config_dir, process_name="main")
 
-    assert default_path == config_dir / "logs" / "voice-typer.log"
+    assert default_path == config_dir / "logs" / "lausu.log"
     assert explicit_main_path == default_path
 
 

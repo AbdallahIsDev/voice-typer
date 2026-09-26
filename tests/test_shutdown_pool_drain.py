@@ -142,7 +142,7 @@ class _FakeAppForDoCleanup:
     """production-path YJ-20 test."""
 
     def __init__(self) -> None:
-        # Shutdown state (mirrors VoiceTyperApp.__init__)
+        # Shutdown state (mirrors LausuApp.__init__)
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False

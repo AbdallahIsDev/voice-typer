@@ -10,9 +10,9 @@ import pytest
 
 
 def _make_service_and_app(tmp_config_dir, monkeypatch):
-    """Build a VoiceTyperService backed by a mock app for apply_config tests."""
+    """Build a LausuService backed by a mock app for apply_config tests."""
     from voice_typer.server.config import Config
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
     @contextlib.contextmanager
     def _fake_lock():
@@ -34,7 +34,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
     app._busy_event.is_set = MagicMock(return_value=True)
     app._shutting_down = False
 
-    service = VoiceTyperService(app)
+    service = LausuService(app)
 
     import voice_typer.server.credential_store as cs
 

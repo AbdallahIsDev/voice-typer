@@ -244,7 +244,7 @@ class TestShowPermissionNotification:
         show_permission_notification(tray, "Accessibility permission required")
         tray.notify.assert_called_once()
         args = tray.notify.call_args[0]
-        assert "permission" in args[0].lower() or "Voice Typer" in args[0]
+        assert "permission" in args[0].lower() or "Lausu" in args[0]
 
     def test_no_tray_does_not_raise(self):
         from voice_typer.server.permissions import show_permission_notification

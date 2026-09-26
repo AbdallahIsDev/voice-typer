@@ -416,7 +416,7 @@ class TestCheckResourcesXZEH008SilentExcept:
                 )
 
     def test_check_resources_docstring_promises_debug_logging(self):
-        """XZ-EH-022: the docstring must still promise \"DEBUG level\""""
+        """XZ-EH-022: the docstring must still promise "DEBUG level\""""
         doc = DictationPipeline._check_resources.__doc__ or ""
         assert "DEBUG" in doc, (
             "XZ-EH-022 regression: _check_resources docstring must mention "
@@ -424,3 +424,25 @@ class TestCheckResourcesXZEH008SilentExcept:
             "flagged the docstring drift where it claimed DEBUG logging "
             "but the code did silent `pass`."
         )
+
+
+class TestCheckResourcesStatvfsBestEffort:
+    """statvfs per-path block stays best-effort for non-OSError failures."""
+
+    def test_statvfs_non_os_error_does_not_abort_probe(self, caplog, monkeypatch):
+        """A non-OSError from statvfs is logged at DEBUG and the probe completes."""
+        _patch_disk_free(monkeypatch, 50 * 1024**3)
+
+        def _raising_statvfs(path):
+            raise TypeError("expected pathlike object")
+
+        monkeypatch.setattr(os, "statvfs", _raising_statvfs, raising=False)
+
+        pipeline = _make_pipeline()
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
+            pipeline._check_resources()
+
+        statvfs_lines = [r for r in caplog.records if "statvfs failed" in r.getMessage()]
+        assert statvfs_lines, "Non-OSError statvfs failure must log at DEBUG, not escape"
+        complete_lines = [r for r in caplog.records if "[RESOURCE] Pre-flight health check complete" in r.getMessage()]
+        assert complete_lines, "Probe must complete even when statvfs raises a non-OSError"

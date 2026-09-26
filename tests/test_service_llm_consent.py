@@ -5,7 +5,7 @@ Also covers VT-SEC-8-3: exception messages returned from service.py
 
 from unittest.mock import MagicMock, patch
 
-from voice_typer.server.service import VoiceTyperService
+from voice_typer.server.service import LausuService
 
 
 class TestTestLLMConnectionConsent:
@@ -14,7 +14,7 @@ class TestTestLLMConnectionConsent:
         mock_app = MagicMock()
         mock_app.config.llm_polish_consent = False
         mock_app.config.llm_api_key = "sk-test-key"
-        service = VoiceTyperService(mock_app)
+        service = LausuService(mock_app)
         result = service.test_llm_connection()
         assert result["success"] is False
         assert "consent" in result["message"].lower()
@@ -27,7 +27,7 @@ class TestTestLLMConnectionConsent:
         # Mock LLMPolisher.test_connection to return success
         with patch("voice_typer.server.llm_polish.LLMPolisher") as MockPolisher:  # noqa: N806
             MockPolisher.return_value.test_connection.return_value = (True, "OK")
-            service = VoiceTyperService(mock_app)
+            service = LausuService(mock_app)
             result = service.test_llm_connection()
             assert result["success"] is True
 
@@ -36,7 +36,7 @@ class TestTestLLMConnectionConsent:
         mock_app = MagicMock()
         mock_app.config.llm_polish_consent = True
         mock_app.config.llm_api_key = ""
-        service = VoiceTyperService(mock_app)
+        service = LausuService(mock_app)
         result = service.test_llm_connection()
         assert result["success"] is False
         assert "key" in result["message"].lower()
@@ -52,7 +52,7 @@ class TestServiceErrorRedaction:
         mock_app.config.llm_api_key = "sk-secret-key-12345"
         with patch("voice_typer.server.llm_polish.LLMPolisher") as MockPolisher:  # noqa: N806
             MockPolisher.return_value.test_connection.side_effect = RuntimeError("https://user:pass@evil.com/")
-            service = VoiceTyperService(mock_app)
+            service = LausuService(mock_app)
             result = service.test_llm_connection()
             assert result["success"] is False
             # The error message must NOT contain the secret/password
@@ -69,7 +69,7 @@ class TestServiceErrorRedaction:
             MockPolisher.return_value.test_connection.side_effect = RuntimeError(
                 "Authorization: Bearer sk-secret-key-12345 rejected"
             )
-            service = VoiceTyperService(mock_app)
+            service = LausuService(mock_app)
             result = service.test_llm_connection()
             assert result["success"] is False
             assert "sk-secret-key-12345" not in result["message"]

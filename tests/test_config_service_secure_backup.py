@@ -11,10 +11,10 @@ import pytest
 
 
 def _build_service(tmp_path: Path):
-    """Build a real VoiceTyperService backed by a tmp config dir."""
+    """Build a real LausuService backed by a tmp config dir."""
     from voice_typer.server import config as cfg_mod
     from voice_typer.server.config import Config
-    from voice_typer.server.service import VoiceTyperService
+    from voice_typer.server.service import LausuService
 
     app = MagicMock()
     cfg = Config()
@@ -22,7 +22,7 @@ def _build_service(tmp_path: Path):
     # Real lock, MagicMock would silently accept the `with` statement
     app._config_mutation_lock = threading.Lock()
     app.tray.notify = MagicMock()
-    svc = VoiceTyperService(app)
+    svc = LausuService(app)
 
     mp = pytest.MonkeyPatch()
     mp.setattr(cfg_mod, "_config_dir", lambda: tmp_path)

@@ -1,1 +1,1 @@
-"""Voice Typer test suite."""
+"""Lausu test suite."""

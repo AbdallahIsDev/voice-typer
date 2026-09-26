@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 
-from voice_typer.server.recording import _recorder_split, recorder
+from voice_typer.server.recording import recorder, recording_lifecycle
 
 
 class TestSecureClearArrayCallSite:
@@ -41,18 +41,18 @@ class TestSecureClearArrayCallSite:
 
     def test_secure_clear_array_background_uses_owning_module_import(self):
         """The OTHER secure-clear helper (``_secure_clear_array_background``,"""
-        src = inspect.getsource(_recorder_split)
+        src = inspect.getsource(recording_lifecycle)
 
         # The historical package-object bridge must NOT be reintroduced.
         assert "import recording as _recording_pkg" not in src, (
             "The `_recording_pkg` package-object bridge was removed per "
-            "C-ARCH-2, do not reintroduce it in _recorder_split.py."
+            "C-ARCH-2, do not reintroduce it in recording_lifecycle.py."
         )
 
         # The call must use the bare name resolved from the buffer module.
         assert "_secure_clear_array_background(" in src, (
             "Expected a ``_secure_clear_array_background(...)`` call in "
-            "_recorder_split.py, the secure-clear path went missing."
+            "recording_lifecycle.py, the secure-clear path went missing."
         )
 
 

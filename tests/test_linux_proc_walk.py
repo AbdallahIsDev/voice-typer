@@ -46,8 +46,8 @@ class TestStatPpid:
 
 class TestCmdlineExe:
     def test_returns_argv0_from_nul_separated_cmdline(self):
-        blob = b"/opt/voice-typer/bin/voice-typer\x00--flag\x00"
-        assert lwalk._cmdline_exe(blob) == "/opt/voice-typer/bin/voice-typer"
+        blob = b"/opt/lausu/bin/lausu\x00--flag\x00"
+        assert lwalk._cmdline_exe(blob) == "/opt/lausu/bin/lausu"
 
     def test_returns_none_for_empty_blob(self):
         assert lwalk._cmdline_exe(b"") is None
@@ -92,7 +92,7 @@ class TestResolveLinuxChainWalk:
             tmp_path,
             {
                 300: (_stat_line(300, "sleep 30", "S", 200), b"/usr/bin/sleep\x0030"),
-                200: (_stat_line(200, "voice-typer-launch", "S", 150), b"/opt/voice-typer/launch"),
+                200: (_stat_line(200, "lausu-launch", "S", 150), b"/opt/lausu/launch"),
                 150: (_stat_line(150, "systemd", "S", 1), b"/lib/systemd/systemd"),
             },
         )

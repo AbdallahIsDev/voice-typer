@@ -15,8 +15,8 @@ from voice_typer.server.startup_tasks import _a11y_regrant_message
 
 
 def _make_app_bundle(root: Path, bundle_id: str) -> Path:
-    """Create a minimal ``Voice Typer.app/Contents/Info.plist`` at ``root``."""
-    app = root / "Voice Typer.app"
+    """Create a minimal ``Lausu.app/Contents/Info.plist`` at ``root``."""
+    app = root / "Lausu.app"
     contents = app / "Contents"
     contents.mkdir(parents=True)
     (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": bundle_id}))
@@ -25,14 +25,14 @@ def _make_app_bundle(root: Path, bundle_id: str) -> Path:
 
 class TestAppBundleRoot:
     def test_finds_app_root_in_macos_host_path(self):
-        root = mbid.app_bundle_root("/Applications/Voice Typer.app/Contents/MacOS/Voice Typer")
-        assert root == Path("/Applications/Voice Typer.app")
+        root = mbid.app_bundle_root("/Applications/Lausu.app/Contents/MacOS/Lausu")
+        assert root == Path("/Applications/Lausu.app")
 
     def test_finds_app_root_anywhere_in_path(self):
         root = mbid.app_bundle_root(
-            "/Users/x/Projects/Voice Typer.app/Contents/Resources/python-sidecar-aarch64-apple-darwin"
+            "/Users/x/Projects/Lausu.app/Contents/Resources/python-sidecar-aarch64-apple-darwin"
         )
-        assert root == Path("/Users/x/Projects/Voice Typer.app")
+        assert root == Path("/Users/x/Projects/Lausu.app")
 
     def test_returns_none_without_app_segment(self):
         assert mbid.app_bundle_root("/usr/bin/python3") is None
@@ -44,8 +44,8 @@ class TestAppBundleRoot:
 
 class TestReadBundleIdentifier:
     def test_reads_cf_bundle_identifier(self, tmp_path):
-        app = _make_app_bundle(tmp_path, "com.voicetyper.desktop")
-        assert mbid.read_bundle_identifier(app) == "com.voicetyper.desktop"
+        app = _make_app_bundle(tmp_path, "com.Lausu.desktop")
+        assert mbid.read_bundle_identifier(app) == "com.Lausu.desktop"
 
     def test_returns_none_when_plist_missing(self, tmp_path):
         app = tmp_path / "Empty.app"
@@ -88,33 +88,33 @@ def _fake_ps(lines: dict[int, str]):
 
 class TestResolveHostBundleId:
     def test_resolves_nearest_app_bundle(self, tmp_path, monkeypatch):
-        app = _make_app_bundle(tmp_path, "com.voicetyper.desktop")
+        app = _make_app_bundle(tmp_path, "com.Lausu.desktop")
         monkeypatch.setattr(
             mbid,
             "_process_chain_line",
             _fake_ps(
                 {
-                    300: f"200 {app}/Contents/MacOS/Voice Typer",
+                    300: f"200 {app}/Contents/MacOS/Lausu",
                     200: "1 /sbin/launchd",
                 }
             ),
         )
-        assert mbid._resolve_host_bundle_id(start_pid=300) == "com.voicetyper.desktop"
+        assert mbid._resolve_host_bundle_id(start_pid=300) == "com.Lausu.desktop"
 
     def test_skips_non_app_ancestors_before_host(self, tmp_path, monkeypatch):
-        app = _make_app_bundle(tmp_path, "com.voicetyper.desktop")
+        app = _make_app_bundle(tmp_path, "com.Lausu.desktop")
         monkeypatch.setattr(
             mbid,
             "_process_chain_line",
             _fake_ps(
                 {
-                    300: "200 /usr/local/bin/voice-typer-launch",
-                    200: f"150 {app}/Contents/MacOS/Voice Typer",
+                    300: "200 /usr/local/bin/lausu-launch",
+                    200: f"150 {app}/Contents/MacOS/Lausu",
                     150: "1 /sbin/launchd",
                 }
             ),
         )
-        assert mbid._resolve_host_bundle_id(start_pid=300) == "com.voicetyper.desktop"
+        assert mbid._resolve_host_bundle_id(start_pid=300) == "com.Lausu.desktop"
 
     def test_returns_none_when_no_app_in_chain(self, monkeypatch):
         monkeypatch.setattr(
@@ -167,9 +167,9 @@ class TestPublicResolveHostBundleId:
         monkeypatch.setattr(
             mbid,
             "_resolve_host_bundle_id",
-            lambda: "com.voicetyper.desktop",
+            lambda: "com.Lausu.desktop",
         )
-        assert mbid.resolve_host_bundle_id() == "com.voicetyper.desktop"
+        assert mbid.resolve_host_bundle_id() == "com.Lausu.desktop"
 
 
 def _expected_bundle_id_from_current_chain() -> str | None:
@@ -201,11 +201,11 @@ class TestRealProcessTreeIntegration:
     @pytest.mark.skipif(sys.platform != "darwin", reason="macos-only real ps walk")
     def test_resolver_returns_bundle_id_for_process_launched_inside_app(self, tmp_path):
         """A process whose executable lives inside a ``*.app`` must resolve."""
-        app = tmp_path / "Voice Typer Test.app"
+        app = tmp_path / "Lausu Test.app"
         contents = app / "Contents"
         macos_dir = contents / "MacOS"
         macos_dir.mkdir(parents=True)
-        (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.voicetyper.desktop"}))
+        (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.Lausu.desktop"}))
         host = macos_dir / "sleep"
         shutil.copyfile("/bin/sleep", host)  # real exe at a path inside the .app
         host.chmod(0o755)
@@ -217,7 +217,7 @@ class TestRealProcessTreeIntegration:
             parts = line.split(None, 1)
             assert len(parts) == 2, f"ps must report '<ppid> <exe>'; got: {line!r}"
             assert mbid.app_bundle_root(parts[1]) is not None, f"ps comm must expose the bundle path; got: {line!r}"
-            assert mbid._resolve_host_bundle_id(start_pid=proc.pid) == "com.voicetyper.desktop"
+            assert mbid._resolve_host_bundle_id(start_pid=proc.pid) == "com.Lausu.desktop"
         finally:
             proc.terminate()
             proc.wait(timeout=10)
@@ -235,8 +235,8 @@ class TestRealProcessTreeIntegration:
 
 class TestRegrantMessage:
     def test_includes_tccutil_command_when_bundle_id_resolved(self):
-        msg = _a11y_regrant_message("com.voicetyper.desktop")
-        assert "tccutil reset Accessibility com.voicetyper.desktop" in msg
+        msg = _a11y_regrant_message("com.Lausu.desktop")
+        assert "tccutil reset Accessibility com.Lausu.desktop" in msg
         assert "Open System Settings" not in msg
 
     def test_falls_back_to_settings_walkthrough_when_unresolved(self):
@@ -246,8 +246,8 @@ class TestRegrantMessage:
 
     def test_embeds_any_runtime_bundle_id(self):
         # The message must follow the resolved value, not a fixed one —
-        msg = _a11y_regrant_message("com.voicetyper.some-other-build")
-        assert "tccutil reset Accessibility com.voicetyper.some-other-build" in msg
+        msg = _a11y_regrant_message("com.Lausu.some-other-build")
+        assert "tccutil reset Accessibility com.Lausu.some-other-build" in msg
 
 
 class TestStartupTasksSource:
@@ -263,7 +263,7 @@ class TestStartupTasksSource:
             "startup_tasks.py must resolve the host bundle ID at runtime "
             "(resolve_host_bundle_id) for the tccutil re-grant notification."
         )
-        assert "tccutil reset Accessibility com.voicetyper" not in src, (
+        assert "tccutil reset Accessibility com.Lausu" not in src, (
             "startup_tasks.py must NOT hardcode a bundle ID in the tccutil "
             "re-grant notification, resolve it at runtime instead."
         )
@@ -283,7 +283,7 @@ class TestOnboardingSource:
             "(resolve_host_bundle_id) for the macOS permissions guidance "
             "(the tccutil re-grant command in the onboarding walkthrough)."
         )
-        assert "tccutil reset Accessibility com.voicetyper" not in src, (
+        assert "tccutil reset Accessibility com.Lausu" not in src, (
             "onboarding.py must NOT hardcode a bundle ID in the macOS "
             "permissions guidance, resolve it at runtime instead."
         )

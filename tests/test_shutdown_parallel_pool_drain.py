@@ -14,10 +14,10 @@ from voice_typer.server.shutdown_controller import ShutdownController
 
 
 class _FakeApp:
-    """Minimal duck-typed stand-in for ``VoiceTyperApp``."""
+    """Minimal duck-typed stand-in for ``LausuApp``."""
 
     def __init__(self) -> None:
-        # Shutdown state (mirrors VoiceTyperApp.__init__)
+        # Shutdown state (mirrors LausuApp.__init__)
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
@@ -45,7 +45,7 @@ class _FakeApp:
         self._cancel_pending_timers = MagicMock()
         self._restore_volume = MagicMock()
 
-        # ``_do_cleanup`` delegate on VoiceTyperApp, not used by tests
+        # ``_do_cleanup`` delegate on LausuApp, not used by tests
         self._do_cleanup = MagicMock()
 
         # IPC server, left as None here; the test wires it as needed.

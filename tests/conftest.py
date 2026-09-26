@@ -37,6 +37,25 @@ def _warn_once(kind: str, message: str) -> None:
     warnings.warn(message, MockHeavyImportsWarning, stacklevel=2)
 
 
+@pytest.fixture
+def accept_mock_http_peer(monkeypatch):
+    """Accept a MagicMock socket peer in the SEC peer-IP pin.
+
+    Modules that mock an HTTP response expose a ``MagicMock`` socket, so
+    ``verify_peer_ip_allowed`` (the URL-allowlist TOCTOU guard) rejects it
+    before the request path under test runs. The guard's own primitives stay
+    covered by ``tests/security/test_url_allowlist_toctou.py``; this
+    opt-in fixture lets the HTTP-path modules exercise the real call chain.
+    Both call-time-resolved seams are patched (LLM polisher + cloud facade).
+    """
+
+    def _allow(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr("voice_typer.server._secrets.verify_peer_ip_allowed", _allow)
+    monkeypatch.setattr("voice_typer.server.cloud_engines.verify_peer_ip_allowed", _allow)
+
+
 def pytest_configure(config):
     """register the real_pynput and real_pil markers."""
     config.addinivalue_line(

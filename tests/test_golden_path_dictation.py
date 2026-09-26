@@ -117,7 +117,7 @@ class RecordingClipboard:
 
 @pytest.fixture
 def golden_app(tmp_config_dir, monkeypatch):
-    """Real ``VoiceTyperApp`` with hardware/GUI deps mocked at the boundary."""
+    """Real ``LausuApp`` with hardware/GUI deps mocked at the boundary."""
     instance = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
     # ``app.history_db`` access, pinning the upgraded-install layout.
