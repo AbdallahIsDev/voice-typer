@@ -370,12 +370,12 @@ def test_publish_tray_state_guarded_by_tauri_sidecar(monkeypatch):
 
         # 2. With the env var: event emitted with both fields.
         monkeypatch.setenv("TAURI_SIDECAR", "1")
-        assert publish_tray_state(icon="recording", tooltip="Voice Typer: Recording") is True
+        assert publish_tray_state(icon="recording", tooltip="Lausu: Recording") is True
         assert len(captured) == 1
         ev = captured[0]
         assert ev["type"] == "tray_state"
         assert ev["data"]["icon"] == "recording"
-        assert ev["data"]["tooltip"] == "Voice Typer: Recording"
+        assert ev["data"]["tooltip"] == "Lausu: Recording"
 
         # 3. With only icon field: payload only has icon.
         assert publish_tray_state(icon="idle") is True

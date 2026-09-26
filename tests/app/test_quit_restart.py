@@ -393,10 +393,10 @@ class TestAppQuitAppAlwaysPushesEvent:
 
 
 class TestSingleInstanceEnforcement:
-    """TEST-037: verify VoiceTyperApp is only instantiated once per"""
+    """TEST-037: verify LausuApp is only instantiated once per"""
 
     def test_voice_typer_app_has_single_call_site(self):
-        """VoiceTyperApp() must be called from exactly one location."""
+        """LausuApp() must be called from exactly one location."""
         import ast
 
         import voice_typer.server as server_pkg
@@ -409,14 +409,14 @@ class TestSingleInstanceEnforcement:
             except SyntaxError:
                 continue
             for node in ast.walk(tree):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "VoiceTyperApp":
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "LausuApp":
                     call_sites.append(f"{py_file.relative_to(pkg_dir).as_posix()}:{node.lineno}")
         assert len(call_sites) == 1, (
-            f"VoiceTyperApp() should be called from exactly one location "
+            f"LausuApp() should be called from exactly one location "
             f"(ipc/entrypoint.main); found {len(call_sites)} call sites: {call_sites}"
         )
         assert "ipc/entrypoint.py" in call_sites[0], (
-            f"VoiceTyperApp() should only be called from ipc/entrypoint.py; found call at {call_sites[0]}"
+            f"LausuApp() should only be called from ipc/entrypoint.py; found call at {call_sites[0]}"
         )
 
     def test_ensure_single_instance_is_called_from_main(self):
@@ -427,11 +427,11 @@ class TestSingleInstanceEnforcement:
         assert "_ensure_single_instance" in source, (
             "ipc/entrypoint.py must call _ensure_single_instance to enforce the single-process invariant"
         )
-        assert "VoiceTyperApp()" in source, "ipc/entrypoint.py must instantiate VoiceTyperApp exactly once"
+        assert "LausuApp()" in source, "ipc/entrypoint.py must instantiate LausuApp exactly once"
         si_idx = source.index("_ensure_single_instance")
-        app_idx = source.index("VoiceTyperApp()")
+        app_idx = source.index("LausuApp()")
         assert si_idx < app_idx, (
-            "_ensure_single_instance must be called BEFORE VoiceTyperApp() "
+            "_ensure_single_instance must be called BEFORE LausuApp() "
             "so a duplicate process exits before loading heavy modules."
         )
 

@@ -29,9 +29,9 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
 
         assert app.config.paste_on_stop is False
         assert app.clipboard.paste_enabled is False
@@ -46,9 +46,9 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
 
         assert app.config.streaming_transcription is False
 
@@ -72,9 +72,9 @@ class TestConfigWiring:
         transcriber_cls = MagicMock()
         monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", transcriber_cls)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         # TranscriptionEngine is now created in _do_startup (background), not __init__
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
@@ -108,9 +108,9 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
         from voice_typer.server import startup_tasks
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         startup_tasks.sync_autostart(app)
 
         assert len(called) == 1  # enable_autostart was called
@@ -129,9 +129,9 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
         from voice_typer.server import startup_tasks
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         startup_tasks.sync_autostart(app)
 
         assert len(called) == 1  # disable_autostart was called

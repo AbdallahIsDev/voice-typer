@@ -8,10 +8,8 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from voice_typer.server.recording._recorder_split import (
-    stop_recording,
-    take_snapshot,
-)
+from voice_typer.server.recording.recording_lifecycle import stop_recording
+from voice_typer.server.recording.recording_snapshot import take_snapshot
 from voice_typer.server.recording.stream_lifecycle import StreamLifecycle
 
 # ``stop_recording`` invokes the free function ``prepare_audio``
@@ -21,8 +19,8 @@ _prepare_audio_mock_holder: dict = {}
 
 @pytest.fixture(autouse=True)
 def _mock_prepare_audio(monkeypatch):
-    """Patch ``_recorder_split.prepare_audio`` with an identity"""
-    import voice_typer.server.recording._recorder_split as split_mod
+    """Patch ``recording_lifecycle.prepare_audio`` with an identity"""
+    import voice_typer.server.recording.recording_lifecycle as split_mod
 
     mock = MagicMock(name="prepare_audio", side_effect=lambda rec, audio, effective_sr_in, **kw: audio)
     monkeypatch.setattr(split_mod, "prepare_audio", mock)
@@ -116,7 +114,7 @@ class TestContiguousSnapshotStorage:
             step = max(1, effective_sr_in // target_sr)
             return audio[::step].astype(np.float32, copy=False).reshape(-1)
 
-        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", fake_resample)
+        monkeypatch.setattr("voice_typer.server.recording.recording_snapshot.resample_chunk", fake_resample)
 
         import collections
 

@@ -371,9 +371,9 @@ class TestAppStartupIntegration:
         # Make transcriber.load() a no-op (don't actually load a model)
         monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
 
         # Run _do_startup directly (normally called in a thread by tray.start)
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
@@ -406,9 +406,9 @@ class TestAppStartupIntegration:
         mock_pystray.MenuItem = _FakeMenuItem
         monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
 
         # Reset before our call
         _FakeIcon.last_kwargs = {}
@@ -521,16 +521,16 @@ class TestStartupNoCrash:
     """Verify the full startup → hotkey → F2 path works correctly."""
 
     def test_app_construction_no_crash(self, tmp_config_dir, monkeypatch):
-        """VoiceTyperApp() should construct without crashing."""
+        """LausuApp() should construct without crashing."""
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
         monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
 
         assert app.config is not None
         assert app.tray is not None
@@ -559,9 +559,9 @@ class TestStartupNoCrash:
         mock_pystray.MenuItem = _FakeMenuItem
         monkeypatch.setattr(tray_mod, "pystray", mock_pystray)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
 
         _FakeIcon.last_kwargs = {}
 
@@ -593,9 +593,9 @@ class TestAppInitManagerFailureWarning:
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         app.tray = MagicMock()
         app.config.templates_enabled = True
         app.config.vocabulary_enabled = True
@@ -699,7 +699,7 @@ class TestAppExcepthookInstallGuard:
     """``_crash_handler.install_python_excepthook()`` was called"""
 
     def test_excepthook_install_failure_does_not_break_init(self, monkeypatch, tmp_config_dir):
-        """If install_python_excepthook raises, VoiceTyperApp must"""
+        """If install_python_excepthook raises, LausuApp must"""
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
@@ -712,9 +712,9 @@ class TestAppExcepthookInstallGuard:
 
         monkeypatch.setattr(crash_handler, "install_python_excepthook", _boom)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app_instance = VoiceTyperApp()
+        app_instance = LausuApp()
         assert app_instance is not None
         assert app_instance._shutting_down is False
 
@@ -734,10 +734,10 @@ class TestAppExcepthookInstallGuard:
 
         monkeypatch.setattr(crash_handler, "install_python_excepthook", _boom)
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
-            VoiceTyperApp()
+            LausuApp()
 
         hook_records = [r for r in caplog.records if "excepthook install failed" in r.message]
         assert hook_records, "excepthook install failure must be logged at debug level so the failure is diagnosable"
@@ -753,9 +753,9 @@ class TestAppExcepthookInstallGuard:
         """Source-level invariant: the threading/crash-init builder must"""
         import inspect
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        src = inspect.getsource(VoiceTyperApp._init_threading_and_crash)
+        src = inspect.getsource(LausuApp._init_threading_and_crash)
         call_idx = src.find("_crash_handler.install_python_excepthook()")
         assert call_idx != -1, "init must call _crash_handler.install_python_excepthook()"
         before = src[:call_idx].rstrip()
@@ -913,7 +913,7 @@ class TestConfigLoadRaisesInInit:
 
         monkeypatch.setattr(Config, "load", classmethod(lambda cls: _boom()))
 
-        instance = app_module.VoiceTyperApp()
+        instance = app_module.LausuApp()
 
         # Config must be a default Config instance, NOT None.
         assert isinstance(instance.config, Config), (
@@ -944,7 +944,7 @@ class TestConfigLoadRaisesInInit:
         monkeypatch.setattr(Config, "load", classmethod(lambda cls: _boom()))
 
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.app"):
-            instance = app_module.VoiceTyperApp()
+            instance = app_module.LausuApp()
 
         try:
             error_records = [r for r in caplog.records if "Config.load() raised" in r.message]
@@ -998,7 +998,7 @@ class TestConfigLoadRaisesInInit:
 
         monkeypatch.setattr(app_module.TrayIcon, "__init__", _spy_init)
 
-        instance = app_module.VoiceTyperApp()
+        instance = app_module.LausuApp()
 
         try:
             # The tray notification must have been called.
@@ -1042,7 +1042,7 @@ class TestConfigLoadRaisesInInit:
 
         monkeypatch.setattr(app_module.TrayIcon, "__init__", _spy_init)
 
-        instance = app_module.VoiceTyperApp()
+        instance = app_module.LausuApp()
 
         try:
             assert instance._config_load_failed is False, (
@@ -1095,7 +1095,7 @@ class TestConfigLoadRaisesInInit:
         monkeypatch.setattr(app_module.TrayIcon, "__init__", _spy_init)
 
         # Must not raise.
-        instance = app_module.VoiceTyperApp()
+        instance = app_module.LausuApp()
 
         try:
             assert instance._config_load_failed is True
@@ -1105,9 +1105,9 @@ class TestConfigLoadRaisesInInit:
 
     def test_source_has_try_except_around_config_load(self):
         """Source-level invariant: ``Config.load()`` in the config-init"""
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        src = inspect.getsource(VoiceTyperApp._init_config)
+        src = inspect.getsource(LausuApp._init_config)
         # Search for the actual call (``self.config = Config.load()``),
         load_idx = src.find("self.config = Config.load()")
         assert load_idx != -1, "_init_config must assign self.config = Config.load()"
@@ -1140,18 +1140,18 @@ class TestReentryGuardUsesEventIsSet:
 
     def test_restart_app_guard_uses_event_is_set(self):
         """Source-level invariant: ``restart_app`` re-entry guard must"""
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        src = inspect.getsource(VoiceTyperApp.restart_app)
+        src = inspect.getsource(LausuApp.restart_app)
         assert "if self._shutting_down_event.is_set():" in src, (
             "DE-49: restart_app must use 'if self._shutting_down_event.is_set():' as its re-entry guard"
         )
 
     def test_quit_app_does_not_use_plain_boolean_guard(self):
         """The plain ``if self._shutting_down:`` form must NOT appear"""
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        src = inspect.getsource(VoiceTyperApp.quit_app)
+        src = inspect.getsource(LausuApp.quit_app)
         assert "if self._shutting_down:\n" not in src, (
             "DE-49: quit_app must NOT use the plain 'if self._shutting_down:' "
             "guard (use 'if self._shutting_down_event.is_set():' instead for "
@@ -1160,9 +1160,9 @@ class TestReentryGuardUsesEventIsSet:
 
     def test_restart_app_does_not_use_plain_boolean_guard(self):
         """The plain ``if self._shutting_down:`` form must NOT appear"""
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        src = inspect.getsource(VoiceTyperApp.restart_app)
+        src = inspect.getsource(LausuApp.restart_app)
         assert "if self._shutting_down:\n" not in src, (
             "DE-49: restart_app must NOT use the plain "
             "'if self._shutting_down:' guard (use "

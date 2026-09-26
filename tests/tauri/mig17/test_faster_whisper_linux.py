@@ -120,7 +120,7 @@ def test_build_script_includes_ct2_libs_plural_layout_guarded():
 
 @pytest.mark.real_config_dir  # asserts the REAL resolver (XDG branch); resolves paths only, never writes
 def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
-    """``~/.local/share/voice-typer/models`` on Linux."""
+    """``~/.local/share/lausu/models`` on Linux."""
     # Force Linux platform detection. ``config._config_dir`` calls
     monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: False)
     monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False)
@@ -129,7 +129,7 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
     monkeypatch.setattr(config_mod, "is_macos", lambda: False)
     monkeypatch.setattr(config_mod, "is_windows", lambda: False)
 
-    # The real ``~/.voice-typer`` legacy dir may exist on developer
+    # The real ``~/.lausu`` legacy dir may exist on developer
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     # Clear the override so we test the real Linux branch.
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)
@@ -144,16 +144,14 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
 
     models_dir = _paths.config_dir() / "models"
 
-    expected = tmp_path / ".local" / "share" / "voice-typer" / "models"
+    expected = tmp_path / ".local" / "share" / "lausu" / "models"
     assert models_dir == expected, (
-        f"model path on Linux must resolve to "
-        f"~/.local/share/voice-typer/models "
-        f"(got: {models_dir}, expected: {expected})"
+        f"model path on Linux must resolve to ~/.local/share/lausu/models (got: {models_dir}, expected: {expected})"
     )
     # And the string form should contain the Linux literals so it's
     s = str(models_dir)
-    assert ".local" in s and "share" in s and "voice-typer" in s, (
-        f"Linux model path string must contain '.local/share/voice-typer' for log-grep visibility; got: {s!r}"
+    assert ".local" in s and "share" in s and "lausu" in s, (
+        f"Linux model path string must contain '.local/share/lausu' for log-grep visibility; got: {s!r}"
     )
 
 

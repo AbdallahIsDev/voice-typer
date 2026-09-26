@@ -324,8 +324,8 @@ class TestNotificationPayloadShape:
         ):
             server._handle_show_notification({}, {})
         assert captured["type"] == "notification"
-        # APP_NAME is "Voice Typer" per voice_typer/server/branding.py.
-        assert captured["data"]["title"] == "Voice Typer"
+        # APP_NAME is "Lausu" per voice_typer/server/branding.py.
+        assert captured["data"]["title"] == "Lausu"
         assert captured["data"]["message"] == ""
         assert captured["data"]["duration_ms"] == 0
         assert captured["data"]["critical"] is False

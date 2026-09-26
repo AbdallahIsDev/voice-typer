@@ -21,10 +21,10 @@ POSTINST_RPM = _REPO_ROOT / "scripts" / "linux" / "postinst.rpm"
 PRERM_RPM = _REPO_ROOT / "scripts" / "linux" / "prerm.rpm"
 INSTALL_PERMISSIONS = _REPO_ROOT / "scripts" / "linux" / "install_permissions.py"
 UNINSTALL_PERMISSIONS = _REPO_ROOT / "scripts" / "linux" / "uninstall_permissions.py"
-UDEV_RULE = _REPO_ROOT / "scripts" / "linux" / "99-voice-typer.rules"
+UDEV_RULE = _REPO_ROOT / "scripts" / "linux" / "99-lausu.rules"
 
 # The canonical udev rule install path (referenced by install_permissions.py).
-UDEV_RULE_INSTALL_PATH = "/etc/udev/rules.d/99-voice-typer.rules"
+UDEV_RULE_INSTALL_PATH = "/etc/udev/rules.d/99-lausu.rules"
 
 # Skip bash -n syntax checks on hosts without a USABLE bash. A mere
 _skip_no_bash = pytest.mark.skipif(
@@ -94,7 +94,7 @@ def test_postinst_adds_user_to_input_group():
 
 
 def test_postinst_installs_udev_rule():
-    """``postinst`` installs the udev rule at ``/etc/udev/rules.d/99-voice-typer.rules``."""
+    """``postinst`` installs the udev rule at ``/etc/udev/rules.d/99-lausu.rules``."""
     assert INSTALL_PERMISSIONS.is_file()
     install_text = INSTALL_PERMISSIONS.read_text(encoding="utf-8")
     assert UDEV_RULE_INSTALL_PATH in install_text, (
@@ -104,14 +104,14 @@ def test_postinst_installs_udev_rule():
 
     # The udev rule source file must exist in the repo (install_permissions.py
     assert UDEV_RULE.is_file(), (
-        f"99-voice-typer.rules missing at {UDEV_RULE}, install_permissions.py "
+        f"99-lausu.rules missing at {UDEV_RULE}, install_permissions.py "
         f"ships this file so it can be copied to /etc/udev/rules.d/."
     )
 
 
 def test_udev_rule_grants_input_group_and_mode_0660():
     """The udev rule grants ``GROUP=\"input\"`` + ``MODE=\"0660\"`` for ``/dev/input/event*``."""
-    assert UDEV_RULE.is_file(), f"99-voice-typer.rules missing at {UDEV_RULE}"
+    assert UDEV_RULE.is_file(), f"99-lausu.rules missing at {UDEV_RULE}"
     rule_text = UDEV_RULE.read_text(encoding="utf-8")
 
     # Match the event-device rule.  We require ALL of:
@@ -140,7 +140,7 @@ def test_postinst_triggers_udevadm_reload_and_trigger():
 
     assert re.search(r"udevadm.*control.*--reload-rules", install_text), (
         "install_permissions.py must run `udevadm control --reload-rules` "
-        "to reload the udev ruleset after installing 99-voice-typer.rules."
+        "to reload the udev ruleset after installing 99-lausu.rules."
     )
     assert re.search(r"udevadm.*trigger.*--subsystem-match=input", install_text), (
         "install_permissions.py must run `udevadm trigger "
@@ -185,7 +185,7 @@ def test_prerm_is_bash_syntax_valid():
 
 
 def test_prerm_removes_udev_rule():
-    """``prerm`` removes the udev rule at ``/etc/udev/rules.d/99-voice-typer.rules``."""
+    """``prerm`` removes the udev rule at ``/etc/udev/rules.d/99-lausu.rules``."""
     assert PRERM.is_file()
     assert UNINSTALL_PERMISSIONS.is_file(), (
         f"uninstall_permissions.py missing at {UNINSTALL_PERMISSIONS}, prerm delegates the cleanup to this helper."

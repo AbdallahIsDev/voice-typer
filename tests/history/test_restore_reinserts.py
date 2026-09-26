@@ -51,13 +51,13 @@ class TestHistoryRestoreReinsertsRecord:
         assert new_id > 0
 
     def test_service_empty_text_rejected(self, templates_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             _template_manager = None
             history_db = None
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         with pytest.raises(ValueError, match="text"):
             service.restore_history({"text": ""})
         with pytest.raises(ValueError, match="text"):

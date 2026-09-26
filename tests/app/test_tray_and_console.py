@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 
 class TestTrayControllerProtocolCompliance:
-    """Verify VoiceTyperApp implements all TrayController protocol methods."""
+    """Verify LausuApp implements all TrayController protocol methods."""
 
     REQUIRED_PUBLIC_METHODS = [
         "toggle_dictation",
@@ -20,13 +20,13 @@ class TestTrayControllerProtocolCompliance:
     ]
 
     def test_app_has_all_traycontroller_public_methods(self, app):
-        """VoiceTyperApp must expose public methods for the TrayController protocol."""
+        """LausuApp must expose public methods for the TrayController protocol."""
         for method in self.REQUIRED_PUBLIC_METHODS:
             assert hasattr(app, method), f"Missing public method: {method}"
             assert callable(getattr(app, method)), f"Attribute '{method}' exists but is not callable"
 
     def test_app_has_all_tray_callback_methods(self, app):
-        """VoiceTyperApp must have the private methods wired as TrayIcon callbacks."""
+        """LausuApp must have the private methods wired as TrayIcon callbacks."""
         for method in self.REQUIRED_CALLBACK_METHODS:
             assert hasattr(app, method), f"Missing callback method: {method}"
             assert callable(getattr(app, method)), f"Attribute '{method}' exists but is not callable"

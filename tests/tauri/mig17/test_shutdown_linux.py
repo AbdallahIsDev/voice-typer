@@ -14,10 +14,10 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 # Don't assert the literal repo-dir name, the repo may be cloned under any
 assert (_REPO_ROOT / "pyproject.toml").is_file(), (
-    f"_REPO_ROOT does not look like the voice-typer project root (no pyproject.toml found): {_REPO_ROOT}"
+    f"_REPO_ROOT does not look like the lausu project root (no pyproject.toml found): {_REPO_ROOT}"
 )
 assert (_REPO_ROOT / "src-tauri" / "Cargo.toml").is_file(), (
-    f"_REPO_ROOT does not look like the voice-typer project root (no src-tauri/Cargo.toml found): {_REPO_ROOT}"
+    f"_REPO_ROOT does not look like the lausu project root (no src-tauri/Cargo.toml found): {_REPO_ROOT}"
 )
 
 _SIDECAR_CMDS_RS = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
@@ -605,10 +605,10 @@ class TestPythonShutdownHandler:
         server._dispatch_lock = threading.RLock()
         # ``_handle_shutdown`` accesses ``self._shutdown_started``
         server._shutdown_started = threading.Event()
-        server.app = MagicMock(name="VoiceTyperApp")
+        server.app = MagicMock(name="LausuApp")
         # ``_dispatch`` checks ``app._shutting_down is True``
         server.app._shutting_down = False
-        server.service = MagicMock(name="VoiceTyperService")
+        server.service = MagicMock(name="LausuService")
         server.service.quit = MagicMock(name="service.quit")
         dispatch = sw._make_dispatch(server)
         return dispatch, server
@@ -728,14 +728,14 @@ class TestPythonShutdownReleasesMic:
     """Verify the shutdown handler delegates to ``server.app.quit()``,"""
 
     def test_app_quit_delegates_to_shutdown_controller(self):
-        """``VoiceTyperApp.quit`` delegates to ``ShutdownController.quit``"""
+        """``LausuApp.quit`` delegates to ``ShutdownController.quit``"""
         from voice_typer.server import app as app_mod
 
         # Source-inspection: app.quit delegates to self.shutdown.quit().
         src = Path(app_mod.__file__).read_text(encoding="utf-8")
         # The quit method exists.
         assert re.search(r"def quit\(self\):", src), (
-            "VoiceTyperApp must have a quit() method (called by the WS shutdown handler via server.app.quit())"
+            "LausuApp must have a quit() method (called by the WS shutdown handler via server.app.quit())"
         )
         # It delegates to self.shutdown.quit(), the ShutdownController
         assert re.search(
@@ -743,7 +743,7 @@ class TestPythonShutdownReleasesMic:
             src,
             re.DOTALL,
         ), (
-            "VoiceTyperApp.quit() must delegate to self.shutdown.quit() "
+            "LausuApp.quit() must delegate to self.shutdown.quit() "
             "(ShutdownController.quit, releases mic, closes sockets, exits)"
         )
 
@@ -768,9 +768,9 @@ class TestPythonShutdownReleasesMic:
         server._dispatch_lock = threading.RLock()
         # ``_handle_shutdown`` accesses ``self._shutdown_started``
         server._shutdown_started = threading.Event()
-        server.app = MagicMock(name="VoiceTyperApp")
+        server.app = MagicMock(name="LausuApp")
         server.app._shutting_down = False
-        server.service = MagicMock(name="VoiceTyperService")
+        server.service = MagicMock(name="LausuService")
         server.service.quit = MagicMock(name="service.quit")
 
         class _SyncThread:

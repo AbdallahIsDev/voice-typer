@@ -8,12 +8,12 @@ class TestKeyringStatusHelper:
 
     def test_returns_dict_with_expected_keys(self, tmp_config_dir, monkeypatch):
         """``_keyring_status`` returns a dict containing the four"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         import voice_typer.server.credential_store as cs
 
         monkeypatch.setattr(
@@ -36,12 +36,12 @@ class TestKeyringStatusHelper:
 
     def test_returns_fallback_when_credential_store_raises(self, tmp_config_dir, monkeypatch):
         """helper returns a safe ``{available: False, fallback: True, ...}``"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
 
         def _boom():
             raise RuntimeError("keychain exploded")
@@ -57,20 +57,20 @@ class TestKeyringStatusHelper:
 
     def test_get_config_and_get_defaults_share_helper(self, tmp_config_dir, monkeypatch):
         """Both ``get_config`` and ``get_defaults`` route through"""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         calls: list[int] = []
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
 
         def _spy(self):
             calls.append(1)
             return {"available": False, "backend": None, "fallback": True, "reason": "spy"}
 
-        monkeypatch.setattr(VoiceTyperService, "_keyring_status", _spy)
+        monkeypatch.setattr(LausuService, "_keyring_status", _spy)
 
         import voice_typer.server.config_sanitizer as cfg_san
         import voice_typer.server.ipc_server as ipc

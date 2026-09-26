@@ -3,29 +3,28 @@
 from __future__ import annotations
 
 import inspect
-import os
 
 
 class TestCancelModelDownloadMechanism:
     """Verify the cancel mechanism works at the Python service level."""
 
     def test_cancel_returns_false_when_no_download_active(self, tmp_config_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         result = service.cancel_model_download()
         assert result == {"cancelled": False}
 
     def test_cancel_returns_true_when_download_active(self, tmp_config_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         download_id = service._register_download("test-model")
         event = service._download_cancel_events[download_id]
         assert not event.is_set()
@@ -38,12 +37,12 @@ class TestCancelModelDownloadMechanism:
         service._unregister_download(download_id)
 
     def test_cancel_event_is_clearable(self, tmp_config_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         download_id = service._register_download("test-model")
         service.cancel_model_download()
         # Unregistering the download clears the active id and removes
@@ -53,12 +52,12 @@ class TestCancelModelDownloadMechanism:
 
     def test_download_cancel_events_starts_empty(self, tmp_config_dir):
         """A fresh service has no registered downloads."""
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         assert service._download_cancel_events == {}
         assert service._active_download_id is None
 
@@ -67,7 +66,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
     """:data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)"""
 
     def _make_service(self):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type(
@@ -76,7 +75,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
                 {"asr_backend": "whisper", "model_size": "small.en"},
             )()
 
-        return VoiceTyperService(FakeApp())
+        return LausuService(FakeApp())
 
     def test_parakeet_uses_registry_repo_id(self, tmp_config_dir, monkeypatch):
         """``delete_model(\"parakeet\")`` looks up the registry's"""
@@ -124,7 +123,7 @@ class TestGetModelStatusCache:
     """SVC-9 / PERF-10: ``get_model_status`` caches its result for 5 s"""
 
     def _make_service(self):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             config = type(
@@ -133,7 +132,7 @@ class TestGetModelStatusCache:
                 {"asr_backend": "whisper", "model_size": "tiny.en"},
             )()
 
-        return VoiceTyperService(FakeApp())
+        return LausuService(FakeApp())
 
     def test_two_consecutive_calls_return_same_cached_object(self, tmp_config_dir, monkeypatch):
         """Within the 5 s TTL window, the second call returns the SAME"""
@@ -174,24 +173,29 @@ class TestGetModelStatusCache:
 
         assert service._model_status_cache is None, "delete_model must invalidate the get_model_status cache (SVC-9)"
 
-    def test_cache_dir_exists_probed_once_per_compute(self, tmp_config_dir, monkeypatch):
-        """SVC-9 / PERF-10: ``cache_dir_exists = os.path.isdir(cache_dir)``"""
+    def test_status_consults_shared_first_availability(self, tmp_config_dir, monkeypatch):
+        """Status consults shared-first availability, no raw hub-root stat."""
+        from voice_typer.server import model_availability as ma
+        from voice_typer.server.model_registry import MODEL_REGISTRY
+
         service = self._make_service()
+        real = ma.is_available
+        calls: list[str] = []
 
-        isdir_calls: list[str] = []
+        def _spy(repo_id, config_dir, **kwargs):
+            calls.append(repo_id)
+            return real(repo_id, config_dir, **kwargs)
 
-        def _spy_isdir(p):
-            isdir_calls.append(str(p))
-            return False
-
-        monkeypatch.setattr("os.path.isdir", _spy_isdir)
+        monkeypatch.setattr(ma, "is_available", _spy)
         service._compute_model_status()
-        cache_dir_root_probes = [c for c in isdir_calls if c.endswith(f"huggingface{os.sep}hub")]
-        assert len(cache_dir_root_probes) == 1, (
-            f"cache_dir root should be stat exactly once per compute_model_status "
-            f"call (hoisted above the loop). Got {len(cache_dir_root_probes)} probes: "
-            f"{cache_dir_root_probes}"
-        )
+        whisper = {m.repo_id for m in MODEL_REGISTRY.values() if m.backend in ("whisper", "distil-whisper")}
+        assert whisper, "expected whisper entries in MODEL_REGISTRY"
+        assert whisper <= set(calls), f"status must probe every whisper repo, got {calls}"
+        leaf = f"models--{next(iter(whisper)).replace('/', '--')}"
+        assert ma.snapshot_search_dirs(tmp_config_dir, next(iter(whisper))) == [
+            ma.shared_hub_dir() / leaf,
+            ma.app_hub_dir(tmp_config_dir) / leaf,
+        ]
 
 
 class TestDownloadPollScopedToModelDir:

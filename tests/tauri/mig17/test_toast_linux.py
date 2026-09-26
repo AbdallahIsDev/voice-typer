@@ -207,8 +207,8 @@ class TestNotificationPayloadShape:
                 {"id": "mig17-toast-defaults"},
             )
         assert captured["type"] == "notification"
-        # APP_NAME is "Voice Typer" per voice_typer/server/branding.py.
-        assert captured["data"]["title"] == "Voice Typer"
+        # APP_NAME is "Lausu" per voice_typer/server/branding.py.
+        assert captured["data"]["title"] == "Lausu"
         assert captured["data"]["message"] == ""
         assert captured["data"]["duration_ms"] == 0
         assert captured["data"]["critical"] is False
@@ -264,7 +264,7 @@ class TestLinuxNotificationsRequireLibnotify:
         depends = deb.get("depends", [])
         assert "libnotify4" in depends, (
             f"tauri.conf.json bundle.linux.deb.depends MUST include "
-            f"'libnotify4', without it, apt install voice-typer*.deb "
+            f"'libnotify4', without it, apt install lausu*.deb "
             f"doesn't pull in libnotify, and tauri-plugin-notification's "
             f"notify() call silently fails (D-Bus message never sent). "
             f"Found deb depends: {depends!r}"
@@ -462,9 +462,9 @@ class TestValidateOnLinuxHostBlock:
             "fails (D-Bus message never sent)."
         )
         # Also documents the dpkg -i alternative path (which pulls
-        assert "dpkg -i voice-typer*.deb" in doc, (
+        assert "dpkg -i lausu*.deb" in doc, (
             "VALIDATE ON LINUX HOST block MUST mention the 'dpkg -i "
-            "voice-typer*.deb' alternative, this path pulls libnotify4 "
+            "lausu*.deb' alternative, this path pulls libnotify4 "
             "automatically via the .deb's Depends: field (no manual "
             "apt install needed)."
         )
@@ -485,9 +485,9 @@ class TestValidateOnLinuxHostBlock:
     def test_docstring_documents_log_path(self):
         """The VALIDATE ON LINUX HOST block MUST document the expected"""
         doc = self._module_docstring()
-        assert "~/.local/share/voice-typer/logs/voice-typer.log" in doc, (
+        assert "~/.local/share/lausu/logs/lausu.log" in doc, (
             "VALIDATE ON LINUX HOST block MUST document the Linux log path "
-            "(~/.local/share/voice-typer/logs/voice-typer.log) so the "
+            "(~/.local/share/lausu/logs/lausu.log) so the "
             "validator can confirm the notification event was emitted."
         )
 

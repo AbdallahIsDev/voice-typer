@@ -7,7 +7,7 @@ class TestRefreshMicrophonesForce:
     """SVC-8: ``refresh_microphones(force=True)`` bypasses the 5 s TTL"""
 
     def _make_service(self, monkeypatch, mics_by_call):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             def __init__(self):
@@ -18,7 +18,7 @@ class TestRefreshMicrophonesForce:
                     {"set_microphones": staticmethod(lambda m: None)},
                 )()
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
 
         def _fake_list_microphones():
             return mics_by_call.pop(0)

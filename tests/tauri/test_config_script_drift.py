@@ -75,7 +75,15 @@ class TestBundleBinariesVsStubRegistry:
     """``tauri.conf.json`` binary declarations ↔ the stub generator's registry."""
 
     def test_config_declares_exactly_the_stub_generator_registry(self) -> None:
-        """The config's declared binaries must equal the generator's registry."""
+        """The config's declared binaries must equal the generator's registry.
+
+        The single documented exception is ``LOCAL_DEV_TRIPLES``: the
+        generator also emits GNU-toolchain mirrors so a local
+        ``cargo tauri dev`` / ``cargo check`` resolves ``bundle.externalBin``
+        on a machine without MSVC (C-TDEV-1). Release CI builds msvc targets
+        and never bundles them, so they are exempt from the "every generated
+        file is declared" half, while still having to stay generated.
+        """
         stub = _stub_module()
         registry = {p.relative_to(SRC_TAURI).as_posix() for p in stub._all_stub_paths()}
         bundle = _tauri_conf()["bundle"]
@@ -86,6 +94,19 @@ class TestBundleBinariesVsStubRegistry:
         }
         binaries = {r for r in bundle.get("resources", []) if r.startswith("resources/native/")}
         declared = sidecars | binaries
+        dev_only = {p.relative_to(SRC_TAURI).as_posix() for p in stub._local_dev_stub_paths()}
+
+        overlap = set(stub.LOCAL_DEV_TRIPLES) & set(stub.SIDECAR_TRIPLES)
+        assert not overlap, (
+            "LOCAL_DEV_TRIPLES overlaps SIDECAR_TRIPLES; the dev-only "
+            "exemption must never cover a release triple: " + ", ".join(sorted(overlap))
+        )
+        assert dev_only <= registry, (
+            "the documented local-dev mirrors (LOCAL_DEV_TRIPLES) are NOT in "
+            "the stub generator's registry, a local `tauri dev` / `cargo "
+            "check` on the GNU toolchain then fails to resolve "
+            "externalBin (C-TDEV-1):\n  " + "\n  ".join(sorted(dev_only - registry))
+        )
 
         missing = declared - registry
         assert not missing, (
@@ -94,10 +115,11 @@ class TestBundleBinariesVsStubRegistry:
             "registry, missing on a clean CI checkout, cargo tauri build "
             "fails:\n  " + "\n  ".join(sorted(missing))
         )
-        dead = registry - declared
+        dead = registry - declared - dev_only
         assert not dead, (
             "binaries the stub generator creates but tauri.conf.json never "
-            "declares (dead files, never bundled):\n  " + "\n  ".join(sorted(dead))
+            "declares and that are not documented local-dev mirrors "
+            "(dead files, never bundled):\n  " + "\n  ".join(sorted(dead))
         )
 
 
@@ -199,7 +221,7 @@ IMPORT_TIME_DATA_FILES = [
 ]
 
 
-class TestNuitkaBuildsIncludeVoiceTyperPackageData:
+class TestNuitkaBuildsIncludeLausuPackageData:
     """Every Nuitka invocation bundling ``voice_typer`` must also include"""
 
     def test_import_time_data_files_exist_and_are_not_python(self) -> None:
@@ -261,7 +283,7 @@ PREWARM_SCRIPTS = [
 # Every Nuitka build script that freezes ``voice_typer``. The torch-free
 TORCH_FREE_SCRIPTS = SIDECAR_SCRIPTS + WORKER_SCRIPTS + PREWARM_SCRIPTS
 
-PYINSTALLER_SPEC = PROJECT_ROOT / "scripts" / "build" / "voice-typer.spec"
+PYINSTALLER_SPEC = PROJECT_ROOT / "scripts" / "build" / "lausu.spec"
 
 
 class TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed:
@@ -305,10 +327,10 @@ class TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed:
         """The PyInstaller fallback spec must bundle ``silero_vad.onnx``."""
         text = PYINSTALLER_SPEC.read_text(encoding="utf-8")
         assert "silero_vad.onnx" in text, (
-            "scripts/build/voice-typer.spec must reference silero_vad.onnx (the ORT-loaded VAD model)."
+            "scripts/build/lausu.spec must reference silero_vad.onnx (the ORT-loaded VAD model)."
         )
         assert "silero_vad.jit" not in text, (
-            "scripts/build/voice-typer.spec must NOT reference "
+            "scripts/build/lausu.spec must NOT reference "
             "silero_vad.jit (legacy torch JIT model, forbidden by the "
             "Phase 1c torch-free gate)."
         )
@@ -772,26 +794,30 @@ class TestUpdateFeedParity:
 
 class TestReverseDnsIdentifierNamespace:
     """
-    canonical ``com.voicetyper.*`` reverse-DNS namespace.
+    canonical ``com.Lausu.*`` reverse-DNS namespace.
     INTENTIONAL and must NOT be renamed (do not extend without
     """
 
     def test_windows_autostart_and_prewarm_identifiers_are_reverse_dns(self) -> None:
         """Source pins for the Windows identifier literals (active names)."""
         pins = {
+            "voice_typer/server/_paths.py": [
+                'APP_RDNN_ROOT: str = "com.Lausu"',
+                'APP_IDENTIFIER: str = APP_RDNN_ROOT.rsplit(".", 1)[-1]',
+            ],
             "voice_typer/server/server_platform/autostart.py": [
-                '_APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"',
+                '_APP_AUTOSTART_TASK_NAME = f"{APP_RDNN_ROOT}.autostart{_install_hash_suffix()}"',
             ],
             "voice_typer/server/server_platform/autostart_windows.py": [
-                'return f"com.voicetyper.autostart_{_autostart_mod._install_hash()}"',
-                'return f"com.voicetyper.autostart{_autostart_mod._install_hash_suffix()}.bat"',
+                'return f"{APP_RDNN_ROOT}.autostart_{_autostart_mod._install_hash()}"',
+                'return f"{APP_RDNN_ROOT}.autostart{_autostart_mod._install_hash_suffix()}.bat"',
             ],
             "voice_typer/server/server_platform/_autostart_windows_runkey.py": [
-                'name.startswith(("VoiceTyper", "com.voicetyper"))',
+                "name.startswith((APP_IDENTIFIER, APP_RDNN_ROOT))",
             ],
             "voice_typer/server/server_platform/_autostart_windows_uninstall.py": [
-                "\"Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' \"",
-                'name.startswith(("VoiceTyper", "com.voicetyper"))',
+                "Get-ScheduledTask -TaskName '{APP_IDENTIFIER}*','{APP_RDNN_ROOT}*'",
+                "name.startswith((APP_IDENTIFIER, APP_RDNN_ROOT))",
             ],
             "voice_typer/server/server_platform/_autostart_windows_sweep.py": [
                 'f"autostart-sweep-v2-{_autostart_mod._install_hash()}.done"',
@@ -801,10 +827,10 @@ class TestReverseDnsIdentifierNamespace:
             text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
             for pin in expected:
                 assert pin in text, (
-                    f"{rel} drifted from the canonical com.voicetyper.* "
+                    f"{rel} drifted from the canonical com.Lausu.* "
                     f"namespace, expected the literal {pin!r}. Windows "
                     "autostart/prewarm identifiers must be reverse-DNS "
-                    "(com.voicetyper.*), never the bare VoiceTyper* forms "
+                    "(com.Lausu.*), never the bare Lausu* forms "
                     "(legacy forms allowed ONLY via the allowlisted legacy "
                     "constants and cleanup sweeps)."
                 )
@@ -812,24 +838,24 @@ class TestReverseDnsIdentifierNamespace:
     def test_posix_labels_and_keyring_service_name_are_reverse_dns(self) -> None:
         """macOS LaunchAgent labels + keyring service name stay reverse-DNS."""
         pins = {
-            "voice_typer/server/server_platform/autostart_macos.py": "<string>com.voicetyper</string>",
-            "voice_typer/server/credential_store/_schema.py": 'KEYRING_SERVICE_NAME = "com.voicetyper.keyring"',
+            "voice_typer/server/server_platform/autostart_macos.py": "<string>com.Lausu</string>",
+            "voice_typer/server/credential_store/_schema.py": 'KEYRING_SERVICE_NAME = "com.Lausu.keyring"',
         }
         for rel, pin in pins.items():
             assert pin in (PROJECT_ROOT / rel).read_text(encoding="utf-8"), (
-                f"{rel} drifted from the canonical com.voicetyper.* namespace, expected the literal {pin!r}."
+                f"{rel} drifted from the canonical com.Lausu.* namespace, expected the literal {pin!r}."
             )
 
     def test_polkit_action_stays_reverse_dns(self) -> None:
-        """The install-permissions polkit action is com.voicetyper.* (both"""
+        """The install-permissions polkit action is com.Lausu.* (both"""
         for rel in (
             "voice_typer/server/handlers/system_handlers.py",
             "scripts/linux/install_permissions.py",
         ):
             text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
-            assert "com.voicetyper.install-permissions" in text, (
+            assert "com.Lausu.install-permissions" in text, (
                 f"{rel} must reference the polkit action "
-                "'com.voicetyper.install-permissions' (reverse-DNS). A bare "
+                "'com.Lausu.install-permissions' (reverse-DNS). A bare "
                 "action name drifts the permission gate from the canonical "
                 "namespace."
             )
@@ -837,7 +863,7 @@ class TestReverseDnsIdentifierNamespace:
     def test_legacy_keyring_names_pinned(self) -> None:
         """orphaned)."""
         text = (PROJECT_ROOT / "voice_typer/server/credential_store/_schema.py").read_text(encoding="utf-8")
-        assert '_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("app.voicetyper", "voice-typer")' in text, (
+        assert '_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("app.Lausu", "lausu")' in text, (
             "credential_store/_schema.py legacy keyring service names drifted, they "
             "are pinned migration sources (allowlisted)."
         )
@@ -845,12 +871,12 @@ class TestReverseDnsIdentifierNamespace:
     def test_single_instance_mutex_keeps_its_bare_name(self) -> None:
         """AGENTS.md boundary: the mutex is an internal OS/API"""
         text = (PROJECT_ROOT / "voice_typer/server/single_instance.py").read_text(encoding="utf-8")
-        assert "VoiceTyperSingleInstance" in text, (
-            "single_instance.py must keep the 'VoiceTyperSingleInstance' "
+        assert "LausuSingleInstance" in text, (
+            "single_instance.py must keep the 'LausuSingleInstance' "
             "mutex name (internal OS/API identifier, AGENTS.md "
             "explicitly permits bare internal identifiers)."
         )
-        assert "com.voicetyper" not in text, (
+        assert "com.Lausu" not in text, (
             "single_instance.py must NOT use the reverse-DNS namespace for "
             "the mutex, it is a pinned internal OS/API identifier."
         )

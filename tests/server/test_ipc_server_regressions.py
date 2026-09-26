@@ -37,7 +37,7 @@ class TestStandaloneStdinSuppression:
         mock_server.start.side_effect = capture_start
 
         # Patch the components main() imports at call time (canonical
-        monkeypatch.setattr(app_mod, "VoiceTyperApp", lambda: mock_app)
+        monkeypatch.setattr(app_mod, "LausuApp", lambda: mock_app)
         monkeypatch.setattr("voice_typer.server.single_instance._ensure_single_instance", lambda **kw: None)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(providers_mod, "build_ipc_server", lambda app: mock_server)

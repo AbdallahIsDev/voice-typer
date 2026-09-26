@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked dependencies."""
+    """Create a LausuApp with mocked dependencies."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
@@ -18,9 +18,9 @@ def app(tmp_config_dir, monkeypatch):
         lambda *a, **k: None,
     )
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     # Ensure esc_cancel_enabled is False for deterministic test behavior
     instance.config.esc_cancel_enabled = False
     # (revised): RecordingController.start() now enforces

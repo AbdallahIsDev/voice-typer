@@ -78,30 +78,38 @@ class TestAudioCallbackUsesMinimalLockScope:
         # RACE-003: the recent_rms snapshot is now read inside
 
 
-class TestRmsSnapshotReadsInsideLock:
-    """RACE-003."""
+class TestRecentRmsSingleWordStore:
+    """RACE-003 (current form: the store is deliberately lock-free)."""
 
-    def test_recent_rms_set_inside_lock(self):
-        # KEEP, pins RACE-003 invariant (RMS written inside lock
+    def test_recent_rms_set_outside_lock(self):
+        """``_last_rms`` stays a lock-free single-word store.
+
+        The in-lock assignment was replaced by the documented
+        single-word-store discipline (note above the assignment in
+        ``audio_pipeline.py``): a float store is atomic under the GIL and the
+        discard path writes it lock-free too, so the lock around it was dead
+        weight. The buffer append + chunk counter keep their lock in the
+        capture path (pinned in the test above).
+        """
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.process_audio_chunk)
-        # (STATE-OWNERSHIP: the lock lives on AudioPipeline as ``self._lock``).
         lines = src.splitlines()
-        lock_block_start = None
-        lock_block_end = None
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            if stripped.startswith("with self._lock:"):
-                lock_block_start = i + 1  # next line
-            elif lock_block_start is not None and stripped.startswith("recorder._last_rms = "):
-                lock_block_end = i
-        assert lock_block_start is not None, "RACE-003: process_audio_chunk must have a with self._lock: block"
-        assert lock_block_end is not None, "RACE-003: recorder._last_rms must be assigned inside the pipeline lock"
-        assert lock_block_end >= lock_block_start, (
-            "RACE-003: recorder._last_rms must be INSIDE the lock block "
-            f"(lock starts at line {lock_block_start}, assignment at {lock_block_end})"
+        assign_idx = next(
+            (i for i, line in enumerate(lines) if line.strip().startswith("recorder._last_rms = ")),
+            None,
         )
+        assert assign_idx is not None, "recorder._last_rms must still be assigned once per chunk"
+        assign_indent = len(lines[assign_idx]) - len(lines[assign_idx].lstrip())
+        for i, line in enumerate(lines[:assign_idx]):
+            stripped = line.strip()
+            if stripped.startswith("with ") and "lock" in stripped:
+                block_indent = len(line) - len(line.lstrip())
+                assert assign_indent <= block_indent, (
+                    "RACE-003: recorder._last_rms must be assigned OUTSIDE the lock block "
+                    f"(lock at line {i}, assignment at line {assign_idx}); re-locking it "
+                    "needs a documented single-word-store rationale"
+                )
 
     def test_no_direct_recent_rms_read_outside_lock(self):
         """The processing code must NOT contain"""

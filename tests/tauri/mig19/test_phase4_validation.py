@@ -119,9 +119,13 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "heartbeat",
         # ADR-0020 §16 addendum (2026-07-24): commands added
         "shutdown",
+        # ADR-0020 §16 addendum (2026-09-24, ADR-0023 universal media-to-text):
+        "media_transcribe_start",
+        "media_transcribe_cancel",
+        "media_transcribe_status",
     }
 )
-assert len(EXPECTED_COMMANDS) == 71, (
+assert len(EXPECTED_COMMANDS) == 74, (
     "ADR-0020 §2 freezes the command table. 69 = post-cleanup baseline "
     "after ZR-45 + the Tauri/Rust allowlist narrowing (+ ``onboarding_set_backend``, "
     "§16 addendum 2026-08-06; + ``reset_macos_accessibility``, "
@@ -156,7 +160,10 @@ assert len(EXPECTED_COMMANDS) == 71, (
     "``get_history_count``, ``get_transcription_text``, "
     "``pause_model_download``, ``resume_model_download``, "
     "``get_model_catalog``, ``reset_macos_accessibility``, "
-    "``reset_linux_permissions``, ``check_accessibility``). Update this "
+    "``reset_linux_permissions``, ``check_accessibility``; + 3 "
+    "``media_transcribe_start`` / ``media_transcribe_cancel`` / "
+    "``media_transcribe_status`` §16 addendum 2026-09-24 (ADR-0023 universal "
+    "media-to-text). Update this "
     "set + the ADR addendum together "
     "(§16). Note: ``relaunch_ack`` and ``tray_click`` are tracked "
     "separately in KNOWN_UNDOCUMENTED_COMMANDS, not here."

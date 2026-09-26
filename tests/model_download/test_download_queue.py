@@ -21,7 +21,7 @@ def _fresh_download_state():
 
 
 def _make_service(tmp_config_dir):
-    """Minimal VoiceTyperService (same pattern as the sibling download"""
+    """Minimal LausuService (same pattern as the sibling download"""
     from unittest.mock import MagicMock
 
     from voice_typer.server import service as svc_mod
@@ -31,7 +31,7 @@ def _make_service(tmp_config_dir):
         _microphones: list = []
         tray = MagicMock()
 
-    return svc_mod.VoiceTyperService(FakeApp())
+    return svc_mod.LausuService(FakeApp())
 
 
 def _capture_progress_events(monkeypatch) -> list[dict]:

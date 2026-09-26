@@ -14,7 +14,7 @@ def _make_service(tmp_config_dir):
         _microphones: list = []
         tray = MagicMock()
 
-    return svc_mod.VoiceTyperService(FakeApp())
+    return svc_mod.LausuService(FakeApp())
 
 
 def _make_meta():

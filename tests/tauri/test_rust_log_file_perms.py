@@ -28,7 +28,7 @@ _TAURI_TRIPLES = (
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
 )
-_SIDECAR_NAMES = ("python-sidecar", "voice-typer-worker")
+_SIDECAR_NAMES = ("python-sidecar", "lausu-worker")
 
 
 def _create_cargo_build_placeholders() -> list[Path]:
@@ -218,7 +218,7 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                     str(SIDECAR_CARGO_TOML),
                     # explicitly (C-TEST-5: Rust tests live in logging_tests.rs
                     "--bin",
-                    "voice-typer-tauri",
+                    "lausu-tauri",
                     "--quiet",
                     "--",
                     "--nocapture",

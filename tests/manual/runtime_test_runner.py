@@ -1,4 +1,4 @@
-"""Runtime test runner: starts the real Voice Typer app, simulates F2"""
+"""Runtime test runner: starts the real Lausu app, simulates F2"""
 
 import ctypes
 import ctypes.wintypes
@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 
 APPDATA = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
-LOG_DIR = Path(APPDATA) / "voice-typer"
-LOG_FILE = LOG_DIR / "voice-typer.log"
+LOG_DIR = Path(APPDATA) / "lausu"
+LOG_FILE = LOG_DIR / "lausu.log"
 
 # F2 virtual-key code
 VK_F2 = 0x71
@@ -94,7 +94,7 @@ def wait_for_log(log_file, pattern, timeout=90):
 
 def main():
     print("=" * 70)
-    print("VOICE TYPER, RUNTIME CYCLE TEST")
+    print("Lausu, RUNTIME CYCLE TEST")
     print("=" * 70)
 
     # 1. Clear old log (truncate instead of delete to avoid locked-file errors)
@@ -117,7 +117,7 @@ def main():
         print("  No old log found, starting fresh")
 
     # 2. Start the app
-    print("\n[2] Starting Voice Typer app...")
+    print("\n[2] Starting Lausu app...")
     project_dir = Path(__file__).parent
     proc = subprocess.Popen(
         [sys.executable, "-m", "voice_typer"],

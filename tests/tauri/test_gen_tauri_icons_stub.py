@@ -26,7 +26,7 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 pytestmark = pytest.mark.xdist_group("gen_tauri_icons_stub")
 
 # Cross-process lock file, lives in the per-user temp dir so concurrent
-_LOCK_PATH = Path(tempfile.gettempdir()) / "voice-typer-gen-tauri-icons-stub.test.lock"
+_LOCK_PATH = Path(tempfile.gettempdir()) / "lausu-gen-tauri-icons-stub.test.lock"
 
 # Target triples (mirrors the script's SIDECAR_TRIPLES).
 TRIPLES = [
@@ -38,6 +38,12 @@ TRIPLES = [
     "aarch64-unknown-linux-gnu",
 ]
 WINDOWS_TRIPLES = {"x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"}
+
+# Local-dev GNU-toolchain mirrors (C-TDEV-1): this machine builds with
+# stable-x86_64-pc-windows-gnu (no MSVC), so a local `cargo tauri dev` /
+# `cargo check` resolves bundle.externalBin against this triple too. Never
+# bundled by release CI (mirrors the script's LOCAL_DEV_TRIPLES).
+LOCAL_DEV_TRIPLES = ["x86_64-pc-windows-gnu"]
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -76,7 +82,11 @@ def _stub_paths() -> list[Path]:
     )
     for triple in TRIPLES:
         ext = ".exe" if triple in WINDOWS_TRIPLES else ""
-        paths.append(SRC_TAURI / "bin" / f"voice-typer-worker-{triple}{ext}")
+        paths.append(SRC_TAURI / "bin" / f"lausu-worker-{triple}{ext}")
+    for triple in LOCAL_DEV_TRIPLES:
+        # GNU-toolchain mirrors (C-TDEV-1), always Windows + .exe.
+        paths.append(SRC_TAURI / "bin" / f"python-sidecar-{triple}.exe")
+        paths.append(SRC_TAURI / "bin" / f"lausu-worker-{triple}.exe")
     return paths
 
 
@@ -122,6 +132,31 @@ def test_generate_creates_all_expected_stubs():
     assert result.returncode == 0, f"generate failed:\nstdout={result.stdout}\nstderr={result.stderr}"
     missing = [p for p in _stub_paths() if not p.exists()]
     assert not missing, f"missing stub files: {missing}"
+
+
+def test_local_dev_triple_mirror_matches_generator() -> None:
+    """The GNU-toolchain mirror list here must track the generator's (C-TDEV-1)."""
+    stub = _script_module()
+    assert set(LOCAL_DEV_TRIPLES) == set(stub.LOCAL_DEV_TRIPLES), (
+        "this file's LOCAL_DEV_TRIPLES mirror drifted from "
+        "gen_tauri_icons_stub.py::LOCAL_DEV_TRIPLES; keep them in sync so the "
+        "clean/restore fixture and _stub_paths() cover every stub the "
+        "generator owns."
+    )
+
+
+def test_stub_path_mirror_covers_the_generator_registry() -> None:
+    """``_stub_paths()`` must mirror the generator's registry exactly."""
+    stub = _script_module()
+    mirror = {p.resolve().relative_to(SRC_TAURI.resolve()).as_posix() for p in _stub_paths()}
+    registry = {p.resolve().relative_to(SRC_TAURI.resolve()).as_posix() for p in stub._all_stub_paths()}
+    assert mirror == registry, (
+        "_stub_paths() drifted from gen_tauri_icons_stub.py::_all_stub_paths(); "
+        "the clean/restore fixture of this module only covers the paths listed "
+        "here, so a generator-owned stub would be deleted and never restored:\n"
+        f"  only in the mirror: {sorted(mirror - registry)}\n"
+        f"  only in the generator: {sorted(registry - mirror)}"
+    )
 
 
 def test_generate_stdout_lists_summary():
@@ -975,7 +1010,7 @@ def test_generate_heals_truncated_and_empty_stubs():
     # Recreate the parent dir: ``--clean`` rmdirs the now-empty
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(b"")  # empty -> corrupt
-    q = SRC_TAURI / "bin" / "voice-typer-worker-x86_64-pc-windows-msvc.exe"
+    q = SRC_TAURI / "bin" / "lausu-worker-x86_64-pc-windows-msvc.exe"
     _run()  # generate, must heal p and create q
     content = p.read_bytes()
     assert content != b"", "generate() should replace an empty file with a stub"
@@ -1178,3 +1213,21 @@ def test_sessionfinish_restores_only_on_controller(tmp_path, monkeypatch, capsys
     worker = SimpleNamespace(config=SimpleNamespace(workerinput={"workerid": "gw0"}))
     mod.pytest_sessionfinish(worker, 0)  # must not raise, must not run generate
     assert len(calls) == 3
+
+
+def test_tauri_conftest_stub_guard_covers_the_generator_registry() -> None:
+    """The session restore guard must cover every stub ``--clean`` deletes."""
+    mod = _load_tauri_conftest()
+    stub = _script_module()
+    guard = {
+        Path(p).resolve().relative_to(SRC_TAURI.resolve()).as_posix() for p in mod._canonical_stub_paths()
+    }
+    registry = {p.resolve().relative_to(SRC_TAURI.resolve()).as_posix() for p in stub._all_stub_paths()}
+    assert guard == registry, (
+        "tests/tauri/conftest.py::_canonical_stub_paths() drifted from "
+        "gen_tauri_icons_stub.py::_all_stub_paths(); a killed test run then "
+        "leaves the missing stubs unrestored and the next `cargo check` / "
+        "`tauri dev` fails on externalBin resolution (C-TDEV-1):\n"
+        f"  only in the guard: {sorted(guard - registry)}\n"
+        f"  only in the generator: {sorted(registry - guard)}"
+    )

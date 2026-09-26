@@ -32,7 +32,7 @@ class TestWindowsManifestAsInvoker:
     """The finding: no requestedExecutionLevel manifest. Investigation:"""
 
     def test_manifest_source_is_embedded_in_spec(self):
-        spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.spec"
+        spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "lausu.spec"
         content = spec.read_text()
         assert 'requestedExecutionLevel level="asInvoker"' in content, (
             "PLAT-037: the .spec's inlined manifest must declare requestedExecutionLevel asInvoker."
@@ -41,7 +41,7 @@ class TestWindowsManifestAsInvoker:
     def test_manifest_declares_as_invoker(self):
         # KEEP, pins the asInvoker declaration.
 
-        spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.spec"
+        spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "lausu.spec"
         content = spec.read_text()
         assert 'requestedExecutionLevel level="asInvoker"' in content, (
             "PLAT-037: manifest must declare requestedExecutionLevel asInvoker."
@@ -50,7 +50,7 @@ class TestWindowsManifestAsInvoker:
     def test_spec_file_embeds_manifest(self):
         # KEEP, pins  (.spec file references the manifest).
 
-        spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.spec"
+        spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "lausu.spec"
         content = spec.read_text()
         assert "manifest" in content.lower(), "PLAT-037: .spec file must reference the manifest."
 
@@ -64,11 +64,14 @@ class TestPlatRunAutostartTaskHashed:
 
         src = inspect.getsource(platform)
         assert "_install_hash_suffix" in src, "_install_hash_suffix helper must exist."
-        # The task name must be an f-string that includes the hash
-        assert (
-            'f"com.voicetyper.autostart{_install_hash_suffix()}"' in src
-            or "f'com.voicetyper.autostart{_install_hash_suffix()}'" in src
-        ), "_APP_AUTOSTART_TASK_NAME must include the hash suffix."
+        # PLAT-RUN: the task name must include the per-install hash so
+        # two installs never collide. Asserted on the RUNTIME value (the
+        # name is built from the canonical ``com.Lausu.autostart`` root +
+        # the hash), so a comment/reflow cannot satisfy it.
+        name = platform._APP_AUTOSTART_TASK_NAME
+        suffix = platform._install_hash_suffix()
+        assert name.startswith("com.Lausu.autostart"), name
+        assert suffix == "" or name == f"com.Lausu.autostart{suffix}", name
 
     def test_install_hash_suffix_returns_underscore_prefix(self):
         """The hash suffix must start with '_' so the task name reads"""
@@ -144,7 +147,7 @@ class TestPlatHleakDeadCodeRemoved:
 
         # PLAT-HLEAK invariant is still pinned.
         src = inspect.getsource(app_mod._ensure_windows_single_instance)
-        assert "VoiceTyperSingleInstance" in src, "Mutex name must contain VoiceTyperSingleInstance."
+        assert "LausuSingleInstance" in src, "Mutex name must contain LausuSingleInstance."
         assert "hashlib.sha256(sys.executable.encode())" not in src, "Mutex name must NOT depend on sys.executable."
 
 
@@ -191,7 +194,7 @@ class TestWindowsPathMigrationCoverage:
         monkeypatch.setattr(cfg_mod, "is_macos", lambda: False)
         monkeypatch.setattr(cfg_mod, "_config_dir", lambda: target)
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-        legacy_dir = tmp_path / "voice-typer"
+        legacy_dir = tmp_path / "lausu"
         legacy_dir.mkdir(parents=True, exist_ok=True)
         (legacy_dir / "config.json").write_text('{"test": true}')
         (legacy_dir / "subdir").mkdir(exist_ok=True)
@@ -215,7 +218,7 @@ class TestWindowsPathMigrationCoverage:
 
         assert (target / "config.json").read_text() == '{"test": true}'
         assert (target / "subdir" / "corrections.json").read_text() == "{}"
-        assert (tmp_path / "voice-typer" / "config.json").exists()
+        assert (tmp_path / "lausu" / "config.json").exists()
         assert not (target.parent / self._staging_name(target)).exists()
         cfg_mod._migrate_from_legacy()
         assert (target / "config.json").read_text() == '{"test": true}'
@@ -243,7 +246,7 @@ class TestWindowsPathMigrationCoverage:
         assert Path(calls[0][1]) == target
         assert not target.exists()
         assert not (target.parent / self._staging_name(target)).exists()
-        assert (tmp_path / "voice-typer" / "config.json").read_text() == '{"test": true}'
+        assert (tmp_path / "lausu" / "config.json").read_text() == '{"test": true}'
 
     def test_migrate_keeps_concurrently_created_target(self, tmp_path, monkeypatch):
         """guard and the rename (the race branch), the migration must NOT"""
@@ -293,7 +296,7 @@ class TestWindowsPathMigrationCoverage:
         monkeypatch.setattr(cfg_mod, "is_macos", lambda: False)
         monkeypatch.setattr(cfg_mod, "_config_dir", lambda: target)
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-        legacy_dir = tmp_path / "voice-typer"
+        legacy_dir = tmp_path / "lausu"
         legacy_dir.mkdir(parents=True, exist_ok=True)
         (legacy_dir / "config.json").write_text('{"test": true}')
         assert not target.exists()

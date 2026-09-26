@@ -10,10 +10,10 @@ from unittest.mock import MagicMock
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 # Don't assert the literal repo-dir name, the repo may be cloned under any
 assert (_REPO_ROOT / "pyproject.toml").is_file(), (
-    f"_REPO_ROOT does not look like the voice-typer project root (no pyproject.toml found): {_REPO_ROOT}"
+    f"_REPO_ROOT does not look like the lausu project root (no pyproject.toml found): {_REPO_ROOT}"
 )
 assert (_REPO_ROOT / "src-tauri" / "Cargo.toml").is_file(), (
-    f"_REPO_ROOT does not look like the voice-typer project root (no src-tauri/Cargo.toml found): {_REPO_ROOT}"
+    f"_REPO_ROOT does not look like the lausu project root (no src-tauri/Cargo.toml found): {_REPO_ROOT}"
 )
 
 _SIDECAR_CMDS_RS = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"

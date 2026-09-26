@@ -1,4 +1,4 @@
-"""Shared app-level test helpers for VoiceTyperApp and audio test data."""
+"""Shared app-level test helpers for LausuApp and audio test data."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 
 def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
-    """Build a ``VoiceTyperApp`` with mocked hardware/GUI dependencies."""
+    """Build a ``LausuApp`` with mocked hardware/GUI dependencies."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
@@ -17,9 +17,9 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
         lambda *a, **k: None,
     )
 
-    from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.app import LausuApp
 
-    instance = VoiceTyperApp()
+    instance = LausuApp()
     # Ensure esc_cancel_enabled is False for deterministic test behavior
     instance.config.esc_cancel_enabled = False
     # (revised): RecordingController.start() now enforces

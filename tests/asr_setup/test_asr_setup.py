@@ -6,6 +6,12 @@ import inspect
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _accept_mock_http_peer(accept_mock_http_peer):
+    """Mocked responses expose a MagicMock socket peer (see the conftest fixture)."""
 
 
 class TestCloudEngineUlopenTimeout:

@@ -138,8 +138,8 @@ def test_tauri_conf_prewarm_moved_into_worker_exe(tauri_conf) -> None:
     resources = tauri_conf.get("bundle", {}).get("resources", [])
     external_bin = tauri_conf.get("bundle", {}).get("externalBin", [])
     assert isinstance(resources, list), "bundle.resources must be a list"
-    assert "bin/voice-typer-worker" in external_bin, (
-        "bundle.externalBin must include 'bin/voice-typer-worker', the "
+    assert "bin/lausu-worker" in external_bin, (
+        "bundle.externalBin must include 'bin/lausu-worker', the "
         "prewarm phase moved into the worker exe (plan-runtime-pack-split §6.2)"
     )
     stale_prewarm = [r for r in resources if "prewarm" in r]

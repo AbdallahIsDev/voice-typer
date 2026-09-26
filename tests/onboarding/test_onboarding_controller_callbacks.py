@@ -35,7 +35,7 @@ class TestOnboardingUsesServiceChangeModel:
 
         monkeypatch.setattr(event_bus_mod, "publish", lambda msg: True)
 
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         app = MagicMock()
         app.config.onboarding_completed = False
@@ -48,7 +48,7 @@ class TestOnboardingUsesServiceChangeModel:
 
         app._config_mutation_lock = _fake_lock()
 
-        service = VoiceTyperService(app)
+        service = LausuService(app)
 
         from voice_typer.server.onboarding import OnboardingController
 

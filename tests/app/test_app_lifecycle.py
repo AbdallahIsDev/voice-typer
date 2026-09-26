@@ -1,6 +1,6 @@
 """
 ``voice_typer/server/app_lifecycle.py``, the ``LifecycleController``
-``VoiceTyperApp``-level integration; they do NOT pin the controller's
+``LausuApp``-level integration; they do NOT pin the controller's
 """
 
 from __future__ import annotations
@@ -231,7 +231,7 @@ class TestQuitAppPushesEventBeforeDelegate:
             lambda msg: pushed.append(msg),
         )
 
-        # The real VoiceTyperApp.quit() sets _shutting_down_event (via
+        # The real LausuApp.quit() sets _shutting_down_event (via
         quit_calls: list[bool] = []
 
         def _fake_quit() -> None:

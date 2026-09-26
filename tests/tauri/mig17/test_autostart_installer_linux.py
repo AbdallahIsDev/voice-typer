@@ -18,15 +18,15 @@ TAURI_CONF = _REPO_ROOT / "src-tauri" / "tauri.conf.json"
 SRC_TAURI_DIR = TAURI_CONF.parent
 CARGO_TOML = SRC_TAURI_DIR / "Cargo.toml"
 MAIN_RS = SRC_TAURI_DIR / "src" / "main.rs"
-DESKTOP_TEMPLATE = SRC_TAURI_DIR / "voice-typer.desktop.template"
+DESKTOP_TEMPLATE = SRC_TAURI_DIR / "lausu.desktop.template"
 POSTINST = _REPO_ROOT / "scripts" / "linux" / "postinst"
 PRERM = _REPO_ROOT / "scripts" / "linux" / "prerm"
 INSTALL_PERMISSIONS = _REPO_ROOT / "scripts" / "linux" / "install_permissions.py"
 UNINSTALL_PERMISSIONS = _REPO_ROOT / "scripts" / "linux" / "uninstall_permissions.py"
-UDEV_RULE = _REPO_ROOT / "scripts" / "linux" / "99-voice-typer.rules"
+UDEV_RULE = _REPO_ROOT / "scripts" / "linux" / "99-lausu.rules"
 
 # The Tauri host binary name (per src-tauri/Cargo.toml [[bin]] name=...).
-_TAURI_HOST_BIN_NAME = "voice-typer-tauri"
+_TAURI_HOST_BIN_NAME = "lausu-tauri"
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def linux_platform(monkeypatch, tmp_path):
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(vt_config))
 
     autostart_dir = config_home / "autostart"
-    desktop_path = autostart_dir / "voice-typer.desktop"
+    desktop_path = autostart_dir / "lausu.desktop"
 
     return SimpleNamespace(
         server_platform=server_platform,
@@ -78,7 +78,7 @@ def _parse_desktop_entry(text: str) -> dict[str, str]:
 
 
 def test_enable_autostart_linux_creates_desktop_file(linux_platform):
-    """``_enable_autostart_linux`` writes ``~/.config/autostart/voice-typer.desktop``."""
+    """``_enable_autostart_linux`` writes ``~/.config/autostart/lausu.desktop``."""
     sp = linux_platform.server_platform
     assert not linux_platform.desktop_path.exists()
 
@@ -90,14 +90,14 @@ def test_enable_autostart_linux_creates_desktop_file(linux_platform):
 
 
 def test_autostart_desktop_file_has_required_fields(linux_platform):
-    """The runtime .desktop file has ``Type=Application`` + ``Name=Voice Typer``."""
+    """The runtime .desktop file has ``Type=Application`` + ``Name=Lausu``."""
     sp = linux_platform.server_platform
     sp._enable_autostart_linux()
 
     fields = _parse_desktop_entry(linux_platform.desktop_path.read_text())
 
     assert fields.get("Type") == "Application"
-    assert fields.get("Name") == "Voice Typer"
+    assert fields.get("Name") == "Lausu"
     # NoDisplay=true hides the autostart entry from the application menu
     assert fields.get("NoDisplay") == "true"
 
@@ -107,7 +107,7 @@ def test_autostart_desktop_file_has_required_fields(linux_platform):
     reason=(
         "GAP-1: runtime _enable_autostart_linux writes Exec=<python launcher> "
         "+ Icon=audio-input-microphone (legacy predecessor/Python path) instead "
-        "of Exec=voice-typer-tauri + Icon=voice-typer (the bundled Tauri "
+        "of Exec=lausu-tauri + Icon=lausu (the bundled Tauri "
         "host).  Phase 0-L sign-off requires the autostart entry to launch "
         "the installed Tauri app, not a stray Python interpreter.  Flips to "
         "XPASS-strict-fail when the impl is updated."
@@ -121,7 +121,7 @@ def test_autostart_desktop_file_exec_and_icon_match_template(linux_platform):
     fields = _parse_desktop_entry(linux_platform.desktop_path.read_text())
 
     assert fields.get("Exec") == _TAURI_HOST_BIN_NAME
-    assert fields.get("Icon") == "voice-typer"
+    assert fields.get("Icon") == "lausu"
 
 
 def test_disable_autostart_linux_removes_desktop_file(linux_platform):
@@ -166,12 +166,12 @@ def test_is_autostart_linux_returns_true_only_if_desktop_exists(linux_platform):
 def test_is_autostart_linux_false_when_exec_program_missing(linux_platform):
     """A .desktop whose ``Exec=`` points at a deleted interpreter must"""
     sp = linux_platform.server_platform
-    desktop_path = linux_platform.autostart_dir / "voice-typer.desktop"
+    desktop_path = linux_platform.autostart_dir / "lausu.desktop"
     desktop_path.parent.mkdir(parents=True, exist_ok=True)
     desktop_path.write_text(
         "[Desktop Entry]\n"
         "Type=Application\n"
-        "Name=Voice Typer\n"
+        "Name=Lausu\n"
         "Exec=/nonexistent/venv/bin/python /nonexistent/autostart_launcher.py --hidden\n",
         encoding="utf-8",
     )
@@ -183,10 +183,10 @@ def test_is_autostart_linux_false_when_exec_program_missing(linux_platform):
 def test_is_autostart_linux_true_when_exec_program_exists(linux_platform):
     """A .desktop whose ``Exec=`` points at a real program must report"""
     sp = linux_platform.server_platform
-    desktop_path = linux_platform.autostart_dir / "voice-typer.desktop"
+    desktop_path = linux_platform.autostart_dir / "lausu.desktop"
     desktop_path.parent.mkdir(parents=True, exist_ok=True)
     desktop_path.write_text(
-        "[Desktop Entry]\nType=Application\nName=Voice Typer\nExec=/bin/true --hidden\n",
+        "[Desktop Entry]\nType=Application\nName=Lausu\nExec=/bin/true --hidden\n",
         encoding="utf-8",
     )
     assert sp._is_autostart_linux() is True, (
@@ -268,8 +268,8 @@ def test_tauri_conf_has_linux_deb_desktop_template():
 
     assert template is not None, "bundle.linux.deb.desktopTemplate is missing"
     # See test_tauri_conf_has_linux_deb_postinstall for why we don't
-    assert template.endswith("voice-typer.desktop.template"), (
-        f"desktopTemplate must point at voice-typer.desktop.template, got: {template!r}"
+    assert template.endswith("lausu.desktop.template"), (
+        f"desktopTemplate must point at lausu.desktop.template, got: {template!r}"
     )
     assert DESKTOP_TEMPLATE.is_file(), (
         f"desktopTemplate target does not exist on disk at the canonical repo "
@@ -278,16 +278,16 @@ def test_tauri_conf_has_linux_deb_desktop_template():
 
 
 def test_desktop_template_exists_and_is_valid():
-    """``voice-typer.desktop.template`` exists + is a valid freedesktop entry."""
-    assert DESKTOP_TEMPLATE.is_file(), f"voice-typer.desktop.template missing at {DESKTOP_TEMPLATE}"
+    """``lausu.desktop.template`` exists + is a valid freedesktop entry."""
+    assert DESKTOP_TEMPLATE.is_file(), f"lausu.desktop.template missing at {DESKTOP_TEMPLATE}"
     fields = _parse_desktop_entry(DESKTOP_TEMPLATE.read_text())
 
     assert fields.get("Type") == "Application", f"Template Type must be 'Application', got: {fields.get('Type')!r}"
-    assert fields.get("Name") == "Voice Typer", f"Template Name must be 'Voice Typer', got: {fields.get('Name')!r}"
+    assert fields.get("Name") == "Lausu", f"Template Name must be 'Lausu', got: {fields.get('Name')!r}"
     assert fields.get("Exec") == _TAURI_HOST_BIN_NAME, (
         f"Template Exec must be '{_TAURI_HOST_BIN_NAME}', got: {fields.get('Exec')!r}"
     )
-    assert fields.get("Icon") == "voice-typer", f"Template Icon must be 'voice-typer', got: {fields.get('Icon')!r}"
+    assert fields.get("Icon") == "lausu", f"Template Icon must be 'lausu', got: {fields.get('Icon')!r}"
     # Sanity: Terminal=false (no console window).
     assert fields.get("Terminal") == "false", (
         f"Template Terminal must be 'false' (no console window), got: {fields.get('Terminal')!r}"
@@ -329,8 +329,8 @@ def test_postinst_invokes_install_permissions_for_input_group_and_udev():
         "/dev/input/event*)."
     )
     # 5) install_permissions.py installs the udev rule.
-    assert "/etc/udev/rules.d/99-voice-typer.rules" in install_text, (
-        "install_permissions.py must install the udev rule to /etc/udev/rules.d/99-voice-typer.rules."
+    assert "/etc/udev/rules.d/99-lausu.rules" in install_text, (
+        "install_permissions.py must install the udev rule to /etc/udev/rules.d/99-lausu.rules."
     )
     # 6) install_permissions.py reloads udev (udevadm control --reload-rules
     assert "udevadm" in install_text, (
@@ -339,7 +339,7 @@ def test_postinst_invokes_install_permissions_for_input_group_and_udev():
     )
     # 7) The udev rule file itself exists in the source tree (the postinst
     assert UDEV_RULE.is_file(), (
-        f"99-voice-typer.rules missing at {UDEV_RULE}, the postinst must "
+        f"99-lausu.rules missing at {UDEV_RULE}, the postinst must "
         f"ship this file so install_permissions.py can copy it."
     )
 
@@ -404,14 +404,18 @@ def test_single_instance_plugin_wired_in_tauri():
         "`tauri_plugin_single_instance::init(...)` (the duplicate-instance "
         "gate)."
     )
-    # Verify the second-instance callback focuses the main window.
-    assert "get_webview_window" in main_rs_text, (
-        'main.rs\'s single-instance callback must call app.get_webview_window("main") to focus the existing window.'
+    # The second-instance callback lives in host_events (main.rs stays
+    # wiring-only): it must route to show_main_window, which focuses the
+    # existing main window.
+    assert "host_events::show_main_window" in main_rs_text, (
+        "main.rs's single-instance callback must route to "
+        "host_events::show_main_window (the focus-existing-window path)."
     )
-    assert "set_focus" in main_rs_text, (
-        "main.rs's single-instance callback must call window.set_focus() to "
-        "bring the existing main window to the foreground."
+    host_events_text = (SRC_TAURI_DIR / "src" / "host_events.rs").read_text()
+    assert "set_focus" in host_events_text, (
+        "host_events's show path must call window.set_focus() to bring the existing main window to the foreground."
     )
+    assert "show_main_window" in host_events_text, "host_events.rs must own the show_main_window second-instance path."
 
     # 4) Verify the single-instance plugin is registered BEFORE the shell
     si_idx = main_rs_text.find("tauri_plugin_single_instance::init")

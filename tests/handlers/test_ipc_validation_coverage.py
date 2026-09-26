@@ -302,7 +302,7 @@ class TestScrubTraceback:
         home = os.path.expanduser("~")
         if home in ("/", "~", ""):
             pytest.skip("HOME is not set or is root, cannot test home-dir scrub")
-        exc = RuntimeError(f"failed to open {home}/.config/voice-typer/config.json")
+        exc = RuntimeError(f"failed to open {home}/.config/lausu/config.json")
         scrubbed_str, _ = _scrub_traceback(exc)
         assert home not in scrubbed_str, f"Home directory leaked through scrub: {scrubbed_str!r}"
 
@@ -365,7 +365,7 @@ class TestScrubTraceback:
         if home in ("/", "~", ""):
             pytest.skip("HOME is not set or is root, cannot test home-dir scrub")
         fake_service.cancel_model_download.side_effect = RuntimeError(
-            f"failed to open {home}/.config/voice-typer/config.json"
+            f"failed to open {home}/.config/lausu/config.json"
         )
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.ipc_server"):
             ipc_server._handle_cancel_model_download({}, {})

@@ -25,7 +25,7 @@ COMPILE_NATIVE = BUILD_DIR / "compile_native.sh"
 ICON_STUB_GENERATOR = SCRIPTS_DIR / "gen_tauri_icons_stub.py"
 
 pytestmark = pytest.mark.xdist_group("gen_tauri_icons_stub")
-_ICON_STUB_LOCK_PATH = Path(tempfile.gettempdir()) / "voice-typer-gen-tauri-icons-stub.test.lock"
+_ICON_STUB_LOCK_PATH = Path(tempfile.gettempdir()) / "lausu-gen-tauri-icons-stub.test.lock"
 
 
 @pytest.fixture

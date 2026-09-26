@@ -20,7 +20,7 @@ _STARTUP_KEYS = {
 
 
 class _Host(AppConstruction):
-    """Minimal host exercising the mixin without VoiceTyperApp."""
+    """Minimal host exercising the mixin without LausuApp."""
 
     def __init__(self) -> None:
         self.config = MagicMock()

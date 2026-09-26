@@ -28,7 +28,7 @@ MAIN_RS = SRC_TAURI_DIR / "src" / "main.rs"
 CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "tauri-macos-build.yml"
 
 # The Tauri host binary name (per src-tauri/Cargo.toml [[bin]] name=...).
-_TAURI_HOST_BIN_NAME = "voice-typer-tauri"
+_TAURI_HOST_BIN_NAME = "lausu-tauri"
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def darwin_platform(monkeypatch, tmp_path):
     monkeypatch.setattr(server_platform.Path, "home", lambda: home)
 
     # Redirect _paths.config_dir() to tmp via the env override.
-    config_dir = tmp_path / "config" / "voice-typer"
+    config_dir = tmp_path / "config" / "lausu"
     config_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(config_dir))
 
@@ -61,7 +61,7 @@ def darwin_platform(monkeypatch, tmp_path):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    plist_path = home / "Library" / "LaunchAgents" / "com.voicetyper.plist"
+    plist_path = home / "Library" / "LaunchAgents" / "com.Lausu.plist"
     return SimpleNamespace(
         server_platform=server_platform,
         home=home,
@@ -116,8 +116,8 @@ def test_plist_uses_run_at_load_true(darwin_platform):
     sp._enable_autostart_macos()
 
     data = _parse_plist(darwin_platform.plist_path)
-    assert data.get("Label") == "com.voicetyper", (
-        "Label must be 'com.voicetyper' (matches the plist filename + the "
+    assert data.get("Label") == "com.Lausu", (
+        "Label must be 'com.Lausu' (matches the plist filename + the "
         "label passed to `launchctl bootout` in _disable_autostart_macos)"
     )
     assert data.get("RunAtLoad") is True, (
@@ -167,7 +167,7 @@ def test_plist_program_arguments_current_behavior_python_launcher(darwin_platfor
         "whose ProgramArguments points to sys.executable (Python) + "
         "autostart_launcher.py, the LEGACY predecessor path. Phase 0-M "
         "sign-off requires the plist to point at the Tauri host binary "
-        "(/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri) "
+        "(/Applications/Lausu.app/Contents/MacOS/lausu-tauri) "
         "so a user who installs the DMG auto-launches the *bundled* Tauri "
         "app at login (not a stray Python interpreter that may not exist "
         "on a clean install). When _enable_autostart_macos is updated to "
@@ -226,21 +226,21 @@ def test_disable_autostart_macos_removes_plist_and_unloads(darwin_platform):
 
     bootout_calls = [c for c in darwin_platform.launchctl_calls if "bootout" in c]
     assert len(bootout_calls) == 1, (
-        f"must call `launchctl bootout gui/<uid>/com.voicetyper` exactly once (modern API); got {bootout_calls}"
+        f"must call `launchctl bootout gui/<uid>/com.Lausu` exactly once (modern API); got {bootout_calls}"
     )
     assert bootout_calls[0][0] == "launchctl"
     assert bootout_calls[0][1] == "bootout"
     target = bootout_calls[0][2]
-    assert target.startswith("gui/") and target.endswith("/com.voicetyper"), (
-        f"bootout target must be 'gui/<uid>/com.voicetyper'; got {target!r}"
+    assert target.startswith("gui/") and target.endswith("/com.Lausu"), (
+        f"bootout target must be 'gui/<uid>/com.Lausu'; got {target!r}"
     )
 
     remove_calls = [c for c in darwin_platform.launchctl_calls if "remove" in c]
     assert len(remove_calls) == 1, (
-        f"must call `launchctl remove com.voicetyper` as a legacy fallback (for macOS < 10.10); got {remove_calls}"
+        f"must call `launchctl remove com.Lausu` as a legacy fallback (for macOS < 10.10); got {remove_calls}"
     )
-    assert remove_calls[0] == ["launchctl", "remove", "com.voicetyper"], (
-        f"launchctl remove must use the label 'com.voicetyper'; got {remove_calls[0]}"
+    assert remove_calls[0] == ["launchctl", "remove", "com.Lausu"], (
+        f"launchctl remove must use the label 'com.Lausu'; got {remove_calls[0]}"
     )
 
 
@@ -269,7 +269,7 @@ def test_is_autostart_enabled_macos_returns_true_only_if_plist_exists(darwin_pla
     # 4. Manually touch the plist (without launchctl load) → still True
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(
-        '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.voicetyper</string></dict></plist>'
+        '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.Lausu</string></dict></plist>'
     )
     assert sp._is_autostart_macos() is True, (
         "is_autostart_enabled must return True if the plist file exists, "
@@ -286,7 +286,7 @@ def test_is_autostart_macos_false_when_plist_program_path_missing(darwin_platfor
     plist_path.write_text(
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<plist version="1.0"><dict>'
-        "<key>Label</key><string>com.voicetyper</string>"
+        "<key>Label</key><string>com.Lausu</string>"
         "<key>ProgramArguments</key><array>"
         "<string>/nonexistent/venv/bin/python</string>"
         "<string>/nonexistent/autostart_launcher.py</string>"
@@ -306,7 +306,7 @@ def test_is_autostart_macos_true_when_plist_program_paths_exist(darwin_platform)
     plist_path.write_text(
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<plist version="1.0"><dict>'
-        "<key>Label</key><string>com.voicetyper</string>"
+        "<key>Label</key><string>com.Lausu</string>"
         "<key>ProgramArguments</key><array>"
         f"<string>{sys.executable}</string>"
         # /bin/true is a Linux-ism, macOS has no /bin/true (its true(1)
@@ -337,11 +337,11 @@ def test_tauri_conf_has_macos_bundle_or_dmg_app_defaults():
         f"the macOS build won't produce a DMG installer."
     )
 
-    # The .app bundle's main binary name is voice-typer-tauri (per Cargo.toml).
+    # The .app bundle's main binary name is lausu-tauri (per Cargo.toml).
     assert CARGO_TOML.exists(), f"Cargo.toml missing at {CARGO_TOML}"
     cargo = CARGO_TOML.read_text(encoding="utf-8")
-    assert re.search(r'name\s*=\s*"voice-typer-tauri"', cargo), (
-        "Cargo.toml [[bin]] name must be 'voice-typer-tauri' (the .app's "
+    assert re.search(r'name\s*=\s*"lausu-tauri"', cargo), (
+        "Cargo.toml [[bin]] name must be 'lausu-tauri' (the .app's "
         "Contents/MacOS/ executable name, referenced by GAP-1's fix)"
     )
 
@@ -401,8 +401,8 @@ def test_installer_includes_sidecar_prewarm_native_listener_resources():
         "externalBin must include bin/python-sidecar (Tauri appends the "
         "target triple to find bin/python-sidecar-{x86_64,aarch64}-apple-darwin)"
     )
-    assert "bin/voice-typer-worker" in external_bin, (
-        "externalBin must include bin/voice-typer-worker (the ML worker "
+    assert "bin/lausu-worker" in external_bin, (
+        "externalBin must include bin/lausu-worker (the ML worker "
         "exe owns the warm phase since the prewarm binary was retired, "
         "plan-runtime-pack-split §6.2)"
     )

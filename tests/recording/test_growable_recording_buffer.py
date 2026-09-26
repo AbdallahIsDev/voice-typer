@@ -7,18 +7,18 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from voice_typer.server.recording._recorder_split import (
-    GrowableRecordingBuffer,
+from voice_typer.server.recording.recording_buffer import GrowableRecordingBuffer
+from voice_typer.server.recording.recording_lifecycle import (
     discard_recording,
     stop_recording,
-    take_snapshot,
 )
+from voice_typer.server.recording.recording_snapshot import take_snapshot
 
 
 @pytest.fixture(autouse=True)
 def _identity_prepare_audio(monkeypatch):
     """``stop_recording`` invokes (the historical"""
-    import voice_typer.server.recording._recorder_split as split_mod
+    import voice_typer.server.recording.recording_lifecycle as split_mod
 
     monkeypatch.setattr(split_mod, "prepare_audio", lambda rec, audio, effective_sr_in, **kw: audio)
 
@@ -215,7 +215,7 @@ class TestResampleCacheInvalidationOnRateChange:
         def _route(recorder, audio, effective_sr, target_sr):
             return recorder._resample_chunk(audio, effective_sr, target_sr)
 
-        monkeypatch.setattr("voice_typer.server.recording._recorder_split.resample_chunk", _route)
+        monkeypatch.setattr("voice_typer.server.recording.recording_snapshot.resample_chunk", _route)
 
     def test_src_rate_change_invalidates_and_rebuilds_cache(self):
         rec = _FakeRecorderForSnapshot(effective_sr=48000)

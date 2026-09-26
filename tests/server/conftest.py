@@ -77,7 +77,7 @@ class MockTray:
 
 
 class MockApp:
-    """Minimal VoiceTyperApp mock for IPC server tests."""
+    """Minimal LausuApp mock for IPC server tests."""
 
     def __init__(self):
         self.tray = MockTray()
@@ -128,9 +128,9 @@ def server(mock_app):
 
 @pytest.fixture
 def server_with_mock_app():
-    """Construct an IPCServer with a mocked app (no real VoiceTyperApp)."""
+    """Construct an IPCServer with a mocked app (no real LausuApp)."""
     app = MagicMock()
-    # Avoid the service.py import side-effects on real VoiceTyperApp.
+    # Avoid the service.py import side-effects on real LausuApp.
     srv = IPCServer(app)
     return srv
 

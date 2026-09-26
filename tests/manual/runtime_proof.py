@@ -111,7 +111,7 @@ def run_runtime_proof():
         return False
 
     mock_tray = MockTrayIcon()
-    busy = False  # mirrors VoiceTyperApp._busy
+    busy = False  # mirrors LausuApp._busy
 
     log.info("[STEP 3] Simulating F2 press -> _start_dictation")
     mock_tray.set_state(AppState.RECORDING, "Recording...")
@@ -149,14 +149,14 @@ def run_runtime_proof():
     force_recovery_done = threading.Event()
 
     def force_recover():
-        """Same as VoiceTyperApp._force_recover_from_stuck_transcription."""
+        """Same as LausuApp._force_recover_from_stuck_transcription."""
         nonlocal busy
         if not busy:
             return
         log.warning("FORCE RECOVER: transcription watchdog fired, resetting state")
         busy = False
         mock_tray.set_state(AppState.IDLE, "Recovered - transcription timed out")
-        mock_tray.notify("Voice Typer", "Transcription took too long. Press F2 to try again.")
+        mock_tray.notify("Lausu", "Transcription took too long. Press F2 to try again.")
         watchdog_fired.set()
         force_recovery_done.set()
 
@@ -195,7 +195,7 @@ def run_runtime_proof():
             results["transcribe_error"] = str(e)
             log.exception("[TRANSCRIBE] Transcription FAILED")
             mock_tray.set_state(AppState.ERROR, "Transcription failed")
-            mock_tray.notify("Voice Typer Error", f"Transcription failed.\n{e}")
+            mock_tray.notify("Lausu Error", f"Transcription failed.\n{e}")
             # Check if fallback was exercised
             if "cublas" in str(e).lower() or "cuda" in str(e).lower():
                 results["fallback_exercised"] = True

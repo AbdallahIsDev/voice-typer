@@ -142,7 +142,7 @@ class TestCheckAccessibility:
         )
         monkeypatch.setattr(
             "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
-            lambda: "com.voicetyper.desktop",
+            lambda: "com.Lausu.desktop",
         )
         monkeypatch.setattr(
             "voice_typer.server.server_platform.macos_bundle_id.tccutil_reset_command_str",
@@ -165,7 +165,7 @@ class TestCheckAccessibility:
         assert resp["data"]["granted"] is False
         assert resp["data"]["platform"] == "macos"
         assert resp["data"]["suggest_reset"] is True
-        assert resp["data"]["reset_command"] == "tccutil reset Accessibility com.voicetyper.desktop"
+        assert resp["data"]["reset_command"] == "tccutil reset Accessibility com.Lausu.desktop"
 
     def test_macos_stale_grant_unresolved_bundle_omits_command(self, ipc_server, monkeypatch):
         """Finding #919 part b: when the host bundle ID cannot be"""
@@ -208,7 +208,7 @@ class TestCheckAccessibility:
         )
         monkeypatch.setattr(
             "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
-            lambda: "com.voicetyper.desktop",
+            lambda: "com.Lausu.desktop",
             raising=False,
         )
 
@@ -237,7 +237,7 @@ class TestCheckAccessibility:
         )
         monkeypatch.setattr(
             "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
-            lambda: "com.voicetyper.desktop",
+            lambda: "com.Lausu.desktop",
             raising=False,
         )
 
@@ -291,7 +291,7 @@ class TestResetMacosAccessibility:
         )
         monkeypatch.setattr(
             "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
-            lambda: "com.voicetyper.desktop",
+            lambda: "com.Lausu.desktop",
         )
         run_calls: list = []
 
@@ -317,9 +317,9 @@ class TestResetMacosAccessibility:
 
         assert resp["type"] == "ack"
         assert resp["data"]["ok"] is True
-        assert resp["data"]["command"] == "tccutil reset Accessibility com.voicetyper.desktop"
+        assert resp["data"]["command"] == "tccutil reset Accessibility com.Lausu.desktop"
         assert resp["data"]["error"] is None
-        assert run_calls == [["tccutil", "reset", "Accessibility", "com.voicetyper.desktop"]]
+        assert run_calls == [["tccutil", "reset", "Accessibility", "com.Lausu.desktop"]]
         assert opened == [True], "System Settings must be re-opened after the reset"
 
     def test_macos_embeds_any_runtime_bundle_id(self, ipc_server, monkeypatch):
@@ -330,7 +330,7 @@ class TestResetMacosAccessibility:
         )
         monkeypatch.setattr(
             "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
-            lambda: "com.voicetyper.some-other-build",
+            lambda: "com.Lausu.some-other-build",
         )
         run_calls: list = []
 
@@ -350,8 +350,8 @@ class TestResetMacosAccessibility:
         resp = ipc_server._handle_reset_macos_accessibility({}, {})
 
         assert resp["data"]["ok"] is True
-        assert resp["data"]["command"] == "tccutil reset Accessibility com.voicetyper.some-other-build"
-        assert run_calls == [["tccutil", "reset", "Accessibility", "com.voicetyper.some-other-build"]]
+        assert resp["data"]["command"] == "tccutil reset Accessibility com.Lausu.some-other-build"
+        assert run_calls == [["tccutil", "reset", "Accessibility", "com.Lausu.some-other-build"]]
 
     def test_macos_unresolved_bundle_id_returns_no_command(self, ipc_server, monkeypatch):
         """Unresolvable bundle ID → ok=False with no command (a wrong"""
@@ -390,7 +390,7 @@ class TestResetMacosAccessibility:
         )
         monkeypatch.setattr(
             "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
-            lambda: "com.voicetyper.desktop",
+            lambda: "com.Lausu.desktop",
         )
 
         class _FakeFailed:
@@ -411,7 +411,7 @@ class TestResetMacosAccessibility:
 
         assert resp["data"]["ok"] is False
         assert resp["data"]["error"] == "tccutil: reset failed"
-        assert resp["data"]["command"] == "tccutil reset Accessibility com.voicetyper.desktop"
+        assert resp["data"]["command"] == "tccutil reset Accessibility com.Lausu.desktop"
         assert opened == [True]
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server):
@@ -456,7 +456,7 @@ class TestResetLinuxPermissions:
         )
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers._enumerate_polkit_actions",
-            lambda: ["com.voicetyper.install-permissions"],
+            lambda: ["com.Lausu.install-permissions"],
         )
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers._reset_polkit_authorization",
@@ -473,9 +473,9 @@ class TestResetLinuxPermissions:
         assert resp["data"]["ok"] is True
         assert resp["data"]["command"] == "pkexec systemctl restart polkit"
         assert resp["data"]["error"] is None
-        assert resp["data"]["actions"] == ["com.voicetyper.install-permissions"]
+        assert resp["data"]["actions"] == ["com.Lausu.install-permissions"]
         assert resp["data"]["checks"] == {
-            "com.voicetyper.install-permissions": "not_authorized",
+            "com.Lausu.install-permissions": "not_authorized",
         }
 
     def test_linux_reset_failure_reports_error_and_skips_checks(self, ipc_server, monkeypatch):
@@ -486,7 +486,7 @@ class TestResetLinuxPermissions:
         )
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers._enumerate_polkit_actions",
-            lambda: ["com.voicetyper.install-permissions"],
+            lambda: ["com.Lausu.install-permissions"],
         )
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers._reset_polkit_authorization",
@@ -503,7 +503,7 @@ class TestResetLinuxPermissions:
         assert resp["data"]["ok"] is False
         assert resp["data"]["command"] is None
         assert resp["data"]["error"] == "pkexec: authentication dismissed"
-        assert resp["data"]["actions"] == ["com.voicetyper.install-permissions"]
+        assert resp["data"]["actions"] == ["com.Lausu.install-permissions"]
         assert resp["data"]["checks"] == {}, "pkcheck must NOT run after a failed reset"
         assert checked == []
 
@@ -517,22 +517,18 @@ class TestResetLinuxPermissions:
 class TestPolkitResetHelpers:
     """Module-level ``_enumerate_polkit_actions`` / ``_polkit_check_authorization``"""
 
-    def test_enumerate_filters_voicetyper_actions_and_dedupes(self, monkeypatch):
+    def test_enumerate_filters_lausu_actions_and_dedupes(self, monkeypatch):
         """canonical namespace); unrelated polkit actions are dropped;"""
         import voice_typer.server.handlers.system_handlers as sh
 
         class _FakeCompleted:
             returncode = 0
-            stdout = (
-                "com.voicetyper.install-permissions\n"
-                "org.freedesktop.policykit.exec\n"
-                "com.voicetyper.install-permissions\n"
-            )
+            stdout = "com.Lausu.install-permissions\norg.freedesktop.policykit.exec\ncom.Lausu.install-permissions\n"
 
         monkeypatch.setattr(sh.subprocess, "run", lambda *a, **k: _FakeCompleted())
 
         assert sh._enumerate_polkit_actions() == [
-            "com.voicetyper.install-permissions",
+            "com.Lausu.install-permissions",
         ]
 
     def test_enumerate_tolerates_missing_pkaction(self, monkeypatch):
@@ -574,9 +570,9 @@ class TestPolkitResetHelpers:
             lambda *a, **k: _FakeCompleted(next(codes)),
         )
 
-        assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "authorized"
-        assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "not_authorized"
-        assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "check_error"
+        assert sh._polkit_check_authorization("com.Lausu.install-permissions") == "authorized"
+        assert sh._polkit_check_authorization("com.Lausu.install-permissions") == "not_authorized"
+        assert sh._polkit_check_authorization("com.Lausu.install-permissions") == "check_error"
 
     def test_check_authorization_tolerates_missing_pkcheck(self, monkeypatch):
         """No ``pkcheck`` binary / timeout → check_error, never raises."""
@@ -589,7 +585,7 @@ class TestPolkitResetHelpers:
 
         monkeypatch.setattr(sh.subprocess, "run", _boom)
 
-        assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "check_error"
+        assert sh._polkit_check_authorization("com.Lausu.install-permissions") == "check_error"
 
     def test_reset_tries_candidates_until_one_succeeds(self, monkeypatch):
         """First candidate (polkit) failing → the polkitd fallback wins;"""
@@ -810,10 +806,10 @@ class TestSetTrayLocale:
             "voice_typer.server.tray.register_tray_labels",
             lambda loc, labels: registered.append((loc, labels)),
         )
-        resp = ipc_server._handle_set_tray_locale({"locale": "ar", "labels": {"app_name": "Voice Typer AR"}}, {})
+        resp = ipc_server._handle_set_tray_locale({"locale": "ar", "labels": {"app_name": "Lausu AR"}}, {})
         assert resp["type"] == "ack"
         assert resp["data"] == {"locale": "ar"}
-        assert registered == [("ar", {"app_name": "Voice Typer AR"})]
+        assert registered == [("ar", {"app_name": "Lausu AR"})]
 
 
 class TestSetEscCancelPaused:

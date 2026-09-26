@@ -76,7 +76,7 @@ def test_no_client_warning_fires_after_grace(xdg_runtime: str, caplog: pytest.Lo
             "no-client warning must be logged with the 'Wayland Hotkey Idle' "
             f"title; got warnings: {[r.getMessage() for r in warnings]}"
         )
-        assert any("voice-typer-hotkey.sock" in r.getMessage() for r in warnings), (
+        assert any("lausu-hotkey.sock" in r.getMessage() for r in warnings), (
             "no-client warning must mention the socket path so the user knows where to send commands."
         )
         assert any("linux-key-listener" in r.getMessage() for r in warnings), (
@@ -106,7 +106,7 @@ def test_no_client_callback_invoked(xdg_runtime: str) -> None:
     assert len(captured) == 1, f"no-client callback must be invoked exactly once; got {captured}"
     title, message = captured[0]
     assert "Wayland Hotkey Idle" in title
-    assert "voice-typer-hotkey.sock" in message
+    assert "lausu-hotkey.sock" in message
     assert "linux-key-listener" in message
 
 

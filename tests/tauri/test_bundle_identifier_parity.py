@@ -63,7 +63,7 @@ def _fail_on_dot_app(value: str, label: str, file: Path) -> None:
     assert not value.lower().endswith(".app"), (
         f"{label} '{value}' in {file} ends with '.app', the Tauri CLI "
         "warns on this ('conflicts with the application bundle extension "
-        "on macOS'). Rename it (e.g. 'com.voicetyper.desktop')."
+        "on macOS'). Rename it (e.g. 'com.Lausu.desktop')."
     )
 
 
@@ -134,9 +134,9 @@ class TestSyntheticBundleRoundTrip:
         app = tmp_path / "Synthetic.app"
         contents = app / "Contents"
         contents.mkdir(parents=True)
-        (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.voicetyper.desktop"}))
+        (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.Lausu.desktop"}))
         assert mbid.app_bundle_root(str(app / "Contents" / "MacOS" / "Synthetic")) == app
-        assert mbid.read_bundle_identifier(app) == "com.voicetyper.desktop"
+        assert mbid.read_bundle_identifier(app) == "com.Lausu.desktop"
 
     def test_synthetic_app_missing_plist_is_none(self, tmp_path):
         app = tmp_path / "Empty.app"

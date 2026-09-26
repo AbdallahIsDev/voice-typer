@@ -117,7 +117,7 @@ class TestInstallerHooksNshRegistered:
         assert "uninstaller.nsh" in text, (
             "the hooks wrapper must !include uninstaller.nsh, defines "
             "customUnInstall for CR-69/CR-70 cleanup (autostart Run keys, "
-            "Task Scheduler tasks, %APPDATA%\\voice-typer data dir)."
+            "Task Scheduler tasks, %APPDATA%\\lausu data dir)."
         )
         assert "installer-hooks.nsh" in text, (
             "the hooks wrapper must !include installer-hooks.nsh, defines "
@@ -210,10 +210,10 @@ class TestInstallerHooksCustomInstallMacro:
     def test_installer_state_json_path_pinned(self) -> None:
         """The macro must write to the canonical installer-state.json path."""
         text = INSTALLER_HOOKS_NSH.read_text(encoding="utf-8")
-        # The path is $LOCALAPPDATA\voice-typer\installer-state.json —
-        assert r"$LOCALAPPDATA\voice-typer\installer-state.json" in text, (
+        # The path is $LOCALAPPDATA\lausu\installer-state.json —
+        assert r"$LOCALAPPDATA\lausu\installer-state.json" in text, (
             "installer-hooks.nsh must write installer-state.json to "
-            "%LOCALAPPDATA%\\voice-typer\\, the SAME per-user data root the "
+            "%LOCALAPPDATA%\\lausu\\, the SAME per-user data root the "
             "Python backend uses (voice_typer/server/_paths.py). A different "
             "path breaks the first-launch consent read (plan §4.7 / §4.8)."
         )
@@ -254,15 +254,15 @@ class TestArtifactNames:
         # Import via path so the test doesn't require the module on sys.path.
         mod = _load_artifact_names_module()
         name = mod.slim_core_installer_name("1.0.0", "x86_64-pc-windows-msvc")
-        assert name == "voice-typer-slim-core-1.0.0-x86_64-pc-windows-msvc.exe", (
-            "slim-core installer name must match §11.9: voice-typer-slim-core-<version>-<triple>.exe"
+        assert name == "lausu-slim-core-1.0.0-x86_64-pc-windows-msvc.exe", (
+            "slim-core installer name must match §11.9: lausu-slim-core-<version>-<triple>.exe"
         )
 
     def test_runtime_pack_name_format(self) -> None:
         mod = _load_artifact_names_module()
         name = mod.runtime_pack_name("3", "x86_64-pc-windows-msvc")
-        assert name == "voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip", (
-            "runtime-pack name must match §11.9: voice-typer-runtime-pack-<pack-version>-<triple>.zip"
+        assert name == "lausu-runtime-pack-3-x86_64-pc-windows-msvc.zip", (
+            "runtime-pack name must match §11.9: lausu-runtime-pack-<pack-version>-<triple>.zip"
         )
 
     def test_pack_manifest_name(self) -> None:
@@ -274,9 +274,8 @@ class TestArtifactNames:
     def test_full_offline_installer_name_format(self) -> None:
         mod = _load_artifact_names_module()
         name = mod.full_offline_installer_name("1.0.0", "x86_64-pc-windows-msvc")
-        assert name == "voice-typer-full-offline-1.0.0-x86_64-pc-windows-msvc.exe", (
-            "full-offline installer name must match the §11.9 addendum: "
-            "voice-typer-full-offline-<app-version>-<triple>.exe"
+        assert name == "lausu-full-offline-1.0.0-x86_64-pc-windows-msvc.exe", (
+            "full-offline installer name must match the §11.9 addendum: lausu-full-offline-<app-version>-<triple>.exe"
         )
 
     def test_cli_round_trip(self) -> None:
@@ -298,7 +297,7 @@ class TestArtifactNames:
             text=True,
             check=True,
         )
-        assert result.stdout.strip() == "voice-typer-slim-core-1.0.0-aarch64-pc-windows-msvc.exe"
+        assert result.stdout.strip() == "lausu-slim-core-1.0.0-aarch64-pc-windows-msvc.exe"
 
     def test_invalid_triple_rejected(self) -> None:
         """Unknown triples must raise, prevents typos in CI yaml."""
@@ -334,21 +333,21 @@ class TestNoRenameOfExistingArtifacts:
             "C-CI-13 violation: new §11.9 artifact names overlap with the "
             f"protected existing names: {sorted(overlap)}. The new names must "
             "be ADDITIVE, they must NOT rename or overwrite the existing "
-            "tauri-windows-installer / VoiceTyper-Tauri-* / python-sidecar-* "
+            "tauri-windows-installer / Lausu-Tauri-* / python-sidecar-* "
             "artifact names."
         )
 
     def test_existing_protected_names_listed(self) -> None:
         """
         The protected names list must enumerate every C-CI-13 entry.
-        C-CI-13 enumerates: ``tauri-windows-installer``, ``VoiceTyper-Tauri-MSI``,
+        C-CI-13 enumerates: ``tauri-windows-installer``, ``Lausu-Tauri-MSI``,
         """
         mod = _load_artifact_names_module()
         expected = {
             "tauri-windows-installer",
-            "VoiceTyper-Tauri-MSI",
-            "VoiceTyper-Tauri-Sidecar-Binaries",
-            "VoiceTyper-Tauri-SHA256SUMS",
+            "Lausu-Tauri-MSI",
+            "Lausu-Tauri-Sidecar-Binaries",
+            "Lausu-Tauri-SHA256SUMS",
             "tauri-binaries-manifest-windows",
         }
         assert expected.issubset(set(mod.EXISTING_PROTECTED_NAMES)), (
@@ -385,9 +384,9 @@ class TestFullOfflineInstallerTemplate:
         """The OutFile directive must produce the §11.9 name."""
         text = FULL_OFFLINE_NSI.read_text(encoding="utf-8")
         # The OutFile uses ${APP_VERSION} and ${PRODUCT_TRIPLE} !defines
-        assert "voice-typer-full-offline-${APP_VERSION}-${PRODUCT_TRIPLE}.exe" in text, (
+        assert "lausu-full-offline-${APP_VERSION}-${PRODUCT_TRIPLE}.exe" in text, (
             "full-offline-installer.nsi OutFile must be "
-            "`voice-typer-full-offline-${APP_VERSION}-${PRODUCT_TRIPLE}.exe`, "
+            "`lausu-full-offline-${APP_VERSION}-${PRODUCT_TRIPLE}.exe`, "
             "the §11.9 canonical name (built from the build-time !defines so it "
             "cannot drift from artifact_names.py)."
         )
@@ -395,9 +394,9 @@ class TestFullOfflineInstallerTemplate:
     def test_template_extracts_pack_to_runtime_pack_dir(self) -> None:
         """The pack zip must be extracted to the per-user runtime-pack dir."""
         text = FULL_OFFLINE_NSI.read_text(encoding="utf-8")
-        assert r"$LOCALAPPDATA\voice-typer\runtime-pack\${PACK_VERSION}" in text, (
+        assert r"$LOCALAPPDATA\lausu\runtime-pack\${PACK_VERSION}" in text, (
             "full-offline-installer.nsi must extract the pack to "
-            "%LOCALAPPDATA%\\voice-typer\\runtime-pack\\<PACK_VERSION>\\, the "
+            "%LOCALAPPDATA%\\lausu\\runtime-pack\\<PACK_VERSION>\\, the "
             "SAME path the slim-core app's runtime-pack resolver scans (plan §4.7)."
         )
 
@@ -511,14 +510,14 @@ class TestUninstallerNshNotRegressed:
         assert "!macro customUnInstall" in text, (
             "uninstaller.nsh must still define `!macro customUnInstall`, the "
             "CR-69 / CR-70 cleanup (autostart Run keys, Task Scheduler tasks, "
-            "%APPDATA%\\voice-typer data dir) depends on it. Adding "
+            "%APPDATA%\\lausu data dir) depends on it. Adding "
             "installer-hooks.nsh must NOT remove the existing uninstall hooks."
         )
 
     def test_uninstaller_nsh_still_cleans_appdata(self) -> None:
         text = UNINSTALLER_NSH.read_text(encoding="utf-8")
-        # The path is quoted in the .nsh (NSIS literal: `"$APPDATA\voice-typer"`).
-        assert r'RMDir /r "$APPDATA\voice-typer"' in text, (
-            'uninstaller.nsh must still RMDir /r "%APPDATA%\\voice-typer", CR-70 '
+        # The path is quoted in the .nsh (NSIS literal: `"$APPDATA\lausu"`).
+        assert r'RMDir /r "$APPDATA\lausu"' in text, (
+            'uninstaller.nsh must still RMDir /r "%APPDATA%\\lausu", CR-70 '
             "per-user data dir cleanup (settings JSON, history DB, vocabularies)."
         )

@@ -1,5 +1,5 @@
 /* =============================================================================
- * Voice Typer: Linux native key-listener hotplug unit test (C-level)
+ * Lausu: Linux native key-listener hotplug unit test (C-level)
  *
  * Compiles the production listener source (``linux-key-listener.c``) INTO this
  * test translation unit via ``#include`` (same convention as

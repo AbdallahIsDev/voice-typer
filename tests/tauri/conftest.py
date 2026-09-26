@@ -48,6 +48,11 @@ _STUB_NATIVE = (
     "macos-key-listener",
     "linux-key-listener",
 )
+# Local-dev GNU-toolchain mirrors (C-TDEV-1): a local `cargo check` /
+# `tauri dev` resolves bundle.externalBin against the host triple too, so
+# `--clean` deletes these as well and the restore guard must cover them or
+# the next `cargo check` fails until the generator is re-run.
+_STUB_LOCAL_DEV_TRIPLES = ("x86_64-pc-windows-gnu",)
 _session_stub_paths: list[str] = []
 
 
@@ -58,9 +63,12 @@ def _canonical_stub_paths() -> list[str]:
     for triple in _STUB_TRIPLES:
         ext = ".exe" if "windows" in triple else ""
         paths.append(os.path.join(root, "src-tauri", "bin", f"python-sidecar-{triple}{ext}"))
-        paths.append(os.path.join(root, "src-tauri", "bin", f"voice-typer-worker-{triple}{ext}"))
+        paths.append(os.path.join(root, "src-tauri", "bin", f"lausu-worker-{triple}{ext}"))
     for name in _STUB_NATIVE:
         paths.append(os.path.join(root, "src-tauri", "resources", "native", name))
+    for triple in _STUB_LOCAL_DEV_TRIPLES:
+        paths.append(os.path.join(root, "src-tauri", "bin", f"python-sidecar-{triple}.exe"))
+        paths.append(os.path.join(root, "src-tauri", "bin", f"lausu-worker-{triple}.exe"))
     return paths
 
 

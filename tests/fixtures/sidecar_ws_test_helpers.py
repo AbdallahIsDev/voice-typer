@@ -19,6 +19,10 @@ def _make_fake_server() -> MagicMock:
     server._ws_inflight_lock = None
     server._ws_inflight_count = None
     server.app._shutting_down = False
+    # Models a real IPCServer that has NOT requested a graceful WS stop; a
+    # MagicMock attribute would otherwise read truthy and make ``run()``
+    # classify an injected fatal RuntimeError as a graceful shutdown.
+    server._ws_graceful_stop_requested = False
     # For tests that exercise ``_handle_connection`` (not just
     server.push = MagicMock()
     server._ready_emitted = True

@@ -330,7 +330,7 @@ class TestDetachProcessGroup:
             "children, so the sidecar must detach ITSELF at startup."
         )
         detach_idx = src.index("_detach_process_group()")
-        # Anchor on the construction DELEGATION (the single VoiceTyperApp
+        # Anchor on the construction DELEGATION (the single LausuApp
         app_idx = src.index("_construct_app_with_diagnostics()")
         assert detach_idx < app_idx, (
             "the detach must run BEFORE app construction (children spawned by the sidecar inherit its process group)"
@@ -495,7 +495,7 @@ class TestMainEntrypoint:
         # Mock every heavy dependency so main() runs to completion.
         app_mock = MagicMock()
         app_mock.start.return_value = None  # clean shutdown
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", lambda: app_mock)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",
@@ -558,7 +558,7 @@ class TestMainEntrypoint:
         """When ``app.start()`` returns cleanly (no exception), ``main()``"""
         app_mock = MagicMock()
         app_mock.start.return_value = None  # clean shutdown
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", lambda: app_mock)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",
@@ -610,7 +610,7 @@ class TestMainEntrypoint:
         monkeypatch: pytest.MonkeyPatch,
         tmp_config_dir,
     ) -> None:
-        """When ``VoiceTyperApp()`` construction raises, ``main()`` must"""
+        """When ``LausuApp()`` construction raises, ``main()`` must"""
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",
@@ -624,7 +624,7 @@ class TestMainEntrypoint:
         def _boom():
             raise RuntimeError("simulated construction failure")
 
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", _boom)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", _boom)
         monkeypatch.setattr("voice_typer.server.sidecar_ws.run", lambda server: 0)
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
         import faulthandler

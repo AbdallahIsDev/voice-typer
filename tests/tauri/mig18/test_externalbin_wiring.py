@@ -28,7 +28,7 @@ EXPECTED_NATIVE_RESOURCES = [
 ]
 
 # : worker exe that absorbed the retired standalone prewarm binary).
-EXPECTED_WORKER_BIN_BASENAME = "bin/voice-typer-worker"
+EXPECTED_WORKER_BIN_BASENAME = "bin/lausu-worker"
 
 EXPECTED_TARGET_TRIPLES = [
     ("x86_64", "windows", "x86_64-pc-windows-msvc"),
@@ -224,7 +224,7 @@ def test_spawn_rs_current_target_triple_delegates_to_target_triple_for(
 
 
 def test_worker_exe_path_uses_current_target_triple() -> None:
-    """The worker exe is named ``voice-typer-worker-<triple>[.exe]`` (one"""
+    """The worker exe is named ``lausu-worker-<triple>[.exe]`` (one"""
     worker_path_src = (_SRC_TAURI / "src" / "platform" / "worker_path.rs").read_text(encoding="utf-8")
     assert "fn worker_exe_path_from_env" in worker_path_src, "worker_path.rs must define `worker_exe_path_from_env`"
     assert "current_target_triple" in worker_path_src, (
@@ -233,16 +233,13 @@ def test_worker_exe_path_uses_current_target_triple() -> None:
     )
     # The worker name template must include the triple (+ Windows .exe
     assert re.search(
-        r'WORKER_BIN_BASE_NAME\s*:\s*&str\s*=\s*"voice-typer-worker"',
+        r'WORKER_BIN_BASE_NAME\s*:\s*&str\s*=\s*"lausu-worker"',
         worker_path_src,
-    ), 'worker_path.rs must define WORKER_BIN_BASE_NAME = "voice-typer-worker" (master plan §6.2 P-1)'
+    ), 'worker_path.rs must define WORKER_BIN_BASE_NAME = "lausu-worker" (master plan §6.2 P-1)'
     assert re.search(
         r'format!\s*\(\s*"\{\}-\{\}\{\}"\s*,\s*WORKER_BIN_BASE_NAME\s*,\s*triple\s*,\s*suffix',
         worker_path_src,
-    ), (
-        "worker_exe_path_from_env must format the binary name as "
-        "`voice-typer-worker-{triple}{suffix}` (master plan §6.2 P-1)"
-    )
+    ), "worker_exe_path_from_env must format the binary name as `lausu-worker-{triple}{suffix}` (master plan §6.2 P-1)"
     assert re.search(r"cfg!\s*\(\s*windows\s*\)", worker_path_src), (
         "worker_exe_path_from_env must use cfg!(windows) to conditionally "
         "append the .exe suffix on Windows only (master plan §6.2 P-1)"

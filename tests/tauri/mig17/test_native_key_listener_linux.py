@@ -22,7 +22,7 @@ HOTKEYS_PY = PROJECT_ROOT / "voice_typer" / "server" / "hotkeys" / "factory.py"
 POSTINST_SH = PROJECT_ROOT / "scripts" / "linux" / "postinst"
 POSTINST_RPM_SH = PROJECT_ROOT / "scripts" / "linux" / "postinst.rpm"
 INSTALL_PERMISSIONS_PY = PROJECT_ROOT / "scripts" / "linux" / "install_permissions.py"
-UDEV_RULES = PROJECT_ROOT / "scripts" / "linux" / "99-voice-typer.rules"
+UDEV_RULES = PROJECT_ROOT / "scripts" / "linux" / "99-lausu.rules"
 ADR_0020 = PROJECT_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 RUNBOOK = PROJECT_ROOT / "docs" / "migration" / "linux-validation-runbook.md"
 
@@ -788,7 +788,7 @@ class TestPostinstSetup:
         """``install_permissions.py`` installs the udev rule to /etc/udev/rules.d/."""
         assert INSTALL_PERMISSIONS_PY.is_file()
         src = INSTALL_PERMISSIONS_PY.read_text(encoding="utf-8")
-        assert "99-voice-typer.rules" in src, "install_permissions.py must install the 99-voice-typer.rules udev rule"
+        assert "99-lausu.rules" in src, "install_permissions.py must install the 99-lausu.rules udev rule"
         assert "/etc/udev/rules.d" in src, "install_permissions.py must copy the rule to /etc/udev/rules.d/"
         assert "udevadm" in src, "install_permissions.py must run udevadm to reload + trigger the rule"
 

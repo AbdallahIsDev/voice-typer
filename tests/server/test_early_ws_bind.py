@@ -96,9 +96,9 @@ class TestWsStartupThreadEarlyBind:
             app_holder.append(app)
             return app
 
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", _fake_app)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", _fake_app)
         monkeypatch.setattr(
-            "voice_typer.server.service.VoiceTyperService",
+            "voice_typer.server.service.LausuService",
             lambda app: _FakeService(app),
         )
 
@@ -147,7 +147,7 @@ class TestWsStartupThreadEarlyBind:
         def _boom() -> None:
             raise RuntimeError("simulated early construction failure")
 
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", _boom)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", _boom)
 
         server = _FakeServer(app_arg=None)
         thread = threading.Thread(
@@ -180,7 +180,7 @@ class TestWsStartupThreadEarlyBind:
         def _system_exit() -> None:
             raise SystemExit(0)
 
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", _system_exit)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", _system_exit)
 
         server = _FakeServer(app_arg=None)
         thread = threading.Thread(
@@ -213,7 +213,7 @@ class TestMainEarlyWsBind:
         monkeypatch.setattr(faulthandler, "enable", lambda: None)
         monkeypatch.setattr(faulthandler, "dump_traceback_later", lambda **kw: None)
         monkeypatch.setattr(
-            "voice_typer.server.service.VoiceTyperService",
+            "voice_typer.server.service.LausuService",
             lambda app: _FakeService(app),
         )
         _ = events  # (kept for symmetry; heavy deps stubbed above)
@@ -234,7 +234,7 @@ class TestMainEarlyWsBind:
             def start(self) -> None:
                 events.append("app.start")
 
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", _GatedApp)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", _GatedApp)
 
         class _RecordingServer(_FakeServer):
             def __init__(self, app_arg) -> None:
@@ -319,7 +319,7 @@ class TestMainFlagOffParity:
             def start(self) -> None:
                 events.append("app.start")
 
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", _PlainApp)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", _PlainApp)
 
         class _RecordingServer(_FakeServer):
             def start(self) -> None:

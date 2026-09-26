@@ -96,11 +96,11 @@ class TestBuildPowershellLnkScript:
         from voice_typer.server.server_platform import _build_powershell_lnk_script
 
         defaults = dict(
-            lnk_path=Path("C:\\Users\\test\\Desktop\\Voice Typer.lnk"),
+            lnk_path=Path("C:\\Users\\test\\Desktop\\Lausu.lnk"),
             target="C:\\Python311\\pythonw.exe",
             arguments='"C:\\app\\autostart_launcher.py"',
             icon_ico=None,
-            description="Voice Typer, voice-to-text dictation",
+            description="Lausu, voice-to-text dictation",
         )
         defaults.update(overrides)
         return _build_powershell_lnk_script(**defaults)
@@ -200,7 +200,7 @@ class TestBuildPowershellLnkScript:
     )
     def test_dangerous_char_in_description_is_literal(self, dangerous_char):
         """Description containing a dangerous character must preserve"""
-        description = f"Voice Typer {dangerous_char} dictation"
+        description = f"Lausu {dangerous_char} dictation"
         script = self._build(description=description)
         assert dangerous_char in script, (
             f"dangerous char {dangerous_char!r} must appear literally "
@@ -259,11 +259,11 @@ class TestCreateLnkShortcutIntegration:
 
         # Use a description containing a dangerous character to verify
         result = _create_lnk_shortcut(
-            lnk_path=Path("C:\\test\\Voice Typer.lnk"),
+            lnk_path=Path("C:\\test\\Lausu.lnk"),
             target="C:\\Python311\\pythonw.exe",
             arguments='"C:\\app\\launcher.py"',
             icon_ico=None,
-            description="Voice Typer; dictation",
+            description="Lausu; dictation",
         )
 
         assert result is True, "shortcut creation should have succeeded"
@@ -276,7 +276,7 @@ class TestCreateLnkShortcutIntegration:
         # The script must use single-quoted strings.
         assert "$s.CreateShortcut('" in content, f"script must use single-quoted strings; was:\n{content}"
         assert '$s.CreateShortcut("' not in content
-        assert "Voice Typer; dictation" in content, (
+        assert "Lausu; dictation" in content, (
             f"semicolon in description must appear literally inside single-quoted string; script was:\n{content}"
         )
 

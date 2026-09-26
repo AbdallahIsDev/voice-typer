@@ -173,15 +173,15 @@ def test_sidecar_script_includes_ctranslate2_data_dir(sidecar_text: str):
 
 def test_sidecar_script_onefile_tempdir_pinned_to_cache(sidecar_text: str):
     """
-    ``--onefile-tempdir-spec`` must pin to ``$XDG_CACHE_HOME/voice-typer/onefile-tmp``.
+    ``--onefile-tempdir-spec`` must pin to ``$XDG_CACHE_HOME/lausu/onefile-tmp``.
     ADR-0020 §4.4: pinning the extract dir prevents tempdir bloat from
     """
     assert "XDG_CACHE_HOME" in sidecar_text, (
         "build_sidecar_linux.sh --onefile-tempdir-spec must use "
-        "$XDG_CACHE_HOME/voice-typer/onefile-tmp (Linux convention, "
+        "$XDG_CACHE_HOME/lausu/onefile-tmp (Linux convention, "
         "ADR-0020 §4.4)."
     )
-    assert "voice-typer/onefile-tmp" in sidecar_text
+    assert "lausu/onefile-tmp" in sidecar_text
 
 
 # 4. ctranslate2/libs guard (plural, pattern, source on Linux) ──

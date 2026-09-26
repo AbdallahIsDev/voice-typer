@@ -105,7 +105,7 @@ class TestSpanishTranslationComplete:
         assert "setLocale" in src, "UX-015: GeneralSettingsSection.tsx must call setLocale when language changes"
         assert "getLocale()" in src, "UX-015: GeneralSettingsSection.tsx must use getLocale() for the current value"
         assert "SUPPORTED_LOCALES" in src, "UX-015: GeneralSettingsSection.tsx must iterate SUPPORTED_LOCALES"
-        assert "voice-typer-ui-locale" in src, "UX-015: Settings.tsx must persist locale to localStorage"
+        assert "lausu-ui-locale" in src, "UX-015: Settings.tsx must persist locale to localStorage"
 
     def test_i18n_ts_restores_locale_from_local_storage(self):
         # KEEP, pins  (i18n.ts restores locale from localStorage
@@ -120,7 +120,7 @@ class TestSpanishTranslationComplete:
         )
         src = "\n".join((i18n_dir / name).read_text(encoding="utf-8") for name in ("i18n.ts", "index.ts", "store.ts"))
         assert "localStorage" in src, "UX-015: i18n.ts must restore locale from localStorage on startup"
-        assert "voice-typer-ui-locale" in src
+        assert "lausu-ui-locale" in src
 
 
 class TestTrayLocaleSwitchingRebuildsMenu:
@@ -222,7 +222,7 @@ class TestRendererLocalesUseAppNamePlaceholder:
             path = self.TRANSLATIONS_DIR / f"{name}.json"
             assert path.exists(), f"{name}.json must exist"
             text = path.read_text(encoding="utf-8")
-            assert "Voice Typer" not in text, (
+            assert "Lausu" not in text, (
                 f"{name}.json: literal brand string found, must use the {{appName}} placeholder (C-BRAND-1 / HU-43)"
             )
 

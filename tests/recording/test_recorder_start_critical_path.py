@@ -7,7 +7,7 @@ from collections import deque
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.recording._recorder_split import start_recording
+from voice_typer.server.recording.recording_lifecycle import start_recording
 
 
 def _build_start_mock_recorder(

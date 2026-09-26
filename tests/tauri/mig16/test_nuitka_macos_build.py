@@ -304,7 +304,7 @@ def test_sidecar_script_onefile_tempdir_uses_app_support(sidecar_text: str):
     """
     assert "Library/Application Support" in sidecar_text, (
         "build_sidecar_macos.sh --onefile-tempdir-spec must use "
-        "$HOME/Library/Application Support/voice-typer/onefile-tmp "
+        "$HOME/Library/Application Support/lausu/onefile-tmp "
         "(macOS convention, ADR-0020 §4.3)."
     )
 

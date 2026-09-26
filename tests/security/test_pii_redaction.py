@@ -12,35 +12,35 @@ class TestRedactPiiRedactsHomePath:
     def test_linux_home_path_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A Linux-style home path must not leak the username."""
         monkeypatch.setenv("HOME", "/home/alice")
-        result = redact_pii("/home/alice/.voice-typer/foo.log")
+        result = redact_pii("/home/alice/.lausu/foo.log")
         assert isinstance(result, str)
         assert "alice" not in result, f"Linux OS username leaked via home path in redact_pii output: {result!r}"
 
     def test_windows_home_path_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A Windows-style home path must not leak the username."""
         monkeypatch.setenv("HOME", "C:\\Users\\bob")
-        result = redact_pii("C:\\Users\\bob\\.voice-typer\\foo.log")
+        result = redact_pii("C:\\Users\\bob\\.lausu\\foo.log")
         assert isinstance(result, str)
         assert "bob" not in result, f"Windows OS username leaked via home path in redact_pii output: {result!r}"
 
     def test_macos_home_path_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A macOS-style home path must not leak the username."""
         monkeypatch.setenv("HOME", "/Users/carol")
-        result = redact_pii("/Users/carol/.voice-typer/foo.log")
+        result = redact_pii("/Users/carol/.lausu/foo.log")
         assert isinstance(result, str)
         assert "carol" not in result, f"macOS OS username leaked via home path in redact_pii output: {result!r}"
 
     def test_home_prefix_replaced_with_tilde(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The home prefix is replaced with ``~`` (not removed entirely)."""
         monkeypatch.setenv("HOME", "/home/alice")
-        result = redact_pii("/home/alice/.voice-typer/foo.log")
+        result = redact_pii("/home/alice/.lausu/foo.log")
         assert "~" in result, f"Home prefix was not replaced with '~': {result!r}"
 
     def test_non_home_path_not_mangled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A path that is NOT under the home dir must pass through."""
         monkeypatch.setenv("HOME", "/home/alice")
-        result = redact_pii("/var/log/voice-typer.log")
-        assert "/var/log/voice-typer.log" in result, f"Non-home path was incorrectly redacted: {result!r}"
+        result = redact_pii("/var/log/lausu.log")
+        assert "/var/log/lausu.log" in result, f"Non-home path was incorrectly redacted: {result!r}"
 
 
 class TestControlCharEscapingInRedactedText:

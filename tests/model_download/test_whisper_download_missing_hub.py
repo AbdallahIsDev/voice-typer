@@ -10,8 +10,8 @@ import pytest
 
 @pytest.fixture()
 def whisper_service(tmp_config_dir):
-    """A VoiceTyperService wired to a whisper-family model, consent given."""
-    from voice_typer.server.service import VoiceTyperService
+    """A LausuService wired to a whisper-family model, consent given."""
+    from voice_typer.server.service import LausuService
 
     class FakeApp:
         config = type(
@@ -25,7 +25,7 @@ def whisper_service(tmp_config_dir):
         )()
         tray = MagicMock(name="tray")
 
-    return VoiceTyperService(FakeApp())
+    return LausuService(FakeApp())
 
 
 @pytest.fixture()

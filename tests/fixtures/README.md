@@ -17,7 +17,7 @@ SINGLE canonical version of one factory; test files migrate from
 their inline helpers to the canonical import over time (see the
 "Migration status" section in each module's docstring).
 
-- `app_helpers.py`: `make_voice_typer_app` (real `VoiceTyperApp` with
+- `app_helpers.py`: `make_voice_typer_app` (real `LausuApp` with
   hardware/GUI deps mocked), `make_sine` (float32 numpy sine wave),
   `join_model_load_thread` (best-effort join of `app.models.
   _model_load_thread` after a test, mirroring the teardown in

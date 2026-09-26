@@ -110,7 +110,7 @@ def test_build_script_includes_ct2_libs_plural_layout_guarded():
 
 @pytest.mark.real_config_dir  # asserts the REAL resolver (macOS branch); resolves paths only, never writes
 def test_model_path_resolves_to_library_application_support_on_macos(monkeypatch):
-    """``~/Library/Application Support/voice-typer/models`` on macOS."""
+    """``~/Library/Application Support/lausu/models`` on macOS."""
     # Force macOS platform detection. ``config._config_dir`` calls
     monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: True)
     monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False)
@@ -119,7 +119,7 @@ def test_model_path_resolves_to_library_application_support_on_macos(monkeypatch
     monkeypatch.setattr(config_mod, "is_macos", lambda: True)
     monkeypatch.setattr(config_mod, "is_windows", lambda: False)
 
-    # No legacy ~/.voice-typer dir in the sandbox (we don't create one),
+    # No legacy ~/.lausu dir in the sandbox (we don't create one),
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)
     # Also clear XDG_DATA_HOME (a Linux-only env var, but defensive).
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
@@ -128,17 +128,16 @@ def test_model_path_resolves_to_library_application_support_on_macos(monkeypatch
 
     models_dir = _paths.config_dir() / "models"
 
-    expected = Path.home() / "Library" / "Application Support" / "voice-typer" / "models"
+    expected = Path.home() / "Library" / "Application Support" / "lausu" / "models"
     assert models_dir == expected, (
         f"model path on macOS must resolve to "
-        f"~/Library/Application Support/voice-typer/models "
+        f"~/Library/Application Support/lausu/models "
         f"(got: {models_dir}, expected: {expected})"
     )
     # And the string form should contain the macOS literals so it's
     s = str(models_dir)
-    assert "Library" in s and "Application Support" in s and "voice-typer" in s, (
-        f"macOS model path string must contain 'Library/Application Support/"
-        f"voice-typer' for log-grep visibility; got: {s!r}"
+    assert "Library" in s and "Application Support" in s and "lausu" in s, (
+        f"macOS model path string must contain 'Library/Application Support/lausu' for log-grep visibility; got: {s!r}"
     )
 
 
@@ -370,12 +369,12 @@ def test_build_script_targets_ipc_server_entry_point_and_macos_bundle_flags():
         "Nuitka must target voice_typer/server/ipc_server.py (the Tauri WS sidecar entry point)"
     )
     assert "--macos-create-bundle" in text, "Nuitka must create a .app bundle (--macos-create-bundle)"
-    assert "--macos-app-name=VoiceTyperSidecar" in text, (
-        "Nuitka must set the sidecar .app name (--macos-app-name=VoiceTyperSidecar)"
+    assert "--macos-app-name=LausuSidecar" in text, (
+        "Nuitka must set the sidecar .app name (--macos-app-name=LausuSidecar)"
     )
-    assert "--macos-signed-app-name=com.voicetyper.sidecar" in text, (
+    assert "--macos-signed-app-name=com.Lausu.sidecar" in text, (
         "Nuitka must set the sidecar signed-app name "
-        "(--macos-signed-app-name=com.voicetyper.sidecar) for codesign + "
+        "(--macos-signed-app-name=com.Lausu.sidecar) for codesign + "
         "notarization continuity"
     )
     assert "--macos-app-mode=background" in text, (

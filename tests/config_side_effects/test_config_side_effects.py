@@ -13,7 +13,7 @@ class TestApplyConfigPersistsOnSideEffectFailure:
     def _make_service_and_app(self):
         import contextlib
 
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         @contextlib.contextmanager
         def _fake_lock():
@@ -35,7 +35,7 @@ class TestApplyConfigPersistsOnSideEffectFailure:
         app._busy_event.is_set = MagicMock(return_value=True)
         app._shutting_down = False
 
-        service = VoiceTyperService(app)
+        service = LausuService(app)
         return service, app
 
     def test_save_called_when_side_effects_succeed(self, tmp_config_dir, monkeypatch):

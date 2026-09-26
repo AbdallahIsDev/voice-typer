@@ -429,7 +429,7 @@ class TestConfigSaveEnforcesPosixFilePermissions:
         from voice_typer.server.config import Config
 
         # Use a subdir that doesn't exist yet so save() creates it
-        config_dir = tmp_path / "nested" / ".voice-typer"
+        config_dir = tmp_path / "nested" / ".lausu"
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: config_dir)
         cfg = Config()
         cfg.save()

@@ -37,7 +37,7 @@ EXPECTED_CAPABILITY_IDENTIFIER = EXPECTED_MAIN_CAPABILITY_IDENTIFIER
 EXPECTED_SIDECAR_BINARY = "bin/python-sidecar"
 
 # : plan-runtime-pack-split.md §4.4/§7: the worker exe is the second
-EXPECTED_WORKER_BINARY = "bin/voice-typer-worker"
+EXPECTED_WORKER_BINARY = "bin/lausu-worker"
 
 # : ADR-0020 §7: overly-broad permission identifiers that MUST NOT
 FORBIDDEN_BROAD_PERMISSIONS = (

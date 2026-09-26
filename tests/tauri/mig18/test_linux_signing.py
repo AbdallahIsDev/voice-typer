@@ -13,7 +13,7 @@ SRC_TAURI = PROJECT_ROOT / "src-tauri"
 SCRIPTS_LINUX = PROJECT_ROOT / "scripts" / "linux"
 SCRIPTS_BUILD = PROJECT_ROOT / "scripts" / "build"
 TAURI_CONF = SRC_TAURI / "tauri.conf.json"
-DESKTOP_TEMPLATE = SRC_TAURI / "voice-typer.desktop.template"
+DESKTOP_TEMPLATE = SRC_TAURI / "lausu.desktop.template"
 POSTINST_DEB = SCRIPTS_LINUX / "postinst"
 PRERM_DEB = SCRIPTS_LINUX / "prerm"
 POSTINST_RPM = SCRIPTS_LINUX / "postinst.rpm"
@@ -78,16 +78,16 @@ def test_deb_pre_remove_script_wired(tauri_conf: dict) -> None:
 
 
 def test_deb_desktop_template_wired(tauri_conf: dict) -> None:
-    """``deb.desktopTemplate`` must reference ``voice-typer.desktop.template``."""
+    """``deb.desktopTemplate`` must reference ``lausu.desktop.template``."""
     deb = tauri_conf["bundle"]["linux"]["deb"]
     assert "desktopTemplate" in deb, "missing 'bundle.linux.deb.desktopTemplate'"
-    assert deb["desktopTemplate"] == "voice-typer.desktop.template", (
-        f"desktopTemplate should be 'voice-typer.desktop.template', got {deb['desktopTemplate']!r}"
+    assert deb["desktopTemplate"] == "lausu.desktop.template", (
+        f"desktopTemplate should be 'lausu.desktop.template', got {deb['desktopTemplate']!r}"
     )
 
 
 def test_desktop_template_exists_and_is_valid() -> None:
-    """``voice-typer.desktop.template`` must exist + be a valid .desktop entry."""
+    """``lausu.desktop.template`` must exist + be a valid .desktop entry."""
     assert DESKTOP_TEMPLATE.is_file(), f"desktop template missing: {DESKTOP_TEMPLATE}"
     text = DESKTOP_TEMPLATE.read_text()
     assert "[Desktop Entry]" in text, "desktop template must contain a '[Desktop Entry]' header"
@@ -108,8 +108,8 @@ def test_desktop_template_exists_and_is_valid() -> None:
         assert required_key in keys, f"desktop template missing required key '{required_key}'"
     assert keys["Type"] == "Application", f"desktop template Type must be 'Application', got {keys['Type']!r}"
     exec_lower = keys["Exec"].lower()
-    assert "voice-typer" in exec_lower or "voice_typer" in exec_lower, (
-        f"desktop template Exec should reference voice-typer binary, got {keys['Exec']!r}"
+    assert "lausu" in exec_lower or "voice_typer" in exec_lower, (
+        f"desktop template Exec should reference lausu binary, got {keys['Exec']!r}"
     )
 
 
@@ -122,7 +122,7 @@ def test_postinst_deb_exists_and_invokes_install_permissions() -> None:
     assert INSTALL_PERMS.is_file(), f"install_permissions.py missing: {INSTALL_PERMS}"
     install_text = INSTALL_PERMS.read_text()
     assert "input" in install_text, "install_permissions.py must reference the 'input' group"
-    assert "udev" in install_text.lower() or "99-voice-typer.rules" in install_text, (
+    assert "udev" in install_text.lower() or "99-lausu.rules" in install_text, (
         "install_permissions.py must reference the udev rule"
     )
 

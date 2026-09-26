@@ -14,12 +14,12 @@ class TestConfigMutationLockSharedAcrossIpc:
 
     def test_app_has_config_mutation_lock(self):
         # KEEP, pins RACE-011 fix (app holds a re-entrant lock
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        # VoiceTyperApp must declare _config_mutation_lock. The lock
-        src = inspect.getsource(VoiceTyperApp._init_hotkeys_and_locks)
+        # LausuApp must declare _config_mutation_lock. The lock
+        src = inspect.getsource(LausuApp._init_hotkeys_and_locks)
         assert "_config_mutation_lock" in src, (
-            "VoiceTyperApp._init_hotkeys_and_locks must initialize _config_mutation_lock "
+            "LausuApp._init_hotkeys_and_locks must initialize _config_mutation_lock "
             "to serialize Config mutations between concurrent IPC set_config calls."
         )
         assert "threading.RLock()" in src
@@ -27,20 +27,20 @@ class TestConfigMutationLockSharedAcrossIpc:
     def test_ipc_set_config_uses_lock(self):
         # KEEP, pins ADR 0008 §3.1 refactor (lock acquisition
         from voice_typer.server.config_applier import ConfigApplier
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         src = inspect.getsource(ConfigApplier.apply_config)
         assert "_config_mutation_lock" in src, (
-            "ConfigApplier.apply_config (to which VoiceTyperService.apply_config "
+            "ConfigApplier.apply_config (to which LausuService.apply_config "
             "delegates per PVT-21) must acquire _config_mutation_lock before "
             "mutating Config attributes (ADR 0008 §3.1: the lock moved from "
             "the IPC handler to the service layer, then from the service "
             "facade into ConfigApplier during the PVT-21 wiring)."
         )
-        # Belt-and-suspenders: VoiceTyperService.apply_config must
-        svc_src = inspect.getsource(VoiceTyperService.apply_config)
+        # Belt-and-suspenders: LausuService.apply_config must
+        svc_src = inspect.getsource(LausuService.apply_config)
         assert "_config_applier" in svc_src, (
-            "VoiceTyperService.apply_config must delegate to "
+            "LausuService.apply_config must delegate to "
             "self._config_applier.apply_config (PVT-21 wiring of the "
             "extracted ConfigApplier)."
         )
@@ -70,7 +70,7 @@ class TestConfigMutationLockSharedAcrossIpc:
             "_config_mutation_lock as a bare Python identifier "
             "(ADR 0008 §3.1), the lock now lives inside "
             "ConfigApplier.apply_config (reached via "
-            "VoiceTyperService.apply_config after PVT-21). The "
+            "LausuService.apply_config after PVT-21). The "
             "handler MAY still reach it via getattr on a string "
             "literal (the DE-37 defensive pattern), but direct "
             "attribute access is a leaky abstraction the refactor "
@@ -99,9 +99,9 @@ class TestConfigEditHoldsMutationLock:
             lambda *a, **k: None,
         )
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app import LausuApp
 
-        app = VoiceTyperApp()
+        app = LausuApp()
         app.config.esc_cancel_enabled = False
         app.config.voice_biometric_consent = True
         app.models.transcriber = MagicMock()

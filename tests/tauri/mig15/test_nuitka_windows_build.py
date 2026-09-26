@@ -109,7 +109,7 @@ def test_script_includes_ctranslate2_dll(script_text: str):
 
 
 def test_script_onefile_tempdir_uses_supported_cache_dir_token(script_text: str):
-    """``--onefile-tempdir-spec`` must pin to ``{CACHE_DIR}/voice-typer``."""
+    """``--onefile-tempdir-spec`` must pin to ``{CACHE_DIR}/lausu``."""
     assert "{CACHE_DIR}" in script_text, (
         "build_sidecar_windows.sh --onefile-tempdir-spec must use "
         "{CACHE_DIR} (Nuitka-supported token expanding to the user's "
@@ -120,7 +120,7 @@ def test_script_onefile_tempdir_uses_supported_cache_dir_token(script_text: str)
         "%LOCALAPPDATA% is not a supported --onefile-tempdir-spec variable "
         "(Nuitka FATAL 'Found unknown variable name'); use {CACHE_DIR}."
     )
-    assert "voice-typer" in script_text
+    assert "lausu" in script_text
 
 
 def test_script_references_x86_64_target_triple(script_text: str):

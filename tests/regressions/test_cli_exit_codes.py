@@ -45,7 +45,7 @@ class TestMainDocstringRestored:
 
     def test_main_has_docstring(self):
         assert ipc_server.main.__doc__ is not None
-        assert "VoiceTyperApp" in ipc_server.main.__doc__
+        assert "LausuApp" in ipc_server.main.__doc__
 
 
 class TestCrashPathUsesExitCrash:
@@ -53,12 +53,12 @@ class TestCrashPathUsesExitCrash:
 
     def test_crash_path_uses_exit_crash(self, monkeypatch, tmp_config_dir):
         """WS-mode ``app.start()`` crash must exit with EXIT_CRASH (1)."""
-        monkeypatch.setattr(sys, "argv", ["voice-typer", "--ws"])
+        monkeypatch.setattr(sys, "argv", ["lausu", "--ws"])
 
         app_mock = MagicMock()
         app_mock.start.side_effect = RuntimeError("simulated crash")
 
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", lambda: app_mock)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",
@@ -105,11 +105,11 @@ class TestCrashPathUsesExitCrash:
 
     def test_bad_port_uses_exit_bad_args(self, monkeypatch):
         """When --port is out of range, ``main()`` must exit with"""
-        monkeypatch.setattr(sys, "argv", ["voice-typer", "--port", "99999"])
+        monkeypatch.setattr(sys, "argv", ["lausu", "--port", "99999"])
 
         app_mock = MagicMock()
         app_mock.start.side_effect = AssertionError("app.start() should not be called when --port is invalid")
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", lambda: app_mock)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",

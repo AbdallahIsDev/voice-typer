@@ -190,9 +190,9 @@ def test_enable_autostart_windows_falls_back_to_task_scheduler(monkeypatch, fake
     assert result is True, "Task Scheduler registration must succeed"
     create_calls = [c for c in schtasks_calls if "/Create" in c]
     assert len(create_calls) >= 1, "must call schtasks /Create for the Task Scheduler path"
-    # The task name must use the com.voicetyper.autostart prefix (+ install hash).
-    assert any("com.voicetyper.autostart" in " ".join(c) for c in create_calls), (
-        "task name must include the com.voicetyper.autostart prefix"
+    # The task name must use the com.Lausu.autostart prefix (+ install hash).
+    assert any("com.Lausu.autostart" in " ".join(c) for c in create_calls), (
+        "task name must include the com.Lausu.autostart prefix"
     )
 
 
@@ -309,7 +309,7 @@ def test_installer_creates_start_menu_and_desktop_shortcuts():
     # If installMode is set, it must be "currentUser" (per-user, no admin —
     if "installMode" in nsis_cfg:
         assert nsis_cfg["installMode"] == "currentUser", (
-            "NSIS installMode must be currentUser (per-user, no admin, matches voice-typer.manifest asInvoker)"
+            "NSIS installMode must be currentUser (per-user, no admin, matches lausu.manifest asInvoker)"
         )
     # No explicit shortcut suppression (Tauri v2 has no such key, but guard
     assert "nsis" not in windows_cfg or not nsis_cfg.get("disableShortcuts", False), (

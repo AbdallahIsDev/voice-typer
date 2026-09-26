@@ -105,7 +105,7 @@ def test_build_script_handles_ct2_libs_plural_guarded():
 
 @pytest.mark.real_config_dir  # asserts the REAL resolver (APPDATA branch); resolves paths only, never writes
 def test_model_path_resolves_to_appdata_on_windows(monkeypatch, tmp_path):
-    """``%APPDATA%\\voice-typer\\models`` on Windows."""
+    """``%APPDATA%\\lausu\\models`` on Windows."""
     # validates the APPDATA-derived path stays within Path.home() (SEC-005),
     fake_appdata = str(tmp_path / "AppData" / "Roaming")
 
@@ -115,7 +115,7 @@ def test_model_path_resolves_to_appdata_on_windows(monkeypatch, tmp_path):
 
     monkeypatch.setattr(config_mod, "is_windows", lambda: True)
 
-    # Isolate Path.home() to a clean temp dir so the legacy ~/.voice-typer
+    # Isolate Path.home() to a clean temp dir so the legacy ~/.lausu
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     monkeypatch.setenv("APPDATA", fake_appdata)
     # Clear the override so we test the real APPDATA branch.
@@ -130,14 +130,12 @@ def test_model_path_resolves_to_appdata_on_windows(monkeypatch, tmp_path):
         models_dir = _paths.config_dir() / "models"
 
         # Normalize to forward-slashes for cross-platform comparison.
-        expected = Path(fake_appdata) / "voice-typer" / "models"
+        expected = Path(fake_appdata) / "lausu" / "models"
         assert models_dir == expected, (
-            f"model path on Windows must resolve to "
-            f"%APPDATA%\\voice-typer\\models (got: {models_dir}, "
-            f"expected: {expected})"
+            f"model path on Windows must resolve to %APPDATA%\\lausu\\models (got: {models_dir}, expected: {expected})"
         )
         # And the string form should contain the AppData literal so it's
-        assert "voice-typer" in str(models_dir)
+        assert "lausu" in str(models_dir)
     finally:
         _reset_config_dir_cache()
 

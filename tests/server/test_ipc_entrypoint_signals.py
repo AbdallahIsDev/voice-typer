@@ -30,7 +30,7 @@ class TestSignalHandlerWiring:
         """Send SIGINT to the running entrypoint by mocking"""
         app_mock = MagicMock()
         app_mock.start.side_effect = KeyboardInterrupt()
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", lambda: app_mock)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",
@@ -104,7 +104,7 @@ class TestSignalHandlerWiring:
 
         app_mock = MagicMock()
         app_mock.start.return_value = None  # clean shutdown
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
+        monkeypatch.setattr("voice_typer.server.app.LausuApp", lambda: app_mock)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",

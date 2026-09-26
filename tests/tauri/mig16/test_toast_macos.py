@@ -226,8 +226,8 @@ class TestNotificationPayloadShape:
                 {},
             )
         assert captured["type"] == "notification"
-        # APP_NAME is "Voice Typer" per voice_typer/server/branding.py.
-        assert captured["data"]["title"] == "Voice Typer"
+        # APP_NAME is "Lausu" per voice_typer/server/branding.py.
+        assert captured["data"]["title"] == "Lausu"
         assert captured["data"]["message"] == ""
         assert captured["data"]["duration_ms"] == 0
         assert captured["data"]["critical"] is False
@@ -486,9 +486,9 @@ class TestValidateOnMacOSHostBlock:
     def test_docstring_documents_log_path(self):
         """The VALIDATE ON MACOS HOST block MUST document the expected"""
         doc = self._module_docstring()
-        assert "~/Library/Logs/voice-typer/voice-typer.log" in doc, (
+        assert "~/Library/Logs/lausu/lausu.log" in doc, (
             "VALIDATE ON MACOS HOST block MUST document the macOS log path "
-            "(~/Library/Logs/voice-typer/voice-typer.log) so the validator "
+            "(~/Library/Logs/lausu/lausu.log) so the validator "
             "can confirm the notification event was emitted."
         )
 

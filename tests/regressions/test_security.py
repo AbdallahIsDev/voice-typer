@@ -293,7 +293,7 @@ class TestMutexHardenedWithSecurityDescriptor:
 
         src = inspect.getsource(app)
         # Check for the mutex name substring (no backslash counting)
-        assert "VoiceTyperSingleInstance" in src, "PLAT-040: mutex name must contain VoiceTyperSingleInstance."
+        assert "LausuSingleInstance" in src, "PLAT-040: mutex name must contain LausuSingleInstance."
         assert "install_hash" not in src, "PLAT-040-FIXED: no install-path hash in app module."
 
     def test_mutex_uses_restrictive_security_attributes(self):

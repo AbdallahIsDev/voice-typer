@@ -7,6 +7,7 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
+from voice_typer.server.ipc.validation import ErrorCodes
 
 from tests.fixtures.ipc_test_helpers import make_fake_sidecar_ws_server
 
@@ -88,7 +89,7 @@ async def test_sidecar_rejects_bad_token(monkeypatch):
             raw = await asyncio.wait_for(client.recv(), timeout=2.0)
             err = json.loads(raw)
             assert err["type"] == "error"
-            assert err["data"]["code"] in ("auth_failed", "server.auth_failed")
+            assert err["data"]["code"] == ErrorCodes.AUTH_FAILED
             # The next recv() MUST raise ConnectionClosed (the sidecar
             with pytest.raises(websockets.exceptions.ConnectionClosed):
                 await client.recv()

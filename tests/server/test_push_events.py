@@ -155,7 +155,7 @@ response now carries an explicit ``data`` field (empty dict for acks
 with no payload).
 
 Push events were silently dropped at DEBUG level when no
-client was connected, making the ``voice-typer`` console script
+client was connected, making the ``lausu`` console script
 useless for diagnosis.  Fix: surface non-waveform push events at INFO
 level so the user can actually see state changes / errors.
 """

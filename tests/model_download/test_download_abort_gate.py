@@ -186,7 +186,7 @@ class TestGateWiredIntoDownloadPaths:
 
 
 def _make_service(tmp_config_dir):
-    """Minimal VoiceTyperService (same pattern as test_service_fixes)."""
+    """Minimal LausuService (same pattern as test_service_fixes)."""
     from unittest.mock import MagicMock
 
     from voice_typer.server import service as svc_mod
@@ -196,7 +196,7 @@ def _make_service(tmp_config_dir):
         _microphones: list = []
         tray = MagicMock()
 
-    return svc_mod.VoiceTyperService(FakeApp())
+    return svc_mod.LausuService(FakeApp())
 
 
 class TestSingleFlightGuard:

@@ -22,7 +22,7 @@ class _FakeThreadRegistry:
 
 
 class _Host(AppRecordingInit):
-    """Minimal host exercising the mixin without VoiceTyperApp."""
+    """Minimal host exercising the mixin without LausuApp."""
 
     def __init__(self, registry: _FakeThreadRegistry) -> None:
         self.config = MagicMock()

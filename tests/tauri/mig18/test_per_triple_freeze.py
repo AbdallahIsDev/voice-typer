@@ -20,7 +20,7 @@ BUILD_WINDOWS = BUILD_DIR / "build_sidecar_windows.sh"
 BUILD_MACOS = BUILD_DIR / "build_sidecar_macos.sh"
 BUILD_LINUX = BUILD_DIR / "build_sidecar_linux.sh"
 NUITKA_FREEZE_WRAPPER = BUILD_DIR / "nuitka_freeze.sh"
-PYINSTALLER_SPEC = BUILD_DIR / "voice-typer.spec"
+PYINSTALLER_SPEC = BUILD_DIR / "lausu.spec"
 TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 
 # Per-platform mandatory target triples (ADR-0020 §4.1).
@@ -200,9 +200,9 @@ def test_tauri_conf_external_bin_uses_base_name():
     assert TAURI_CONF.is_file(), f"missing: {TAURI_CONF}"
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
     external_bin = conf.get("bundle", {}).get("externalBin", [])
-    assert external_bin == ["bin/python-sidecar", "bin/voice-typer-worker"], (
+    assert external_bin == ["bin/python-sidecar", "bin/lausu-worker"], (
         f"tauri.conf.json `bundle.externalBin` must be exactly "
-        f'["bin/python-sidecar", "bin/voice-typer-worker"] '
+        f'["bin/python-sidecar", "bin/lausu-worker"] '
         f"(Tauri appends the triple at runtime); got: {external_bin!r}"
     )
 
@@ -360,7 +360,7 @@ def test_windows_script_known_gap_no_ctranslate2_libs_guard(script_texts: dict[s
 
 
 def test_pyinstaller_fallback_spec_exists():
-    """``scripts/build/voice-typer.spec`` must exist as the safety-net build path."""
+    """``scripts/build/lausu.spec`` must exist as the safety-net build path."""
     assert PYINSTALLER_SPEC.is_file(), (
         f"missing PyInstaller fallback spec: {PYINSTALLER_SPEC}. "
         "ADR-0020 §4.5 mandates this as the safety-net build path."
@@ -376,18 +376,18 @@ def test_pyinstaller_fallback_spec_references_target_triple():
     """The PyInstaller fallback spec must compute the target triple."""
     text = PYINSTALLER_SPEC.read_text(encoding="utf-8")
     assert "VOICE_TYPER_TAURI_SIDECAR" in text, (
-        "voice-typer.spec must check the VOICE_TYPER_TAURI_SIDECAR env var "
+        "lausu.spec must check the VOICE_TYPER_TAURI_SIDECAR env var "
         "to switch between the Tauri sidecar path + the legacy predecessor path."
     )
     # Must compute the triple for all three platforms (mirror target_triple_for).
     assert "pc-windows-msvc" in text, (
-        "voice-typer.spec must compute the Windows target triple (x86_64-pc-windows-msvc / aarch64-pc-windows-msvc)."
+        "lausu.spec must compute the Windows target triple (x86_64-pc-windows-msvc / aarch64-pc-windows-msvc)."
     )
-    assert "apple-darwin" in text, "voice-typer.spec must compute the macOS target triple."
-    assert "unknown-linux-gnu" in text, "voice-typer.spec must compute the Linux target triple."
+    assert "apple-darwin" in text, "lausu.spec must compute the macOS target triple."
+    assert "unknown-linux-gnu" in text, "lausu.spec must compute the Linux target triple."
     # Must construct the python-sidecar-<triple> name.
     assert "python-sidecar-" in text, (
-        "voice-typer.spec must construct the output name as `python-sidecar-<triple>` in Tauri sidecar mode."
+        "lausu.spec must construct the output name as `python-sidecar-<triple>` in Tauri sidecar mode."
     )
 
 
@@ -395,7 +395,7 @@ def test_pyinstaller_fallback_spec_uses_same_entry_point():
     """The PyInstaller fallback spec must use the SAME entry point as Nuitka."""
     text = PYINSTALLER_SPEC.read_text(encoding="utf-8")
     assert "voice_typer" in text and "ipc_server.py" in text, (
-        "voice-typer.spec must use voice_typer/server/ipc_server.py as the "
+        "lausu.spec must use voice_typer/server/ipc_server.py as the "
         "entry point (identical to the Nuitka scripts, ADR-0020 §4.5)."
     )
 
@@ -441,6 +441,6 @@ def test_nuitka_freeze_wrapper_dispatches_to_per_platform_scripts():
 def test_nuitka_freeze_wrapper_documents_pyinstaller_fallback():
     """The wrapper docstring must point at the PyInstaller fallback spec."""
     text = NUITKA_FREEZE_WRAPPER.read_text(encoding="utf-8")
-    assert "voice-typer.spec" in text or "PyInstaller" in text, (
-        "nuitka_freeze.sh must document the PyInstaller fallback (scripts/build/voice-typer.spec) per ADR-0020 §4.5."
+    assert "lausu.spec" in text or "PyInstaller" in text, (
+        "nuitka_freeze.sh must document the PyInstaller fallback (scripts/build/lausu.spec) per ADR-0020 §4.5."
     )

@@ -37,12 +37,12 @@ class TestTemplatesPersistToDisk:
         assert templates[0]["output"] == "persisted value"
 
     def test_service_save_and_get_round_trip(self, templates_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             _template_manager = None
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
 
         templates_to_save = [
             {"trigger": "my_email", "output": "me@example.com", "match_mode": "exact"},
@@ -51,7 +51,7 @@ class TestTemplatesPersistToDisk:
         assert service.save_templates(templates_to_save) is True
 
         FakeApp._template_manager = None
-        service2 = VoiceTyperService(FakeApp())
+        service2 = LausuService(FakeApp())
         loaded = service2.get_templates()
         assert len(loaded) == 2
         assert loaded[0]["trigger"] == "my_email"
@@ -59,12 +59,12 @@ class TestTemplatesPersistToDisk:
         assert loaded[1]["match_mode"] == "contains"
 
     def test_service_save_rejects_invalid_entries(self, templates_dir):
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service import LausuService
 
         class FakeApp:
             _template_manager = None
 
-        service = VoiceTyperService(FakeApp())
+        service = LausuService(FakeApp())
         bad_input = [
             {"trigger": "valid", "output": "ok", "match_mode": "exact"},
             {"trigger": "", "output": "missing trigger"},
