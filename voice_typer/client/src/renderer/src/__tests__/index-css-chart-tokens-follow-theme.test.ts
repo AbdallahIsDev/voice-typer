@@ -77,12 +77,12 @@ describe("index.css Bklit chart tokens follow the theme", () => {
 		// Level 0 means "no dictations". A day with nothing to show is
 		// not a small amount of data, so it must not be drawn in the
 		// data's own colour — it wears the same hairline the app draws
-		// every border with (--border at 10%), which also flips from
-		// black to white with the scheme.
+		// every border with (--border at 8%, the default border weight),
+		// which also flips from black to white with the scheme.
 		const value = tokenIn(rootBlock(), "chart-scale-01");
 		expect(value).toContain("color-mix(");
 		expect(value).toContain("var(--border)");
-		expect(value).toContain("10%");
+		expect(value).toContain("8%");
 		expect(value).toContain("transparent");
 		expect(value).not.toContain("var(--accent)");
 		expect(LITERAL_OKLCH.test(value)).toBe(false);

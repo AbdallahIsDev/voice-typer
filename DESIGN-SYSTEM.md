@@ -21,6 +21,7 @@ file already uses. The format never changes — only the value.
 | `8px` padding | `p-2` | Tailwind spacing unit = 4px → `px ÷ 4` = class number. 8px → `2`. Odd values are fine: 10px → `p-2.5`, 14px → `gap-3.5` |
 | `8px` in raw CSS | `0.5rem` | `px ÷ 16` |
 | `12px` font | `text-xs` | or `text-[0.75rem]` if it falls off the scale |
+| `13px` font | `text-xs-plus` | the app's ONE added type step, between `text-xs` (12px) and `text-sm` (14px). Declared as `--text-xs-plus` in `index.css`'s `@theme` block, so it is a real utility — never write `text-[0.8125rem]` |
 | `#1447e6` | `oklch(0.488 0.243 264.376)` | sRGB → linear → OKLab → OKLCH (`node scripts/oklch-to-hex.mjs "#1447e6"`) |
 | `50%` opacity | `/50` modifier | `bg-primary/50` |
 
@@ -95,7 +96,7 @@ presets.
 | `--chart-3` | `bg-chart-3` | `#155dfc` | `#155dfc` | |
 | `--chart-4` | `bg-chart-4` | `#1447e6` | `#1447e6` | accent-500 |
 | `--chart-5` | `bg-chart-5` | `#193cb8` | `#193cb8` | accent-600 |
-| `--chart-scale-01` | — | `#e6e6e6` | `#2b2b2b` | `color-mix(in srgb, var(--border) 10%, transparent)` — the **empty** cell (level 0) |
+| `--chart-scale-01` | — | `#ebebeb` | `#313131` | `color-mix(in srgb, var(--border) 8%, transparent)` — the **empty** cell (level 0) |
 | `--chart-scale-02` | — | `#b4c4f7` | `#152048` | `… accent 32% …` (level 1) |
 | `--chart-scale-03` | — | `#7e9af1` | `#17296e` | `… 55% …` (level 2) |
 | `--chart-scale-04` | — | `#4870eb` | `#183394` | `… 78% …` (level 3) |
@@ -179,14 +180,15 @@ Family: **Inter Variable** (100–900, one face) + system sans fallback.
 | 10 | 0.625 | `text-[0.625rem]` | ~14 | bubble timer, bubble error/blocked labels |
 | 11 | 0.6875 | `text-[0.6875rem]` | ~16 | toggle-group options, dense chips |
 | 12 | 0.75 | `text-xs` | 16 | captions, hints, bubble "Ready"/"Transcribing" |
-| 13 | 0.8125 | `text-[0.8125rem]` | ~18 | tabs variant |
+| 13 | 0.8125 | `text-xs-plus` | 18 | dense UI: title-bar title, toggle-group tabs, dense banners |
 | 14 | 0.875 | `text-sm` | 20 | **body default**, setting-row labels, buttons |
 | 16 | 1 | `text-base` | 24 | inputs, page copy |
 | 18 | 1.125 | `text-lg` | 28 | section headings (h2) |
 | 20 | 1.25 | `text-xl` | 28 | page headings |
 | 24 | 1.5 | `text-2xl` | 32 | display |
 
-Weights: 400 body · 500 labels/controls/buttons · 600 headings · 700 emphasis.
+Weights: 400 body · 500 labels/controls/buttons and every h1/h2 heading · 600
+inline emphasis, dense uppercase labels, badges, stat values and card-level h3/h4 · 700 emphasis.
 Tracking: normal `0`; `tracking-wider` `0.05em` on dense uppercase-ish chips;
 `tight` `-0.025em` / `-0.01em` on large headings.
 
@@ -326,7 +328,7 @@ nothing shifts) and **10% when active** (`border-border/10` = `#000000`/10 light
 `#FFFFFF`/10 dark) with the card surface `bg-surface` and `text-foreground`/500.
 
 **SettingsSection card** — radius 10px, 1px border at 8%, `bg-surface-subtle`,
-children divided by an 8% hairline; section wrapper gap 16px; heading 18px/600.
+children divided by an 8% hairline; section wrapper gap 16px; heading 18px/500.
 Rows carry their own 16×8px padding, so the card itself adds none (adding `p-4` on
 top would double the inset to 32px).
 
@@ -343,8 +345,9 @@ Panels that must stay opaque (floating bulk bar, sticky list header, popover) do
 **Load-failure card** (`EmptyState variant="error"`, and the canonical
 `ConnectionStatusScreen` recovery card) — `rounded-lg border border-border/8
 bg-surface px-24 py-40`, children centered with a 16px gap. Icon: 40px glyph on
-a 64px `bg-destructive/10` disc (`text-destructive`). Title 18px/600
-`text-foreground`; description 14px `text-muted-foreground`, capped at 512px;
+a 64px `bg-destructive/10` disc (`text-destructive`). Title 18px `text-foreground`
+(600 on `EmptyState`'s h3, 500 on `ConnectionStatusScreen`'s h2);
+description 14px `text-muted-foreground`, capped at 512px;
 CTA is the accent-blue Button with the 16px reload glyph. The destructive
 accent is the disc only — never a card-wide red fill.
 
@@ -356,8 +359,14 @@ accent is the disc only — never a card-wide red fill.
 | fill | `#ffffff` (gray-50, `bg-surface`) | `#1b1b1b` (gray-700, `bg-surface`) |
 | border | `#000000`/8 → `#ebebeb` | `#ffffff`/8 → `#2d2d2d` |
 
-**Settings page** — max width 896px, 64px side padding, 112px top, 24px bottom,
-32px gap between cards.
+**Data pages (incl. Settings)** — max width 896px, 64px side padding, 80px top,
+24px bottom, 24px gap between stacked blocks. That is the one page shell, used
+verbatim by every data page and every page-level state screen:
+`mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-20 pb-6`
+(state screens append `items-center justify-center`). Settings adds a heading
+tier of its own: 16px from the heading to the first card (`gap-4`), then its
+section cards stack at **48px** (`gap-12`) — deliberately looser than the 24px
+the shell gives a data page's own stacked blocks.
 
 **Bubble pill** (overlay) — radius full, 16×10px padding, 12px gap, 1px border at 8%,
 `bg-surface`. Settings preview variant: 16×6px padding.

@@ -178,7 +178,7 @@ describe("ActivityHeatmap grid", () => {
 	it("paints empty days with step 01, the neutral hairline", () => {
 		// Level 0 is "no dictations", so it must not borrow the colour
 		// that means "a lot of dictations": it resolves to scale step 01
-		// (--border at 10%), while a day that HAS a dictation starts the
+		// (--border at 8%), while a day that HAS a dictation starts the
 		// accent ramp at step 02. `index-css-chart-tokens-follow-theme`
 		// holds the other half — that step 01 really is the neutral.
 		const { container } = renderGrid([recordOn(new Date(2026, 9, 6), 1)]);
@@ -270,7 +270,7 @@ describe("ActivityHeatmap grid", () => {
 
 	it("leaves the empty legend swatch without an outline", () => {
 		// The vendored swatch drew a 1px border in its own colour for level
-		// 0. That colour is `--chart-scale-01`, a 10%-alpha hairline, so
+		// 0. That colour is `--chart-scale-01`, an 8%-alpha hairline, so
 		// the border composited over the fill and read as a second, darker
 		// step in the scale. The empty swatch keeps its fill and nothing
 		// else.

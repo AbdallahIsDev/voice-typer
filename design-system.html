@@ -72,7 +72,7 @@
    would freeze the chart on the default palette. Mixed in srgb, not
    oklch: oklch interpolates the achromatic canvas's hue (0) and sweeps
    the low ramp steps through pink. See DESIGN-SYSTEM.md §3. */
---chart-scale-01:color-mix(in srgb,var(--border) 10%,transparent);
+--chart-scale-01:color-mix(in srgb,var(--border) 8%,transparent);
 --chart-scale-02:color-mix(in srgb,var(--accent) 32%,var(--background));
 --chart-scale-03:color-mix(in srgb,var(--accent) 55%,var(--background));
 --chart-scale-04:color-mix(in srgb,var(--accent) 78%,var(--background));
@@ -186,11 +186,11 @@ body.compare #compare{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-
 .type-row{display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:baseline}
 .type-row .meta{font-size:.7rem;color:var(--muted-foreground);
  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-.t-display{font-size:1.75rem;font-weight:650;letter-spacing:-.02em;color:var(--foreground)}
-.t-h1{font-size:1.5rem;font-weight:650;color:var(--foreground)}
-.t-h2{font-size:1.125rem;font-weight:600;color:var(--foreground)}
+.t-h1{font-size:1.5rem;font-weight:500;color:var(--foreground)}
+.t-h2{font-size:1.125rem;font-weight:500;color:var(--foreground)}
 .t-body{font-size:.875rem;color:var(--text-secondary)}
 .t-label{font-size:.875rem;font-weight:500;color:var(--foreground)}
+.t-dense{font-size:.8125rem;color:var(--text-secondary)}
 .t-caption{font-size:.75rem;color:var(--muted-foreground)}
 .t-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.75rem;color:var(--foreground)}
 
@@ -554,7 +554,7 @@ const GROUPS=[
 ["--chart-5","oklch(0.424 0.199 265.638)","oklch(0.424 0.199 265.638)","Series 5 (= brand-600)"]
 ]],
 ["Charts — Bklit (derived)",[
-["--chart-scale-01","#e6e6e6","#2b2b2b","Heatmap level 0 = EMPTY cell, border/10 (neutral, not a data tint)"],
+["--chart-scale-01","#ebebeb","#313131","Heatmap level 0 = EMPTY cell, border/8 (neutral, not a data tint)"],
 ["--chart-scale-02","#b4c4f7","#152048","Heatmap level 1 = accent 32% over canvas"],
 ["--chart-scale-03","#7e9af1","#17296e","Heatmap level 2 = accent 55%"],
 ["--chart-scale-04","#4870eb","#183394","Heatmap level 3 = accent 78%"],
@@ -579,16 +579,17 @@ function renderTokens(mode){
 }
 function renderTypography(){
  const rows=[
-  ["Display","1.75rem / 28px / 650","t-display","Voice dictation, at your fingertips"],
-  ["Heading 1","1.5rem / 24px / 650","t-h1","Settings"],
-  ["Heading 2","1.125rem / 18px / 600","t-h2","Appearance"],
+  ["Heading 1","1.5rem / 24px / 500","t-h1","Settings"],
+  ["Heading 2","1.125rem / 18px / 500","t-h2","Appearance"],
   ["Body","0.875rem / 14px / 400","t-body","Body copy uses --text-secondary: readable, not the dominant focus."],
   ["Label","0.875rem / 14px / 500","t-label","Microphone Quality"],
+  ["Dense","0.8125rem / 13px / 400","t-dense","Title-bar title, toggle-group tabs, dense banners — the text-xs-plus step, the app's one addition to Tailwind's scale."],
   ["Caption","0.75rem / 12px / 400","t-caption","Helper text, timestamps, metadata — --muted-foreground."],
   ["Mono (keycaps)","0.75rem / 12px / ui-monospace","t-mono","Ctrl — font-mono, as rendered by Kbd"]
  ].map(([role,meta,cls,sample])=>`<div class="type-row"><span class="meta">${role}<br>${meta}</span><span class="${cls}">${sample}</span></div>`).join("");
  return sec(`<h2>Typography</h2><p><strong>Inter Variable</strong> (weights 100–900) is <code>font-sans</code>; <code>--font-heading</code> aliases it.
   Root size = <code>calc(100% * var(--font-scale))</code>, so the Settings text-size slider scales the whole rem-based UI — the px shown is the value at <code>--font-scale: 1</code> (16px root).
+  Scale = Tailwind's steps plus ONE addition: <code>text-xs-plus</code> (0.8125rem / 13px), the step between <code>text-xs</code> and <code>text-sm</code> that dense controls need — use it instead of <code>text-[0.8125rem]</code>.
   Role rule: <code>--foreground</code> must-read · <code>--text-secondary</code> body default · <code>--muted-foreground</code> skippable.</p>`,
  `<div class="type-card">${rows}</div>`);
 }

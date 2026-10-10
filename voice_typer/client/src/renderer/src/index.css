@@ -16,6 +16,9 @@
 	--font-heading: var(--font-sans);
 	--font-sans: "Inter Variable", sans-serif;
 
+	--text-xs-plus: 0.8125rem;
+	--text-xs-plus--line-height: calc(1.125 / 0.8125);
+
 	/* Semantic tokens → Tailwind utilities (bg-background, bg-surface,
 	   text-foreground, text-muted-foreground, bg-success, …).
 	   The palette scales (--gray-*, --accent-*) are intentionally NOT
@@ -238,7 +241,7 @@
 	   derive --chart-4/5 from --accent-500/600). The ramp resolves to
 	   #b4c4f7 → #7e9af1 → #4870eb → #1447e6 on the default light
 	   palette. */
-	--chart-scale-01: color-mix(in srgb, var(--border) 10%, transparent);
+	--chart-scale-01: color-mix(in srgb, var(--border) 8%, transparent);
 	--chart-scale-02: color-mix(in srgb, var(--accent) 32%, var(--background));
 	--chart-scale-03: color-mix(in srgb, var(--accent) 55%, var(--background));
 	--chart-scale-04: color-mix(in srgb, var(--accent) 78%, var(--background));
@@ -704,6 +707,55 @@
 	to {
 		height: 0;
 		opacity: 0;
+	}
+}
+
+/* Show/hide height animator for conditionally rendered blocks whose
+   height is content-driven (CSS cannot transition auto heights). The
+   0fr→1fr grid trick animates the real box in BOTH directions; the
+   child needs no measurement code. Toggle via data-open. Only for
+   blocks that appear/disappear AFTER first paint (async banners,
+   qualifying footnotes) — never for initial page content, which must
+   paint instantly from cache (C-CACHE-2). */
+.collapse-root {
+	display: grid;
+	grid-template-rows: 0fr;
+	transition: grid-template-rows 200ms ease-out;
+}
+.collapse-root[data-open="true"] {
+	grid-template-rows: 1fr;
+}
+.collapse-root > * {
+	overflow: hidden;
+	min-height: 0;
+	min-width: 0;
+}
+
+/* One-time fade for content that arrives asynchronously after first
+   paint (permission banners resolving their probe). Opacity only —
+   no positional movement, so nothing else on the page shifts while it
+   appears. */
+@keyframes mountFade {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+.mount-fade {
+	animation: mountFade 150ms ease-out;
+}
+
+/* The app-wide `*` kill-switch below does NOT beat class utilities
+   (0,1,0 beats 0,0,0 in the cascade), so these classes carry their own
+   reduce override, placed after the base for the tie-break (C-ANIM-3). */
+@media (prefers-reduced-motion: reduce) {
+	.collapse-root {
+		transition: none;
+	}
+	.mount-fade {
+		animation: none;
 	}
 }
 
