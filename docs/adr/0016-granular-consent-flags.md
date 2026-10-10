@@ -1,4 +1,4 @@
-# ADR 0016: Granular Privacy Consent Flags (PRIV-005, PRIV-006, PRIV-009)
+# ADR 0016: Granular Privacy Consent Flags
 
 ## Status
 

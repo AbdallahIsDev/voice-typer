@@ -1105,6 +1105,129 @@ Applies to: All agents, all modes.
 
 ---
 
+## Category: Data Fetching & Caching
+
+```
+C-CACHE-1
+Rule: Do NOT cache derived data without the raw inputs it was derived from. Every cached query snapshot MUST hold the full fetch inputs (e.g. Analytics caches the history sample + config + correction usage alongside the derived stats, one atomic snapshot object), never a derived-only value whose memos recompute from empty state on revisit.
+Rationale: Caching only the derived DashboardData while the period/activity/correction memos derived from an empty sample re-rendered zeros on every revisit: the cache existed yet the page still flashed placeholders (fixed 2026-10-10).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-2
+Rule: Do NOT revalidate a fresh cache on mount, and do NOT leave a mount showing empty state when a prefetch lands after first paint. Fresh snapshots (within the hook's TTL, 30s for Analytics) MUST skip the mount fetch entirely; stale snapshots MUST revalidate in the background while the cached content stays on screen; a hover prefetch that resolves after first paint MUST hydrate state via the mount effect instead of being skipped-into-emptiness.
+Rationale: Unconditional mount fetches wasted the IPCs the cache just saved, and awaiting a prefetch without hydrating left the page empty forever (both fixed 2026-10-10). This is the TanStack staleTime + keepPreviousData contract on the existing ipcCache infra.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-3
+Rule: Do NOT reset page state to placeholder zeros/empty on navigation or remount when a cache entry exists. Hooks MUST seed EVERY piece of state (data, samples, config, usage snapshots, plus the ref mirrors the delta/event paths read) from the cache snapshot, so a revisit first-paints the previous values and never a loading skeleton over cached content.
+Rationale: Seeding only `data` while `sample`/`configRaw` reset to empty is what showed zero stat cards and hid the Share button on every Analytics revisit (fixed 2026-10-10).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-4
+Rule: Do NOT prefetch data without all four guards, and do NOT let prefetch replace caching. Hover/focus data prefetch MUST: (1) short-circuit on a fresh cache (TTL), (2) share one in-flight flight across hovers and the mount (single-flight), (3) load the query code via dynamic import so the main chunk stays lean, (4) stay best-effort and fire-and-forget (failures never surface; the mount fetch stays authoritative; partial shapes are never written). Prefetch warms the SAME cache the mount reads; a completed prefetch lets the mount skip its fetch.
+Rationale: Unguarded hover prefetch multiplies IPCs per hover; prefetch-into-a-separate-store doubles the system. This mirrors TanStack prefetchQuery + Next.js hover-prefetch, implemented on the existing bridge (which already dedups concurrent get_* reads).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-5
+Rule: Do NOT let cached data go stale silently, and do NOT bypass the TTL except through defined invalidation. Backend-change events (transcription_final / history_changed / config_changed), manual refresh, and mutations MUST invalidate/revalidate immediately; time-based freshness is owned by the hook's TTL constant next to its cache key, never by ad-hoc Date checks scattered across components.
+Rationale: A cache without invalidation serves lies; invalidation scattered across components drifts. The delta/event paths already revalidate; the TTL covers quiet revisits.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-6
+Rule: Do NOT conditionally mount action controls on data availability. Triggers like Share MUST always render with a `disabled` prop reflecting availability (disabled while loading/no-data, enabled when shareable data lands); the loading state MUST keep the real heading/chrome and swap only the body for a skeleton, never unmount the actions or replace the whole page with a bare skeleton.
+Rationale: Conditionally rendering Share hid it on every Analytics visit until data landed; the skeleton's gray squares are slot reservations, not the control (fixed 2026-10-10). Exception: the loading heading must add zero live regions (no LastUpdatedIndicator there), per the live-region guard tests.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-7
+Rule: Do NOT ship caching behavior without the four regression tests: (1) revisit-with-fresh-cache issues zero IPC and first-paints cached values (no zeros/skeleton), (2) stale cache revalidates in background while cached values stay visible, (3) repeated/concurrent hovers issue one flight total, (4) invalidation events and prefetch failures leave the authoritative paths intact (mount/event refresh still fetches; failures never poison the cache).
+Rationale: This caching regression returned after a previous fix precisely because no test pinned the revisit path; behavior without a pin rots.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-8
+Rule: Do NOT introduce a query-caching library (TanStack Query, SWR, RTK Query or similar) while the transport is local IPC with bridge-level single-flight dedup and the module-level ipcCache + zustand SWR-seed pattern in place. A library MUST only be adopted after a written comparison showing it beats the existing stack on invalidation, dedup, and prefetch for THIS transport, with migration cost (provider wiring, hook rewrites, test rewrites, bundle size) accounted for. Re-evaluate if the transport becomes HTTP/REST/GraphQL or the cache needs normalization, persistence, or cross-hook query coordination the current infra cannot express.
+Rationale: Evaluated 2026-10-10 against the TanStack official comparison + prefetch docs: the needed semantics (staleTime TTL, keepPreviousData seeding, prefetchQuery-on-hover, request dedup) were all implementable in ~100 lines on existing infra because the bridge already dedups get_* reads; a migration would rewrite every data hook and its tests for no user-visible gain (see E13, no unnecessary dependencies).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-9
+Rule: Do NOT cache `get_model_status` outside the shared snapshot, and do NOT serve install state without the STALE-ACTIVE guards. All readers (Models `loadConfig`, Analytics refresh/prefetch, hover prefetch) MUST go through `fetchSharedModelStatus` in `hooks/models/modelStatusCache.ts` (TTL 30s, concurrent readers share one flight, invalid shapes never written). Disk-changing actions MUST invalidate explicitly: download-finished and folder-imported expire BEFORE their reload, confirmed delete rewrites the entry to `downloaded: false` immediately, select re-stats via `refreshModelStatus` (which always bypasses the TTL). Never write `downloaded: true` from anywhere but a real stat.
+Rationale: The status call stats the real filesystem and two pages fired it per visit cycle; users can also delete model folders out-of-band, so a cached `downloaded: true` older than seconds is a lie the STALE-ACTIVE reconciliation exists to catch (fixed 2026-10-10).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CACHE-10
+Rule: Do NOT let first loads fail while the backend is still booting, and do NOT stack waits on top of waits. Idempotent reads before the bridge's first success MUST wait-for-ready with a deadline (bridge-level cold-start wait, currently ~90s for model warms; timeout-shaped errors only; writes never wait; fast failures after first success as before). Mount re-races MUST fire only on FAST failures (load rejected well inside `MOUNT_RERACE_FAST_WINDOW_MS`, i.e. a refusal before the backend was up) — a failure that already took longer had bridge patience applied, so it goes straight to the error screen instead of stacking a second wait.
+Rationale: A page opened mid-boot storm failed in seconds and sat on the error screen after the backend came up; healing it with retries alone kept the break-then-fix cycle. Waiting (deadline-bounded, gRPC wait-for-ready pattern) prevents the break; the re-race stays as the backstop for fast refusals only (fixed 2026-10-10).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+## Category: Component Lifecycle & Motion
+
+```
+C-LIFE-1
+Rule: Do NOT remount components on navigation or data updates through unstable identity: no `key=` tied to data/route state that needlessly recreates the element, no component definitions declared inside render (a new type every render unmounts the subtree), no conditional branches that swap one live subtree for another when the data is already cached. New data MUST update a mounted component (same DOM node across renders, asserted via rerender-identity tests), not reconstruct it.
+Rationale: The Analytics heatmap's pop-in looked like a data bug but the data was cached — the vendored chart measures its box after mount, so every reconstruction replayed a zero-size first frame. Identity is a separate axis from caching; cached data only pays off when the component survives to render it.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-LIFE-2
+Rule: Do NOT let measured components (ParentSize / ResizeObserver / fluid layouts) own their height from a zero first frame. Every measure-after-mount surface MUST reserve its geometry declaratively (aspect-ratio + min-height floor matching the content math, e.g. the heatmap's 6/1 from 53 week-columns × 7 day-rows + 28px top margin) so the card holds its height before the measure lands and the measured content fills the reservation instead of pushing the page.
+Rationale: ParentSize initializes 0×0 by contract (verified in @visx/responsive sources); a fluid chart therefore renders a ~28px stub that jumps to full height one frame later on every mount. Reservation converts a 100px layout shift into a ≤12px one-frame correction (fixed 2026-10-10).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-LIFE-3
+Rule: Do NOT let loading skeletons omit below-the-fold sections the loaded page renders. Every skeleton MUST reserve every dynamic block (including charts and heatmaps the skeleton used to skip) with matching geometry, so skeleton→content swaps never grow the page.
+Rationale: The dashboard skeleton omitted the heatmap card, so every first load grew the page when the card arrived — a skeleton that hides content it knows is coming is a layout-shift bug, not a simplification.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-ANIM-1
+Rule: Do NOT animate auto heights with transitions (they cannot transition), and do NOT use `transition-all`. Content-driven show/hide MUST use the shared `.collapse-root` 0fr→1fr grid animator toggled via `data-open` (opacity + height, both directions); the wrapper MUST stay mounted while only the flag toggles, or there is nothing to animate. Reserve it for blocks that appear/disappear AFTER first paint (async footnotes, qualifying lines) — never for initial content, which must paint instantly from cache.
+Rationale: `transition-all` animates whatever changes including unintended properties, and a height transition on auto-height content is a no-op that only looks like a fix. The grid-rows trick is the measured-height-free way to animate real boxes (same mechanism as the Radix Collapsible animation).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-ANIM-2
+Rule: Do NOT let asynchronously arriving content (permission banners, probe results) pop into layout unannounced, and do NOT slide it (positional movement shifts surrounding content visually). Such arrivals MUST use the shared opacity-only `.mount-fade` (150ms, no movement). Mount animations on page content are forbidden — cached pages must paint instantly, never fade in.
+Rationale: The keyboard-permission banner resolves its probe after first paint and shoves the page down mid-read; an opacity arrival keeps the announcement without the shove, while fading whole cards on navigation would reintroduce the delay-feel caching just removed.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-ANIM-3
+Rule: Do NOT rely on the app-wide `*` reduced-motion kill-switch for class-based transitions or animations. Every motion utility MUST carry its own `@media (prefers-reduced-motion: reduce)` override (transition/animation none) placed AFTER its base so the tie-break wins, and MUST be covered by a test asserting the override exists.
+Rationale: `*` is specificity 0,0,0 and loses to any class (0,1,0), so `transition-duration`/`animation` set by utilities survive the global block — verified by cascade inspection 2026-10-10. Without the scoped override, reduced-motion users get every animation the global block claims to kill.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-LIFE-4
+Rule: Do NOT claim a lifecycle or animation fix without evidence from the running UI or its tests: a rerender-identity assertion (same DOM node across data updates), a first-paint reservation assertion (geometry classes present before any measure), and the full related suites green. Source reading alone never proves a component stays mounted.
+Rationale: This heatmap regression survived a caching fix precisely because nobody asserted the mount behavior — the data path was green while the component reconstructed every visit.
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ## Category: Testing & Baselines
 
 ```
@@ -1364,6 +1487,32 @@ canvas on 9 of the 11 dark presets (amoled L 0, github 0.11,
 ayu/tokyo-night 0.12) — an inverted rail. Pinned by
 `__tests__/index-css-sidebar-rail-token.test.ts` (3 of its 4 assertions
 fail on the literal). Established 2026-10-02.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-DESIGN-4
+Rule: The type scale is Tailwind's steps plus exactly ONE app addition:
+`text-xs-plus` — `0.8125rem` / 13px — declared as `--text-xs-plus` and
+`--text-xs-plus--line-height` in `index.css`'s `@theme inline` block so
+it is a real utility, not an arbitrary value. It is the step between
+`text-xs` (`0.75rem` / 12px) and `text-sm` (`0.875rem` / 14px) that
+dense controls need (title-bar title, toggle-group tabs, dense
+banners). Do NOT write `text-[0.8125rem]`, `text-[13px]`, or an inline
+`fontSize` of 13px for UI text — use `text-xs-plus`. Adding any further
+step means declaring another `--text-*` theme key AND updating
+`design-system.html` + `DESIGN-SYSTEM.md` in the SAME change
+(C-DESIGN-1). The only sanctioned 13px literals are inside
+`components/dashboard/StatsShareImage.tsx`, which is deliberately
+px-based and token-free so the exported share image does not resize
+with the user's text-size setting. Guarded by
+`__tests__/index-css-type-scale.test.ts`.
+Rationale: user decision 2026-10-10. 13px already existed in practice
+in five places (three `text-[0.8125rem]`, one `text-[13px]`, plus the
+vendored date picker's scoped `--text-sm`) with no name and no single
+source, so the step was invisible in the documented scale and drifted
+per file. Promoting it to a theme key makes the scale authoritative and
+lets the code, the docs and `design-system.html` agree.
 Applies to: All agents, all modes, all sub-agents.
 ```
 
