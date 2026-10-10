@@ -2,11 +2,11 @@
 
 > Auto-generated from the latest GitHub Actions run via `scripts/ci/write_ci_errors.py`. Do not edit by hand, it is overwritten on every CI run.
 
-**23 failing/errored tests** across 4 matrix legs.
+**39 failing/errored tests** across 6 matrix legs.
 
 ### 1. `tests.handlers.test_error_envelope_code_field.TestHandlerFilesUseHelper.test_every_handler_file_uses_a_standardized_helper`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/handlers/test_error_envelope_code_field.py:122`
 
 ```
@@ -20,9 +20,90 @@ E   AssertionError: every handler file must use either _respond_with_error or _e
 E   assert not ['system_permissions_handlers.py']
 ```
 
-### 2. `tests.tauri.mig19.test_phase4_validation.test_command_contract_is_frozen_no_untested_additions`
+### 2. `tests.tauri.mig16.test_native_key_listener_macos.TestSidecarOwnership.test_adr_mandates_keeping_native_binary`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12
+- Location: `tests/tauri/mig16/test_native_key_listener_macos.py:603`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig16/test_native_key_listener_macos.py:603: in test_adr_mandates_keeping_native_binary
+    src = ADR_0020.read_text(encoding="utf-8")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 3. `tests.tauri.mig16.test_native_key_listener_macos.TestSidecarOwnership.test_adr_states_sidecar_owns_hotkey_subsystem`
+
+- Legs: macos-14-3.11, macos-14-3.12
+- Location: `tests/tauri/mig16/test_native_key_listener_macos.py:590`
+
+```
++    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+
+AssertionError: assert False
+ +  where False = is_file()
+ +    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+tests/tauri/mig16/test_native_key_listener_macos.py:590: in test_adr_states_sidecar_owns_hotkey_subsystem
+    assert ADR_0020.is_file()
+E   AssertionError: assert False
+E    +  where False = is_file()
+E    +    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+```
+
+### 4. `tests.tauri.mig16.test_native_key_listener_macos.TestSidecarOwnership.test_adr_documents_fn_globe_key_regression`
+
+- Legs: macos-14-3.11, macos-14-3.12
+- Location: `tests/tauri/mig16/test_native_key_listener_macos.py:613`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig16/test_native_key_listener_macos.py:613: in test_adr_documents_fn_globe_key_regression
+    src = ADR_0020.read_text(encoding="utf-8")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 5. `tests.tauri.mig19.test_phase4_validation.test_validate_dict_payload_is_referenced_in_adr`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig19/test_phase4_validation.py:391`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig19/test_phase4_validation.py:391: in test_validate_dict_payload_is_referenced_in_adr
+    text = ADR_0020.read_text(encoding="utf-8")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 6. `tests.tauri.mig19.test_phase4_validation.test_command_contract_is_frozen_no_untested_additions`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/tauri/mig19/test_phase4_validation.py:642`
 
 ```
@@ -56,9 +137,9 @@ E     (c) Add it to KNOWN_UNDOCUMENTED_COMMANDS in this test with a comment nami
 E   Do NOT silently grow the wire contract.
 ```
 
-### 3. `tests.tauri.mig19.test_phase4_validation.test_known_undocumented_commands_are_reported`
+### 7. `tests.tauri.mig19.test_phase4_validation.test_known_undocumented_commands_are_reported`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/tauri/mig19/test_phase4_validation.py:684`
 
 ```
@@ -80,29 +161,173 @@ E     screenshot_get_status
 E     screenshot_set_consent
 ```
 
-### 4. `tests.tauri.mig19.test_reconnect_ux.test_use_python_throws_when_bridge_missing`
+### 8. `tests.tauri.mig19.test_phase4_validation.test_adr_0020_states_61_command_contract`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig19/test_phase4_validation.py:697`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig19/test_phase4_validation.py:697: in test_adr_0020_states_61_command_contract
+    text = ADR_0020.read_text(encoding="utf-8")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 9. `tests.tauri.mig19.test_phase4_validation.test_adr_0020_states_24_event_contract`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig19/test_phase4_validation.py:710`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig19/test_phase4_validation.py:710: in test_adr_0020_states_24_event_contract
+    text = ADR_0020.read_text(encoding="utf-8")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 10. `tests.tauri.mig19.test_phase4_validation.test_adr_0020_states_frozen_contract_clause`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig19/test_phase4_validation.py:720`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig19/test_phase4_validation.py:720: in test_adr_0020_states_frozen_contract_clause
+    text = ADR_0020.read_text(encoding="utf-8")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 11. `tests.tauri.mig19.test_phase4_validation.test_adr_0020_documents_new_command_process`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig19/test_phase4_validation.py:728`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig19/test_phase4_validation.py:728: in test_adr_0020_documents_new_command_process
+    text = ADR_0020.read_text(encoding="utf-8")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 12. `tests.tauri.mig19.test_reconnect_ux.test_use_python_throws_when_bridge_missing`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/tauri/mig19/test_reconnect_ux.py:425`
 
 ```
-+    where <built-in method search of re.Pattern object at 0x55a625446a30> = re.compile('withCommandTimeout\\s*\\(\\s*api\\.call', re.MULTILINE|re.DOTALL).search
++    where <built-in method search of re.Pattern object at 0x13ed8f990> = re.compile('withCommandTimeout\\s*\\(\\s*api\\.call', re.MULTILINE|re.DOTALL).search
 
 AssertionError: usePython.ts must call withCommandTimeout(api.call(...)) AFTER the `if (!api)` guard, otherwise the renderer would wait for the 120s command timeout instead of surfacing the 'Python bridge not available' error immediately.
 assert None
- +  where None = <built-in method search of re.Pattern object at 0x55a625446a30>(');\n\t\t\tconst execute = async (): Promise<T> => {\n\t\t\t\t// Race the underlying bridge call against a per-command\n\t\t\t\t// timeout so a hung trivial command (e.g. `get_status`) surfaces\n\t\t\t\t// an error in seconds instead of the prior blanket 120s timeout\n\t\t\t\t// imposed by the predecessor main / Rust host. The underlying\n\t\t\t\t// promise may still resolve later; the caller sees the timeout\n\t\t\t\t// rejection first.\n\t\t\t\t//\n\t\t\t\t// Tauri/predecessor error-envelope normalization. On\n\t\t\t\t// Tauri v2, `invoke` rejects with a RAW STRING (not an Error)\n\t\t\t\t// when the Rust `dispatch` command returns an Err, the host\'s\n\t\t\t\t// `e.to_string()` becomes the rejection value verbatim. Callers\n\t\t\t\t// that guard with `err instanceof Error ? err.message : String(err)`\n\t\t\t\t// work, but callers that do `err.message` directly\n\t\t\t\t// (e.g. `Microphone.tsx:278`, `lib/utils/models.ts:252`) read\n\t\t\t\t// `undefined` and lose the server error message. We wrap the\n\t\t\t\t// `await withCommandTimeout` call in try/catch and re-throw:\n\t\t\t\t//   - Error instances propagate unchanged (no double-wrapping);\n\t\t\t\t//   - string rejections ...\n\t// better than implicit so future contributors don\'t accidentally\n\t// remove the entry thinking it\'s the default).\n\ttoggle_dictation: 30_000,\n\t// ADR-0023: resolves the pasted URL (yt-dlp extract) synchronously\n\t// before acknowledging. 115s = 5s BELOW the host\'s 120s\n\t// `DISPATCH_TIMEOUT_SECS` budget for the same command (see\n\t// `_LONG_RUNNING_COMMANDS` in `dispatch.rs`), so the renderer\n\t// surfaces the command-specific timeout first (house convention).\n\tmedia_transcribe_start: 115_000,\n};\n\nconst DEFAULT_COMMAND_TIMEOUT_MS = 30_000;\n\nexport function getTimeout(cmd: string): number {\n\treturn COMMAND_TIMEOUTS[cmd] ?? DEFAULT_COMMAND_TIMEOUT_MS;\n}\n\nexport function withCommandTimeout<T>(\n\tpromise: Promise<T>,\n\tcmd: string,\n): Promise<T> {\n\tconst timeoutMs = getTimeout(cmd);\n\tlet timer: ReturnType<typeof setTimeout> | undefined;\n\tconst timeoutPromise = new Promise<never>((_, reject) => {\n\t\ttimer = setTimeout(() => {\n\t\t\treject(new Error(`IPC command "${cmd}" timed out after ${timeoutMs}ms`));\n\t\t}, timeoutMs);\n\t});\n\treturn Promise.race([promise, timeoutPromise]).finally(() => {\n\t\tif (timer) clearTimeout(timer);\n\t});\n}\n')
- +    where <built-in method search of re.Pattern object at 0x55a625446a30> = re.compile('withCommandTimeout\\s*\\(\\s*api\\.call', re.MULTILINE|re.DOTALL).search
+ +  where None = <built-in method search of re.Pattern object at 0x13ed8f990>(');\n\t\t\tconst execute = async (): Promise<T> => {\n\t\t\t\t// Race the underlying bridge call against a per-command\n\t\t\t\t// timeout so a hung trivial command (e.g. `get_status`) surfaces\n\t\t\t\t// an error in seconds instead of the prior blanket 120s timeout\n\t\t\t\t// imposed by the predecessor main / Rust host. The underlying\n\t\t\t\t// promise may still resolve later; the caller sees the timeout\n\t\t\t\t// rejection first.\n\t\t\t\t//\n\t\t\t\t// Tauri/predecessor error-envelope normalization. On\n\t\t\t\t// Tauri v2, `invoke` rejects with a RAW STRING (not an Error)\n\t\t\t\t// when the Rust `dispatch` command returns an Err, the host\'s\n\t\t\t\t// `e.to_string()` becomes the rejection value verbatim. Callers\n\t\t\t\t// that guard with `err instanceof Error ? err.message : String(err)`\n\t\t\t\t// work, but callers that do `err.message` directly\n\t\t\t\t// (e.g. `Microphone.tsx:278`, `lib/utils/models.ts:252`) read\n\t\t\t\t// `undefined` and lose the server error message. We wrap the\n\t\t\t\t// `await withCommandTimeout` call in try/catch and re-throw:\n\t\t\t\t//   - Error instances propagate unchanged (no double-wrapping);\n\t\t\t\t//   - string rejections ...\n\t// better than implicit so future contributors don\'t accidentally\n\t// remove the entry thinking it\'s the default).\n\ttoggle_dictation: 30_000,\n\t// ADR-0023: resolves the pasted URL (yt-dlp extract) synchronously\n\t// before acknowledging. 115s = 5s BELOW the host\'s 120s\n\t// `DISPATCH_TIMEOUT_SECS` budget for the same command (see\n\t// `_LONG_RUNNING_COMMANDS` in `dispatch.rs`), so the renderer\n\t// surfaces the command-specific timeout first (house convention).\n\tmedia_transcribe_start: 115_000,\n};\n\nconst DEFAULT_COMMAND_TIMEOUT_MS = 30_000;\n\nexport function getTimeout(cmd: string): number {\n\treturn COMMAND_TIMEOUTS[cmd] ?? DEFAULT_COMMAND_TIMEOUT_MS;\n}\n\nexport function withCommandTimeout<T>(\n\tpromise: Promise<T>,\n\tcmd: string,\n): Promise<T> {\n\tconst timeoutMs = getTimeout(cmd);\n\tlet timer: ReturnType<typeof setTimeout> | undefined;\n\tconst timeoutPromise = new Promise<never>((_, reject) => {\n\t\ttimer = setTimeout(() => {\n\t\t\treject(new Error(`IPC command "${cmd}" timed out after ${timeoutMs}ms`));\n\t\t}, timeoutMs);\n\t});\n\treturn Promise.race([promise, timeoutPromise]).finally(() => {\n\t\tif (timer) clearTimeout(timer);\n\t});\n}\n')
+ +    where <built-in method search of re.Pattern object at 0x13ed8f990> = re.compile('withCommandTimeout\\s*\\(\\s*api\\.call', re.MULTILINE|re.DOTALL).search
 tests/tauri/mig19/test_reconnect_ux.py:425: in test_use_python_throws_when_bridge_missing
     assert call_re.search(rest), (
 E   AssertionError: usePython.ts must call withCommandTimeout(api.call(...)) AFTER the `if (!api)` guard, otherwise the renderer would wait for the 120s command timeout instead of surfacing the 'Python bridge not available' error immediately.
 E   assert None
-E    +  where None = <built-in method search of re.Pattern object at 0x55a625446a30>(');\n\t\t\tconst execute = async (): Promise<T> => {\n\t\t\t\t// Race the underlying bridge call against a per-command\n\t\t\t\t// timeout so a hung trivial command (e.g. `get_status`) surfaces\n\t\t\t\t// an error in seconds instead of the prior blanket 120s timeout\n\t\t\t\t// imposed by the predecessor main / Rust host. The underlying\n\t\t\t\t// promise may still resolve later; the caller sees the timeout\n\t\t\t\t// rejection first.\n\t\t\t\t//\n\t\t\t\t// Tauri
+E    +  where None = <built-in method search of re.Pattern object at 0x13ed8f990>(');\n\t\t\tconst execute = async (): Promise<T> => {\n\t\t\t\t// Race the underlying bridge call against a per-command\n\t\t\t\t// timeout so a hung trivial command (e.g. `get_status`) surfaces\n\t\t\t\t// an error in seconds instead of the prior blanket 120s timeout\n\t\t\t\t// imposed by the predecessor main / Rust host. The underlying\n\t\t\t\t// promise may still resolve later; the caller sees the timeout\n\t\t\t\t// rejection first.\n\t\t\t\t//\n\t\t\t\t// Tauri/predecessor
 … (truncated)
 ```
 
-### 5. `tests.test_architecture_doc_accuracy.test_event_bus_count_matches_doc_and_code`
+### 13. `tests.tauri.mig19.test_wire_swap_recovery.test_adr_0020_section_10_documents_backoff`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig19/test_wire_swap_recovery.py:99`
+
+```
++    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+
+failed on setup with "AssertionError: missing: /Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md
+assert False
+ +  where False = is_file()
+ +    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file"
+tests/tauri/mig19/test_wire_swap_recovery.py:99: in adr_0020_source
+    assert ADR_0020.is_file(), f"missing: {ADR_0020}"
+E   AssertionError: missing: /Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md
+E   assert False
+E    +  where False = is_file()
+E    +    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+```
+
+### 14. `tests.tauri.mig19.test_wire_swap_recovery.test_adr_0020_section_10_documents_frame_cap`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig19/test_wire_swap_recovery.py:99`
+
+```
++    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+
+failed on setup with "AssertionError: missing: /Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md
+assert False
+ +  where False = is_file()
+ +    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file"
+tests/tauri/mig19/test_wire_swap_recovery.py:99: in adr_0020_source
+    assert ADR_0020.is_file(), f"missing: {ADR_0020}"
+E   AssertionError: missing: /Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md
+E   assert False
+E    +  where False = is_file()
+E    +    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+```
+
+### 15. `tests.tauri.mig19.test_wire_swap_recovery.test_adr_0020_section_10_documents_rate_limiter_port`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig19/test_wire_swap_recovery.py:99`
+
+```
++    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+
+failed on setup with "AssertionError: missing: /Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md
+assert False
+ +  where False = is_file()
+ +    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file"
+tests/tauri/mig19/test_wire_swap_recovery.py:99: in adr_0020_source
+    assert ADR_0020.is_file(), f"missing: {ADR_0020}"
+E   AssertionError: missing: /Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md
+E   assert False
+E    +  where False = is_file()
+E    +    where is_file = PosixPath('/Users/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+```
+
+### 16. `tests.test_architecture_doc_accuracy.test_event_bus_count_matches_doc_and_code`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_architecture_doc_accuracy.py:40`
 
 ```
@@ -118,55 +343,55 @@ E   assert 51 == 52
 E    +  where 51 = len(frozenset({'asr_backend_disabled', 'asr_backend_load_failed', 'asr_backend_ready', 'asr_last_resort_unloaded', 'audio_clip', 'bubble_config', ...}))
 ```
 
-### 6. `tests.test_bubble_idle_state_push.test_recording_start_pushes_recording_state`
+### 17. `tests.test_bubble_idle_state_push.test_recording_start_pushes_recording_state`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_bubble_idle_state_push.py:18`
 
 ```
-assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        _perm_msg = i18n.t("notify.recording_controller.m'
+assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n                self._schedule_permission_revoked_bubble_reset(app)\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_'
 
-assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        _perm_msg = i18n.t("notify.recording_controller.m'
+assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n                self._schedule_permission_revoked_bubble_reset(app)\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_'
 tests/test_bubble_idle_state_push.py:18: in test_recording_start_pushes_recording_state
     assert 'set_state("recording")' in tail
-E   assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        _perm_msg = i18n.t("notify.recording_controller.m'
+E   assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n                self._schedule_permission_revoked_bubble_reset(app)\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_'
 ```
 
-### 7. `tests.test_bubble_idle_state_push.test_recording_start_skips_bubble_when_hidden`
+### 18. `tests.test_bubble_idle_state_push.test_recording_start_skips_bubble_when_hidden`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_bubble_idle_state_push.py:89`
 
 ```
-assert 'set_state("recording")' in 'bubble_behavior", "show_on_record") != "hidden":\n                app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n '
+assert 'set_state("recording")' in 'bubble_behavior", "show_on_record") != "hidden":\n                app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n                self._schedule_permission_revoked_bubble_reset(app)\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR,'
 
-assert 'set_state("recording")' in 'bubble_behavior", "show_on_record") != "hidden":\n                app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n '
+assert 'set_state("recording")' in 'bubble_behavior", "show_on_record") != "hidden":\n                app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n                self._schedule_permission_revoked_bubble_reset(app)\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR,'
 tests/test_bubble_idle_state_push.py:89: in test_recording_start_skips_bubble_when_hidden
     assert 'set_state("recording")' in tail
-E   assert 'set_state("recording")' in 'bubble_behavior", "show_on_record") != "hidden":\n                app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n '
+E   assert 'set_state("recording")' in 'bubble_behavior", "show_on_record") != "hidden":\n                app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n                self._schedule_permission_revoked_bubble_reset(app)\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR,'
 ```
 
-### 8. `tests.test_config_validators_split.TestAllowlistSnapshot.test_allowlist_size_unchanged`
+### 19. `tests.test_config_validators_split.TestAllowlistSnapshot.test_allowlist_size_unchanged`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_config_validators_split.py:165`
 
 ```
-+  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f52e56ceb00>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f52e56cec20>), ...})
++  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x105b09760>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x105b09760>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x105b0ab60>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x105b0aca0>), ...})
 
 AssertionError: IPC_CONFIG_ALLOWLIST size drifted: expected 132, got 134. SEC-002 contract (AGENTS.md §6.3), adding/removing keys is a security-sensitive change that must be reviewed explicitly. Latest reviewed growth: 130 → 132, `screenshot_beta_enabled` + `screenshot_consent` (one-shot screenshot beta flags; bool-validated). Prior 129 → 130 growth: `active_plugin` (Plugins page activation switch; slug-validated, empty = local model). Prior 128 → 129 growth: `hallucination_filter_mode` (separate in-flight change).
 assert 134 == 132
- +  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f52e56ceb00>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f52e56cec20>), ...})
+ +  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x105b09760>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x105b09760>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x105b0ab60>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x105b0aca0>), ...})
 tests/test_config_validators_split.py:165: in test_allowlist_size_unchanged
     assert len(IPC_CONFIG_ALLOWLIST) == 132, (
 E   AssertionError: IPC_CONFIG_ALLOWLIST size drifted: expected 132, got 134. SEC-002 contract (AGENTS.md §6.3), adding/removing keys is a security-sensitive change that must be reviewed explicitly. Latest reviewed growth: 130 → 132, `screenshot_beta_enabled` + `screenshot_consent` (one-shot screenshot beta flags; bool-validated). Prior 129 → 130 growth: `active_plugin` (Plugins page activation switch; slug-validated, empty = local model). Prior 128 → 129 growth: `hallucination_filter_mode` (separate in-flight change).
 E   assert 134 == 132
-E    +  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f52e56ceb00>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f52e56cec20>), ...})
+E    +  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x105b09760>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x105b09760>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x105b0ab60>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x105b0aca0>), ...})
 ```
 
-### 9. `tests.test_config_validators_split.TestAllowlistSnapshot.test_allowlist_keys_match_frozen_snapshot`
+### 20. `tests.test_config_validators_split.TestAllowlistSnapshot.test_allowlist_keys_match_frozen_snapshot`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_config_validators_split.py:185`
 
 ```
@@ -180,31 +405,31 @@ E   AssertionError: IPC_CONFIG_ALLOWLIST has extra keys not present in the pre-s
 E   assert not frozenset({'cloud_gemini_consent', 'gemini_api_key'})
 ```
 
-### 10. `tests.test_doc_command_counts.test_contributing_md_states_registry_count`
+### 21. `tests.test_doc_command_counts.test_contributing_md_states_registry_count`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_doc_command_counts.py:100`
 
 ```
-+      where <built-in method group of re.Match object at 0x7f18022c52d0> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
++      where <built-in method group of re.Match object at 0x122e79b40> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
 
 AssertionError: CONTRIBUTING.md documents 84-command registry but the actual _COMMAND_REGISTRY count is 85. Update the sidecar_ws.py row in CONTRIBUTING.md.
 assert 84 == 85
  +  where 84 = int('84')
- +    where '84' = <built-in method group of re.Match object at 0x7f18022c52d0>(1)
- +      where <built-in method group of re.Match object at 0x7f18022c52d0> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
+ +    where '84' = <built-in method group of re.Match object at 0x122e79b40>(1)
+ +      where <built-in method group of re.Match object at 0x122e79b40> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
 tests/test_doc_command_counts.py:100: in test_contributing_md_states_registry_count
     assert int(m.group(1)) == actual, (
 E   AssertionError: CONTRIBUTING.md documents 84-command registry but the actual _COMMAND_REGISTRY count is 85. Update the sidecar_ws.py row in CONTRIBUTING.md.
 E   assert 84 == 85
 E    +  where 84 = int('84')
-E    +    where '84' = <built-in method group of re.Match object at 0x7f18022c52d0>(1)
-E    +      where <built-in method group of re.Match object at 0x7f18022c52d0> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
+E    +    where '84' = <built-in method group of re.Match object at 0x122e79b40>(1)
+E    +      where <built-in method group of re.Match object at 0x122e79b40> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
 ```
 
-### 11. `tests.test_error_codes_registry.TestEmittedCodesAreRegisteredOrLegacy.test_all_emitted_codes_known`
+### 22. `tests.test_error_codes_registry.TestEmittedCodesAreRegisteredOrLegacy.test_all_emitted_codes_known`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_error_codes_registry.py:150`
 
 ```
@@ -228,9 +453,9 @@ E     voice_typer/server/handlers/screenshot_handlers.py:36 -> 'screenshot_unsup
 E     voice_typer/server/handlers/screenshot_handlers.py:40 -> 'screenshot_already_captured'
 ```
 
-### 12. `tests.test_hotkeys.TestApplyConfigReRegistersHotkeyForPushToTalk.test_service_apply_config_side_effects_handles_recording_mode`
+### 23. `tests.test_hotkeys.TestApplyConfigReRegistersHotkeyForPushToTalk.test_service_apply_config_side_effects_handles_recording_mode`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_hotkeys.py:29`
 
 ```
@@ -240,9 +465,9 @@ assert 'recording_mode' in '"""Config side-effect dispatcher (registered handler
 … (truncated)
 ```
 
-### 13. `tests.test_hotkeys.TestApplyConfigReRegistersHotkeyForPushToTalk.test_service_handles_hotkey_change`
+### 24. `tests.test_hotkeys.TestApplyConfigReRegistersHotkeyForPushToTalk.test_service_handles_hotkey_change`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_hotkeys.py:34`
 
 ```
@@ -252,9 +477,27 @@ assert '"hotkey" in updates' in '"""Config side-effect dispatcher (registered ha
 … (truncated)
 ```
 
-### 14. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_has_row_for_every_registry_command`
+### 25. `tests.test_hotkey_watchdog.TestPynputWatchdog.test_watchdog_resets_failure_count_on_recovery`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11
+- Location: `tests/test_hotkey_watchdog.py:154`
+
+```
++  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x144f2e710>._watchdog_failure_count
+
+AssertionError: Watchdog should reset failure count to 0 when listener is healthy
+assert 3 == 0
+ +  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x144f2e710>._watchdog_failure_count
+tests/test_hotkey_watchdog.py:154: in test_watchdog_resets_failure_count_on_recovery
+    assert backend._watchdog_failure_count == 0, (
+E   AssertionError: Watchdog should reset failure count to 0 when listener is healthy
+E   assert 3 == 0
+E    +  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x144f2e710>._watchdog_failure_count
+```
+
+### 26. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_has_row_for_every_registry_command`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_ipc_reference_doc_accuracy.py:118`
 
 ```
@@ -268,25 +511,9 @@ E   AssertionError: _COMMAND_REGISTRY has 5 commands with no row in docs/ipc-ref
 E   assert not {'open_mic_settings', 'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent'}
 ```
 
-### 15. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_commands_header_count_matches_registry`
+### 27. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_push_events_header_count_matches_source`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
-- Location: `tests/test_ipc_reference_doc_accuracy.py:146`
-
-```
-assert 80 == 85
-
-AssertionError: docs/ipc-reference.md documents 80 total commands but _COMMAND_REGISTRY has 85. Update the header.
-assert 80 == 85
-tests/test_ipc_reference_doc_accuracy.py:146: in test_ipc_reference_doc_commands_header_count_matches_registry
-    assert documented == actual, (
-E   AssertionError: docs/ipc-reference.md documents 80 total commands but _COMMAND_REGISTRY has 85. Update the header.
-E   assert 80 == 85
-```
-
-### 16. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_push_events_header_count_matches_source`
-
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_ipc_reference_doc_accuracy.py:159`
 
 ```
@@ -300,9 +527,25 @@ E   AssertionError: docs/ipc-reference.md documents 63 typed push events but the
 E   assert 63 == 62
 ```
 
-### 17. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_push_event_rows_match_source_types`
+### 28. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_commands_header_count_matches_registry`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/test_ipc_reference_doc_accuracy.py:146`
+
+```
+assert 80 == 85
+
+AssertionError: docs/ipc-reference.md documents 80 total commands but _COMMAND_REGISTRY has 85. Update the header.
+assert 80 == 85
+tests/test_ipc_reference_doc_accuracy.py:146: in test_ipc_reference_doc_commands_header_count_matches_registry
+    assert documented == actual, (
+E   AssertionError: docs/ipc-reference.md documents 80 total commands but _COMMAND_REGISTRY has 85. Update the header.
+E   assert 80 == 85
+```
+
+### 29. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_push_event_rows_match_source_types`
+
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_ipc_reference_doc_accuracy.py:183`
 
 ```
@@ -316,9 +559,9 @@ E   AssertionError: docs/ipc-reference.md lists 1 push-event types that are NOT 
 E   assert not {'text_enhancement_failed'}
 ```
 
-### 18. `tests.test_macos_bundle_id.TestOnboardingSource.test_uses_runtime_resolution_and_no_hardcoded_bundle_id`
+### 30. `tests.test_macos_bundle_id.TestOnboardingSource.test_uses_runtime_resolution_and_no_hardcoded_bundle_id`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_macos_bundle_id.py:281`
 
 ```
@@ -329,9 +572,9 @@ assert 'resolve_host_bundle_id()' in '"""First-run detection + 4-step onboarding
 … (truncated)
 ```
 
-### 19. `tests.test_notifications.TestCriticalNotificationsBypassToggle.test_model_load_failure_uses_notify_safety`
+### 31. `tests.test_notifications.TestCriticalNotificationsBypassToggle.test_model_load_failure_uses_notify_safety`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_notifications.py:88`
 
 ```
@@ -343,9 +586,9 @@ tests/test_notifications.py:88: in test_model_load_failure_uses_notify_safety
 E   assert 'notify_safety(' in 'reason=f"all backends failed to load (primary={_primary})",\n                )\n                self._app.tray.notify(\n                    APP_NAME,\n                    i18n.t(\n                        "notify.model_manager.load_failed_critical",\n                        hotkey=notification_hotkey_label(self._app.config.hotkey),\n                    ),\n                )\n                # Clear the pend'
 ```
 
-### 20. `tests.test_pyrefly_baseline_accuracy.test_errors_array_has_no_stale_entries`
+### 32. `tests.test_pyrefly_baseline_accuracy.test_errors_array_has_no_stale_entries`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_pyrefly_baseline_accuracy.py:65`
 
 ```
@@ -361,9 +604,9 @@ E     [276] voice_typer/server/service/model/_downloads.py:697 -- line 697 past 
 E     [277] voice_typer/server/service/model/_downloads.py:739 -- line 739 past EOF (407 lines) of voice_typer/server/service/model/_downloads.py
 ```
 
-### 21. `tests.test_recording_lifecycle_threaded.TestRecordingStartFailureReason.test_permission_denied_surfaces_reason`
+### 33. `tests.test_recording_lifecycle_threaded.TestRecordingStartFailureReason.test_permission_denied_surfaces_reason`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_recording_lifecycle_threaded.py:425`
 
 ```
@@ -372,12 +615,13 @@ AttributeError: 'NoneType' object has no attribute 'args'
 AttributeError: 'NoneType' object has no attribute 'args'
 tests/test_recording_lifecycle_threaded.py:425: in test_permission_denied_surfaces_reason
     notify_msg = str(notify_mock.call_args.args[1])
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
 E   AttributeError: 'NoneType' object has no attribute 'args'
 ```
 
-### 22. `tests.test_service_i18n_tray_notices.TestHotkeyDispatcherSourceUsesI18n.test_hotkey_dispatcher_no_hardcoded_notice_bodies`
+### 34. `tests.test_service_i18n_tray_notices.TestHotkeyDispatcherSourceUsesI18n.test_hotkey_dispatcher_no_hardcoded_notice_bodies`
 
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, macos-14-3.12, ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_service_i18n_tray_notices.py:225`
 
 ```
@@ -387,18 +631,92 @@ assert 'i18n_t(' in '"""#2 HotkeyDispatcher, extracted from LausuApp.\n\nOwns gl
 … (truncated)
 ```
 
-### 23. `tests.test_hotkeys_win32.TestModifierOnlyHotkeys.test_alt_only_hotkey_starts_without_error`
+### 35. `tests.tauri.mig17.test_native_key_listener_linux.TestEvdevGlobalHotkeys.test_adr_documents_evdev_works_on_wayland`
 
-- Legs: ubuntu-22.04-3.13
-- Location: `tests/test_hotkeys_win32.py:285`
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig17/test_native_key_listener_linux.py:549`
 
 ```
-AssertionError: LL hook handle never installed for modifier-only spec (waited 15.0s)
++    where is_file = PosixPath('/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
 
-AssertionError: LL hook handle never installed for modifier-only spec (waited 15.0s)
-tests/test_hotkeys_win32.py:285: in test_alt_only_hotkey_starts_without_error
-    _wait_until(
-tests/test_hotkeys_win32.py:28: in _wait_until
-    raise AssertionError(f"{msg} (waited {timeout}s)")
-E   AssertionError: LL hook handle never installed for modifier-only spec (waited 15.0s)
+AssertionError: assert False
+ +  where False = is_file()
+ +    where is_file = PosixPath('/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+tests/tauri/mig17/test_native_key_listener_linux.py:549: in test_adr_documents_evdev_works_on_wayland
+    assert ADR_0020.is_file()
+E   AssertionError: assert False
+E    +  where False = is_file()
+E    +    where is_file = PosixPath('/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+```
+
+### 36. `tests.tauri.mig17.test_native_key_listener_linux.TestKeySuppressionNotSupported.test_adr_documents_linux_no_suppression`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig17/test_native_key_listener_linux.py:598`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig17/test_native_key_listener_linux.py:598: in test_adr_documents_linux_no_suppression
+    src = ADR_0020.read_text(encoding="utf-8")
+/opt/hostedtoolcache/Python/3.10.22/x64/lib/python3.10/pathlib.py:1134: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+/opt/hostedtoolcache/Python/3.10.22/x64/lib/python3.10/pathlib.py:1119: in open
+    return self._accessor.open(self, mode, buffering, encoding, errors,
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 37. `tests.tauri.mig17.test_native_key_listener_linux.TestSidecarOwnership.test_adr_states_sidecar_owns_hotkey_subsystem`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig17/test_native_key_listener_linux.py:708`
+
+```
++    where is_file = PosixPath('/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+
+AssertionError: assert False
+ +  where False = is_file()
+ +    where is_file = PosixPath('/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+tests/tauri/mig17/test_native_key_listener_linux.py:708: in test_adr_states_sidecar_owns_hotkey_subsystem
+    assert ADR_0020.is_file()
+E   AssertionError: assert False
+E    +  where False = is_file()
+E    +    where is_file = PosixPath('/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md').is_file
+```
+
+### 38. `tests.tauri.mig17.test_native_key_listener_linux.TestSidecarOwnership.test_adr_mandates_keeping_native_binary`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig17/test_native_key_listener_linux.py:719`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig17/test_native_key_listener_linux.py:719: in test_adr_mandates_keeping_native_binary
+    src = ADR_0020.read_text(encoding="utf-8")
+/opt/hostedtoolcache/Python/3.10.22/x64/lib/python3.10/pathlib.py:1134: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+/opt/hostedtoolcache/Python/3.10.22/x64/lib/python3.10/pathlib.py:1119: in open
+    return self._accessor.open(self, mode, buffering, encoding, errors,
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+```
+
+### 39. `tests.tauri.mig17.test_native_key_listener_linux.TestSidecarOwnership.test_adr_documents_wayland_regression_risk`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig17/test_native_key_listener_linux.py:729`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
+tests/tauri/mig17/test_native_key_listener_linux.py:729: in test_adr_documents_wayland_regression_risk
+    src = ADR_0020.read_text(encoding="utf-8")
+/opt/hostedtoolcache/Python/3.10.22/x64/lib/python3.10/pathlib.py:1134: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+/opt/hostedtoolcache/Python/3.10.22/x64/lib/python3.10/pathlib.py:1119: in open
+    return self._accessor.open(self, mode, buffering, encoding, errors,
+E   FileNotFoundError: [Errno 2] No such file or directory: '/home/runner/work/Lausu/Lausu/docs/adr/0020-desktop-runtime-migration-analysis.md'
 ```
