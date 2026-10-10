@@ -52,6 +52,12 @@ _DEFAULT_START_JOIN_TIMEOUT_S = 0.1
 _NO_INPUT_DEVICE_MARKER = "No input device could be opened"
 
 
+#: How long the bubble stays on the permission_revoked variant before
+#: auto-reverting (idle in always_visible, hide in show_on_record) -
+#: matches the tray's ERROR beat so the surfaces settle together.
+_PERMISSION_REVOKED_BUBBLE_SECONDS = 5.0
+
+
 def _recording_start_failure_message(exc: BaseException) -> str:
     """Map a ``recorder.start()`` failure to a safe, user-friendly message."""
     from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
@@ -113,7 +119,17 @@ def _open_os_microphone_settings() -> bool:
 
 
 def _notify_permission_denied_with_settings(title: str, message: str) -> bool:
-    """Clickable host notification; falls back to tray balloon."""
+    """Clickable host notification; falls back to tray balloon.
+
+    A duplicate of the same refusal within the dedup window returns
+    True WITHOUT publishing, so callers skip their fallback too - the
+    user already saw this notification once (refusal_notify).
+    """
+    from voice_typer.server.permissions import refusal_notify
+
+    if not refusal_notify.should_notify_refusal(title, message):
+        log.info("[DICTATION] repeat mic-refusal: OS notification suppressed (dedup)")
+        return True
     try:
         if event_bus.has_live_transport():
             ok = event_bus.publish(
@@ -493,6 +509,7 @@ class RecordingLifecycle:
             if getattr(app.config, "bubble_behavior", "show_on_record") != "hidden":
                 app._waveform_bubble.show()
                 app._waveform_bubble.set_state("permission_revoked")
+                self._schedule_permission_revoked_bubble_reset(app)
         except Exception:
             log.debug("[DICTATION] permission bubble surface failed", exc_info=True)
         try:
@@ -513,6 +530,30 @@ class RecordingLifecycle:
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
         except Exception:
             log.debug("[DICTATION] permission idle timer failed", exc_info=True)
+
+    def _schedule_permission_revoked_bubble_reset(self, app) -> None:
+        """Auto-revert the permission_revoked bubble variant after a beat.
+
+        always_visible returns to the idle variant; show_on_record hides.
+        Guarded by the bubble's current state so a recording that started
+        inside the window is never clobbered by the stale reset.
+        """
+
+        def _reset() -> None:
+            try:
+                if getattr(app._waveform_bubble, "state", None) != "permission_revoked":
+                    return
+                if getattr(app.config, "bubble_behavior", "show_on_record") == "always_visible":
+                    app._waveform_bubble.set_state("idle")
+                else:
+                    app._waveform_bubble.hide()
+            except Exception:
+                log.debug("[DICTATION] permission bubble auto-reset failed", exc_info=True)
+
+        try:
+            app._schedule_timer(_PERMISSION_REVOKED_BUBBLE_SECONDS, _reset)
+        except Exception:
+            log.debug("[DICTATION] permission bubble reset timer failed", exc_info=True)
 
     def _publish_start_failure_notification(self, app, exc: BaseException) -> None:
         """Surface a start failure in tray / toast / push / idle-timer."""

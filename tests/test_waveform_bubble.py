@@ -34,6 +34,16 @@ class TestWaveformBubbleState:
         assert bubble.is_speaking is False
         assert bubble.rms_level == 0.0
         assert bubble.peak_level == 0.0
+        assert bubble.state == "idle"
+
+    def test_set_state_tracks_current_state(self, bubble):
+        seen = []
+        bubble.on_set_state = seen.append
+        bubble.set_state("permission_revoked")
+        assert bubble.state == "permission_revoked"
+        assert seen == ["permission_revoked"]
+        bubble.set_state("idle")
+        assert bubble.state == "idle"
 
     def test_show_marks_visible_and_fires_listener(self, bubble):
         calls = []

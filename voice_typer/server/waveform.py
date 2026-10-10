@@ -16,6 +16,7 @@ class WaveformBubble:
         self._rms_level: float = 0.0
         self._peak_level: float = 0.0
         self._is_speaking: bool = False
+        self._state: str = "idle"
         self._lock = threading.Lock()
 
         # Listener slots, set by app.py after IPC server is up.
@@ -64,6 +65,7 @@ class WaveformBubble:
     def set_state(self, state: str) -> None:
         """Change the bubble's visual state."""
         with self._lock:
+            self._state = state
             cb = self.on_set_state
         log.info("[WAVEFORM] Bubble state -> %s", state)
         if cb is not None:
@@ -71,6 +73,17 @@ class WaveformBubble:
                 cb(state)
             except Exception:
                 log.debug("[WAVEFORM] on_set_state callback raised", exc_info=True)
+
+    @property
+    def state(self) -> str:
+        """Last state pushed via :meth:`set_state` (initial ``idle``).
+
+        Lets delayed resets (e.g. the permission_revoked auto-revert)
+        check whether the variant is still current before overwriting
+        a state that moved on in the meantime.
+        """
+        with self._lock:
+            return self._state
 
     def reset_level(self) -> None:
         """Reset the level to zero and push a final event to the renderer."""

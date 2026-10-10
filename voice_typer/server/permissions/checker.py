@@ -192,6 +192,12 @@ def verify_microphone_accessible() -> None:
             "Microphone permission denied by OS",
             state="denied",
         )
+    if state == MicrophonePermissionState.GRANTED:
+        # A confirmed-working mic resets the refusal-notification
+        # dedup, so a later re-break notifies fresh (refusal_notify).
+        from voice_typer.server.permissions import refusal_notify
+
+        refusal_notify.mark_microphone_granted()
 
 
 def request_microphone_permission(

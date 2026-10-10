@@ -311,3 +311,174 @@ def test_short_but_audible_audio_still_resets_idle():
     lifecycle._run_stop_and_transcribe(controller, audio, "#10")
     app._waveform_bubble.hide.assert_called_once_with()
     app._waveform_bubble.set_state.assert_not_called()
+
+
+class TestRefusalNotificationDedup:
+    """Repeat refusals must not stack OS notifications."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_state(self, monkeypatch):
+        from voice_typer.server.permissions import refusal_notify
+
+        monkeypatch.setattr(refusal_notify, "_last_notified", None)
+
+    def test_first_notifies_and_immediate_repeat_is_suppressed(self):
+        from voice_typer.server.permissions import refusal_notify
+
+        assert refusal_notify.should_notify_refusal("T", "M") is True
+        assert refusal_notify.should_notify_refusal("T", "M") is False
+
+    def test_different_message_notifies_immediately(self):
+        from voice_typer.server.permissions import refusal_notify
+
+        assert refusal_notify.should_notify_refusal("T", "M") is True
+        assert refusal_notify.should_notify_refusal("T", "other") is True
+
+    def test_repeat_after_window_notifies_again(self):
+        import time
+
+        from voice_typer.server.permissions import refusal_notify
+
+        expired = time.monotonic() - refusal_notify.REFUSAL_NOTIFY_SUPPRESS_S - 1.0
+        refusal_notify._last_notified = (("T", "M"), expired)
+        assert refusal_notify.should_notify_refusal("T", "M") is True
+
+    def test_granted_probe_resets_suppression(self, monkeypatch):
+        import time
+
+        from voice_typer.server import permissions
+        from voice_typer.server.permissions import checker, refusal_notify
+
+        refusal_notify._last_notified = (("T", "M"), time.monotonic())
+        # checker.verify_microphone_accessible reads the probe through
+        # the package object (`_p.check_microphone_permission`), so the
+        # patch seam is the package attribute.
+        monkeypatch.setattr(
+            permissions,
+            "check_microphone_permission",
+            lambda: checker.MicrophonePermissionState.GRANTED,
+        )
+        checker.verify_microphone_accessible()
+        assert refusal_notify._last_notified is None
+        assert refusal_notify.should_notify_refusal("T", "M") is True
+
+    def test_unknown_probe_does_not_reset_suppression(self, monkeypatch):
+        import time
+
+        from voice_typer.server import permissions
+        from voice_typer.server.permissions import checker, refusal_notify
+
+        refusal_notify._last_notified = (("T", "M"), time.monotonic())
+        monkeypatch.setattr(
+            permissions,
+            "check_microphone_permission",
+            lambda: checker.MicrophonePermissionState.UNKNOWN,
+        )
+        checker.verify_microphone_accessible()
+        assert refusal_notify._last_notified is not None
+        assert refusal_notify.should_notify_refusal("T", "M") is False
+
+    def test_helper_suppresses_os_notification_and_returns_true(self, monkeypatch):
+        """Suppressed repeats return True so callers skip their fallback."""
+        from voice_typer.server import event_bus
+        from voice_typer.server.recording_lifecycle import (
+            _notify_permission_denied_with_settings,
+        )
+
+        published: list[dict] = []
+        monkeypatch.setattr(event_bus, "has_live_transport", lambda: True)
+        monkeypatch.setattr(
+            event_bus, "publish", lambda msg: published.append(msg) or True
+        )
+        assert _notify_permission_denied_with_settings("T", "M") is True
+        assert _notify_permission_denied_with_settings("T", "M") is True
+        notifications = [m for m in published if m.get("type") == "notification"]
+        assert len(notifications) == 1
+
+    def test_full_refusal_path_notifies_once_and_keeps_feedback(self, monkeypatch):
+        """Two hotkey refusals: one OS notification, feedback every time."""
+        import voice_typer.server.recording_lifecycle as recording_lifecycle
+        from voice_typer.server import event_bus
+        from voice_typer.server.recording_lifecycle import RecordingLifecycle
+
+        published: list[dict] = []
+        monkeypatch.setattr(event_bus, "has_live_transport", lambda: True)
+        monkeypatch.setattr(
+            event_bus, "publish", lambda msg: published.append(msg) or True
+        )
+        monkeypatch.setattr(
+            recording_lifecycle, "i18n", MagicMock(t=lambda key, **kw: key)
+        )
+
+        app = MagicMock()
+        app.config.bubble_behavior = "show_on_record"
+        lifecycle = RecordingLifecycle()
+        lifecycle._publish_permission_denied_refusal(app, "denied")
+        lifecycle._publish_permission_denied_refusal(app, "denied")
+
+        notifications = [m for m in published if m.get("type") == "notification"]
+        assert len(notifications) == 1, "repeat refusal must not stack OS notifications"
+        revocations = [
+            m for m in published if m.get("type") == "microphone_permission_revoked"
+        ]
+        assert len(revocations) == 2, "in-app feedback push fires on every refusal"
+        assert app._waveform_bubble.set_state.call_count == 2
+        assert app.tray.set_state.called
+
+
+class TestPermissionRevokedBubbleAutoReset:
+    """The permission_revoked bubble variant must revert by itself."""
+
+    @staticmethod
+    def _refusal_app(behavior: str):
+        app = MagicMock()
+        app.config.bubble_behavior = behavior
+        return app
+
+    @staticmethod
+    def _fire_reset(app):
+        """Invoke the scheduled bubble-reset callback (delay 5.0s)."""
+        from voice_typer.server.recording_lifecycle import (
+            _PERMISSION_REVOKED_BUBBLE_SECONDS,
+        )
+
+        calls = [
+            c
+            for c in app._schedule_timer.call_args_list
+            if c.args and c.args[0] == _PERMISSION_REVOKED_BUBBLE_SECONDS
+        ]
+        assert calls, "refusal must schedule the bubble auto-reset timer"
+        calls[-1].args[1]()
+
+    def test_always_visible_returns_to_idle(self):
+        from voice_typer.server.recording_lifecycle import RecordingLifecycle
+
+        app = self._refusal_app("always_visible")
+        app._waveform_bubble.state = "permission_revoked"
+        RecordingLifecycle()._publish_permission_denied_refusal(app, "denied")
+        self._fire_reset(app)
+        app._waveform_bubble.set_state.assert_any_call("idle")
+        app._waveform_bubble.hide.assert_not_called()
+
+    def test_show_on_record_hides_after_window(self):
+        from voice_typer.server.recording_lifecycle import RecordingLifecycle
+
+        app = self._refusal_app("show_on_record")
+        app._waveform_bubble.state = "permission_revoked"
+        RecordingLifecycle()._publish_permission_denied_refusal(app, "denied")
+        self._fire_reset(app)
+        app._waveform_bubble.hide.assert_called_once_with()
+        app._waveform_bubble.set_state.assert_any_call("permission_revoked")
+        assert ("idle",) not in [c.args for c in app._waveform_bubble.set_state.call_args_list]
+
+    def test_reset_is_skipped_when_state_moved_on(self):
+        """A recording that started inside the window is never clobbered."""
+        from voice_typer.server.recording_lifecycle import RecordingLifecycle
+
+        app = self._refusal_app("always_visible")
+        # Simulate the state moving on before the timer fires.
+        app._waveform_bubble.state = "recording"
+        RecordingLifecycle()._publish_permission_denied_refusal(app, "denied")
+        self._fire_reset(app)
+        assert ("idle",) not in [c.args for c in app._waveform_bubble.set_state.call_args_list]
+        app._waveform_bubble.hide.assert_not_called()
