@@ -47,9 +47,11 @@ describe("corner shape design token", () => {
 		const gateStart = css.indexOf("@supports (corner-shape: squircle)");
 		const gate = blockAfter(css, gateStart);
 		const gateEnd = blockEndAfter(css, gateStart);
-		expect(gate).toMatch(/:root\s*\{[^}]*--radius:\s*1\.625rem;/s);
+		expect(gate).toMatch(
+			/:root\s*\{[^}]*--radius:\s*1\.625rem(\s*!important)?;/s,
+		);
 		expect(css.slice(0, gateStart) + css.slice(gateEnd)).not.toMatch(
-			/--radius:\s*1\.625rem;/,
+			/--radius:\s*1\.625rem(\s*!important)?;/,
 		);
 		expect(showcase).toMatch(/--radius:\s*0\.625rem;/);
 		const showcaseGateStart = showcase.indexOf(
