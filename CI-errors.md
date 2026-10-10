@@ -2,7 +2,7 @@
 
 > Auto-generated from the latest GitHub Actions run via `scripts/ci/write_ci_errors.py`. Do not edit by hand, it is overwritten on every CI run.
 
-**18 failing/errored tests** across 4 matrix legs.
+**23 failing/errored tests** across 4 matrix legs.
 
 ### 1. `tests.handlers.test_error_envelope_code_field.TestHandlerFilesUseHelper.test_every_handler_file_uses_a_standardized_helper`
 
@@ -29,6 +29,7 @@ E   assert not ['system_permissions_handlers.py']
 Do NOT silently grow the wire contract.
 
 Failed: ADR-0020 §16: _COMMAND_REGISTRY contains commands NOT in the frozen 68-command table AND NOT in the KNOWN_UNDOCUMENTED_COMMANDS allowlist:
+  open_mic_settings
   screenshot_capture
   screenshot_clear_cycle
   screenshot_get_status
@@ -42,6 +43,7 @@ Do NOT silently grow the wire contract.
 tests/tauri/mig19/test_phase4_validation.py:642: in test_command_contract_is_frozen_no_untested_additions
     pytest.fail(
 E   Failed: ADR-0020 §16: _COMMAND_REGISTRY contains commands NOT in the frozen 68-command table AND NOT in the KNOWN_UNDOCUMENTED_COMMANDS allowlist:
+E     open_mic_settings
 E     screenshot_capture
 E     screenshot_clear_cycle
 E     screenshot_get_status
@@ -63,6 +65,7 @@ E   Do NOT silently grow the wire contract.
 screenshot_set_consent
 
 Failed: Commands in _COMMAND_REGISTRY but NOT in EXPECTED_COMMANDS and NOT in KNOWN_UNDOCUMENTED_COMMANDS (add to KNOWN_UNDOCUMENTED_COMMANDS with a comment, OR close the gap by adding to EXPECTED_COMMANDS + ADR addendum):
+  open_mic_settings
   screenshot_capture
   screenshot_clear_cycle
   screenshot_get_status
@@ -70,6 +73,7 @@ Failed: Commands in _COMMAND_REGISTRY but NOT in EXPECTED_COMMANDS and NOT in KN
 tests/tauri/mig19/test_phase4_validation.py:684: in test_known_undocumented_commands_are_reported
     pytest.fail("\n\n".join(msg_parts))
 E   Failed: Commands in _COMMAND_REGISTRY but NOT in EXPECTED_COMMANDS and NOT in KNOWN_UNDOCUMENTED_COMMANDS (add to KNOWN_UNDOCUMENTED_COMMANDS with a comment, OR close the gap by adding to EXPECTED_COMMANDS + ADR addendum):
+E     open_mic_settings
 E     screenshot_capture
 E     screenshot_clear_cycle
 E     screenshot_get_status
@@ -82,17 +86,17 @@ E     screenshot_set_consent
 - Location: `tests/tauri/mig19/test_reconnect_ux.py:425`
 
 ```
-+    where <built-in method search of re.Pattern object at 0x55f41e021190> = re.compile('withCommandTimeout\\s*\\(\\s*api\\.call', re.MULTILINE|re.DOTALL).search
++    where <built-in method search of re.Pattern object at 0x55a625446a30> = re.compile('withCommandTimeout\\s*\\(\\s*api\\.call', re.MULTILINE|re.DOTALL).search
 
 AssertionError: usePython.ts must call withCommandTimeout(api.call(...)) AFTER the `if (!api)` guard, otherwise the renderer would wait for the 120s command timeout instead of surfacing the 'Python bridge not available' error immediately.
 assert None
- +  where None = <built-in method search of re.Pattern object at 0x55f41e021190>(');\n\t\t\tconst execute = async (): Promise<T> => {\n\t\t\t\t// Race the underlying bridge call against a per-command\n\t\t\t\t// timeout so a hung trivial command (e.g. `get_status`) surfaces\n\t\t\t\t// an error in seconds instead of the prior blanket 120s timeout\n\t\t\t\t// imposed by the predecessor main / Rust host. The underlying\n\t\t\t\t// promise may still resolve later; the caller sees the timeout\n\t\t\t\t// rejection first.\n\t\t\t\t//\n\t\t\t\t// Tauri/predecessor error-envelope normalization. On\n\t\t\t\t// Tauri v2, `invoke` rejects with a RAW STRING (not an Error)\n\t\t\t\t// when the Rust `dispatch` command returns an Err, the host\'s\n\t\t\t\t// `e.to_string()` becomes the rejection value verbatim. Callers\n\t\t\t\t// that guard with `err instanceof Error ? err.message : String(err)`\n\t\t\t\t// work, but callers that do `err.message` directly\n\t\t\t\t// (e.g. `Microphone.tsx:278`, `lib/utils/models.ts:252`) read\n\t\t\t\t// `undefined` and lose the server error message. We wrap the\n\t\t\t\t// `await withCommandTimeout` call in try/catch and re-throw:\n\t\t\t\t//   - Error instances propagate unchanged (no double-wrapping);\n\t\t\t\t//   - string rejections ...\n\t// better than implicit so future contributors don\'t accidentally\n\t// remove the entry thinking it\'s the default).\n\ttoggle_dictation: 30_000,\n\t// ADR-0023: resolves the pasted URL (yt-dlp extract) synchronously\n\t// before acknowledging. 115s = 5s BELOW the host\'s 120s\n\t// `DISPATCH_TIMEOUT_SECS` budget for the same command (see\n\t// `_LONG_RUNNING_COMMANDS` in `dispatch.rs`), so the renderer\n\t// surfaces the command-specific timeout first (house convention).\n\tmedia_transcribe_start: 115_000,\n};\n\nconst DEFAULT_COMMAND_TIMEOUT_MS = 30_000;\n\nexport function getTimeout(cmd: string): number {\n\treturn COMMAND_TIMEOUTS[cmd] ?? DEFAULT_COMMAND_TIMEOUT_MS;\n}\n\nexport function withCommandTimeout<T>(\n\tpromise: Promise<T>,\n\tcmd: string,\n): Promise<T> {\n\tconst timeoutMs = getTimeout(cmd);\n\tlet timer: ReturnType<typeof setTimeout> | undefined;\n\tconst timeoutPromise = new Promise<never>((_, reject) => {\n\t\ttimer = setTimeout(() => {\n\t\t\treject(new Error(`IPC command "${cmd}" timed out after ${timeoutMs}ms`));\n\t\t}, timeoutMs);\n\t});\n\treturn Promise.race([promise, timeoutPromise]).finally(() => {\n\t\tif (timer) clearTimeout(timer);\n\t});\n}\n')
- +    where <built-in method search of re.Pattern object at 0x55f41e021190> = re.compile('withCommandTimeout\\s*\\(\\s*api\\.call', re.MULTILINE|re.DOTALL).search
+ +  where None = <built-in method search of re.Pattern object at 0x55a625446a30>(');\n\t\t\tconst execute = async (): Promise<T> => {\n\t\t\t\t// Race the underlying bridge call against a per-command\n\t\t\t\t// timeout so a hung trivial command (e.g. `get_status`) surfaces\n\t\t\t\t// an error in seconds instead of the prior blanket 120s timeout\n\t\t\t\t// imposed by the predecessor main / Rust host. The underlying\n\t\t\t\t// promise may still resolve later; the caller sees the timeout\n\t\t\t\t// rejection first.\n\t\t\t\t//\n\t\t\t\t// Tauri/predecessor error-envelope normalization. On\n\t\t\t\t// Tauri v2, `invoke` rejects with a RAW STRING (not an Error)\n\t\t\t\t// when the Rust `dispatch` command returns an Err, the host\'s\n\t\t\t\t// `e.to_string()` becomes the rejection value verbatim. Callers\n\t\t\t\t// that guard with `err instanceof Error ? err.message : String(err)`\n\t\t\t\t// work, but callers that do `err.message` directly\n\t\t\t\t// (e.g. `Microphone.tsx:278`, `lib/utils/models.ts:252`) read\n\t\t\t\t// `undefined` and lose the server error message. We wrap the\n\t\t\t\t// `await withCommandTimeout` call in try/catch and re-throw:\n\t\t\t\t//   - Error instances propagate unchanged (no double-wrapping);\n\t\t\t\t//   - string rejections ...\n\t// better than implicit so future contributors don\'t accidentally\n\t// remove the entry thinking it\'s the default).\n\ttoggle_dictation: 30_000,\n\t// ADR-0023: resolves the pasted URL (yt-dlp extract) synchronously\n\t// before acknowledging. 115s = 5s BELOW the host\'s 120s\n\t// `DISPATCH_TIMEOUT_SECS` budget for the same command (see\n\t// `_LONG_RUNNING_COMMANDS` in `dispatch.rs`), so the renderer\n\t// surfaces the command-specific timeout first (house convention).\n\tmedia_transcribe_start: 115_000,\n};\n\nconst DEFAULT_COMMAND_TIMEOUT_MS = 30_000;\n\nexport function getTimeout(cmd: string): number {\n\treturn COMMAND_TIMEOUTS[cmd] ?? DEFAULT_COMMAND_TIMEOUT_MS;\n}\n\nexport function withCommandTimeout<T>(\n\tpromise: Promise<T>,\n\tcmd: string,\n): Promise<T> {\n\tconst timeoutMs = getTimeout(cmd);\n\tlet timer: ReturnType<typeof setTimeout> | undefined;\n\tconst timeoutPromise = new Promise<never>((_, reject) => {\n\t\ttimer = setTimeout(() => {\n\t\t\treject(new Error(`IPC command "${cmd}" timed out after ${timeoutMs}ms`));\n\t\t}, timeoutMs);\n\t});\n\treturn Promise.race([promise, timeoutPromise]).finally(() => {\n\t\tif (timer) clearTimeout(timer);\n\t});\n}\n')
+ +    where <built-in method search of re.Pattern object at 0x55a625446a30> = re.compile('withCommandTimeout\\s*\\(\\s*api\\.call', re.MULTILINE|re.DOTALL).search
 tests/tauri/mig19/test_reconnect_ux.py:425: in test_use_python_throws_when_bridge_missing
     assert call_re.search(rest), (
 E   AssertionError: usePython.ts must call withCommandTimeout(api.call(...)) AFTER the `if (!api)` guard, otherwise the renderer would wait for the 120s command timeout instead of surfacing the 'Python bridge not available' error immediately.
 E   assert None
-E    +  where None = <built-in method search of re.Pattern object at 0x55f41e021190>(');\n\t\t\tconst execute = async (): Promise<T> => {\n\t\t\t\t// Race the underlying bridge call against a per-command\n\t\t\t\t// timeout so a hung trivial command (e.g. `get_status`) surfaces\n\t\t\t\t// an error in seconds instead of the prior blanket 120s timeout\n\t\t\t\t// imposed by the predecessor main / Rust host. The underlying\n\t\t\t\t// promise may still resolve later; the caller sees the timeout\n\t\t\t\t// rejection first.\n\t\t\t\t//\n\t\t\t\t// Tauri
+E    +  where None = <built-in method search of re.Pattern object at 0x55a625446a30>(');\n\t\t\tconst execute = async (): Promise<T> => {\n\t\t\t\t// Race the underlying bridge call against a per-command\n\t\t\t\t// timeout so a hung trivial command (e.g. `get_status`) surfaces\n\t\t\t\t// an error in seconds instead of the prior blanket 120s timeout\n\t\t\t\t// imposed by the predecessor main / Rust host. The underlying\n\t\t\t\t// promise may still resolve later; the caller sees the timeout\n\t\t\t\t// rejection first.\n\t\t\t\t//\n\t\t\t\t// Tauri
 … (truncated)
 ```
 
@@ -120,12 +124,12 @@ E    +  where 51 = len(frozenset({'asr_backend_disabled', 'asr_backend_load_fail
 - Location: `tests/test_bubble_idle_state_push.py:18`
 
 ```
-assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        try:\n            app.tray.notify_safety(APP_NAME,'
+assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        _perm_msg = i18n.t("notify.recording_controller.m'
 
-assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        try:\n            app.tray.notify_safety(APP_NAME,'
+assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        _perm_msg = i18n.t("notify.recording_controller.m'
 tests/test_bubble_idle_state_push.py:18: in test_recording_start_pushes_recording_state
     assert 'set_state("recording")' in tail
-E   assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        try:\n            app.tray.notify_safety(APP_NAME,'
+E   assert 'set_state("recording")' in 'app._waveform_bubble.show()\n                app._waveform_bubble.set_state("permission_revoked")\n        except Exception:\n            log.debug("[DICTATION] permission bubble surface failed", exc_info=True)\n        try:\n            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed_permission"))\n        except Exception:\n            log.debug("[DICTATION] permission tray surface failed", exc_info=True)\n        _perm_msg = i18n.t("notify.recording_controller.m'
 ```
 
 ### 7. `tests.test_bubble_idle_state_push.test_recording_start_skips_bubble_when_hidden`
@@ -148,16 +152,16 @@ E   assert 'set_state("recording")' in 'bubble_behavior", "show_on_record") != "
 - Location: `tests/test_config_validators_split.py:165`
 
 ```
-+  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f42bd015a20>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f42bd015a20>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f42bd016b90>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f42bd016cb0>), ...})
++  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f52e56ceb00>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f52e56cec20>), ...})
 
 AssertionError: IPC_CONFIG_ALLOWLIST size drifted: expected 132, got 134. SEC-002 contract (AGENTS.md §6.3), adding/removing keys is a security-sensitive change that must be reviewed explicitly. Latest reviewed growth: 130 → 132, `screenshot_beta_enabled` + `screenshot_consent` (one-shot screenshot beta flags; bool-validated). Prior 129 → 130 growth: `active_plugin` (Plugins page activation switch; slug-validated, empty = local model). Prior 128 → 129 growth: `hallucination_filter_mode` (separate in-flight change).
 assert 134 == 132
- +  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f42bd015a20>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f42bd015a20>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f42bd016b90>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f42bd016cb0>), ...})
+ +  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f52e56ceb00>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f52e56cec20>), ...})
 tests/test_config_validators_split.py:165: in test_allowlist_size_unchanged
     assert len(IPC_CONFIG_ALLOWLIST) == 132, (
 E   AssertionError: IPC_CONFIG_ALLOWLIST size drifted: expected 132, got 134. SEC-002 contract (AGENTS.md §6.3), adding/removing keys is a security-sensitive change that must be reviewed explicitly. Latest reviewed growth: 130 → 132, `screenshot_beta_enabled` + `screenshot_consent` (one-shot screenshot beta flags; bool-validated). Prior 129 → 130 growth: `active_plugin` (Plugins page activation switch; slug-validated, empty = local model). Prior 128 → 129 growth: `hallucination_filter_mode` (separate in-flight change).
 E   assert 134 == 132
-E    +  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f42bd015a20>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f42bd015a20>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f42bd016b90>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f42bd016cb0>), ...})
+E    +  where 134 = len({'hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'repaste_hotkey': (<class 'str'>, <function _validate_hotkey at 0x7f52e56cd990>), 'microphone': ((<class 'str'>, <class 'NoneType'>), <function _make_optional_str_validator.<locals>._validate at 0x7f52e56ceb00>), 'model_size': (<class 'str'>, <function _make_enum_validator.<locals>._validate at 0x7f52e56cec20>), ...})
 ```
 
 ### 9. `tests.test_config_validators_split.TestAllowlistSnapshot.test_allowlist_keys_match_frozen_snapshot`
@@ -176,7 +180,29 @@ E   AssertionError: IPC_CONFIG_ALLOWLIST has extra keys not present in the pre-s
 E   assert not frozenset({'cloud_gemini_consent', 'gemini_api_key'})
 ```
 
-### 10. `tests.test_error_codes_registry.TestEmittedCodesAreRegisteredOrLegacy.test_all_emitted_codes_known`
+### 10. `tests.test_doc_command_counts.test_contributing_md_states_registry_count`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/test_doc_command_counts.py:100`
+
+```
++      where <built-in method group of re.Match object at 0x7f18022c52d0> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
+
+AssertionError: CONTRIBUTING.md documents 84-command registry but the actual _COMMAND_REGISTRY count is 85. Update the sidecar_ws.py row in CONTRIBUTING.md.
+assert 84 == 85
+ +  where 84 = int('84')
+ +    where '84' = <built-in method group of re.Match object at 0x7f18022c52d0>(1)
+ +      where <built-in method group of re.Match object at 0x7f18022c52d0> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
+tests/test_doc_command_counts.py:100: in test_contributing_md_states_registry_count
+    assert int(m.group(1)) == actual, (
+E   AssertionError: CONTRIBUTING.md documents 84-command registry but the actual _COMMAND_REGISTRY count is 85. Update the sidecar_ws.py row in CONTRIBUTING.md.
+E   assert 84 == 85
+E    +  where 84 = int('84')
+E    +    where '84' = <built-in method group of re.Match object at 0x7f18022c52d0>(1)
+E    +      where <built-in method group of re.Match object at 0x7f18022c52d0> = <re.Match object; span=(23931, 23961), match='reuses the 84-command registry'>.group
+```
+
+### 11. `tests.test_error_codes_registry.TestEmittedCodesAreRegisteredOrLegacy.test_all_emitted_codes_known`
 
 - Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_error_codes_registry.py:150`
@@ -202,7 +228,7 @@ E     voice_typer/server/handlers/screenshot_handlers.py:36 -> 'screenshot_unsup
 E     voice_typer/server/handlers/screenshot_handlers.py:40 -> 'screenshot_already_captured'
 ```
 
-### 11. `tests.test_hotkeys.TestApplyConfigReRegistersHotkeyForPushToTalk.test_service_apply_config_side_effects_handles_recording_mode`
+### 12. `tests.test_hotkeys.TestApplyConfigReRegistersHotkeyForPushToTalk.test_service_apply_config_side_effects_handles_recording_mode`
 
 - Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_hotkeys.py:29`
@@ -214,7 +240,7 @@ assert 'recording_mode' in '"""Config side-effect dispatcher (registered handler
 … (truncated)
 ```
 
-### 12. `tests.test_hotkeys.TestApplyConfigReRegistersHotkeyForPushToTalk.test_service_handles_hotkey_change`
+### 13. `tests.test_hotkeys.TestApplyConfigReRegistersHotkeyForPushToTalk.test_service_handles_hotkey_change`
 
 - Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_hotkeys.py:34`
@@ -226,23 +252,39 @@ assert '"hotkey" in updates' in '"""Config side-effect dispatcher (registered ha
 … (truncated)
 ```
 
-### 13. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_has_row_for_every_registry_command`
+### 14. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_has_row_for_every_registry_command`
 
 - Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_ipc_reference_doc_accuracy.py:118`
 
 ```
-assert not {'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent'}
+assert not {'open_mic_settings', 'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent'}
 
-AssertionError: _COMMAND_REGISTRY has 4 commands with no row in docs/ipc-reference.md: ['screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent']. Add a row in the appropriate namespace section of the doc.
-assert not {'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent'}
+AssertionError: _COMMAND_REGISTRY has 5 commands with no row in docs/ipc-reference.md: ['open_mic_settings', 'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent']. Add a row in the appropriate namespace section of the doc.
+assert not {'open_mic_settings', 'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent'}
 tests/test_ipc_reference_doc_accuracy.py:118: in test_ipc_reference_doc_has_row_for_every_registry_command
     assert not missing_from_doc, (
-E   AssertionError: _COMMAND_REGISTRY has 4 commands with no row in docs/ipc-reference.md: ['screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent']. Add a row in the appropriate namespace section of the doc.
-E   assert not {'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent'}
+E   AssertionError: _COMMAND_REGISTRY has 5 commands with no row in docs/ipc-reference.md: ['open_mic_settings', 'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent']. Add a row in the appropriate namespace section of the doc.
+E   assert not {'open_mic_settings', 'screenshot_capture', 'screenshot_clear_cycle', 'screenshot_get_status', 'screenshot_set_consent'}
 ```
 
-### 14. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_push_events_header_count_matches_source`
+### 15. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_commands_header_count_matches_registry`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/test_ipc_reference_doc_accuracy.py:146`
+
+```
+assert 80 == 85
+
+AssertionError: docs/ipc-reference.md documents 80 total commands but _COMMAND_REGISTRY has 85. Update the header.
+assert 80 == 85
+tests/test_ipc_reference_doc_accuracy.py:146: in test_ipc_reference_doc_commands_header_count_matches_registry
+    assert documented == actual, (
+E   AssertionError: docs/ipc-reference.md documents 80 total commands but _COMMAND_REGISTRY has 85. Update the header.
+E   assert 80 == 85
+```
+
+### 16. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_push_events_header_count_matches_source`
 
 - Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_ipc_reference_doc_accuracy.py:159`
@@ -258,23 +300,7 @@ E   AssertionError: docs/ipc-reference.md documents 63 typed push events but the
 E   assert 63 == 62
 ```
 
-### 15. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_commands_header_count_matches_registry`
-
-- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
-- Location: `tests/test_ipc_reference_doc_accuracy.py:146`
-
-```
-assert 80 == 84
-
-AssertionError: docs/ipc-reference.md documents 80 total commands but _COMMAND_REGISTRY has 84. Update the header.
-assert 80 == 84
-tests/test_ipc_reference_doc_accuracy.py:146: in test_ipc_reference_doc_commands_header_count_matches_registry
-    assert documented == actual, (
-E   AssertionError: docs/ipc-reference.md documents 80 total commands but _COMMAND_REGISTRY has 84. Update the header.
-E   assert 80 == 84
-```
-
-### 16. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_push_event_rows_match_source_types`
+### 17. `tests.test_ipc_reference_doc_accuracy.test_ipc_reference_doc_push_event_rows_match_source_types`
 
 - Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_ipc_reference_doc_accuracy.py:183`
@@ -290,7 +316,7 @@ E   AssertionError: docs/ipc-reference.md lists 1 push-event types that are NOT 
 E   assert not {'text_enhancement_failed'}
 ```
 
-### 17. `tests.test_macos_bundle_id.TestOnboardingSource.test_uses_runtime_resolution_and_no_hardcoded_bundle_id`
+### 18. `tests.test_macos_bundle_id.TestOnboardingSource.test_uses_runtime_resolution_and_no_hardcoded_bundle_id`
 
 - Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_macos_bundle_id.py:281`
@@ -303,7 +329,7 @@ assert 'resolve_host_bundle_id()' in '"""First-run detection + 4-step onboarding
 … (truncated)
 ```
 
-### 18. `tests.test_notifications.TestCriticalNotificationsBypassToggle.test_model_load_failure_uses_notify_safety`
+### 19. `tests.test_notifications.TestCriticalNotificationsBypassToggle.test_model_load_failure_uses_notify_safety`
 
 - Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_notifications.py:88`
@@ -315,4 +341,64 @@ assert 'notify_safety(' in 'reason=f"all backends failed to load (primary={_prim
 tests/test_notifications.py:88: in test_model_load_failure_uses_notify_safety
     assert "notify_safety(" in block
 E   assert 'notify_safety(' in 'reason=f"all backends failed to load (primary={_primary})",\n                )\n                self._app.tray.notify(\n                    APP_NAME,\n                    i18n.t(\n                        "notify.model_manager.load_failed_critical",\n                        hotkey=notification_hotkey_label(self._app.config.hotkey),\n                    ),\n                )\n                # Clear the pend'
+```
+
+### 20. `tests.test_pyrefly_baseline_accuracy.test_errors_array_has_no_stale_entries`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/test_pyrefly_baseline_accuracy.py:65`
+
+```
+[277] voice_typer/server/service/model/_downloads.py:739 -- line 739 past EOF (407 lines) of voice_typer/server/service/model/_downloads.py
+
+Failed: pyrefly-baseline.json: 2 stale entries in `errors` array (of 359 total). Each stale entry must be either remapped to its live location or dropped.
+  [276] voice_typer/server/service/model/_downloads.py:697 -- line 697 past EOF (407 lines) of voice_typer/server/service/model/_downloads.py
+  [277] voice_typer/server/service/model/_downloads.py:739 -- line 739 past EOF (407 lines) of voice_typer/server/service/model/_downloads.py
+tests/test_pyrefly_baseline_accuracy.py:65: in test_errors_array_has_no_stale_entries
+    pytest.fail(
+E   Failed: pyrefly-baseline.json: 2 stale entries in `errors` array (of 359 total). Each stale entry must be either remapped to its live location or dropped.
+E     [276] voice_typer/server/service/model/_downloads.py:697 -- line 697 past EOF (407 lines) of voice_typer/server/service/model/_downloads.py
+E     [277] voice_typer/server/service/model/_downloads.py:739 -- line 739 past EOF (407 lines) of voice_typer/server/service/model/_downloads.py
+```
+
+### 21. `tests.test_recording_lifecycle_threaded.TestRecordingStartFailureReason.test_permission_denied_surfaces_reason`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/test_recording_lifecycle_threaded.py:425`
+
+```
+AttributeError: 'NoneType' object has no attribute 'args'
+
+AttributeError: 'NoneType' object has no attribute 'args'
+tests/test_recording_lifecycle_threaded.py:425: in test_permission_denied_surfaces_reason
+    notify_msg = str(notify_mock.call_args.args[1])
+E   AttributeError: 'NoneType' object has no attribute 'args'
+```
+
+### 22. `tests.test_service_i18n_tray_notices.TestHotkeyDispatcherSourceUsesI18n.test_hotkey_dispatcher_no_hardcoded_notice_bodies`
+
+- Legs: ubuntu-22.04-3.10, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/test_service_i18n_tray_notices.py:225`
+
+```
+assert 'i18n_t(' in '"""#2 HotkeyDispatcher, extracted from LausuApp.\n\nOwns global hotkey registration: dictation toggle hotkey, ESC cancel\nhotkey, and repaste hotkey. Each hotkey gets its own HotkeyBackend\ninstance (Win32 native, pynput, or Wayland), unless an identical spec\nis already tracked in ``_shared_backend_pool``, in which case the\nexisting backend is reused (rare; e.g. two roles bound to the same key).\n\nPreviously this concern lived in LausuApp as ~100 LOC across:\n    _register_hotkey, _register_esc_hotkey, _unregister_esc_hotkey,\n    _register_repaste_hotkey, _restart_hotkey\n\nThe bodies live in the split mixins composed below (pool / registration /\ndispatch / ptt-safety / lifecycle); this module keeps the class, the\nfacade-owned state, and the module names tests monkeypatch.\n\nTODO, full per-spec backend pooling (deferred; touches native binary\nwire protocol)\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nThe current implementation pools the THREE ROLES (dictation / ESC /\nrepaste) into a single native subprocess via the ``_shared_backend``\nextra-matcher mechanism (see class docstring). It ALSO tracks every\ncreated backend by spec in ``_shared_backend...p\n        self._hotkey_backend: HotkeyBackend | None = None\n        self._esc_backend: HotkeyBackend | None = None\n        self._repaste_backend: HotkeyBackend | None = None\n        # Shared backend handle, the dictation backend, whose native\n        self._shared_backend: HotkeyBackend | None = None\n        # Per-spec backend pool, tracks every live backend by its\n        self._shared_backend_pool: dict[str, HotkeyBackend] = {}\n        # Stashed ESC / repaste callbacks so :meth:`_repool_aux_into_shared`\n        self._esc_callback: Any = None\n        self._repaste_callback: Any = None\n        # track the last-registered ESC and repaste specs so\n        self._esc_spec: str | None = None\n        self._repaste_spec: str | None = None\n        # re-entrancy guard for\n        self._resyncing_aux = False\n        # threading.Event for atomic cross-\n        self._esc_pending_capture_exit_event: threading.Event = threading.Event()\n        # PTT safety timer. None when not armed (toggle mode,\n        self._ptt_safety_timer: threading.Timer | None = None\n\n    # PTT safety timeout. Push-to-talk starts recording on key-down\n    _PTT_SAFETY_TIMEOUT_SECONDS: float = 60.0\n\n'
+
+assert 'i18n_t(' in '"""#2 HotkeyDispatcher, extracted from LausuApp.\n\nOwns global hotkey registration: dictation toggle hotkey, ESC cancel\nhotkey, and repaste hotkey. Each hotkey gets its own HotkeyBackend\ninstance (Win32 native, pynput, or Wayland), unless an identical spec\nis already tracked in ``_shared_backend_pool``, in which case the\nexisting backend is reused (rare; e.g. two roles bound to the same key).\n\nPreviously this concern lived in LausuApp as ~100 LOC across:\n    _register_hotkey, _register_esc_hotkey, _unregister_esc_hotkey,\n    _register_repaste_hotkey, _restart_hotkey\n\nThe bodies live in the split mixins composed below (pool / registration /\ndispatch / ptt-safety / lifecycle); this module keeps the class, the\nfacade-owned state, and the module names tests monkeypatch.\n\nTODO, full per-spec backend pooling (deferred; touches native binary\nwire protocol)\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nThe current implementation pools the THREE ROLES (dictation / ESC /\nrepaste) into a single native subprocess via the ``_shared_backend``\nextra-matcher mechanism (see class docstring). It ALSO tracks every\ncreated backend by spec in ``_shared_backend...p\n        self._hotkey_backend: HotkeyBackend | None = None\n        self._esc_backend: HotkeyBackend | None = None\n        self._repaste_backend: HotkeyBackend | None = None\n        # Shared backend handle, the dictation backend, whose native\n        self._shared_backend: HotkeyBackend | None = None\n        # Per-spec backend pool, tracks every live
+… (truncated)
+```
+
+### 23. `tests.test_hotkeys_win32.TestModifierOnlyHotkeys.test_alt_only_hotkey_starts_without_error`
+
+- Legs: ubuntu-22.04-3.13
+- Location: `tests/test_hotkeys_win32.py:285`
+
+```
+AssertionError: LL hook handle never installed for modifier-only spec (waited 15.0s)
+
+AssertionError: LL hook handle never installed for modifier-only spec (waited 15.0s)
+tests/test_hotkeys_win32.py:285: in test_alt_only_hotkey_starts_without_error
+    _wait_until(
+tests/test_hotkeys_win32.py:28: in _wait_until
+    raise AssertionError(f"{msg} (waited {timeout}s)")
+E   AssertionError: LL hook handle never installed for modifier-only spec (waited 15.0s)
 ```
