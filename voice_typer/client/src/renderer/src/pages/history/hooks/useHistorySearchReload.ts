@@ -18,7 +18,7 @@ export interface UseHistorySearchReloadOptions {
 	/** Whether the favorites-only filter is active. */
 	favoritesOnly: boolean;
 	/** The page's fresh-load wrapper (resets the visible-row window). */
-	runLoad: (query?: string, favoritesOnly?: boolean) => Promise<void>;
+	runLoad: (query?: string, favoritesOnly?: boolean) => Promise<unknown>;
 }
 
 export function useHistorySearchReload({

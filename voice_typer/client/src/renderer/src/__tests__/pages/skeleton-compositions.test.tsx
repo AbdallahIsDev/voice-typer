@@ -6,7 +6,10 @@ import { SettingsSkeleton } from "@/components/settings/SettingsSkeleton";
 // the skeletons are mounted directly with the real catalogue, so the
 // accessible name is the real localized string. Resolve it once.
 import en from "@/i18n/translations/en.json";
-import { DashboardSkeleton } from "@/pages/dashboard/components/DashboardSkeleton";
+import {
+	DashboardSkeleton,
+	DashboardSkeletonBody,
+} from "@/pages/dashboard/components/DashboardSkeleton";
 import { HistorySkeleton } from "@/pages/history/components/HistorySkeleton";
 import { MicrophoneSkeleton } from "@/pages/microphone/components/MicrophoneSkeleton";
 import { ModelsSkeleton } from "@/pages/models/components/ModelsSkeleton";
@@ -168,5 +171,24 @@ describe("DashboardSkeleton", () => {
 		// The derived-metrics row is gone: all six cells live in the
 		// merged stat card, so no loose gapped card grid is reserved.
 		expect(region?.querySelectorAll(".sm\\:grid-cols-3").length).toBe(0);
+	});
+
+	it("reserves the heatmap card geometry (C-LIFE-2)", () => {
+		// First load grows the page when the fluid heatmap card
+		// arrives below the chart. The skeleton reserves its box with
+		// the same aspect geometry the loaded card uses — a plain box,
+		// no fake cells.
+		render(<DashboardSkeleton />);
+		const region = document.querySelector("section[aria-busy=true]");
+		expect(region?.querySelector('[class*="aspect-"]')).not.toBeNull();
+	});
+
+	it("DashboardSkeletonBody renders the blocks without its own shell", () => {
+		// First-load path pairs the REAL heading with this body: no
+		// section shell, no heading placeholder of its own.
+		const { container } = render(<DashboardSkeletonBody />);
+		expect(container.querySelector("section[aria-busy=true]")).toBeNull();
+		expect(container.querySelectorAll(".divide-y > .min-h-24").length).toBe(6);
+		expect(container.querySelectorAll(".rounded-t-\\[4px\\]").length).toBe(7);
 	});
 });

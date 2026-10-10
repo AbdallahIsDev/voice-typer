@@ -162,7 +162,7 @@ export default function AboutAndPrivacyPage() {
 				<div className="flex items-center gap-3 px-4 pt-4">
 					<Logo size={40} className="shrink-0" />
 					<div className="min-w-0">
-						<h2 className="text-lg font-semibold tracking-tight text-foreground">
+						<h2 className="text-lg font-medium tracking-tight text-foreground">
 							{APP_NAME}
 						</h2>
 						<p className="truncate text-xs text-muted-foreground">

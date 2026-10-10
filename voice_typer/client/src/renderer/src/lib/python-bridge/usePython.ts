@@ -66,22 +66,30 @@ export function __resetPythonSingleFlightForTests(): void {
 	_bridgeHasDelivered = false;
 }
 
-// Cold-start read retry: the first get_* after launch races the backend's
-// boot storm (VAD/mic/hotkey/CUDA threads + keyring first-probe) while the
+// Cold-start wait (gRPC wait-for-ready with a deadline): the first
+// get_* after launch races the backend's boot storm (VAD/mic/hotkey/CUDA
+// threads + keyring first-probe + multi-GB model warm) while the
 // renderer's own 5s get_config budget fires on calls the host would have
-// answered within its 15s. Every page loads through this one `call`, so the
-// retry lives here instead of per-page: present and future pages inherit
-// it. Bounded four ways: idempotent reads only (writes never re-fire),
-// timeout-shaped errors only (refusals still surface fast), a fixed
-// attempt budget, and ONLY until the bridge delivers its first success —
-// after that the behavior is exactly what it was (fast failure). A retry
-// that outlives its caller is harmless: single-flight entries self-remove
-// and every page guards setState with cancellation flags.
+// answered within its 15s. Every page loads through this one `call`, so
+// the wait lives here instead of per-page: present and future pages
+// inherit it, and nothing breaks in the first place — pages show their
+// loading state until the backend answers instead of flashing an error
+// screen that needs healing. Bounded four ways: idempotent reads only
+// (writes never wait), timeout-shaped errors only (refusals still
+// surface fast), a total wait deadline (a truly dead backend still
+// surfaces, slowly), and ONLY until the bridge delivers its first
+// success — after that the behavior is exactly what it was (fast
+// failure). A wait that outlives its caller is harmless: single-flight
+// entries self-remove and every page guards setState with cancellation
+// flags.
 let _bridgeHasDelivered = false;
-/** Extra attempts per call while the bridge never succeeded. */
-const COLD_START_READ_RETRIES = 3;
-/** Backoff between those attempts (storms clear in seconds, not ms). */
-const COLD_START_READ_BACKOFF_MS = [500, 1_500, 3_000];
+/** Total wait budget per call while the bridge never succeeded. Covers
+ *  slow model warms (~25s observed) with headroom; a dead backend
+ *  surfaces after this instead of spinning forever. */
+const COLD_START_WAIT_BUDGET_MS = 90_000;
+/** Backoff between attempts (storms clear in seconds, not ms; the tail
+ *  repeats while the deadline holds). */
+const COLD_START_WAIT_BACKOFF_MS = [500, 1_500, 3_000, 5_000];
 
 function _sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -91,6 +99,7 @@ async function _callWithColdStartRetry(
 	invoke: () => Promise<unknown>,
 	type: string,
 ): Promise<unknown> {
+	const startedAt = Date.now();
 	let attempt = 0;
 	for (;;) {
 		try {
@@ -102,15 +111,17 @@ async function _callWithColdStartRetry(
 				!_bridgeHasDelivered &&
 				_isSingleFlightEligible(type) &&
 				isTransientTimeoutError(err);
-			if (!retryable || attempt >= COLD_START_READ_RETRIES) throw err;
-			// Indexed access yields `number | undefined` under
-			// noUncheckedIndexedAccess; the index is clamped above so the
-			// fallback only satisfies tsc, it never fires at runtime.
-			await _sleep(
-				COLD_START_READ_BACKOFF_MS[
-					Math.min(attempt, COLD_START_READ_BACKOFF_MS.length - 1)
-				] ?? 3_000,
-			);
+			// Deadline-bounded (wait-for-ready): a booting backend keeps
+			// getting patience; a dead one exhausts the budget and the
+			// last error surfaces to the page's error state.
+			if (!retryable) throw err;
+			const backoff =
+				COLD_START_WAIT_BACKOFF_MS[
+					Math.min(attempt, COLD_START_WAIT_BACKOFF_MS.length - 1)
+				] ?? 5_000;
+			if (Date.now() - startedAt + backoff >= COLD_START_WAIT_BUDGET_MS)
+				throw err;
+			await _sleep(backoff);
 			attempt += 1;
 		}
 	}

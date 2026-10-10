@@ -211,7 +211,7 @@ describe("AnalyticsRangeSwitcher custom entry", () => {
 		expect(iconClass).toMatch(/group-hover:opacity-100/);
 	});
 
-	it("anchors the panel centered below the pill row", () => {
+	it("hangs the panel from an anchor directly below the pill row", () => {
 		render(<AnalyticsRangeSwitcher currentPage="analytics" />);
 
 		fireEvent.click(
@@ -220,54 +220,113 @@ describe("AnalyticsRangeSwitcher custom entry", () => {
 		const dialog = screen.getByRole("dialog", {
 			name: t("analytics.rangeAria"),
 		});
-		const root = dialog.closest("[data-open]");
-		expect(root?.getAttribute("class") ?? "").toMatch(/absolute/);
-		expect(root?.getAttribute("class") ?? "").toMatch(/-translate-x-1\/2/);
-		expect(root?.getAttribute("class") ?? "").toMatch(
-			/top-\[calc\(100%\+8px\)\]/,
+
+		// Trigger-less: the panel IS the floating container, with no
+		// surface wrapper between it and the picker's root.
+		const root = dialog.parentElement;
+		expect(root?.getAttribute("class") ?? "").toContain("_root");
+		expect(root?.getAttribute("class") ?? "").not.toContain("surface");
+
+		// The anchor is a PLAIN div, so its positioning utilities actually
+		// apply. The picker's own root is `position: relative` from its
+		// stylesheet, which silently beats a layered `absolute` utility —
+		// the old markup put these classes on the root and the panel
+		// ended up hanging off the end of the row instead of under it.
+		const anchor = root?.parentElement;
+		const anchorClass = anchor?.getAttribute("class") ?? "";
+		expect(anchorClass).toContain("absolute");
+		expect(anchorClass).toContain("right-0");
+		expect(anchorClass).toContain("top-[calc(100%+8px)]");
+		// ...and the row is what it is positioned against.
+		expect(anchor?.parentElement?.getAttribute("class") ?? "").toContain(
+			"relative",
 		);
+
+		// align="end": the panel grows leftward from the anchor, so its
+		// right edge stays under the Custom pill rather than opening off
+		// the right of the window.
+		expect(dialog.getAttribute("style") ?? "").toContain("top right");
 	});
 
-	it("outside dismiss collapses the surface (no hollow box lingers)", async () => {
-		// jsdom reports zero layout everywhere: give the panel a real
-		// box so "collapsed to zero" means something. Pre-fix the
-		// close path early-returned and the surface kept its size.
-		const widthSpy = vi
-			.spyOn(HTMLElement.prototype, "offsetWidth", "get")
-			.mockImplementation(function (this: HTMLElement) {
-				return this.getAttribute("role") === "dialog" ? 320 : 0;
-			});
-		const heightSpy = vi
-			.spyOn(HTMLElement.prototype, "offsetHeight", "get")
-			.mockImplementation(function (this: HTMLElement) {
-				return this.getAttribute("role") === "dialog" ? 400 : 0;
-			});
-		try {
-			render(<AnalyticsRangeSwitcher currentPage="analytics" />);
+	it("re-clicking the Custom pill while open leaves the panel and the row alone", () => {
+		render(<AnalyticsRangeSwitcher currentPage="analytics" />);
 
-			fireEvent.click(
-				screen.getByRole("radio", { name: t("analytics.range.custom") }),
-			);
-			const dialog = screen.getByRole("dialog", {
-				name: t("analytics.rangeAria"),
-			});
-			// Surface is the panel's parent.
-			const surface = dialog.parentElement;
-			expect(surface).toBeTruthy();
+		const custom = screen.getByRole("radio", {
+			name: t("analytics.range.custom"),
+		});
+		fireEvent.click(custom);
+		expect(
+			screen.getByRole("dialog", { name: t("analytics.rangeAria") }),
+		).toBeTruthy();
 
-			fireEvent.pointerDown(document.body);
+		// A click is a pointerdown THEN a click. The pointerdown lands on
+		// the pill row, which the picker's dismissGuard reports as INSIDE.
+		// Without that the panel dismisses here and the click reopens it,
+		// so the active indicator animates off the pill and back — the
+		// glitch this guards.
+		fireEvent.pointerDown(custom.closest("label") as HTMLElement);
+		expect(
+			screen.queryByRole("dialog", { name: t("analytics.rangeAria") }),
+		).toBeTruthy();
+		expect(custom).toBeChecked();
 
-			await waitFor(() =>
-				expect(surface?.getAttribute("style") ?? "").toMatch(/width:\s*0px/),
-			);
-			await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-			expect(
-				screen.getByRole("radio", { name: t("analytics.range.7d") }),
-			).toBeChecked();
-		} finally {
-			widthSpy.mockRestore();
-			heightSpy.mockRestore();
-		}
+		// The click itself is idempotent: still open, still on Custom.
+		fireEvent.click(custom);
+		expect(
+			screen.queryByRole("dialog", { name: t("analytics.rangeAria") }),
+		).toBeTruthy();
+		expect(custom).toBeChecked();
+	});
+
+	// Once a custom range is committed the Custom pill IS the active radio
+	// value, and a radio ignores a re-click of itself — so `onChange` never
+	// fires and, without the primitive's `onOptionActivate`, the panel could
+	// never be reopened. This is the regression guard for that.
+	it("reopens the panel when a custom range is already committed", () => {
+		useAnalyticsRange.setState({
+			range: "custom",
+			customWindow: { startKey: "2026-09-01", endKey: "2026-09-03" },
+		});
+		render(<AnalyticsRangeSwitcher currentPage="analytics" />);
+
+		const custom = screen.getByRole("radio", {
+			name: t("analytics.range.custom"),
+		});
+		expect(custom).toBeChecked();
+		expect(
+			screen.queryByRole("dialog", { name: t("analytics.rangeAria") }),
+		).toBeNull();
+
+		fireEvent.click(custom);
+
+		expect(
+			screen.getByRole("dialog", { name: t("analytics.rangeAria") }),
+		).toBeTruthy();
+		// Still Custom: reopening must not move the selection.
+		expect(custom).toBeChecked();
+		expect(useAnalyticsRange.getState().range).toBe("custom");
+	});
+
+	it("outside dismiss unmounts the panel and leaves no hollow box", async () => {
+		render(<AnalyticsRangeSwitcher currentPage="analytics" />);
+
+		fireEvent.click(
+			screen.getByRole("radio", { name: t("analytics.range.custom") }),
+		);
+		const dialog = screen.getByRole("dialog", {
+			name: t("analytics.rangeAria"),
+		});
+		// Trigger-less: nothing sizes a surface, so there is no wrapper to
+		// strand at the panel's old size once it closes.
+		const root = dialog.parentElement;
+		expect(root?.getAttribute("class") ?? "").not.toContain("surface");
+
+		fireEvent.pointerDown(document.body);
+
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(
+			screen.getByRole("radio", { name: t("analytics.range.7d") }),
+		).toBeChecked();
 	});
 
 	it("picking two days auto-applies a custom window, pills stay", () => {

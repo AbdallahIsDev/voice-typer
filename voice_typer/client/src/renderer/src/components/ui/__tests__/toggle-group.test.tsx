@@ -100,6 +100,52 @@ describe("ToggleGroup (default variant)", () => {
 		await user.click(screen.getByText("Left"));
 		expect(onChange).not.toHaveBeenCalled();
 	});
+
+	// The disclosure-trigger case: an option that is BOTH a value and a
+	// thing you open. A radio fires `change` only when its value actually
+	// changes, so a re-click of the active option is invisible to
+	// `onChange` — `onOptionActivate` is the hook that still sees it.
+	it("calls onOptionActivate on a re-click of the already-active option, and onChange still stays quiet", async () => {
+		const user = userEvent.setup();
+		const onChange = vi.fn();
+		const onOptionActivate = vi.fn();
+
+		render(
+			<ToggleGroup
+				options={TWO_OPTIONS}
+				value="left"
+				onChange={onChange}
+				onOptionActivate={onOptionActivate}
+				ariaLabel="test-control"
+			/>,
+		);
+
+		await user.click(screen.getByText("Left"));
+		expect(onOptionActivate).toHaveBeenCalledTimes(1);
+		expect(onOptionActivate).toHaveBeenCalledWith("left");
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("calls onOptionActivate exactly once per click when the option really changes", async () => {
+		const user = userEvent.setup();
+		const onChange = vi.fn();
+		const onOptionActivate = vi.fn();
+
+		render(
+			<ToggleGroup
+				options={TWO_OPTIONS}
+				value="left"
+				onChange={onChange}
+				onOptionActivate={onOptionActivate}
+				ariaLabel="test-control"
+			/>,
+		);
+
+		await user.click(screen.getByText("Right"));
+		expect(onOptionActivate).toHaveBeenCalledTimes(1);
+		expect(onOptionActivate).toHaveBeenCalledWith("right");
+		expect(onChange).toHaveBeenCalledTimes(1);
+	});
 });
 
 // ── Accessibility ────────────────────────────────────────────────────────────

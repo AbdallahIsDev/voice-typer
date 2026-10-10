@@ -652,7 +652,7 @@ describe("Settings.tsx, hub + section pages render model", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps the 4px heading tier and gives the section cards their own 6px stack", async () => {
+	it("keeps the 4px heading tier and gives the section cards their own 12px stack", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MINIMAL_CONFIG);
 			if (type === "set_config") return Promise.resolve({ success: true });
@@ -674,11 +674,14 @@ describe("Settings.tsx, hub + section pages render model", () => {
 		);
 		expect(root?.className).toContain("gap-4");
 
-		// Tier 2 — the cards: their own stack, so consecutive cards are 6
+		// Tier 2 — the cards: their own stack, so consecutive cards are 12
 		// apart instead of inheriting the heading tier's 4. Advanced
 		// renders several, which is exactly the case that regressed.
+		// (48px: the wider card rhythm the Settings page uses, per the
+		// user's call on 2026-10-10 — it is deliberately looser than the
+		// 24px a data page's own `gap-6` shell gives its stacked blocks.)
 		const stack = Array.from(root?.children ?? []).find((el) =>
-			(el as HTMLElement).className.includes("gap-6"),
+			(el as HTMLElement).className.includes("gap-12"),
 		) as HTMLElement | undefined;
 		expect(stack).toBeTruthy();
 		expect(stack?.className).toContain("flex-col");

@@ -27,6 +27,8 @@ vi.mock("@/i18n/i18n", () => ({
 }));
 
 import { useModelSelection } from "@/hooks/models/useModelSelection";
+import { __resetIpcCacheForTests } from "@/lib/ipcCache";
+import { __resetPrefetchFlightsForTests } from "@/lib/snapshotCache";
 // ── Helpers ──────────────────────────────────────────────────────────
 import type { ModelInfo } from "@/lib/utils/models";
 import type { LausuConfig } from "@/types/config";
@@ -81,6 +83,8 @@ function makeHookArgs(
 
 beforeEach(() => {
 	callMock.mockReset();
+	__resetIpcCacheForTests();
+	__resetPrefetchFlightsForTests();
 });
 
 afterEach(() => {
@@ -389,6 +393,40 @@ describe("useModelSelection, requestDeleteModel + confirmDelete", () => {
 			"success",
 		);
 		expect(result.current.deleteModelTarget).toBeNull();
+	});
+
+	it("confirmDelete rewrites the cached status entry so no revisit serves downloaded:true", async () => {
+		// Seed a fresh snapshot claiming the model is downloaded (as a
+		// mount would have written it).
+		const { writeIpcCache, peekIpcCache } = await import("@/lib/ipcCache");
+		writeIpcCache("models.statusSnapshot", {
+			status: { "large-v3-turbo": { downloaded: true, deps_ok: true } },
+			fetchedAt: Date.now(),
+		});
+		callMock.mockResolvedValue({ success: true });
+		const args = makeHookArgs({
+			setModels: vi.fn() as unknown as React.Dispatch<
+				React.SetStateAction<ModelInfo[]>
+			>,
+		});
+		const { result } = renderHook(() => useModelSelection(args));
+
+		act(() => {
+			result.current.requestDeleteModel(
+				makeModel({ name: "large-v3-turbo", isActive: false }),
+			);
+		});
+		await act(async () => {
+			await result.current.confirmDelete();
+		});
+
+		const snap = peekIpcCache<{
+			status: Record<string, { downloaded: boolean }>;
+			fetchedAt: number;
+		}>("models.statusSnapshot");
+		expect(snap?.status["large-v3-turbo"]?.downloaded).toBe(false);
+		// Rewritten fresh: the next reader trusts it without re-statting.
+		expect(Date.now() - (snap?.fetchedAt ?? 0)).toBeLessThan(30_000);
 	});
 
 	it("confirmDelete maps the backend reason code to a localized snack (not backend English)", async () => {

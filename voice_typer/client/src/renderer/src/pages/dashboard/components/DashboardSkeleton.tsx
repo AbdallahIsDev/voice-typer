@@ -49,25 +49,12 @@ function StatCardSkeleton() {
 	);
 }
 
-export function DashboardSkeleton() {
+// Body below the heading (stat card + chart), no shell. The first-load
+// path in Dashboard.tsx renders the REAL heading (Share always mounted,
+// C-CACHE-6) above this body instead of the heading skeleton.
+export function DashboardSkeletonBody() {
 	return (
-		<section
-			aria-label={t("analytics.loadingAria")}
-			aria-busy="true"
-			className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-20 pb-6"
-		>
-			{/* The heading's action row: the share trigger and the refresh
-			    button, both `size="icon"` (36px) squares. Reserving them
-			    here keeps the stat card from jumping up when the heading
-			    hydrates with its actions. */}
-			<HeadingSkeleton
-				action={
-					<>
-						<Skeleton className="h-9 w-9 rounded-lg" />
-						<Skeleton className="h-9 w-9 rounded-lg" />
-					</>
-				}
-			/>
+		<>
 			<div className="overflow-hidden rounded-lg border border-border/8 bg-surface-subtle">
 				<div className="grid grid-cols-1 divide-y divide-border/8 md:grid-cols-3 md:divide-x md:divide-y-0">
 					{ROW_1_IDS.map((id) => (
@@ -102,12 +89,55 @@ export function DashboardSkeleton() {
 						))}
 					</div>
 				</div>
-				<div className="flex gap-2">
+				{/* Same fixed two-line row as the loaded chart (C-LIFE-2):
+			    one placeholder line anchored top, so skeleton and
+			    content boxes match on every range. */}
+				<div className="flex h-8 gap-2">
 					{CHART_LABEL_IDS.map((id) => (
 						<Skeleton key={id} className="mx-auto h-3 w-8" />
 					))}
 				</div>
 			</div>
+			{/* Heatmap reservation: the loaded card below the chart renders
+		    a fluid grid whose height is width-driven (aspect ~6/1,
+		    C-LIFE-2). Without this block the first load grows the page
+		    when the card arrives. Same geometry as the real card, no
+		    fake cells — a plain reserved box. */}
+			<div className="flex flex-col gap-4 rounded-lg border border-border/8 bg-surface-subtle p-4">
+				<div className="flex items-baseline justify-between gap-3">
+					<Skeleton className="h-5 w-32" />
+					<Skeleton className="h-4 w-20 shrink-0" />
+				</div>
+				<Skeleton className="aspect-[6/1] min-h-16 w-full" />
+				<div className="flex items-center justify-between gap-3">
+					<Skeleton className="h-3 w-24" />
+					<Skeleton className="h-3 w-16 shrink-0" />
+				</div>
+			</div>
+		</>
+	);
+}
+
+export function DashboardSkeleton() {
+	return (
+		<section
+			aria-label={t("analytics.loadingAria")}
+			aria-busy="true"
+			className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-20 pb-6"
+		>
+			{/* The heading's action row: the share trigger and the refresh
+			    button, both `size="icon"` (36px) squares. Reserving them
+			    here keeps the stat card from jumping up when the heading
+			    hydrates with its actions. */}
+			<HeadingSkeleton
+				action={
+					<>
+						<Skeleton className="h-9 w-9 rounded-lg" />
+						<Skeleton className="h-9 w-9 rounded-lg" />
+					</>
+				}
+			/>
+			<DashboardSkeletonBody />
 		</section>
 	);
 }

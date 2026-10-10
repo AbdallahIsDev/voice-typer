@@ -1037,6 +1037,17 @@ describe("ModelsPage, initial load failure shows an error state with Retry", () 
 		// variant="error" wraps the card in role="alert".
 		expect(screen.getByRole("alert")).toBeTruthy();
 
+		// The card must sit in the page shell, not full-bleed across the
+		// pane. This branch used to render `flex h-full items-center
+		// justify-center` — no measure, no horizontal padding — so the card
+		// stretched edge-to-edge and its 8% border touched the window
+		// chrome, the only full-bleed surface in the app. Class assertions
+		// because jsdom does no layout (the geometry is verified in
+		// `pages/__tests__/page-shell-consistency.test.ts`).
+		const shell = screen.getByRole("alert").parentElement;
+		expect(shell?.className).toContain("max-w-4xl");
+		expect(shell?.className).toContain("px-16");
+
 		const retryButton = screen.getByRole("button", {
 			name: t("models.retry"),
 		});

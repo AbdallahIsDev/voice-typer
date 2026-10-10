@@ -59,6 +59,17 @@ export interface ToggleGroupProps<T extends string> {
 	labelClassName?: string;
 	getTabId?: (value: T) => string;
 	getPanelId?: (value: T) => string;
+	/**
+	 * Fires on EVERY option click, including a re-click of the option that
+	 * is already active. `onChange` deliberately stays quiet there (radio
+	 * semantics: re-selecting the current value is a no-op), but an option
+	 * that doubles as a disclosure trigger still needs that second click.
+	 * The Analytics calendar pill is the case in point: once a custom
+	 * range is committed it IS the active value, so without this hook a
+	 * re-click could never reopen its panel. Wired to the control's click
+	 * (not its change), so it fires once per click in both variants.
+	 */
+	onOptionActivate?: (value: T) => void;
 }
 export function ToggleGroup<T extends string>({
 	options,
@@ -72,6 +83,7 @@ export function ToggleGroup<T extends string>({
 	labelClassName,
 	getTabId,
 	getPanelId,
+	onOptionActivate,
 	disabled = false,
 }: ToggleGroupProps<T>) {
 	const isTabs = variant === "tabs";
@@ -376,13 +388,16 @@ export function ToggleGroup<T extends string>({
 							tabIndex={active ? 0 : -1}
 							aria-selected={active}
 							disabled={disabled}
-							onClick={handleRadioChange}
+							onClick={() => {
+								onOptionActivate?.(opt.value);
+								handleRadioChange();
+							}}
 							className={cn(
 								"group relative z-10 cursor-pointer font-normal outline-hidden transition-colors duration-150",
 								"select-none whitespace-nowrap inline-flex items-center justify-center gap-1",
 								// A11Y-1: visible focus indicator for keyboard users.
 								"focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden",
-								"rounded-none px-3 py-2 text-[0.8125rem] font-medium",
+								"rounded-none px-3 py-2 text-xs-plus font-medium",
 								labelClassName,
 								active && "text-foreground",
 								!active && "text-muted-foreground hover:text-foreground",
@@ -442,6 +457,12 @@ export function ToggleGroup<T extends string>({
 							}
 							checked={active}
 							disabled={disabled}
+							// `onClick`, not `onChange`: a radio fires `change` only
+							// when its value actually changes, so a re-click of the
+							// already-checked option — the disclosure-trigger case —
+							// would be invisible. A click always fires, and clicking
+							// the wrapping <label> dispatches it here exactly once.
+							onClick={() => onOptionActivate?.(opt.value)}
 							onChange={handleRadioChange}
 							//explicit accessible name so icon-only options
 							// (label === "") are announced via title.

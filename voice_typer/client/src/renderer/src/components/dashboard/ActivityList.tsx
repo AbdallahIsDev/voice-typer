@@ -426,7 +426,7 @@ function ActivityListInner({
 								<div className="px-4 pt-3 pb-1">
 									<h2
 										id={`history-date-${group.key}`}
-										className="text-xs font-semibold tracking-wide text-muted-foreground"
+										className="text-xs font-medium tracking-wide text-muted-foreground"
 									>
 										{group.label}
 									</h2>

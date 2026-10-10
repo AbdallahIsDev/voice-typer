@@ -16,6 +16,7 @@ import {
 	INITIAL_DOWNLOAD_STATE,
 	withResetProgress,
 } from "./downloadState";
+import { expireModelStatusSnapshot } from "./modelStatusCache";
 
 export type { DownloadState, FailedDownload };
 
@@ -31,7 +32,7 @@ interface UseModelDownloadArgs {
 	 * Full reconcile after a successful download: re-fetches config +
 	 * status so the Active badge reflects BACKEND truth (the backend
 	 */
-	reconcileAfterDownload: () => Promise<void>;
+	reconcileAfterDownload: () => Promise<unknown>;
 	/**
 	 * Fired once per successful download (after the reconcile) so the
 	 * composer can auto-select the just-downloaded model. The model is
@@ -191,6 +192,10 @@ export function useModelDownload({
 						downloadingModel: null,
 						failedDownload: null,
 					}));
+					// Disk changed: expire the status snapshot BEFORE the
+					// reconcile so it re-stats instead of serving the
+					// pre-download flags (C-CACHE-5).
+					expireModelStatusSnapshot();
 					await reconcileAfterDownload();
 					onDownloaded?.({ ...model, downloaded: true });
 				} else if (result.cancelled) {

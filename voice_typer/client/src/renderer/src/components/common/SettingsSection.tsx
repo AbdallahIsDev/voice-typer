@@ -36,7 +36,7 @@ export function SettingsSection({
 					<div className="flex items-center gap-2">
 						<h2
 							id={headingId}
-							className="font-sans text-lg font-semibold text-foreground"
+							className="font-sans text-lg font-medium text-foreground"
 						>
 							{title}
 						</h2>

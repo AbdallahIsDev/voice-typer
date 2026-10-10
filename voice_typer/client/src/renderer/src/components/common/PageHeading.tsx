@@ -15,7 +15,7 @@ function HeadingContent({
 }) {
 	return (
 		<>
-			<h1 className="font-sans text-2xl font-semibold tracking-tight text-foreground">
+			<h1 className="font-sans text-2xl font-medium tracking-tight text-foreground">
 				{title}
 			</h1>
 			{description !== undefined ? (

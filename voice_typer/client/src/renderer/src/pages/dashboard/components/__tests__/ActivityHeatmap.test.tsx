@@ -150,6 +150,46 @@ describe("ActivityHeatmap", () => {
 		expect(container.querySelector('[data-testid="hugeicon"]')).toBeNull();
 	});
 
+	describe("ActivityHeatmap reserved geometry (C-LIFE-2)", () => {
+		it("reserves the chart box on first paint (no zero-size jump)", () => {
+			// jsdom never measures (ParentSize stays 0×0), which is exactly
+			// the production first frame — the reservation must already be
+			// in the tree before any measure lands.
+			const { container } = renderHeatmap([recordOn(new Date(2026, 9, 6), 1)]);
+			const box = container.querySelector('[class*="aspect-"]');
+			expect(box).not.toBeNull();
+			expect(box?.className).toContain("min-h-16");
+		});
+
+		it("keeps the chart mounted across data updates (same node, no remount)", () => {
+			const { container, rerender } = render(
+				<ActivityHeatmap
+					heatmap={buildDictationHeatmap(
+						[recordOn(new Date(2026, 9, 6), 1)],
+						NOW,
+					)}
+				/>,
+			);
+			const before = container.querySelector('[role="img"]');
+			expect(before).not.toBeNull();
+			rerender(
+				<ActivityHeatmap
+					heatmap={buildDictationHeatmap(
+						[
+							recordOn(new Date(2026, 9, 6), 1),
+							recordOn(new Date(2026, 9, 5), 2),
+						],
+						NOW,
+					)}
+					currentStreak={2}
+				/>,
+			);
+			// Same DOM node after new data: React updated it, nothing
+			// reconstructed it (no key swap, no conditional branch).
+			expect(container.querySelector('[role="img"]')).toBe(before);
+		});
+	});
+
 	it("asks the vendored chart to skip its staggered entrance", () => {
 		// jsdom renders no cells at all (see the file header), so this
 		// contract can only be pinned at the source: the grid must be

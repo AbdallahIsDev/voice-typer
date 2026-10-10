@@ -20,7 +20,7 @@ export interface UseHistoryEventRefreshOptions {
 	/** The cache hook's background re-fetch (does NOT flip `loading`). */
 	refreshFromEvent: () => Promise<void>;
 	/** The page's fresh-load wrapper (resets the visible-row window). */
-	runLoad: (query?: string, favoritesOnly?: boolean) => Promise<void>;
+	runLoad: (query?: string, favoritesOnly?: boolean) => Promise<unknown>;
 }
 
 export interface UseHistoryEventRefreshReturn {

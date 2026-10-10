@@ -577,7 +577,7 @@ export default function Home() {
 			<output
 				aria-live="polite"
 				role={hint?.variant === "error" ? "alert" : undefined}
-				className={`flex items-center gap-2 text-[0.8125rem] animate-fade-in ${
+				className={`flex items-center gap-2 text-xs-plus animate-fade-in ${
 					hint?.variant === "error"
 						? "text-destructive"
 						: "text-muted-foreground"

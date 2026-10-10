@@ -329,7 +329,13 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 		// this branch shows, so it self-heals without the click.
 		if (loadError) {
 			return (
-				<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6 py-12">
+				// Page shell, not a centred modal: this branch REPLACES the
+				// Settings page, so it has to keep the page's measure and
+				// padding (`max-w-4xl px-16 pt-20 pb-6`, see the body below)
+				// — the old `max-w-lg px-6 py-12` was the full-window
+				// `ConnectionStatusScreen` shell, which made the error card
+				// jump width and sit 68px higher than the page it replaced.
+				<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center gap-6 px-16 pt-20 pb-6">
 					<EmptyState
 						variant="error"
 						icon={AlertCircleIcon}

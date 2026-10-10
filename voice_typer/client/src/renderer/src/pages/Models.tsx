@@ -142,7 +142,13 @@ export default function ModelsPage() {
 	if (!lifecycle.config) {
 		if (lifecycle.loadError) {
 			return (
-				<div className="flex h-full items-center justify-center">
+				// Same page shell as the loaded page below (and as the
+				// Analytics error screen). Without it the card was the only
+				// full-bleed surface in the app: `h-full` + `justify-center`
+				// with no `mx-auto max-w-4xl` and no `px-16` stretched it
+				// edge-to-edge across the pane, so the 8% border touched the
+				// window chrome and the measure ignored the page's column.
+				<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center gap-6 px-16 pt-20 pb-6">
 					<EmptyState
 						variant="error"
 						icon={AlertCircleIcon}

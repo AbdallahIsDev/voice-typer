@@ -137,14 +137,17 @@ describe("HTML CSP meta tags, C-DATA-1 offline compliance", () => {
 				expect(connectSrc).toContain("'self'");
 			});
 
-			it("connect-src is exactly 'self' (no other external origins)", () => {
+			it("connect-src grants only 'self' + Tauri's in-process IPC channel", () => {
 				const html = readHtml(fileName);
 				const connectSrc = extractCspConnectSrc(html);
-				// The only allowed source for connect-src in the HTML
-				// meta tag is 'self'. Any other origin (https://, http://,
-				// wss://, etc.) would be a latent C-DATA-1 violation.
+				// C-DATA-1: the app is OFFLINE, so no network origin may
+				// appear in connect-src. The one sanctioned exception is
+				// Tauri's in-process IPC channel (`ipc: http://ipc.localhost`),
+				// the local custom-protocol transport `invoke()` fetches
+				// over; it is not egress. Anything else (https://, wss://,
+				// a non-loopback host) is a latent C-DATA-1 violation.
 				const sources = connectSrc.split(/\s+/);
-				expect(sources).toEqual(["'self'"]);
+				expect(sources).toEqual(["'self'", "ipc:", "http://ipc.localhost"]);
 			});
 
 			it("preserves the other hardening directives (script-src, frame-ancestors, form-action)", () => {

@@ -21,10 +21,13 @@ import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { getLocale, t } from "@/i18n/i18n";
+import { MOUNT_RERACE_FAST_WINDOW_MS } from "@/lib/snapshotCache";
 import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import { HistorySkeleton } from "./history/components/HistorySkeleton";
 import {
 	HISTORY_PAGE_SIZE,
+	isHistoryCacheFresh,
+	peekHistoryPrefetch,
 	useHistoryCache,
 } from "./history/hooks/useHistoryCache";
 import { useHistoryClearAll } from "./history/hooks/useHistoryClearAll";
@@ -57,6 +60,7 @@ export default function HistoryPage() {
 		loadMore,
 		refreshFromEvent,
 		setFilter,
+		hydrateFromCache,
 	} = useHistoryCache();
 	// True all-time row count for the display-cap footer: the same
 	// `get_history_count` IPC the Analytics page's useDashboardData
@@ -126,9 +130,48 @@ export default function HistoryPage() {
 		runLoad,
 	});
 
+	// Mount load with the TTL fast path (C-CACHE-2): a fresh
+	// default-view snapshot (recent visit or hover prefetch) renders
+	// from cache with no refetch. A hover still in flight is awaited
+	// first and hydrated, so the mount piggybacks it. Filtered views
+	// always load — the snapshot only ever holds the default view.
+	// Cold-start storm (Dashboard/Models pattern): a failed mount load
+	// re-races once after 8s so a boot-time failure heals without
+	// manual Retry; a second failure keeps the error screen (bounded,
+	// unmount cancels).
+	// The query is read live from the store so filter changes keep
+	// flowing through useHistorySearchReload, not this mount effect.
 	useEffect(() => {
-		runLoad();
-	}, [runLoad]);
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const startedAt = Date.now();
+		void (peekHistoryPrefetch() ?? Promise.resolve()).then(() => {
+			if (cancelled) return;
+			if (
+				useGlobalSearch.getState().query.trim() === "" &&
+				isHistoryCacheFresh()
+			) {
+				hydrateFromCache();
+				return;
+			}
+			void runLoad().then((ok) => {
+				// Re-race only fast failures (C-CACHE-10).
+				if (
+					!ok &&
+					!cancelled &&
+					Date.now() - startedAt < MOUNT_RERACE_FAST_WINDOW_MS
+				) {
+					timer = setTimeout(() => {
+						if (!cancelled) void runLoad();
+					}, 8000);
+				}
+			});
+		});
+		return () => {
+			cancelled = true;
+			if (timer !== null) clearTimeout(timer);
+		};
+	}, [runLoad, hydrateFromCache]);
 
 	// Debounced reload driven by the GLOBAL search store, a 200ms-
 	// delayed fresh load whenever the query (or the favorites filter)

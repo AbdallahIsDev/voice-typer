@@ -187,23 +187,41 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	});
 });
 
-describe("BG-10: Dashboard Share button gated on canShareStats (not todayCount > 0)", () => {
+describe("BG-10: Dashboard Share button always mounted, disabled without data (C-CACHE-6)", () => {
 	it("Dashboard.tsx imports canShareStats from @/hooks/useStatsShare", () => {
 		expect(DASHBOARD_SRC).toMatch(
 			/import\s*\{[^}]*\bcanShareStats\b[^}]*\}\s*from\s*"@\/hooks\/useStatsShare"/,
 		);
 	});
 
-	it("Dashboard.tsx calls canShareStats(...) (not `data.todayCount > 0`)", () => {
+	it("ShareStatsDialog is always rendered with a disabled prop (never &&-gated)", () => {
+		// The trigger must stay mounted while loading and flip to
+		// enabled when data lands: no conditional wrapper around it.
+		expect(DASHBOARD_SRC).toMatch(/<ShareStatsDialog[\s\S]*?disabled=\{/);
+		expect(DASHBOARD_SRC).not.toMatch(/&& \(\s*<ShareStatsDialog/);
+	});
+
+	it("disabled derives from missing data/config or !canShareStats(...)", () => {
 		// The previous gate `data && configRaw && data.todayCount > 0 && (`
-		// is gone. The new gate calls canShareStats with both counts.
-		expect(DASHBOARD_SRC).toMatch(/canShareStats\(\s*\{/);
-		expect(DASHBOARD_SRC).toMatch(/todayCount:\s*data\.todayCount/);
-		expect(DASHBOARD_SRC).toMatch(/totalCount:\s*data\.totalCount/);
+		// is gone. Availability is a boolean feeding `disabled`.
+		expect(DASHBOARD_SRC).toMatch(/shareDisabled/);
+		expect(DASHBOARD_SRC).toMatch(/!canShareStats\(\s*\{/);
+		expect(DASHBOARD_SRC).toMatch(/todayCount:\s*data\?\.todayCount/);
+		expect(DASHBOARD_SRC).toMatch(/totalCount:\s*data\?\.totalCount/);
 		// (We can't ban the substring entirely, the field is still
 		// read elsewhere, but the specific gating expression
 		// `data.todayCount > 0 && (` is gone.)
 		expect(DASHBOARD_SRC).not.toMatch(/data\.todayCount\s*>\s*0\s*&&\s*\(/);
+	});
+
+	it("first-load path renders the real heading + disabled Share above the skeleton body", () => {
+		// Actions never vanish mid-load; the body (not the full
+		// skeleton with its heading placeholder) renders below.
+		expect(DASHBOARD_SRC).toMatch(/DashboardSkeletonBody/);
+		const earlyReturn = DASHBOARD_SRC.slice(
+			DASHBOARD_SRC.indexOf("if (!data) {"),
+		);
+		expect(earlyReturn).toMatch(/<ShareStatsDialog[\s\S]*?disabled[\s\S]*?\/>/);
 	});
 });
 
@@ -390,14 +408,17 @@ describe("Corrections-applied card (server-side usage tracking)", () => {
 	});
 
 	it("useDashboardData.ts derives model/device from install state via the SHARED helper", () => {
-		// MODEL-STATE fix: the hook must fetch get_model_status and
-		// only surface model/device when the configured model's weights
-		// are actually on disk (config defaults like "tiny"/"cuda"
-		// must not be advertised as a live selection). The `downloaded`
-		// check lives in ONE shared place, resolveActiveModel in
-		// lib/utils/models.ts (the same helper the About page uses) —
-		// never an inline duplicate in the hook.
-		expect(HOOK_SRC).toMatch(/"get_model_status"/);
+		// MODEL-STATE fix: the hook must only surface model/device
+		// when the configured model's weights are actually on disk
+		// (config defaults like "tiny"/"cuda" must not be advertised
+		// as a live selection). The disk stat rides the shared
+		// model-status snapshot (one flight with the Models page),
+		// never a direct get_model_status IPC from this hook. The
+		// `downloaded` check lives in ONE shared place,
+		// resolveActiveModel in lib/utils/models.ts (the same helper
+		// the About page uses) — never an inline duplicate.
+		expect(HOOK_SRC).toMatch(/fetchSharedModelStatus\(/);
+		expect(HOOK_SRC).not.toMatch(/"get_model_status"/);
 		expect(HOOK_SRC).toMatch(/modelStatusMap/);
 		expect(HOOK_SRC).toMatch(/resolveActiveModel\(/);
 		// The install check itself is NOT in the hook anymore.
@@ -637,10 +658,13 @@ describe("Range + refresh controls live outside the scrolling body", () => {
 		// right-hand row instead of a row of their own. Their ORDER in that
 		// row is not the contract — only that the heading owns both — so
 		// this asserts membership inside the PageHeading element rather
-		// than a fixed sequence.
-		const heading = DASHBOARD_SRC.match(
-			/<PageHeading[\s\S]*?<\/PageHeading>/,
-		)?.[0];
+		// than a fixed sequence. The LAST heading is the loaded view's
+		// (the first-load heading above it mounts Share only, C-CACHE-6,
+		// keeping zero live regions while data is absent).
+		const headings = [
+			...DASHBOARD_SRC.matchAll(/<PageHeading[\s\S]*?<\/PageHeading>/g),
+		].map((m) => m[0]);
+		const heading = headings[headings.length - 1];
 
 		expect(heading).toBeTruthy();
 		expect(heading).toContain("<ShareStatsDialog");
@@ -667,5 +691,40 @@ describe("Range + refresh controls live outside the scrolling body", () => {
 		// control is in the title bar now, so nothing pill-shaped is
 		// left to reserve space for.
 		expect(skeletonSrc).not.toMatch(/rounded-full/);
+	});
+});
+
+describe("Analytics dynamic-height animator (C-ANIM-1)", () => {
+	it("sampled-window footnote rides the collapse-root animator", () => {
+		// The footnote arrives once the custom fetch lands (after
+		// first paint). The wrapper stays mounted for the whole
+		// custom range and only the data-open flag toggles, so the
+		// line fades/slides open instead of jumping the heatmap down.
+		expect(DASHBOARD_SRC).toMatch(/collapse-root/);
+		expect(DASHBOARD_SRC).toMatch(/data-open=\{customCapped\}/);
+	});
+
+	it("collapse-root + mount-fade utilities exist with their own reduce overrides", () => {
+		const indexCss = fs.readFileSync(
+			path.resolve(__dirname, "..", "..", "index.css"),
+			"utf8",
+		);
+		expect(indexCss).toMatch(/\.collapse-root/);
+		expect(indexCss).toMatch(/grid-template-rows: 0fr/);
+		expect(indexCss).toMatch(/grid-template-rows: 1fr/);
+		expect(indexCss).toMatch(/@keyframes mountFade/);
+		expect(indexCss).toMatch(/\.mount-fade/);
+		// The app-wide `*` kill-switch loses to class specificity
+		// (0,1,0 beats 0,0,0), so the utilities carry their own
+		// reduce override placed AFTER the base for the tie-break.
+		const baseIdx = indexCss.indexOf(".collapse-root");
+		const reduceIdx = indexCss.indexOf(
+			"@media (prefers-reduced-motion: reduce)",
+			baseIdx,
+		);
+		expect(reduceIdx).toBeGreaterThan(baseIdx);
+		const reduceBlock = indexCss.slice(reduceIdx);
+		expect(reduceBlock).toMatch(/\.collapse-root/);
+		expect(reduceBlock).toMatch(/\.mount-fade/);
 	});
 });

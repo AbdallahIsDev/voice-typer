@@ -26,7 +26,7 @@ interface UseTemplateDialogArgs {
 		kind: "success" | "error" | "warning" | "info",
 	) => void;
 	templatesRef: React.RefObject<TemplateRow[]>;
-	loadRows: () => Promise<void>;
+	loadRows: () => Promise<unknown>;
 }
 
 interface UseTemplateDialogResult {

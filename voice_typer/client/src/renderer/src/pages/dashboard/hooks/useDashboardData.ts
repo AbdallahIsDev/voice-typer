@@ -25,12 +25,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { fetchSharedModelStatus } from "@/hooks/models/modelStatusCache";
 import { useDebouncedCallback } from "@/hooks/useDebounce";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
+import {
+	MOUNT_RERACE_FAST_WINDOW_MS,
+	type PrefetchCall,
+} from "@/lib/snapshotCache";
 import { resolveActiveModel } from "@/lib/utils/models";
 import { useAnalyticsRange } from "@/stores/useAnalyticsRange";
 import type { LausuConfig } from "@/types/config";
@@ -202,8 +207,125 @@ function buildDashboardData(args: {
 	};
 }
 
-// Module-cache key for the SWR seed (see lib/ipcCache.ts).
+// Module-cache keys for the SWR seed (see lib/ipcCache.ts). The
+// snapshot holds the RAW fetch inputs (sample + config + corrections),
+// not just the derived DashboardData: period/activity/corrections memos
+// derive from the sample, so caching data alone re-rendered zeros on
+// revisit (C-CACHE-1). Legacy data-only key kept as a fallback reader.
 const DASHBOARD_CACHE_KEY = "analytics.dashboardData";
+const DASHBOARD_SNAPSHOT_CACHE_KEY = "analytics.dashboardSnapshot";
+// Freshness window (TanStack staleTime equivalent): a revisit or hover
+// inside this window reuses the snapshot with no IPC at all.
+export const DASHBOARD_CACHE_TTL_MS = 30_000;
+
+export interface DashboardSnapshot {
+	data: DashboardData;
+	sample: HistoryRecord[];
+	configRaw: LausuConfig | null;
+	correctionUsage: CorrectionUsageSnapshot | null;
+	modelStatus: ModelStatusMap;
+	fetchedAt: number;
+}
+
+function readSnapshot(): DashboardSnapshot | null {
+	const snap = peekIpcCache<DashboardSnapshot>(DASHBOARD_SNAPSHOT_CACHE_KEY);
+	if (snap?.data && Array.isArray(snap.sample)) return snap;
+	const legacy = peekIpcCache<DashboardData>(DASHBOARD_CACHE_KEY);
+	if (legacy)
+		return {
+			data: legacy,
+			sample: [],
+			configRaw: null,
+			correctionUsage: null,
+			modelStatus: {},
+			fetchedAt: 0,
+		};
+	return null;
+}
+
+function isSnapshotFresh(snap: DashboardSnapshot | null): boolean {
+	return (
+		snap !== null &&
+		snap.fetchedAt > 0 &&
+		Date.now() - snap.fetchedAt < DASHBOARD_CACHE_TTL_MS
+	);
+}
+
+function writeSnapshot(snap: DashboardSnapshot): void {
+	writeIpcCache(DASHBOARD_SNAPSHOT_CACHE_KEY, snap);
+	writeIpcCache(DASHBOARD_CACHE_KEY, snap.data);
+}
+
+// Hover-prefetch flight shared with the mount effect below: a click
+// landing mid-prefetch piggybacks instead of firing a duplicate set.
+let dashboardPrefetchInFlight: Promise<void> | null = null;
+
+/** In-flight hover prefetch, if any (mount awaits it before deciding). */
+export function peekDashboardPrefetch(): Promise<void> | null {
+	return dashboardPrefetchInFlight;
+}
+
+export type { PrefetchCall } from "@/lib/snapshotCache";
+
+// Hover/focus data prefetch (prefetchQuery equivalent): warms the
+// snapshot cache before navigation. Fresh cache or an in-flight run
+// short-circuits, so repeated hovers cost nothing (C-CACHE-4).
+// Best-effort: failures leave the cache untouched and the mount fetch
+// stays authoritative. Writes only on full success (validated shapes),
+// a partial snapshot would lie to the fresh-cache fast path.
+export function prefetchDashboardData(call: PrefetchCall): Promise<void> {
+	if (isSnapshotFresh(readSnapshot())) return Promise.resolve();
+	if (dashboardPrefetchInFlight) return dashboardPrefetchInFlight;
+	dashboardPrefetchInFlight = (async () => {
+		try {
+			const [cfg, history, totalCount, correctionUsage, modelStatus] =
+				await Promise.all([
+					call("get_config"),
+					call("get_history", { limit: DASHBOARD_SAMPLE_LIMIT }),
+					call("get_history_count"),
+					call("get_correction_usage"),
+					// Shared snapshot: warms the Models page's cache too.
+					fetchSharedModelStatus(call),
+				]);
+			if (!Array.isArray(history)) return;
+			if (!cfg || typeof cfg !== "object" || !("model_size" in cfg)) return;
+			const recs = history as HistoryRecord[];
+			const count =
+				totalCount &&
+				typeof totalCount === "object" &&
+				typeof (totalCount as { count?: unknown }).count === "number"
+					? (totalCount as { count: number }).count
+					: recs.length;
+			const corrections =
+				correctionUsage &&
+				typeof correctionUsage === "object" &&
+				"entries" in (correctionUsage as Record<string, unknown>)
+					? (correctionUsage as CorrectionUsageSnapshot)
+					: null;
+			// Already validated by the shared fetch (null on failure).
+			const status: ModelStatusMap = modelStatus ?? {};
+			const data = buildDashboardData({
+				cfg: cfg as LausuConfig,
+				recs,
+				totalCount: count,
+				modelStatus: status,
+			});
+			writeSnapshot({
+				data,
+				sample: recs,
+				configRaw: cfg as LausuConfig,
+				correctionUsage: corrections,
+				modelStatus: status,
+				fetchedAt: Date.now(),
+			});
+		} catch {
+			// Swallow: hover must never surface errors.
+		} finally {
+			dashboardPrefetchInFlight = null;
+		}
+	})();
+	return dashboardPrefetchInFlight;
+}
 
 export interface UseDashboardDataArgs {
 	call: <T = unknown>(
@@ -260,11 +382,10 @@ export interface UseDashboardDataResult {
 export function useDashboardData({
 	call,
 }: UseDashboardDataArgs): UseDashboardDataResult {
-	// SWR seed: the initial `useState` value reads the MODULE-level IPC
-	// cache (survives page unmount, so navigation back to the dashboard
-	// per-instance ref died with the unmounted page and never actually
-	// survived navigation). `refreshData` still revalidates fresh data
-	// over it every mount.
+	// SWR seed: initial state reads the MODULE-level snapshot cache
+	// (survives page unmount, so a revisit first-paints cached content).
+	// Seeded as ONE snapshot so data + sample + config + corrections
+	// stay consistent with each other (C-CACHE-1).
 
 	// Ref mirror of `call` so `refreshData` keeps a STABLE identity
 	// ([] deps). `call` is useCallback-stable in production, but test
@@ -273,11 +394,20 @@ export function useDashboardData({
 	// → new call → loop → worker OOM). Same pattern as useVocabulary.ts.
 	const callRef = useLatestRef(call);
 
+	const [initialSnapshot] = useState<DashboardSnapshot | null>(readSnapshot);
 	const [data, setData] = useState<DashboardData | null>(
-		() => peekIpcCache<DashboardData>(DASHBOARD_CACHE_KEY) ?? null,
+		() => initialSnapshot?.data ?? null,
 	);
+	// Ref mirror of `data` so the mount effect can hydrate state when a
+	// hover prefetch lands AFTER this mount's first paint (seed was null
+	// then, snapshot is fresh now): without it the mount would skip its
+	// fetch and stay empty forever.
+	const dataRef = useRef<DashboardData | null>(null);
+	dataRef.current = data;
 	// R7-F18: removed dead `const [, setLoading] = useState(true)`.
-	const [configRaw, setConfigRaw] = useState<LausuConfig | null>(null);
+	const [configRaw, setConfigRaw] = useState<LausuConfig | null>(
+		() => initialSnapshot?.configRaw ?? null,
+	);
 	// the timestamp after each successful refreshData() to surface
 	// staleness to the user.
 	const { agoLabel, markUpdated } = useLastUpdated();
@@ -297,8 +427,11 @@ export function useDashboardData({
 	const customWindow = useAnalyticsRange((s) => s.customWindow);
 
 	// The history sample backing every derived stat (kept so period /
-	// activity memos recompute when the data refreshes).
-	const [sample, setSample] = useState<HistoryRecord[]>([]);
+	// activity memos recompute when the data refreshes). Seeded from
+	// the snapshot: an empty seed is what flashed zeros on revisit.
+	const [sample, setSample] = useState<HistoryRecord[]>(
+		() => initialSnapshot?.sample ?? [],
+	);
 	// Custom-window records: fetched on demand (paged, newest-first)
 	// instead of riding the 500-row sample, which may not cover an old
 	// window at all. Event-delta refreshes leave it alone (historical
@@ -313,20 +446,34 @@ export function useDashboardData({
 	const [customLoading, setCustomLoading] = useState(false);
 	// Per-correction usage snapshot from `get_correction_usage`.
 	const [correctionUsage, setCorrectionUsage] =
-		useState<CorrectionUsageSnapshot | null>(null);
+		useState<CorrectionUsageSnapshot | null>(
+			() => initialSnapshot?.correctionUsage ?? null,
+		);
 
 	// BP-159 hot/cold-split mirrors. The delta (event) path reads these
 	// instead of re-fetching: the cold snapshot (config + model-status,
 	// which a dictation cannot change) plus the last sample / count /
 	// corrections to prepend onto. Updated on every successful full
-	// refresh alongside the state setters above.
-	const sampleRef = useRef<HistoryRecord[]>([]);
-	const totalCountRef = useRef<number | null>(null);
-	const correctionUsageRef = useRef<CorrectionUsageSnapshot | null>(null);
+	// refresh alongside the state setters above. Seeded from the cache
+	// snapshot so the delta path works immediately on revisit.
+	const sampleRef = useRef<HistoryRecord[]>(initialSnapshot?.sample ?? []);
+	const totalCountRef = useRef<number | null>(
+		initialSnapshot?.data.totalCount ?? null,
+	);
+	const correctionUsageRef = useRef<CorrectionUsageSnapshot | null>(
+		initialSnapshot?.correctionUsage ?? null,
+	);
 	const coldRef = useRef<{
 		cfg: LausuConfig | null;
 		modelStatus: ModelStatusMap;
-	} | null>(null);
+	} | null>(
+		initialSnapshot
+			? {
+					cfg: initialSnapshot.configRaw,
+					modelStatus: initialSnapshot.modelStatus,
+				}
+			: null,
+	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const refreshData = useCallback(async (): Promise<boolean> => {
@@ -360,15 +507,18 @@ export function useDashboardData({
 					// share image must reflect ACTUAL install state,
 					// not the config values (the app has no concrete
 					// default model; ``device`` is a preference).
-					// ``get_model_status`` stats the filesystem, the
-					// same truth the Models page and the backend's
-					// startup banner use. A configured model whose
+					// The stat rides the shared model-status snapshot:
+					// a fresh cache (Models visit, hover) skips the
+					// disk stat; concurrent Analytics + Models readers
+					// share one flight. A configured model whose
 					// weights are not on disk is reported as "no model
 					// selected", never as a live selection. Empty map
 					// on failure → treated as nothing installed
 					// (fail-safe: never advertise a model we can't
 					// verify).
-					callRef.current<ModelStatusMap>("get_model_status").catch(() => ({})),
+					fetchSharedModelStatus((type, data) =>
+						callRef.current(type, data),
+					).then((s) => s ?? {}),
 				]);
 
 			const recs = history ?? [];
@@ -384,9 +534,16 @@ export function useDashboardData({
 				totalCount: totalCount?.count ?? recs.length,
 				modelStatus: modelStatus ?? {},
 			});
-			// SWR write-through, the next dashboard visit seeds from
-			// this snapshot instead of flashing empty.
-			writeIpcCache(DASHBOARD_CACHE_KEY, newData);
+			// SWR write-through: the full snapshot (not just derived
+			// data) so the next visit seeds every memo (C-CACHE-1).
+			writeSnapshot({
+				data: newData,
+				sample: recs,
+				configRaw: cfg ?? null,
+				correctionUsage: correctionUsage ?? null,
+				modelStatus: modelStatus ?? {},
+				fetchedAt: Date.now(),
+			});
 			setData(newData);
 			setSample(recs);
 			sampleRef.current = recs;
@@ -465,7 +622,14 @@ export function useDashboardData({
 				totalCount: nextCount,
 				modelStatus: cold.modelStatus,
 			});
-			writeIpcCache(DASHBOARD_CACHE_KEY, newData);
+			writeSnapshot({
+				data: newData,
+				sample: recs,
+				configRaw: cold.cfg,
+				correctionUsage: nextCorrections,
+				modelStatus: cold.modelStatus,
+				fetchedAt: Date.now(),
+			});
 			setData(newData);
 			setSample(recs);
 			sampleRef.current = recs;
@@ -680,15 +844,51 @@ export function useDashboardData({
 	// fast with no data and no recovery. One delayed re-race heals
 	// that without manual Retry; a second failure keeps the error
 	// screen (bounded: exactly one extra attempt, unmount cancels).
+	// Fresh cache (recent visit or hover prefetch) skips the mount
+	// fetch entirely: the seeded state above already renders it, and
+	// revalidating would waste the IPCs the cache just saved
+	// (C-CACHE-2). A hover still in flight is awaited first so the
+	// mount piggybacks it instead of duplicating it.
 	useEffect(() => {
 		let cancelled = false;
 		let timer: ReturnType<typeof setTimeout> | null = null;
-		void refreshData().then((ok) => {
-			if (!ok && !cancelled) {
-				timer = setTimeout(() => {
-					if (!cancelled) void refreshData();
-				}, 8000);
+		const startedAt = Date.now();
+		void (peekDashboardPrefetch() ?? Promise.resolve()).then(() => {
+			if (cancelled) return;
+			const snap = readSnapshot();
+			if (isSnapshotFresh(snap)) {
+				// Prefetch landed after first paint: hydrate the state
+				// the null seed could not provide (C-CACHE-2).
+				if (snap && dataRef.current === null) {
+					setData(snap.data);
+					setSample(snap.sample);
+					sampleRef.current = snap.sample;
+					totalCountRef.current = snap.data.totalCount;
+					setCorrectionUsage(snap.correctionUsage);
+					correctionUsageRef.current = snap.correctionUsage;
+					setConfigRaw(snap.configRaw);
+					coldRef.current = {
+						cfg: snap.configRaw,
+						modelStatus: snap.modelStatus,
+					};
+				}
+				return;
 			}
+			void refreshData().then((ok) => {
+				// Re-race only fast failures (refusal before the backend
+				// was up). A slow failure already had the bridge's
+				// cold-start patience — doubling it delays the error
+				// screen by another full wait (C-CACHE-10).
+				if (
+					!ok &&
+					!cancelled &&
+					Date.now() - startedAt < MOUNT_RERACE_FAST_WINDOW_MS
+				) {
+					timer = setTimeout(() => {
+						if (!cancelled) void refreshData();
+					}, 8000);
+				}
+			});
 		});
 		return () => {
 			cancelled = true;

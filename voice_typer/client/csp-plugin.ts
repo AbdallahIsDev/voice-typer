@@ -15,21 +15,28 @@
  *
  * - Dev (command === 'serve'): emit CSP_DEV with `unsafe-eval` and
  *   `unsafe-inline` for script-src (Vite HMR + React Refresh preamble +
- *   eval-based sourcemaps need them) and ws://localhost:* / http://localhost:*
- *   in connect-src for the HMR websocket.
+ *   eval-based sourcemaps need them) and the loopback dev-server origins
+ *   (`ws://` / `http://` on `localhost:*` and `127.0.0.1:*`) in
+ *   connect-src for the HMR websocket.
  * - Prod (command === 'build' && mode === 'production'): emit a strict
  *   `'self'`-only script-src. The production bundle has no inline scripts
  *   and no eval, so the strict policy is sufficient.
  *
- * C-DATA-1 (offline guarantee): `connect-src` is `'self'` ONLY in both
- * dev and prod. The previous `https://api.github.com` grant (originally
- * added so the Settings page's "Check for Updates" button could fetch
- * the GitHub releases API) was a C-DATA-1 violation, even an explicit
- * user click is a network call in the production code path, which the
- * offline guarantee forbids. The "Check for Updates" feature was
- * removed from `PrewarmAndUpdates.tsx` and replaced with a static
- * message directing users to open the GitHub releases page in their
- * browser. No renderer code path may issue any network request.
+ * C-DATA-1 (offline guarantee): `connect-src` grants NO network origin
+ * in either dev or prod. The only non-`'self'` source is Tauri's
+ * in-process IPC channel (`ipc: http://ipc.localhost`), which is not
+ * network egress: it is the local custom-protocol transport that
+ * `invoke()` fetches over. Without it the WebView blocks the fetch and
+ * Tauri silently falls back to the slower postMessage bridge (the
+ * "IPC custom protocol failed" console warnings). The previous
+ * `https://api.github.com` grant (originally added so the Settings
+ * page's "Check for Updates" button could fetch the GitHub releases
+ * API) was a C-DATA-1 violation, even an explicit user click is a
+ * network call in the production code path, which the offline
+ * guarantee forbids. The "Check for Updates" feature was removed from
+ * `PrewarmAndUpdates.tsx` and replaced with a static message directing
+ * users to open the GitHub releases page in their browser. No renderer
+ * code path may issue any network request.
  *
  * Belt-and-suspenders: the onHeadersReceived HTTP-header CSP in
  * `main/bootstrap.ts::setupCsp()` still overrides the meta tag in predecessor
@@ -58,12 +65,12 @@ import type { Plugin } from "vite";
  * loss. Defense-in-depth against a future compromised renderer trying
  * to load a Flash/Java/PDF plugin as an exfiltration channel.
  *
- * NOTE: `connect-src 'self'` is inlined as a string literal (rather than
- * referenced via a shared `CONNECT_SRC` const) so static extractors —
+ * NOTE: the `connect-src` value is inlined as a string literal (rather
+ * than referenced via a shared `CONNECT_SRC` const) so static extractors —
  * including the pytest harness in `tests/test_csp_emission.py` —
  * can recover the full CSP string by reading the array's string-literal
  * elements. The previous `CONNECT_SRC` indirection caused the extracted
- * `CSP_PROD` to silently drop `connect-src 'self'`, which then failed
+ * `CSP_PROD` to silently drop the `connect-src` directive, which then failed
  * to match the built HTML's CSP (the JS runtime evaluates the const
  * substitution; the static extractor cannot). Inlining is lossless
  * because the value is the same in both windows.
@@ -75,7 +82,7 @@ export const CSP_PROD_MAIN = [
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	"connect-src 'self'",
+	"connect-src 'self' ipc: http://ipc.localhost",
 	"object-src 'none'",
 	"form-action 'none'",
 	"base-uri 'self'",
@@ -83,7 +90,8 @@ export const CSP_PROD_MAIN = [
 
 /**
  * Production CSP for the BUBBLE window (bubble.html). Identical
- * `connect-src 'self'` policy, the bubble has no update-check surface
+ * `connect-src` policy (no network origin, Tauri IPC only), the bubble
+ * has no update-check surface
  * (and the main window's update-check surface has been removed too, so
  * both windows now share the same strict offline-only policy). A
  * compromised bubble renderer must not be able to phone home or
@@ -99,7 +107,7 @@ export const CSP_PROD_BUBBLE = [
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	"connect-src 'self'",
+	"connect-src 'self' ipc: http://ipc.localhost",
 	"object-src 'none'",
 	"form-action 'none'",
 	"base-uri 'self'",
@@ -115,11 +123,14 @@ export const CSP_PROD = CSP_PROD_MAIN;
 
 /**
  * Dev CSP. Allows `unsafe-eval` and `unsafe-inline` for script-src (Vite HMR
- * + React Refresh + eval sourcemaps). Adds ws://localhost:* and
- * http://localhost:* to connect-src for the HMR websocket + dev server
- * fetches. `connect-src` is otherwise `'self'` only, C-DATA-1 forbids
- * api.github.com (the previous "Check for Updates" fetch was removed
- * from the renderer; dev mode no longer needs the grant either).
+ * + React Refresh + eval sourcemaps). Adds Tauri's in-process IPC channel
+ * (`ipc: http://ipc.localhost`) plus the loopback dev-server origins
+ * (`ws://` / `http://` on `localhost:*` and `127.0.0.1:*`, the IPv4 form
+ * covers a dev server reached over the numeric loopback address) to
+ * connect-src for the HMR websocket + dev server fetches. No non-loopback
+ * origin is granted: C-DATA-1 forbids api.github.com (the previous
+ * "Check for Updates" fetch was removed from the renderer; dev mode no
+ * longer needs the grant either).
  */
 export const CSP_DEV = [
 	"default-src 'self'",
@@ -128,7 +139,7 @@ export const CSP_DEV = [
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	"connect-src 'self' ws://localhost:* http://localhost:*",
+	"connect-src 'self' ipc: http://ipc.localhost ws://localhost:* http://localhost:* ws://127.0.0.1:* http://127.0.0.1:*",
 	"form-action 'none'",
 	"base-uri 'self'",
 ].join("; ");
@@ -145,7 +156,8 @@ export function cspMetaTag(csp: string): string {
  *
  * Exported for unit tests so we can assert that bubble.html maps to
  * `CSP_PROD_BUBBLE` and index.html maps to `CSP_PROD_MAIN`. Both
- * policies now share the same strict `'self'`-only `connect-src`
+ * policies now share the same strict `connect-src` (Tauri's in-process
+ * IPC channel only, no network origin)
  * (C-DATA-1); the function still routes by basename so future
  * per-window divergence remains possible without touching call sites.
  */

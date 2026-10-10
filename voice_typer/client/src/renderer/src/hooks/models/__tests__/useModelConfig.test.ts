@@ -32,7 +32,10 @@ vi.mock("@/i18n/i18n", () => ({
 }));
 
 // ── Helpers ──────────────────────────────────────────────────────────
+import { isModelStatusFresh } from "@/hooks/models/modelStatusCache";
 import { useModelConfig } from "@/hooks/models/useModelConfig";
+import { __resetIpcCacheForTests } from "@/lib/ipcCache";
+import { __resetPrefetchFlightsForTests } from "@/lib/snapshotCache";
 import type { LausuConfig } from "@/types/config";
 
 function makeConfig(overrides: Partial<LausuConfig> = {}): LausuConfig {
@@ -95,6 +98,8 @@ function getConfigChangedHandler():
 beforeEach(() => {
 	callMock.mockReset();
 	usePythonEventMock.mockReset();
+	__resetIpcCacheForTests();
+	__resetPrefetchFlightsForTests();
 });
 
 afterEach(() => {
@@ -462,5 +467,144 @@ describe("useModelConfig, updateConfig re-throws on error", () => {
 		);
 		expect(setConfigCalls.length).toBe(1);
 		expect(setConfigCalls[0]?.[1]).toEqual({ model_size: "large-v3-turbo" });
+	});
+});
+
+describe("useModelConfig, shared status snapshot (C-CACHE-5)", () => {
+	function stubAll(status: unknown) {
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_config")
+				return Promise.resolve(makeConfig({ model_size: "tiny" }));
+			if (cmd === "get_model_status") return Promise.resolve(status);
+			if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve({});
+		});
+	}
+
+	function statusCalls() {
+		return callMock.mock.calls.filter(([cmd]) => cmd === "get_model_status");
+	}
+
+	it("mount with a fresh snapshot skips the disk stat but still fetches config + catalog", async () => {
+		const { writeIpcCache } = await import("@/lib/ipcCache");
+		writeIpcCache("models.config", makeConfig({ model_size: "tiny" }));
+		writeIpcCache("models.statusSnapshot", {
+			status: {
+				tiny: { downloaded: true, deps_ok: true },
+				_storage: { used_bytes: 42, hub_path: "h", config_dir: "c" },
+			},
+			fetchedAt: Date.now(),
+		});
+		stubAll({ tiny: { downloaded: true, deps_ok: true } });
+
+		const { result } = renderHook(() => useModelConfig(makeHookArgs()));
+		// First paint already carries the install state (seeded, no stat).
+		expect(
+			result.current.models.find((m) => m.name === "tiny")?.downloaded,
+		).toBe(true);
+		expect(result.current.storage?.used_bytes).toBe(42);
+
+		await waitFor(() => {
+			expect(result.current.config).not.toBeNull();
+		});
+		const commands = callMock.mock.calls.map((c) => c[0]);
+		expect(commands).toContain("get_config");
+		expect(commands).toContain("get_model_catalog");
+		expect(statusCalls()).toHaveLength(0);
+	});
+
+	it("stale snapshot re-stats on mount and rewrites the snapshot", async () => {
+		const { writeIpcCache, peekIpcCache } = await import("@/lib/ipcCache");
+		writeIpcCache("models.statusSnapshot", {
+			status: { tiny: { downloaded: false, deps_ok: true } },
+			fetchedAt: Date.now() - 31_000,
+		});
+		stubAll({ tiny: { downloaded: true, deps_ok: true } });
+
+		const { result } = renderHook(() => useModelConfig(makeHookArgs()));
+		await waitFor(() => {
+			expect(result.current.config).not.toBeNull();
+		});
+		expect(statusCalls().length).toBeGreaterThan(0);
+		const snap = peekIpcCache<{
+			status: Record<string, { downloaded: boolean }>;
+			fetchedAt: number;
+		}>("models.statusSnapshot");
+		expect(snap?.status.tiny?.downloaded).toBe(true);
+		expect(Date.now() - (snap?.fetchedAt ?? 0)).toBeLessThan(30_000);
+	});
+
+	it("refreshModelStatus always re-stats even when the snapshot is fresh", async () => {
+		stubAll({ tiny: { downloaded: true, deps_ok: true } });
+		const { result } = renderHook(() => useModelConfig(makeHookArgs()));
+		await waitFor(() => {
+			expect(result.current.config).not.toBeNull();
+		});
+		// Mount wrote a fresh snapshot; an explicit refresh must still stat.
+		expect(isModelStatusFresh()).toBe(true);
+		callMock.mockClear();
+		stubAll({ tiny: { downloaded: false, deps_ok: true } });
+		await act(async () => {
+			await result.current.refreshModelStatus();
+		});
+		expect(statusCalls()).toHaveLength(1);
+		expect(
+			result.current.models.find((m) => m.name === "tiny")?.downloaded,
+		).toBe(false);
+	});
+
+	it("an invalid status payload is never written to the snapshot", async () => {
+		stubAll({ type: "error", data: { code: "x", message: "y" } });
+		const { result } = renderHook(() => useModelConfig(makeHookArgs()));
+		await waitFor(() => {
+			expect(result.current.config).not.toBeNull();
+		});
+		const { peekIpcCache } = await import("@/lib/ipcCache");
+		expect(peekIpcCache("models.statusSnapshot")).toBeUndefined();
+	});
+
+	it("re-races once after a dataless mount failure, then shows data (cold-start storm)", async () => {
+		vi.useFakeTimers();
+		try {
+			let attempts = 0;
+			callMock.mockImplementation((cmd: string) => {
+				if (cmd === "get_config") {
+					attempts += 1;
+					if (attempts === 1) return Promise.reject(new Error("boot storm"));
+					return Promise.resolve(makeConfig({ model_size: "tiny" }));
+				}
+				if (cmd === "get_model_status") return Promise.resolve({});
+				if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
+				return Promise.resolve({});
+			});
+			const { result } = renderHook(() => useModelConfig(makeHookArgs()));
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(0);
+			});
+
+			// First attempt failed: error screen owns the page for now.
+			expect(result.current.config).toBeNull();
+			expect(result.current.loadError).not.toBeNull();
+
+			// The single delayed re-race heals it without manual Retry.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(8000);
+			});
+			expect(
+				callMock.mock.calls.filter(([cmd]) => cmd === "get_config"),
+			).toHaveLength(2);
+			expect(result.current.config?.model_size).toBe("tiny");
+			expect(result.current.loadError).toBeNull();
+
+			// Bounded: far-future timers add no further attempts.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(120_000);
+			});
+			expect(
+				callMock.mock.calls.filter(([cmd]) => cmd === "get_config"),
+			).toHaveLength(2);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

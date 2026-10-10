@@ -11,9 +11,17 @@
  * an icon-only Custom pill (the primitive supports icon items natively
  * via `icon` + `title`, so no fork is needed). Picking the Custom pill
  * opens the DateRangePicker panel (single month, no preset rail, dates
- * auto-apply on selection); the picker runs trigger-less beside the
- * row and closes on Escape / outside pointer / apply. Applying a range
- * that coincides with a preset lands back on that preset's pill.
+ * auto-apply on selection); the picker runs trigger-less under a plain
+ * absolutely-positioned anchor div, so the panel hangs 8px below the row
+ * with its right edge under the Custom pill (the last item, so it opens
+ * inward instead of off the window). The panel closes on Escape /
+ * outside pointer / apply; `dismissGuard` tells it this row counts as
+ * INSIDE, so re-clicking the Custom pill leaves both the panel and the
+ * indicator alone rather than closing and reopening them. Applying a
+ * range that coincides with a preset lands back on that preset's pill.
+ * The pill opens through `onOptionActivate` rather than `onChange`,
+ * because once a custom range is committed the pill IS the active radio
+ * value and a radio ignores a re-click of itself.
  *
  * Deliberately NOT `variant="tabs"` (which ModelsTabSwitcher uses): that
  * variant renders a WAI-ARIA tablist whose every tab must control a real
@@ -29,7 +37,7 @@
  */
 
 import { Calendar01Icon } from "@hugeicons/core-free-icons";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import {
 	type DateRange,
 	DateRangePicker,
@@ -91,9 +99,17 @@ export const AnalyticsRangeSwitcher = memo(function AnalyticsRangeSwitcher({
 	const setRange = useAnalyticsRange((s) => s.setRange);
 	const setCustomRange = useAnalyticsRange((s) => s.setCustomRange);
 	const [picking, setPicking] = useState(false);
+	// The row itself: it holds BOTH the pills and the panel, so a
+	// pointerdown on a pill must not read as "outside" the panel.
+	const rowRef = useRef<HTMLDivElement>(null);
+	const guardRow = useCallback(() => rowRef.current, []);
 
 	const handleToggleChange = (value: RangeId) => {
 		if (value === "custom") {
+			// Idempotent on purpose: clicking the Custom pill while the
+			// panel is already open must not restart anything. (The
+			// panel's outside-dismiss treats this row as inside, so the
+			// pointerdown cannot close it either — see `dismissGuard`.)
 			setPicking(true);
 			return;
 		}
@@ -105,6 +121,16 @@ export const AnalyticsRangeSwitcher = memo(function AnalyticsRangeSwitcher({
 
 	const handlePickerOpenChange = useCallback((open: boolean) => {
 		if (!open) setPicking(false);
+	}, []);
+
+	// The Custom pill is both a radio value and a disclosure trigger. Once
+	// a custom window is committed the pill IS the active value, and a
+	// radio ignores a re-click of itself — so `onChange` never fires and
+	// the panel could never be reopened. `onOptionActivate` is the
+	// primitive's hook for exactly that second click; it fires before
+	// `onChange`, so this is a no-op when the value is also changing.
+	const handleOptionActivate = useCallback((value: RangeId) => {
+		if (value === "custom") setPicking(true);
 	}, []);
 
 	const applyPickedRange = (picked: DateRange) => {
@@ -151,7 +177,7 @@ export const AnalyticsRangeSwitcher = memo(function AnalyticsRangeSwitcher({
 	);
 
 	return (
-		<div className="relative flex items-center gap-1">
+		<div ref={rowRef} className="relative flex items-center gap-1">
 			<ToggleGroup
 				options={options}
 				// While the picker is open the pending selection is
@@ -161,6 +187,7 @@ export const AnalyticsRangeSwitcher = memo(function AnalyticsRangeSwitcher({
 				// flips back to `range` and the row follows.
 				value={picking ? "custom" : range}
 				onChange={handleToggleChange}
+				onOptionActivate={handleOptionActivate}
 				ariaLabel={t("analytics.rangeAria")}
 				// `no-drag`: the strip sits inside the title bar's drag region,
 				// so without it a click would start a window move instead of
@@ -169,51 +196,59 @@ export const AnalyticsRangeSwitcher = memo(function AnalyticsRangeSwitcher({
 				className="no-drag h-full"
 			/>
 			{/* Trigger-less picker: the Custom pill above opens the panel;
-			    the root below only anchors it (single month, no preset
-			    rail, dates auto-apply). */}
-			<DateRangePicker
-				value={
-					customWindow
-						? {
-								start: dateFromKey(customWindow.startKey),
-								end: dateFromKey(customWindow.endKey),
-							}
-						: null
-				}
-				onChange={applyPickedRange}
-				label={t("analytics.rangeAria")}
-				placeholder={t("analytics.range.custom")}
-				presets={[]}
-				minDate={minDate}
-				maxDate={maxDate}
-				months={1}
-				locale={getLocale()}
-				open={picking}
-				onOpenChange={handlePickerOpenChange}
-				hideTrigger
-				autoApply
-				// Anchored under the pill row: centered horizontally,
-				// 8px below it (calc, not a margin). The morph's own
-				// x-motion still clamps to the viewport from here.
-				className="no-drag absolute left-1/2 top-[calc(100%+8px)] -translate-x-1/2"
-				strings={{
-					presetsLabel: t("analytics.rangePicker.presets"),
-					prevMonthLabel: t("analytics.rangePicker.prevMonth"),
-					nextMonthLabel: t("analytics.rangePicker.nextMonth"),
-					cancelLabel: t("analytics.rangePicker.cancel"),
-					applyLabel: t("analytics.rangePicker.apply"),
-					pickEndDateHint: t("analytics.rangePicker.pickEndDate"),
-					noDatesText: t("analytics.rangePicker.noDates"),
-					formatDayCount: (days) => tChoice("analytics.rangePicker.days", days),
-					formatStatusStart: (startText) =>
-						t("analytics.rangePicker.statusStart", { date: startText }),
-					formatStatusShown: (shownText, countText) =>
-						t("analytics.rangePicker.statusShown", {
-							shown: shownText,
-							count: countText,
-						}),
-				}}
-			/>
+			    the anchor below only places it. The anchor is a plain div,
+			    so the utility classes win — the picker's own root is
+			    `position: relative` from its stylesheet, which would
+			    silently ignore an `absolute` class and leave the panel
+			    hanging off the end of the row instead of under it.
+			    `right-0` + align="end" keeps the panel's right edge under
+			    the Custom pill (the last item), so it opens into the row
+			    rather than off the right of the window. */}
+			<div className="no-drag absolute top-[calc(100%+8px)] right-0">
+				<DateRangePicker
+					value={
+						customWindow
+							? {
+									start: dateFromKey(customWindow.startKey),
+									end: dateFromKey(customWindow.endKey),
+								}
+							: null
+					}
+					onChange={applyPickedRange}
+					label={t("analytics.rangeAria")}
+					placeholder={t("analytics.range.custom")}
+					presets={[]}
+					minDate={minDate}
+					maxDate={maxDate}
+					months={1}
+					locale={getLocale()}
+					open={picking}
+					onOpenChange={handlePickerOpenChange}
+					hideTrigger
+					autoApply
+					align="end"
+					dismissGuard={guardRow}
+					className="no-drag"
+					strings={{
+						presetsLabel: t("analytics.rangePicker.presets"),
+						prevMonthLabel: t("analytics.rangePicker.prevMonth"),
+						nextMonthLabel: t("analytics.rangePicker.nextMonth"),
+						cancelLabel: t("analytics.rangePicker.cancel"),
+						applyLabel: t("analytics.rangePicker.apply"),
+						pickEndDateHint: t("analytics.rangePicker.pickEndDate"),
+						noDatesText: t("analytics.rangePicker.noDates"),
+						formatDayCount: (days) =>
+							tChoice("analytics.rangePicker.days", days),
+						formatStatusStart: (startText) =>
+							t("analytics.rangePicker.statusStart", { date: startText }),
+						formatStatusShown: (shownText, countText) =>
+							t("analytics.rangePicker.statusShown", {
+								shown: shownText,
+								count: countText,
+							}),
+					}}
+				/>
+			</div>
 		</div>
 	);
 });

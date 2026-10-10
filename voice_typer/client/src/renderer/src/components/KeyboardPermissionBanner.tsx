@@ -138,9 +138,12 @@ export function KeyboardPermissionBanner({
 	}
 
 	return (
+		// mount-fade (C-ANIM-2): the probe resolves asynchronously, so
+		// the banner arrives after first paint — opacity-only, nothing
+		// else on the page moves while it appears.
 		<div
 			role="alert"
-			className="rounded-lg border border-warning/40 bg-warning/10 p-4 flex flex-col gap-2"
+			className="mount-fade rounded-lg border border-warning/40 bg-warning/10 p-4 flex flex-col gap-2"
 		>
 			<div className="flex items-start gap-2">
 				<HugeiconsIcon

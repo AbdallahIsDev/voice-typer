@@ -4,6 +4,10 @@ import { useLatestRef } from "@/hooks/useLatestRef";
 import { type PythonCall, usePythonEvent } from "@/hooks/usePython";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
 import {
+	isSnapshotFresh,
+	MOUNT_RERACE_FAST_WINDOW_MS,
+} from "@/lib/snapshotCache";
+import {
 	applyActiveState,
 	INITIAL_MODELS,
 	type ModelInfo,
@@ -11,6 +15,13 @@ import {
 } from "@/lib/utils/models";
 import type { LausuConfig } from "@/types/config";
 import type { ModelStatusResponse, ModelStorageSummary } from "@/types/ipc";
+import {
+	fetchSharedModelStatus,
+	isModelStatusResponse,
+	MODEL_STATUS_TTL_MS,
+	readModelStatusSnapshot,
+	writeModelStatusSnapshot,
+} from "./modelStatusCache";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -34,7 +45,8 @@ export interface UseModelConfigResult {
 	modelCatalog: Record<string, ModelMetadata>;
 	apiKeys: Record<string, string>;
 	setApiKeys: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-	loadConfig: () => Promise<void>;
+	/** Full reload. Resolves true when `get_config` succeeded. */
+	loadConfig: () => Promise<boolean>;
 	/** Shared-hub storage summary from `get_model_status._storage`
 	 *  (null until the first status fetch settles or on older backends). */
 	storage: ModelStorageSummary | null;
@@ -68,16 +80,29 @@ export function useModelConfig({
 	// the module cache (survives page unmount) so the page skips its
 	// loading branch entirely, `loadConfig` below still revalidates.
 	// Read ONCE at init (lazy useState initializers), not per render.
+	// The install-state seed rides along: a fresh status snapshot paints
+	// downloaded badges on first paint, no disk stat needed.
 	const [config, setConfig] = useState<LausuConfig | null>(
 		() => peekIpcCache<LausuConfig>(MODELS_CONFIG_CACHE_KEY) ?? null,
 	);
+	const [initialStatus] = useState(() => {
+		const snap = readModelStatusSnapshot();
+		return snap && isSnapshotFresh(snap, MODEL_STATUS_TTL_MS)
+			? snap.status
+			: null;
+	});
 	// Failure surface for the gating `get_config` fetch. Without this,
 	// a rejected `get_config` left `config` null forever and the page
 	// spun on its loading branch with no recovery path.
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [models, setModels] = useState<ModelInfo[]>(() => {
 		const seeded = peekIpcCache<LausuConfig>(MODELS_CONFIG_CACHE_KEY);
-		return seeded ? applyActiveState(INITIAL_MODELS, seeded) : [];
+		const base = seeded ? applyActiveState(INITIAL_MODELS, seeded) : [];
+		if (!initialStatus) return base;
+		return base.map((m) => {
+			const s = initialStatus[m.name];
+			return s ? { ...m, downloaded: s.downloaded, depsOk: s.deps_ok } : m;
+		});
 	});
 
 	// Request-generation guard for `loadConfig`: overlapping loads are
@@ -103,7 +128,10 @@ export function useModelConfig({
 	// Shared-hub storage summary (the `_storage` key of the
 	// `get_model_status` payload). Kept beside the model list because
 	// both derive from the same fetch; null = unknown, not zero.
-	const [storage, setStorage] = useState<ModelStorageSummary | null>(null);
+	// Seeded from a fresh snapshot like the models above.
+	const [storage, setStorage] = useState<ModelStorageSummary | null>(
+		() => initialStatus?._storage ?? null,
+	);
 
 	// Per-mount config cache (replaces module-level
 	// `_cachedConfig`). The ref lets the `config_changed` event handler
@@ -126,8 +154,14 @@ export function useModelConfig({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const refreshModelStatus = useCallback(async (): Promise<void> => {
 		try {
+			// Explicit refresh: ALWAYS re-stats (bypasses the TTL —
+			// callers select/download expecting authoritative state).
+			// Valid results rewrite the shared snapshot (C-CACHE-5).
 			const status =
 				await callRef.current<ModelStatusResponse>("get_model_status");
+			if (isModelStatusResponse(status)) {
+				writeModelStatusSnapshot(status);
+			}
 			if (status && typeof status === "object") {
 				setStorage(status._storage ?? null);
 				setModels((prev) =>
@@ -160,16 +194,24 @@ export function useModelConfig({
 	// `get_config` result is the gating one, `applyActiveState` runs
 	// as soon as it resolves. The other two settle in the background.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
-	const loadConfig = useCallback(async (): Promise<void> => {
+	const loadConfig = useCallback(async (): Promise<boolean> => {
 		// Claim the load generation, an earlier in-flight load whose
 		// responses resolve after this one started must not clobber the
 		// fresher state this run produces.
 		const generation = ++loadGenerationRef.current;
 		const isCurrent = () => loadGenerationRef.current === generation;
 		try {
+			// The status leg rides the shared snapshot: a fresh cache
+			// (recent visit, hover prefetch, or a concurrent Analytics
+			// refresh) skips the disk stat; concurrent readers share one
+			// flight; a miss stats and rewrites the snapshot. Config +
+			// catalog always fetch (cheap JSON, gating reads).
+			const statusLeg = fetchSharedModelStatus((type, data) =>
+				callRef.current(type, data),
+			);
 			const results = await Promise.allSettled([
 				callRef.current<LausuConfig>("get_config"),
-				callRef.current<ModelStatusResponse>("get_model_status"),
+				statusLeg,
 				callRef.current<{ models: ModelMetadata[] }>("get_model_catalog"),
 			]);
 
@@ -181,9 +223,11 @@ export function useModelConfig({
 				// A newer loadConfig superseded this run, its results own
 				// the state now; applying this run's (older) responses
 				// would regress config/models/apiKeys.
-				return;
+				return false;
 			}
+			let configOk = false;
 			if (cfgResult.status === "fulfilled") {
+				configOk = true;
 				setLoadError(null);
 				const cfg = cfgResult.value;
 				cachedConfigRef.current = cfg;
@@ -261,14 +305,39 @@ export function useModelConfig({
 					catalogResult.reason,
 				);
 			}
+			return configOk;
 		} finally {
 			markUpdatedRef.current();
 		}
 	}, []);
 
-	// Fire loadConfig on mount.
+	// Fire loadConfig on mount. Cold-start storm (mirrors the dashboard
+	// re-race): a mount racing a still-booting backend fails fast with
+	// no config and no recovery — the page would sit on the load-failure
+	// screen until manual Retry even though the backend comes up seconds
+	// later. One delayed re-race heals that; a second failure keeps the
+	// error screen (bounded: exactly one extra attempt, unmount cancels).
 	useEffect(() => {
-		loadConfig();
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const startedAt = Date.now();
+		void loadConfig().then((ok) => {
+			// Re-race only fast failures (C-CACHE-10): a slow failure
+			// already had the bridge's cold-start patience.
+			if (
+				!ok &&
+				!cancelled &&
+				Date.now() - startedAt < MOUNT_RERACE_FAST_WINDOW_MS
+			) {
+				timer = setTimeout(() => {
+					if (!cancelled) void loadConfig();
+				}, 8000);
+			}
+		});
+		return () => {
+			cancelled = true;
+			if (timer !== null) clearTimeout(timer);
+		};
 	}, [loadConfig]);
 
 	// ── config_changed event subscription ───────────────────────────

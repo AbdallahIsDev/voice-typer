@@ -157,7 +157,7 @@ describe("ErrorBoundary", () => {
 		// Title stays an h1 with the calm styling hook.
 		const title = screen.getByRole("heading", { level: 1 });
 		expect(title.className).toContain("text-xl");
-		expect(title.className).toContain("font-semibold");
+		expect(title.className).toContain("font-medium");
 		// Error <pre> uses the muted mono surface.
 		const pre = container.querySelector("pre");
 		expect(pre?.className).toContain("bg-muted");

@@ -382,7 +382,7 @@ export class ErrorBoundary extends Component<
 								aria-hidden="true"
 							/>
 						</div>
-						<h1 className="text-xl font-semibold text-foreground">
+						<h1 className="text-xl font-medium text-foreground">
 							{t("errorBoundary.title")}
 						</h1>
 						<p className="text-sm text-muted-foreground">

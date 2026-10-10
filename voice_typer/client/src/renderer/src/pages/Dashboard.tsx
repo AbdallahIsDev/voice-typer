@@ -65,7 +65,10 @@ import { useThemePalette } from "@/lib/theme-palette";
 import { formatDevice, formatModel } from "@/lib/utils/configDisplay";
 import { computeTrend } from "@/pages/dashboard/lib/trend";
 import { ActivityHeatmap } from "./dashboard/components/ActivityHeatmap";
-import { DashboardSkeleton } from "./dashboard/components/DashboardSkeleton";
+import {
+	DashboardSkeleton,
+	DashboardSkeletonBody,
+} from "./dashboard/components/DashboardSkeleton";
 import { ActivityChart } from "./dashboard/components/SevenDayActivityChart";
 import { useDashboardData } from "./dashboard/hooks/useDashboardData";
 
@@ -176,9 +179,29 @@ export default function DashboardPage() {
 		[data, configRaw],
 	);
 
-	// Skeleton shown only on FIRST load (when `!data`); subsequent
-	// refreshes keep prior data visible (refreshing flag drives the
-	// LastUpdatedIndicator spinner instead). A custom window with no
+	// Plain (non-memoised) action map: stable function identities from
+	// the hook, declared before the early return so the loading path
+	// can mount the Share trigger too (C-CACHE-6).
+	const shareActions = {
+		downloadImage,
+		saveImageAs,
+		copyImageToClipboard,
+		revealInFolder,
+	};
+
+	// Share availability: the trigger is ALWAYS mounted (C-CACHE-6),
+	// disabled until real data can back it. Touches nothing when data
+	// is absent, so computing it before the early return is safe.
+	const shareDisabled =
+		!data ||
+		!configRaw ||
+		!canShareStats({
+			todayCount: data?.todayCount ?? 0,
+			totalCount: data?.totalCount ?? 0,
+		});
+
+	// Skeleton shown only on FIRST load (when `!data`); revisits seed
+	// from the snapshot cache and skip it. A custom window with no
 	// rows yet skeletonizes too (its fetch rides outside `data`).
 	// When `fetchError` is set and `data` is null, the first fetch failed —
 	// render an error state with a Retry button instead of the skeleton.
@@ -188,7 +211,7 @@ export default function DashboardPage() {
 	if (!data || (range === "custom" && !customReady)) {
 		if (fetchError) {
 			return (
-				<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center px-16 pt-20 pb-6">
+				<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center gap-6 px-16 pt-20 pb-6">
 					<EmptyState
 						variant="error"
 						icon={AlertCircleIcon}
@@ -200,17 +223,32 @@ export default function DashboardPage() {
 				</div>
 			);
 		}
+		// First load renders the REAL heading (Share mounted + disabled)
+		// above the skeleton body: actions never vanish mid-load, and the
+		// heading keeps zero live regions (no LastUpdatedIndicator here).
+		if (!data) {
+			return (
+				<div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-20 pb-6">
+					<PageHeading
+						title={t("analytics.title")}
+						description={t("analytics.description")}
+					>
+						<ShareStatsDialog
+							actions={shareActions}
+							stats={shareStats}
+							palette={themePalette}
+							disabled
+						/>
+					</PageHeading>
+					<DashboardSkeletonBody />
+				</div>
+			);
+		}
 		return <DashboardSkeleton />;
 	}
 
 	const d = data;
 	const isFirstRun = d.totalCount === 0; // Empty-state CTA
-	const shareActions = {
-		downloadImage,
-		saveImageAs,
-		copyImageToClipboard,
-		revealInFolder,
-	};
 	// Average speaking speed for the selected window (words per minute
 	// of recorded audio). Null when the window has no recorded audio:
 	// the card then shows "—" and carries no trend instead of
@@ -235,18 +273,12 @@ export default function DashboardPage() {
 					onRefresh={handleManualRefresh}
 					refreshing={refreshing}
 				/>
-				{data &&
-					configRaw &&
-					canShareStats({
-						todayCount: data.todayCount,
-						totalCount: data.totalCount,
-					}) && (
-						<ShareStatsDialog
-							actions={shareActions}
-							stats={shareStats}
-							palette={themePalette}
-						/>
-					)}
+				<ShareStatsDialog
+					actions={shareActions}
+					stats={shareStats}
+					palette={themePalette}
+					disabled={shareDisabled}
+				/>
 			</PageHeading>
 
 			{/* amber keyboard-permission banner, placed
@@ -383,14 +415,21 @@ export default function DashboardPage() {
 						customWindowLabel={customWindowLabel}
 					/>
 					{/* Custom windows that hit the page cap serve sampled
-					    stats: say so under the chart, next to the numbers
-					    it qualifies. */}
-					{range === "custom" && customCapped && (
-						<p className="text-center text-xs text-muted-foreground">
-							{t("analytics.customRangeCapped", {
-								count: String(period.count),
-							})}
-						</p>
+				    stats: say so under the chart, next to the numbers
+				    it qualifies. The animator (C-ANIM-1) smooths the
+				    line's arrival once the window fetch lands — the
+				    wrapper stays mounted for the whole custom range so
+				    the toggle (not a remount) is what animates. */}
+					{range === "custom" && (
+						<div className="collapse-root" data-open={customCapped}>
+							<div>
+								<p className="text-center text-xs text-muted-foreground">
+									{t("analytics.customRangeCapped", {
+										count: String(period.count),
+									})}
+								</p>
+							</div>
+						</div>
 					)}
 
 					{/* Long-window consistency view. Placed AFTER the

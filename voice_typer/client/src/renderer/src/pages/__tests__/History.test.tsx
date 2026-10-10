@@ -28,6 +28,7 @@
  * the pre-existing rw1 "History export null-safe" test).
  */
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -524,5 +525,108 @@ describe("History load-error EmptyState uses the error variant", () => {
 		expect(
 			alertRegion.querySelector('[data-slot="empty-state-error-icon"]'),
 		).toBeTruthy();
+	});
+});
+
+// Revisit caching (C-CACHE-2/7): a fresh default-view snapshot makes the
+// remount render cached rows with no list refetch. The footer
+// get_history_count still fires (true total, not the page window).
+describe("History revisit skips the list refetch on a fresh snapshot", () => {
+	function stubDefault() {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_history") return Promise.resolve([sampleRecord()]);
+			if (type === "get_today_stats") return Promise.resolve(zeroStats);
+			if (type === "get_history_count") return Promise.resolve({ count: 1 });
+			return Promise.resolve({});
+		});
+	}
+
+	function listCalls(cmd: string) {
+		return mockCall.mock.calls.filter((c) => c[0] === cmd);
+	}
+
+	it("second mount first-paints cached rows with no get_history/get_today_stats", async () => {
+		stubDefault();
+		const { default: HistoryPage } = await import("@/pages/History");
+		const first = render(<HistoryPage />);
+		await waitFor(() => {
+			expect(screen.getByText("hello world")).toBeTruthy();
+		});
+		expect(listCalls("get_history").length).toBeGreaterThan(0);
+		first.unmount();
+		mockCall.mockClear();
+
+		render(<HistoryPage />);
+		// Cached rows on first paint (no loading flash).
+		expect(screen.getByText("hello world")).toBeTruthy();
+		await act(async () => {});
+		expect(listCalls("get_history")).toHaveLength(0);
+		expect(listCalls("get_today_stats")).toHaveLength(0);
+	});
+
+	it("re-races once after a dataless mount failure, then shows rows (cold-start storm)", async () => {
+		vi.useFakeTimers();
+		try {
+			let attempts = 0;
+			mockCall.mockImplementation((type: string) => {
+				if (type === "get_history") {
+					attempts += 1;
+					if (attempts === 1) return Promise.reject(new Error("boot storm"));
+					return Promise.resolve([sampleRecord()]);
+				}
+				if (type === "get_today_stats") return Promise.resolve(zeroStats);
+				if (type === "get_history_count") return Promise.resolve({ count: 1 });
+				return Promise.resolve({});
+			});
+			const { default: HistoryPage } = await import("@/pages/History");
+			const { unmount } = render(<HistoryPage />);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(0);
+			});
+
+			// First attempt failed: error screen owns the page for now.
+			expect(screen.getByText(t("history.loadFailedTitle"))).toBeTruthy();
+
+			// The single delayed re-race heals it without manual Retry.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(8000);
+			});
+			expect(screen.getByText("hello world")).toBeTruthy();
+
+			// Bounded: far-future timers add no further attempts.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(120_000);
+			});
+			expect(listCalls("get_history")).toHaveLength(2);
+			unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("stale snapshot revalidates on revisit", async () => {
+		stubDefault();
+		const { default: HistoryPage } = await import("@/pages/History");
+		const first = render(<HistoryPage />);
+		await waitFor(() => {
+			expect(screen.getByText("hello world")).toBeTruthy();
+		});
+		first.unmount();
+		// Age the snapshot past the TTL.
+		const { peekIpcCache, writeIpcCache } = await import("@/lib/ipcCache");
+		const snap = peekIpcCache<Record<string, unknown>>("history.snapshot");
+		expect(snap).toBeTruthy();
+		writeIpcCache("history.snapshot", {
+			...snap,
+			fetchedAt: Date.now() - 31_000,
+		});
+		mockCall.mockClear();
+
+		render(<HistoryPage />);
+		// Cached rows stay visible while the background refresh runs.
+		expect(screen.getByText("hello world")).toBeTruthy();
+		await waitFor(() => {
+			expect(listCalls("get_history").length).toBeGreaterThan(0);
+		});
 	});
 });

@@ -24,6 +24,14 @@ import type { PythonCall } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
+import {
+	isSnapshotFresh,
+	MOUNT_RERACE_FAST_WINDOW_MS,
+	type PrefetchCall,
+	peekPrefetchFlight,
+	runPrefetchFlight,
+	type TimestampedSnapshot,
+} from "@/lib/snapshotCache";
 import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
 import { sortEntries, type VocabSortOrder } from "../lib/sort";
@@ -49,6 +57,81 @@ export function usageKey(category: string, original: string): string {
 
 // Module-cache key for the SWR seed (see lib/ipcCache.ts).
 const VOCAB_CACHE_KEY = "vocabulary.entries";
+// Timestamped snapshot (C-CACHE-1): entries + the raw usage response
+// written atomically. Usage was previously refetched-but-never-seeded,
+// so "Used N×" flashed empty on every revisit while entries showed.
+const VOCAB_SNAPSHOT_KEY = "vocabulary.snapshot";
+export const VOCAB_SNAPSHOT_TTL_MS = 30_000;
+
+interface VocabSnapshot extends TimestampedSnapshot {
+	entries: VocabRow[];
+	usageRaw: unknown;
+}
+
+function readVocabSnapshot(): VocabSnapshot | null {
+	const snap = peekIpcCache<VocabSnapshot>(VOCAB_SNAPSHOT_KEY);
+	if (snap && Array.isArray(snap.entries)) return snap;
+	const entries = peekIpcCache<VocabRow[]>(VOCAB_CACHE_KEY);
+	if (entries) return { entries, usageRaw: null, fetchedAt: 0 };
+	return null;
+}
+
+// Pure builder for the per-row usage map (shared by the load path,
+// the seed, and hydration so all three derive identical maps).
+function buildUsageMap(snapshot: {
+	entries?: Record<string, Record<string, { count: number; last_ts: number }>>;
+}): UsageByKey {
+	const map = new Map<string, EntryUsage>();
+	for (const [cat, catEntries] of Object.entries(snapshot?.entries ?? {})) {
+		for (const [original, usage] of Object.entries(catEntries ?? {})) {
+			if (usage && typeof usage.count === "number" && usage.count > 0) {
+				map.set(usageKey(cat, original), {
+					count: usage.count,
+					last_ts: usage.last_ts ?? 0,
+				});
+			}
+		}
+	}
+	return map;
+}
+
+/** True when a fresh snapshot makes a mount load redundant. */
+export function isVocabCacheFresh(): boolean {
+	return isSnapshotFresh(readVocabSnapshot(), VOCAB_SNAPSHOT_TTL_MS);
+}
+
+/** In-flight hover prefetch, if any (mount awaits it before deciding). */
+export function peekVocabPrefetch(): Promise<void> | null {
+	return peekPrefetchFlight(VOCAB_SNAPSHOT_KEY);
+}
+
+// Hover/focus data prefetch: warms entries + usage before navigation.
+// Same four guards as the Analytics prefetch (C-CACHE-4).
+export function prefetchVocabularyData(call: PrefetchCall): Promise<void> {
+	if (isVocabCacheFresh()) return Promise.resolve();
+	return runPrefetchFlight(VOCAB_SNAPSHOT_KEY, async () => {
+		const [data, usageRaw] = await Promise.all([
+			call("get_vocabulary"),
+			call("get_correction_usage"),
+		]);
+		// Never cache error envelopes as an empty vocabulary (flattening
+		// one yields [] and the fresh-cache fast path would serve it).
+		if (!data || typeof data !== "object") return;
+		const rec = data as Record<string, unknown>;
+		if (rec.type === "error" || "_error" in rec) return;
+		const { entries: unique } = dedupeEntries(
+			flattenEntries(data as VocabularyData),
+		);
+		const withIds = withEntryIds(unique);
+		const snap: VocabSnapshot = {
+			entries: withIds,
+			usageRaw: usageRaw ?? null,
+			fetchedAt: Date.now(),
+		};
+		writeIpcCache(VOCAB_SNAPSHOT_KEY, snap);
+		writeIpcCache(VOCAB_CACHE_KEY, withIds);
+	});
+}
 
 interface UseVocabularyArgs {
 	call: PythonCall;
@@ -64,7 +147,8 @@ interface UseVocabularyResult {
 	loadError: string | null;
 	saving: boolean;
 	entriesRef: React.RefObject<VocabRow[]>;
-	loadVocabulary: () => Promise<void>;
+	/** Backend reload. Resolves false when the fetch failed (loadError set). */
+	loadVocabulary: () => Promise<boolean>;
 	persistVocabulary: (updated: VocabRow[]) => Promise<void>;
 	instantDeleteEntry: (entry: VocabRow) => Promise<void>;
 	setEntries: (entries: VocabRow[]) => void;
@@ -82,12 +166,14 @@ export function useVocabulary({
 	call,
 	showSnack,
 }: UseVocabularyArgs): UseVocabularyResult {
-	// SWR seed: revisit renders the last visit's list instantly from the
-	// module cache (survives page unmount), `loadVocabulary` below
-	// still revalidates fresh data in the background.
-	const cachedEntries = peekIpcCache<VocabRow[]>(VOCAB_CACHE_KEY);
-	const [entries, setEntries] = useState<VocabRow[]>(cachedEntries ?? []);
-	const [loading, setLoading] = useState(cachedEntries === undefined);
+	// SWR seed: revisit renders the last visit's list AND usage map
+	// instantly from the module cache (survives page unmount). The
+	// mount effect below revalidates only when the snapshot is stale.
+	const [initialSnapshot] = useState<VocabSnapshot | null>(readVocabSnapshot);
+	const [entries, setEntries] = useState<VocabRow[]>(
+		() => initialSnapshot?.entries ?? [],
+	);
+	const [loading, setLoading] = useState(initialSnapshot === null);
 	//fix #8: surface backend-load failures to the user
 	// instead of silently masking them as "no entries exist".  Matches
 	// the History/Templates retry pattern.
@@ -108,7 +194,18 @@ export function useVocabulary({
 	// the per-row "Used N×" indicator. Fetched alongside the vocabulary
 	// and re-fetched after every save (the server prunes usage records
 	// for deleted corrections, so the map must track the live entries).
-	const [usageByKey, setUsageByKey] = useState<UsageByKey>(new Map());
+	// Seeded from the snapshot: the map previously rebuilt from empty
+	// on every revisit, flashing blank counts under cached entries.
+	const [usageByKey, setUsageByKey] = useState<UsageByKey>(() =>
+		buildUsageMap(
+			(initialSnapshot?.usageRaw ?? {}) as {
+				entries?: Record<
+					string,
+					Record<string, { count: number; last_ts: number }>
+				>;
+			},
+		),
+	);
 
 	// `instantDeleteEntry` undo callback can read the LATEST list at
 	// undo callback closed over `entries` from the render that created
@@ -156,7 +253,7 @@ export function useVocabulary({
 	// and re-fetched after every save (the server prunes usage records
 	// for deleted corrections, so the map must track the live entries).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
-	const loadUsage = useCallback(async () => {
+	const loadUsage = useCallback(async (): Promise<unknown> => {
 		try {
 			const snapshot = await callRef.current<{
 				entries?: Record<
@@ -164,18 +261,16 @@ export function useVocabulary({
 					Record<string, { count: number; last_ts: number }>
 				>;
 			}>("get_correction_usage");
-			const map = new Map<string, EntryUsage>();
-			for (const [cat, catEntries] of Object.entries(snapshot?.entries ?? {})) {
-				for (const [original, usage] of Object.entries(catEntries ?? {})) {
-					if (usage && typeof usage.count === "number" && usage.count > 0) {
-						map.set(usageKey(cat, original), {
-							count: usage.count,
-							last_ts: usage.last_ts ?? 0,
-						});
-					}
-				}
-			}
-			setUsageByKey(map);
+			setUsageByKey(buildUsageMap(snapshot ?? {}));
+			// Merge the usage half into the snapshot (read-modify-write:
+			// entries ride along untouched, see loadVocabulary below).
+			const prev = readVocabSnapshot();
+			writeIpcCache(VOCAB_SNAPSHOT_KEY, {
+				entries: prev?.entries ?? [],
+				usageRaw: snapshot ?? null,
+				fetchedAt: Date.now(),
+			} satisfies VocabSnapshot);
+			return snapshot ?? null;
 		} catch (err) {
 			// Usage is a progressive enhancement, a failure to load it
 			// must not break the vocabulary list (entries still render
@@ -185,11 +280,12 @@ export function useVocabulary({
 				err,
 			);
 			setUsageByKey(new Map());
+			return null;
 		}
 	}, []);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
-	const loadVocabulary = useCallback(async () => {
+	const loadVocabulary = useCallback(async (): Promise<boolean> => {
 		setLoading(true);
 		// Clear any prior load error before retrying so the EmptyState
 		// swaps back to the spinner during the retry attempt (matches
@@ -208,6 +304,14 @@ export function useVocabulary({
 			setEntries(withIds);
 			// SWR write-through, the next visit seeds from this snapshot.
 			writeIpcCache(VOCAB_CACHE_KEY, withIds);
+			// Merge the entries half into the snapshot (the usage half
+			// rides along untouched, see loadUsage above).
+			const prev = readVocabSnapshot();
+			writeIpcCache(VOCAB_SNAPSHOT_KEY, {
+				entries: withIds,
+				usageRaw: prev?.usageRaw ?? null,
+				fetchedAt: Date.now(),
+			} satisfies VocabSnapshot);
 			if (mergedCount > 0) {
 				showSnackRef.current(
 					t("vocabulary.mergedDuplicates", {
@@ -235,17 +339,70 @@ export function useVocabulary({
 					? err.message
 					: t("vocabulary.loadFailedDescription"),
 			);
+			return false;
 		} finally {
 			setLoading(false);
 		}
+		return true;
 	}, []);
 
-	// Mount-only load: `loadVocabulary` / `loadUsage` have stable
-	// identities (read `call` via a ref), so this effect runs exactly once.
+	// Re-reads the snapshot cache into state (mount adopts a hover
+	// prefetch that landed after first paint, C-CACHE-2). Idempotent.
+	const hydrateFromCache = useCallback((): boolean => {
+		const snap = readVocabSnapshot();
+		if (!snap) return false;
+		setEntries(snap.entries);
+		setUsageByKey(
+			buildUsageMap(
+				(snap.usageRaw ?? {}) as {
+					entries?: Record<
+						string,
+						Record<string, { count: number; last_ts: number }>
+					>;
+				},
+			),
+		);
+		setLoading(false);
+		setLoadError(null);
+		return true;
+	}, []);
+
+	// Mount load with the TTL fast path (C-CACHE-2): a fresh snapshot
+	// (recent visit or hover prefetch) renders from cache with no IPC.
+	// A hover still in flight is awaited first and hydrated, so the
+	// mount piggybacks it instead of duplicating it. Cold-start storm
+	// (Dashboard/Models pattern): a failed mount load re-races once
+	// after 8s so a boot-time failure heals without manual Retry; a
+	// second failure keeps the error screen (bounded, unmount cancels).
 	useEffect(() => {
-		loadVocabulary();
-		loadUsage();
-	}, [loadVocabulary, loadUsage]);
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const startedAt = Date.now();
+		void (peekVocabPrefetch() ?? Promise.resolve()).then(() => {
+			if (cancelled) return;
+			if (isVocabCacheFresh()) {
+				hydrateFromCache();
+				return;
+			}
+			void loadVocabulary().then((ok) => {
+				// Re-race only fast failures (C-CACHE-10).
+				if (
+					!ok &&
+					!cancelled &&
+					Date.now() - startedAt < MOUNT_RERACE_FAST_WINDOW_MS
+				) {
+					timer = setTimeout(() => {
+						if (!cancelled) void loadVocabulary();
+					}, 8000);
+				}
+			});
+			loadUsage();
+		});
+		return () => {
+			cancelled = true;
+			if (timer !== null) clearTimeout(timer);
+		};
+	}, [loadVocabulary, loadUsage, hydrateFromCache]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const persistVocabulary = useCallback(
@@ -269,7 +426,15 @@ export function useVocabulary({
 				);
 				// The save path prunes usage records for deleted corrections
 				//, refresh the map so removed entries stop showing counts.
-				await loadUsage();
+				const usageRaw = await loadUsage();
+				// Saves rewrite the snapshot with exactly what was saved:
+				// the next revisit serves post-save state, never pre-save
+				// (C-CACHE-5 invalidation-by-rewrite).
+				writeIpcCache(VOCAB_SNAPSHOT_KEY, {
+					entries: updated,
+					usageRaw,
+					fetchedAt: Date.now(),
+				} satisfies VocabSnapshot);
 			} catch (err) {
 				console.error(
 					"[renderer:useVocabulary] Failed to save vocabulary:",

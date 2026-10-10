@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { type DiskInfo, formatErrorMessage } from "@/lib/utils/models";
+import { expireModelStatusSnapshot } from "./modelStatusCache";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -11,7 +12,7 @@ interface UseModelFolderArgs {
 		message: string,
 		kind: "success" | "error" | "warning" | "info",
 	) => void;
-	loadConfig: () => Promise<void>;
+	loadConfig: () => Promise<unknown>;
 }
 
 export interface UseModelFolderResult {
@@ -74,6 +75,9 @@ export function useModelFolder({
 				errors: { model: string; error: string }[];
 			}>("import_model", { dir_path: result.path });
 			if (importResult.success && importResult.imported.length > 0) {
+				// Disk changed: expire the status snapshot BEFORE the
+				// reload so it re-stats (C-CACHE-5).
+				expireModelStatusSnapshot();
 				await loadConfig();
 				showSnack(
 					t("models.import.success", {

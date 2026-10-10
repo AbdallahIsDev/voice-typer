@@ -123,7 +123,7 @@ export default function OnboardingPage({
 					tabIndex={-1}
 					className="flex w-full flex-col gap-4 rounded-lg border border-destructive/40 bg-destructive/5 p-8 text-center outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
 				>
-					<h2 className="text-lg font-semibold text-foreground">
+					<h2 className="text-lg font-medium text-foreground">
 						{t("errorBoundary.title")}
 					</h2>
 					<p className="text-sm text-muted-foreground">{initError}</p>

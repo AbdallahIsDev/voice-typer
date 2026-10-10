@@ -13,7 +13,7 @@ import {
 	ChevronDownIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { Transition, Variants } from "motion/react";
+import type { HTMLMotionProps, Transition, Variants } from "motion/react";
 import {
 	AnimatePresence,
 	animate,
@@ -75,6 +75,12 @@ export interface DateRangePickerStrings {
  * or move with the keyboard, the ends glide between days, months slide in the direction you travel, and on Apply the
  * formatted label flies back into the trigger as the surface shrinks around it.
  * Use it for reports, filters, and bookings where a start and end date are chosen together.
+ *
+ * Trigger-less mode (`hideTrigger`): the caller's own control opens the
+ * panel, so there is no trigger box to grow out of. The morphing surface
+ * is dropped, the panel becomes the single floating container, and it
+ * reveals with opacity + scale. See `align` and `dismissGuard` for the
+ * two things a trigger-less caller has to tell the panel about itself.
  */
 export interface DateRangePickerProps {
 	/** Controlled value. Pass `null` for no selection. */
@@ -118,6 +124,25 @@ export interface DateRangePickerProps {
 	 * usual, the commit path is shared with Apply.
 	 */
 	autoApply?: boolean;
+	/**
+	 * Which edge of the panel hangs under the root origin. `"start"`
+	 * (default) grows it rightward from the origin, `"end"` grows it
+	 * leftward so the panel's right edge stays under a trigger that
+	 * sits at the end of a row. Only consulted for trigger-less
+	 * callers: a trigger owner's panel is already anchored to the
+	 * trigger's box.
+	 */
+	align?: "start" | "end";
+	/**
+	 * Extra element that must NOT count as "outside" for the
+	 * outside-pointer dismiss, on top of the root itself. A trigger-less
+	 * caller opens the panel from its OWN control (e.g. a pill in a
+	 * toggle row), so without this the pointerdown on that control
+	 * dismisses the panel and the following click reopens it: the panel
+	 * flickers and the caller's active indicator bounces off and back.
+	 * Must be a stable callback, like `onOpenChange`.
+	 */
+	dismissGuard?: () => HTMLElement | null;
 }
 
 type Size = { w: number; h: number };
@@ -686,14 +711,26 @@ function Months({
 	children,
 	direction,
 	reduced,
+	ref,
 }: {
 	children: ReactNode;
 	direction: number;
 	reduced: boolean;
+	/**
+	 * AnimatePresence's `mode="popLayout"` clones this child and injects
+	 * its own ref so it can measure the leaving set and take it OUT of
+	 * flow while it exits. A custom component that swallows that ref
+	 * leaves the ref null, so nothing is popped: the leaving month keeps
+	 * its place in the layout and stacks under/over the arriving one,
+	 * and the viewport (and the panel) grow to hold both. Forwarding the
+	 * ref to the motion element is what makes the pop work.
+	 */
+	ref?: React.Ref<HTMLDivElement>;
 }) {
 	const present = useIsPresent();
 	return (
 		<motion.div
+			ref={ref}
 			className={styles.months}
 			data-current={present || undefined}
 			inert={!present || undefined}
@@ -727,6 +764,8 @@ export function DateRangePicker({
 	onOpenChange,
 	hideTrigger = false,
 	autoApply = false,
+	align = "start",
+	dismissGuard,
 }: DateRangePickerProps) {
 	const copy = {
 		presetsLabel: "Presets",
@@ -869,21 +908,20 @@ export function DateRangePicker({
 		queued.current = false;
 		const { trigger, panel } = sizes.current,
 			state = live.current;
-		// Hidden-trigger callers have no trigger box. An open panel
-		// still sizes normally; a closed one collapses the surface to
-		// zero so no hollow box lingers after dismiss. Trigger owners
-		// keep the plain early return (their mount jump owns `ready`).
-		if (!trigger.w && !(state.open && panel)) {
-			if (hideTrigger) {
-				width.jump(0);
-				height.jump(0);
-				radius.jump(TRIGGER_RADIUS);
-				x.jump(0);
-				rootWidth.jump(0);
-				state.ready = true;
-			}
+		// Trigger-less callers render the panel directly (no surface), so
+		// there is nothing to size or slide: the panel's box IS the card and
+		// its offset under the root origin is pure CSS (`left`/`right` on
+		// `.panel[data-floating]`, keyed on `align`). Deliberately no
+		// measurement here — a `x` offset would have no consumer without the
+		// surface, and reading the panel's width on every pass is exactly the
+		// stale-measurement path that made the old morph misplace the panel.
+		if (hideTrigger) {
+			state.ready = true;
 			return;
 		}
+		// Trigger owners keep the plain early return: their mount jump
+		// owns `ready` and the surface collapses on close.
+		if (!trigger.w && !(state.open && panel)) return;
 		const openPanel = state.open && panel ? panel : null;
 		const target = openPanel ?? trigger;
 		let offset = 0;
@@ -1038,11 +1076,37 @@ export function DateRangePicker({
 	useEffect(() => {
 		if (!open) return;
 		const down = (event: PointerEvent) => {
-			if (!rootRef.current?.contains(event.target as Node)) close(false);
+			const target = event.target as Node;
+			if (rootRef.current?.contains(target)) return;
+			// The caller's own opener is not "outside": dismissing on its
+			// pointerdown would make the following click reopen the panel,
+			// so the panel flickers and the caller's active indicator
+			// bounces off the control and back.
+			if (dismissGuard?.()?.contains(target)) return;
+			close(false);
+		};
+		// Escape. `onRootKey` below only fires while focus is INSIDE the
+		// root, which is always true for a trigger owner (opening moves
+		// focus to the panel) but never for a trigger-less caller: focus
+		// stays on the caller's own control, so the root never sees the
+		// key and the panel becomes undismissable by keyboard. Listen on
+		// the document instead, and skip when the root already handled it
+		// so the key is not processed twice.
+		const key = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			if (rootRef.current?.contains(event.target as Node)) return;
+			event.preventDefault();
+			// `false`: there is no trigger of ours to hand focus back to.
+			// The caller owns the opener and keeps its focus.
+			close(false);
 		};
 		document.addEventListener("pointerdown", down);
-		return () => document.removeEventListener("pointerdown", down);
-	}, [close, open]);
+		document.addEventListener("keydown", key);
+		return () => {
+			document.removeEventListener("pointerdown", down);
+			document.removeEventListener("keydown", key);
+		};
+	}, [close, dismissGuard, open]);
 
 	const onRootKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (event.key === "Escape" && open) {
@@ -1236,6 +1300,39 @@ export function DateRangePicker({
 		? { duration: 0.12, ease: standardEase }
 		: { duration: 0.22, ease: enterEase, delay: reduced ? 0 : 0.1 };
 
+	/**
+	 * Panel shell. A trigger owner gets the vendor's single morphing
+	 * surface: the panel is a plain box inside it, clipped while the
+	 * surface grows out of the trigger's box. A trigger-less caller has
+	 * nothing to morph FROM, so the surface would only be a second
+	 * wrapper painting the same material — the panel carries it instead
+	 * and the root becomes a bare anchor.
+	 */
+	const shell = (children: ReactNode) =>
+		hideTrigger ? (
+			children
+		) : (
+			<motion.div
+				className={styles.surface}
+				style={{ width, height, borderRadius: radius, x }}
+			>
+				{children}
+			</motion.div>
+		);
+
+	// Trigger owners stagger the panel's content in behind the growing
+	// surface. A floating panel already reveals as one piece (opacity +
+	// scale on the panel), so a second, competing animation on the
+	// content would just muddy it.
+	const faceReveal: HTMLMotionProps<"div"> = hideTrigger
+		? {}
+		: {
+				variants: reduced ? faceFade : faceIn,
+				initial: "hidden",
+				animate: "shown",
+				exit: "gone",
+			};
+
 	return (
 		<motion.div
 			ref={rootRef}
@@ -1319,35 +1416,69 @@ export function DateRangePicker({
 				</button>
 			)}
 
-			<motion.div
-				className={styles.surface}
-				style={{ width, height, borderRadius: radius, x }}
-			>
+			{shell(
 				<AnimatePresence>
 					{open && today && (
 						<motion.div
 							key="panel"
 							ref={panelRef}
 							id={`${uid}-panel`}
-							className={styles.panel}
+							// `rounded-lg` is the app's single radius step for
+							// panels, and — unlike a plain border-radius
+							// declaration — it is also what picks up the
+							// global squircle corner-shape (index.css shapes
+							// it via :where(.rounded-lg)). Without the class
+							// the panel's corners were a plain superellipse(1)
+							// while every card in the app renders
+							// superellipse(2), so the calendar read as a
+							// different material. The radius itself is
+							// declared here, not in the module, so the card
+							// look has exactly one source.
+							className={`${styles.panel} rounded-lg`}
 							role="dialog"
 							aria-label={label}
 							data-compact={compact || undefined}
+							data-floating={hideTrigger || undefined}
+							// Which edge of the panel hangs under the root
+							// origin; the floating CSS keys `left`/`right` on
+							// it. Only meaningful without a trigger.
+							data-align={hideTrigger ? align : undefined}
 							style={
 								{
 									"--cell": `${cellSize}px`,
 									width: compact && panelWidth ? panelWidth : undefined,
+									// A floating panel grows out of the corner it
+									// hangs from, so the reveal reads as coming
+									// from the control that opened it.
+									transformOrigin: hideTrigger
+										? align === "end"
+											? "top right"
+											: "top left"
+										: undefined,
 								} as CSSProperties
 							}
-							exit={{ opacity: 1, transition: { duration: 0.14 } }}
+							// Floating reveal: opacity + scale only, no travel.
+							initial={hideTrigger ? { opacity: 0, scale: 0.8 } : undefined}
+							animate={hideTrigger ? { opacity: 1, scale: 1 } : undefined}
+							transition={
+								hideTrigger
+									? { duration: reduced ? 0 : 0.16, ease: enterEase }
+									: undefined
+							}
+							exit={
+								hideTrigger
+									? {
+											opacity: 0,
+											scale: 0.8,
+											transition: {
+												duration: reduced ? 0 : 0.12,
+												ease: standardEase,
+											},
+										}
+									: { opacity: 1, transition: { duration: 0.14 } }
+							}
 						>
-							<motion.div
-								className={styles.body}
-								variants={reduced ? faceFade : faceIn}
-								initial="hidden"
-								animate="shown"
-								exit="gone"
-							>
+							<motion.div className={styles.body} {...faceReveal}>
 								{/* No presets: the caller owns preset shortcuts
 								    elsewhere (e.g. a pill row), so the rail —
 								    an empty bordered column — stays out. */}
@@ -1480,13 +1611,7 @@ export function DateRangePicker({
 											reduced={reduced}
 										/>
 									</motion.span>
-									<motion.span
-										className={styles.summaryCount}
-										variants={reduced ? faceFade : faceIn}
-										initial="hidden"
-										animate="shown"
-										exit="gone"
-									>
+									<motion.span className={styles.summaryCount} {...faceReveal}>
 										{countText && (
 											<Rolling
 												text={
@@ -1503,13 +1628,7 @@ export function DateRangePicker({
 								{/* autoApply commits on pick: the footer keeps
 								    the live summary, the Cancel/Apply row goes. */}
 								{!autoApply && (
-									<motion.div
-										className={styles.actions}
-										variants={reduced ? faceFade : faceIn}
-										initial="hidden"
-										animate="shown"
-										exit="gone"
-									>
+									<motion.div className={styles.actions} {...faceReveal}>
 										<button
 											type="button"
 											className={styles.ghost}
@@ -1533,8 +1652,8 @@ export function DateRangePicker({
 							</p>
 						</motion.div>
 					)}
-				</AnimatePresence>
-			</motion.div>
+				</AnimatePresence>,
+			)}
 		</motion.div>
 	);
 }

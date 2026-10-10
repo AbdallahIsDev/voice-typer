@@ -21,6 +21,14 @@ import type { PythonCall } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
+import {
+	isSnapshotFresh,
+	MOUNT_RERACE_FAST_WINDOW_MS,
+	type PrefetchCall,
+	peekPrefetchFlight,
+	runPrefetchFlight,
+	type TimestampedSnapshot,
+} from "@/lib/snapshotCache";
 import { useGlobalSearch } from "@/stores/useGlobalSearch";
 import {
 	loadTemplatesFromBackend,
@@ -30,6 +38,52 @@ import {
 } from "../lib/storage";
 import { rowsToTemplates, sortTemplateRows, toRows } from "../lib/transform";
 import type { Template, TemplateRow, TemplateSortOrder } from "../lib/types";
+
+// Timestamped snapshot (C-CACHE-1/2): rows + write time, so a revisit
+// inside the TTL skips the reload instead of flashing the spinner over
+// cached rows. Any snapshot implies loadRows ran at least once this
+// session, which also settles the one-time localStorage migration flag.
+const TEMPLATES_SNAPSHOT_KEY = "templates.snapshot";
+export const TEMPLATES_SNAPSHOT_TTL_MS = 30_000;
+
+interface TemplatesSnapshot extends TimestampedSnapshot {
+	rows: TemplateRow[];
+}
+
+function readTemplatesSnapshot(): TemplatesSnapshot | null {
+	const snap = peekIpcCache<TemplatesSnapshot>(TEMPLATES_SNAPSHOT_KEY);
+	if (snap && Array.isArray(snap.rows)) return snap;
+	const rows = peekIpcCache<TemplateRow[]>(TEMPLATES_CACHE_KEY);
+	if (rows) return { rows, fetchedAt: 0 };
+	return null;
+}
+
+/** True when a fresh snapshot makes a mount load redundant. */
+export function isTemplatesCacheFresh(): boolean {
+	return isSnapshotFresh(readTemplatesSnapshot(), TEMPLATES_SNAPSHOT_TTL_MS);
+}
+
+/** In-flight hover prefetch, if any (mount awaits it before deciding). */
+export function peekTemplatesPrefetch(): Promise<void> | null {
+	return peekPrefetchFlight(TEMPLATES_SNAPSHOT_KEY);
+}
+
+// Hover/focus data prefetch: warms rows before navigation. Same four
+// guards as the Analytics prefetch (C-CACHE-4). Reuses the backend
+// loader so malformed payloads throw (no write) exactly like the mount
+// path; localStorage fallback stays mount-only.
+export function prefetchTemplatesData(call: PrefetchCall): Promise<void> {
+	if (isTemplatesCacheFresh()) return Promise.resolve();
+	return runPrefetchFlight(TEMPLATES_SNAPSHOT_KEY, async () => {
+		const backendTemplates = await loadTemplatesFromBackend(
+			call as Parameters<typeof loadTemplatesFromBackend>[0],
+		);
+		const rows = toRows(backendTemplates);
+		const snap: TemplatesSnapshot = { rows, fetchedAt: Date.now() };
+		writeIpcCache(TEMPLATES_SNAPSHOT_KEY, snap);
+		writeIpcCache(TEMPLATES_CACHE_KEY, rows);
+	});
+}
 
 // Module-cache key for the SWR seed (see lib/ipcCache.ts).
 const TEMPLATES_CACHE_KEY = "templates.rows";
@@ -51,7 +105,8 @@ interface UseTemplatesResult {
 	loading: boolean;
 	loadError: string | null;
 	templatesRef: React.RefObject<TemplateRow[]>;
-	loadRows: () => Promise<void>;
+	/** Backend reload. Resolves false when nothing could be shown (loadError set). */
+	loadRows: () => Promise<boolean>;
 	instantDeleteTemplate: (tmpl: TemplateRow) => Promise<void>;
 	/** Optimistic list setter, exposed for bulk operations. */
 	setTemplates: (templates: TemplateRow[]) => void;
@@ -85,13 +140,15 @@ export function useTemplates({
 	}, [markUpdated]);
 
 	// SWR seed: revisit renders the last visit's rows instantly from the
-	// module cache (survives page unmount), `loadRows` below still
-	// revalidates fresh data in the background.
-	const cachedTemplates = peekIpcCache<TemplateRow[]>(TEMPLATES_CACHE_KEY);
-	const [templates, setTemplates] = useState<TemplateRow[]>(
-		cachedTemplates ?? [],
+	// module cache (survives page unmount). The mount effect below
+	// revalidates only when the snapshot is stale.
+	const [initialSnapshot] = useState<TemplatesSnapshot | null>(
+		readTemplatesSnapshot,
 	);
-	const [loading, setLoading] = useState(cachedTemplates === undefined);
+	const [templates, setTemplates] = useState<TemplateRow[]>(
+		() => initialSnapshot?.rows ?? [],
+	);
+	const [loading, setLoading] = useState(initialSnapshot === null);
 	//surface backend-load failures (IPC error or malformed
 	// payload) to the user instead of silently falling back to an
 	// empty list. Distinguishes "no templates exist" (valid empty
@@ -141,7 +198,8 @@ export function useTemplates({
 	// user can retry instead of being presented with the
 	// "create your first template" empty state.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
-	const loadRows = useCallback(async () => {
+	const loadRows = useCallback(async (): Promise<boolean> => {
+		let ok = true;
 		setLoading(true);
 		// Clear any prior load error before retrying so the EmptyState
 		// swaps back to the spinner during the retry attempt.
@@ -198,8 +256,17 @@ export function useTemplates({
 
 			const templateRows = toRows(backendTemplates);
 			setTemplates(templateRows);
-			// SWR write-through, the next visit seeds from this snapshot.
-			writeIpcCache(TEMPLATES_CACHE_KEY, templateRows);
+			// SWR write-through, the next visit seeds from this snapshot —
+			// but never cache the failure state (backend down + nothing to
+			// fall back to): a revisit must see the error screen, not a
+			// cached empty list masquerading as "no templates".
+			if (!(backendFailed && backendTemplates.length === 0)) {
+				writeIpcCache(TEMPLATES_CACHE_KEY, templateRows);
+				writeIpcCache(TEMPLATES_SNAPSHOT_KEY, {
+					rows: templateRows,
+					fetchedAt: Date.now(),
+				} satisfies TemplatesSnapshot);
+			}
 			//if the backend failed AND we couldn't recover
 			// from localStorage (or migration), surface a load error
 			// so the user knows to retry. Otherwise the empty list
@@ -208,6 +275,7 @@ export function useTemplates({
 			// locale.
 			if (backendFailed && backendTemplates.length === 0) {
 				setLoadError(t("templates.loadFailedDescription"));
+				ok = false;
 			}
 		} catch (err) {
 			console.error("[renderer:useTemplates] Failed to load templates", err);
@@ -224,15 +292,60 @@ export function useTemplates({
 					? err.message
 					: t("templates.loadFailedDescription"),
 			);
+			ok = false;
 		} finally {
 			setLoading(false);
 			markUpdatedRef.current?.();
 		}
+		return ok;
 	}, []);
 
+	// Re-reads the snapshot cache into state (mount adopts a hover
+	// prefetch that landed after first paint, C-CACHE-2). Idempotent.
+	const hydrateFromCache = useCallback((): boolean => {
+		const snap = readTemplatesSnapshot();
+		if (!snap) return false;
+		setTemplates(snap.rows);
+		setLoading(false);
+		setLoadError(null);
+		return true;
+	}, []);
+
+	// Mount load with the TTL fast path (C-CACHE-2): a fresh snapshot
+	// (recent visit or hover prefetch) renders from cache with no IPC.
+	// A hover still in flight is awaited first and hydrated, so the
+	// mount piggybacks it instead of duplicating it. Cold-start storm
+	// (Dashboard/Models pattern): a failed mount load re-races once
+	// after 8s so a boot-time failure heals without manual Retry; a
+	// second failure keeps the error screen (bounded, unmount cancels).
 	useEffect(() => {
-		loadRows();
-	}, [loadRows]);
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const startedAt = Date.now();
+		void (peekTemplatesPrefetch() ?? Promise.resolve()).then(() => {
+			if (cancelled) return;
+			if (isTemplatesCacheFresh()) {
+				hydrateFromCache();
+				return;
+			}
+			void loadRows().then((ok) => {
+				// Re-race only fast failures (C-CACHE-10).
+				if (
+					!ok &&
+					!cancelled &&
+					Date.now() - startedAt < MOUNT_RERACE_FAST_WINDOW_MS
+				) {
+					timer = setTimeout(() => {
+						if (!cancelled) void loadRows();
+					}, 8000);
+				}
+			});
+		});
+		return () => {
+			cancelled = true;
+			if (timer !== null) clearTimeout(timer);
+		};
+	}, [loadRows, hydrateFromCache]);
 
 	//R7-F10: instant-delete path (no confirm dialog).
 	// Triggered by the trash icon.  The legacy ConfirmDialog flow

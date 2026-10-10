@@ -21,7 +21,7 @@ export interface UseHistoryRecordActionsOptions {
 	/** The currently loaded records (delete needs the pre-delete row). */
 	records: HistoryRecord[];
 	/** The cache hook's load (re-fetches after an undo restore). */
-	load: (query?: string, favoritesOnly?: boolean) => Promise<void>;
+	load: (query?: string, favoritesOnly?: boolean) => Promise<unknown>;
 	/** The cache hook's records-state setter. */
 	setRecords: React.Dispatch<React.SetStateAction<HistoryRecord[]>>;
 }

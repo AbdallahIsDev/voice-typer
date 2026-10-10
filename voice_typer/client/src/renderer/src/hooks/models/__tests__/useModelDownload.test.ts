@@ -49,6 +49,8 @@ vi.mock("@/i18n/i18n", () => ({
 }));
 
 import { useModelDownload } from "@/hooks/models/useModelDownload";
+import { __resetIpcCacheForTests } from "@/lib/ipcCache";
+import { __resetPrefetchFlightsForTests } from "@/lib/snapshotCache";
 // ── Helpers ──────────────────────────────────────────────────────────
 import type { ModelInfo } from "@/lib/utils/models";
 
@@ -107,6 +109,8 @@ function getDownloadProgressHandler():
 beforeEach(() => {
 	callMock.mockReset();
 	usePythonEventMock.mockReset();
+	__resetIpcCacheForTests();
+	__resetPrefetchFlightsForTests();
 	toastMock.error.mockClear();
 	toastMock.success.mockClear();
 	toastMock.warning.mockClear();
@@ -233,6 +237,30 @@ describe("useModelDownload, downloadModel success path", () => {
 		// Bar unmounts + failure cleared on success.
 		expect(result.current.downloadingModel).toBeNull();
 		expect(result.current.failedDownload).toBeNull();
+	});
+
+	it("expires the shared status snapshot so the reconcile re-stats the disk", async () => {
+		const { writeIpcCache } = await import("@/lib/ipcCache");
+		const { isModelStatusFresh } = await import(
+			"@/hooks/models/modelStatusCache"
+		);
+		writeIpcCache("models.statusSnapshot", {
+			status: { tiny: { downloaded: false, deps_ok: true } },
+			fetchedAt: Date.now(),
+		});
+		expect(isModelStatusFresh()).toBe(true);
+
+		callMock.mockResolvedValue({ success: true, message: "ok" });
+		const args = makeHookArgs({
+			reconcileAfterDownload: vi.fn().mockResolvedValue(undefined),
+		});
+		const { result } = renderHook(() => useModelDownload(args));
+
+		await act(async () => {
+			await result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+
+		expect(isModelStatusFresh()).toBe(false);
 	});
 });
 

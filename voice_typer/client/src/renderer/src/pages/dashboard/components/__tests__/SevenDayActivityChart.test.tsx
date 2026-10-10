@@ -284,6 +284,35 @@ describe("ActivityChart x ticks", () => {
 	});
 });
 
+describe("ActivityChart x-axis row height (C-LIFE-2)", () => {
+	/** Tick row element (the reservation under test). */
+	function tickRow(): HTMLElement | null {
+		return document.querySelector<HTMLElement>('[data-slot="activity-ticks"]');
+	}
+
+	it("reserves the same two-line row for hourly and month-day labels", () => {
+		// Hourly ticks ("23") take one line; month-day ticks ("Sep 11")
+		// wrap to two in narrow columns. The row is fixed-height so the
+		// card never grows when switching ranges.
+		const monthDay = chart(
+			Array.from({ length: 30 }, (_, i) => ({
+				key: `k${i}`,
+				label: `Sep ${i + 1}`,
+				count: 0,
+				isMissing: false,
+			})),
+		);
+		render(<ActivityChart range="today" activity={hourlyChart()} />);
+		expect(tickRow()?.className).toContain("h-8");
+		cleanup();
+		render(<ActivityChart range="30d" activity={monthDay} />);
+		expect(tickRow()?.className).toContain("h-8");
+		// Readability kept: the month-day text still reaches the reader
+		// (index 12 of 30 ticks "Sep 13", see the spacing rule above).
+		expect(visibleTickText()).toContain("Sep 13");
+	});
+});
+
 describe("ActivityChart count tooltip", () => {
 	it("prints no count on the chart until a slot is hovered", () => {
 		// The count used to sit permanently above every bar, which made

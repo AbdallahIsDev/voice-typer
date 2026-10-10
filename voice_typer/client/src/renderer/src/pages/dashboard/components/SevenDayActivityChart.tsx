@@ -145,7 +145,7 @@ export function ActivityChart({
 			    Stacking them cost a row of height that said nothing the
 			    title did not already imply. */}
 			<div className="flex items-baseline justify-between gap-3">
-				<h2 className="min-w-0 truncate font-sans text-sm font-semibold text-foreground">
+				<h2 className="min-w-0 truncate font-sans text-sm font-medium text-foreground">
 					{t("analytics.activityTitle")}
 				</h2>
 				<p className="shrink-0 text-xs leading-tight text-muted-foreground">
@@ -291,11 +291,16 @@ export function ActivityChart({
 				</div>
 
 				{/* X axis labels. EVERY bar renders a tick — a hidden one keeps
-				    its column, which is what keeps the visible labels aligned
-				    under their own bars. `tickIndices` only decides which are
-				    printed, so filtering the array here instead would slide
-				    every label out from under its bar. */}
-				<div className="flex gap-2">
+			    its column, which is what keeps the visible labels aligned
+			    under their own bars. `tickIndices` only decides which are
+			    printed, so filtering the array here instead would slide
+			    every label out from under its bar.
+			    Fixed two-line height (C-LIFE-2): hourly ticks ("23") take
+			    one line while month-day ticks ("Sep 11") wrap to two in
+			    narrow columns — without the reservation the card grows
+			    when switching ranges. Single-line labels anchor to the
+			    top; the box never moves. */}
+				<div data-slot="activity-ticks" className="flex h-8 gap-2">
 					<div className="w-7 shrink-0" aria-hidden="true" />
 					<div className="flex min-w-0 flex-1 gap-1">
 						{bars.map((bar, i) => (
@@ -303,7 +308,7 @@ export function ActivityChart({
 								key={bar.key}
 								data-slot="activity-tick"
 								className={cn(
-									"min-w-0 flex-1 text-center text-[10px] text-muted-foreground",
+									"min-w-0 flex-1 text-center text-[10px] leading-tight text-muted-foreground",
 									!ticks.has(i) && "invisible",
 								)}
 							>

@@ -227,6 +227,37 @@ describe("useModelFolder, handleImportModel success path", () => {
 		);
 		expect(result.current.isImporting).toBe(false);
 	});
+
+	it("expires the shared status snapshot so the reload re-stats the disk", async () => {
+		const { writeIpcCache } = await import("@/lib/ipcCache");
+		const { isModelStatusFresh } = await import(
+			"@/hooks/models/modelStatusCache"
+		);
+		writeIpcCache("models.statusSnapshot", {
+			status: { tiny: { downloaded: false, deps_ok: true } },
+			fetchedAt: Date.now(),
+		});
+		expect(isModelStatusFresh()).toBe(true);
+
+		setOpenModelImportDialog(async () => ({
+			canceled: false,
+			path: "/home/user/good",
+		}));
+		callMock.mockResolvedValue({
+			success: true,
+			imported: ["tiny"],
+			found: ["tiny"],
+			errors: [],
+		});
+
+		const { result } = renderHook(() => useModelFolder(makeHookArgs()));
+		await act(async () => {
+			await result.current.handleImportModel();
+		});
+
+		expect(loadConfigMock).toHaveBeenCalledTimes(1);
+		expect(isModelStatusFresh()).toBe(false);
+	});
 });
 
 describe("useModelFolder, handleOpenModelsFolder (no-op)", () => {

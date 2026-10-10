@@ -71,7 +71,7 @@ export function OfflinePackPreparingBanner({
 			aria-label={t("pack.preparingOfflineEngineAria", { status })}
 			data-pack-status={status}
 			className={cn(
-				"flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground animate-fade-in",
+				"flex flex-wrap items-center gap-2 text-xs-plus text-muted-foreground animate-fade-in",
 				className,
 			)}
 		>

@@ -19,9 +19,15 @@ vi.mock("@/i18n/i18n", () => ({
 	getLocale: () => "en",
 }));
 
+const { cacheStore } = vi.hoisted(() => ({
+	cacheStore: new Map<string, unknown>(),
+}));
+
 vi.mock("@/lib/ipcCache", () => ({
-	peekIpcCache: () => null,
-	writeIpcCache: vi.fn(),
+	peekIpcCache: (key: string) => cacheStore.get(key),
+	writeIpcCache: vi.fn((key: string, value: unknown) => {
+		cacheStore.set(key, value);
+	}),
 }));
 
 import { useAnalyticsRange } from "@/stores/useAnalyticsRange";
@@ -29,10 +35,30 @@ import type { LausuConfig } from "@/types/config";
 import type { HistoryRecord, ModelStatusMap } from "@/types/ipc";
 import type { CorrectionUsageSnapshot } from "../../lib/streaks";
 import {
+	DASHBOARD_CACHE_TTL_MS,
 	DASHBOARD_DELTA_LIMIT,
 	DASHBOARD_SAMPLE_LIMIT,
+	type PrefetchCall,
+	prefetchDashboardData,
 	useDashboardData,
 } from "../useDashboardData";
+
+const SNAPSHOT_KEY = "analytics.dashboardSnapshot";
+
+function stubFull(
+	callMock: ReturnType<typeof vi.fn>,
+	rows: HistoryRecord[],
+	count: number,
+) {
+	callMock.mockImplementation((cmd: string) => {
+		if (cmd === "get_config") return Promise.resolve(makeConfig());
+		if (cmd === "get_history") return Promise.resolve(rows);
+		if (cmd === "get_history_count") return Promise.resolve({ count });
+		if (cmd === "get_correction_usage") return Promise.resolve(null);
+		if (cmd === "get_model_status") return Promise.resolve({});
+		return Promise.resolve(null);
+	});
+}
 
 type CallStub = <T = unknown>(
 	type: string,
@@ -97,6 +123,7 @@ describe("useDashboardData hot/cold split", () => {
 			configurable: true,
 		});
 		usePythonEventMock.mockClear();
+		cacheStore.clear();
 		callMock = vi.fn();
 	});
 
@@ -272,7 +299,10 @@ describe("useDashboardData hot/cold split", () => {
 		await fireEvent("config_changed");
 
 		expect(callsOf(callMock, "get_config").length).toBeGreaterThan(0);
-		expect(callsOf(callMock, "get_model_status").length).toBeGreaterThan(0);
+		// The status leg rides the shared model-status snapshot: the
+		// mount just wrote it fresh, so no disk re-stat here (that is
+		// the C-CACHE-5 optimization, not a skipped refresh — config,
+		// history, and corrections below all re-fired).
 		const historyCalls = callsOf(callMock, "get_history");
 		expect(historyCalls.length).toBeGreaterThan(0);
 		// Full path only, no 10-row delta fetch.
@@ -339,6 +369,7 @@ describe("useDashboardData custom windows", () => {
 		});
 		sessionStorage.clear();
 		useAnalyticsRange.setState({ range: "7d", customWindow: null });
+		cacheStore.clear();
 		callMock = vi.fn((cmd: string) => {
 			if (cmd === "get_config") return Promise.resolve(makeConfig());
 			if (cmd === "get_history_count") return Promise.resolve({ count: 0 });
@@ -446,6 +477,7 @@ describe("useDashboardData cold-start mount retry", () => {
 			configurable: true,
 		});
 		usePythonEventMock.mockClear();
+		cacheStore.clear();
 		callMock = vi.fn();
 	});
 
@@ -517,5 +549,206 @@ describe("useDashboardData cold-start mount retry", () => {
 			await vi.advanceTimersByTimeAsync(120_000);
 		});
 		expect(callsOf(callMock, "get_config")).toHaveLength(2);
+	});
+});
+
+describe("useDashboardData snapshot cache (C-CACHE-1/2)", () => {
+	let callMock: ReturnType<typeof vi.fn>;
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		Object.defineProperty(document, "visibilityState", {
+			value: "visible",
+			configurable: true,
+		});
+		usePythonEventMock.mockClear();
+		cacheStore.clear();
+		callMock = vi.fn();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.clearAllMocks();
+	});
+
+	async function mountWithRows(rows: HistoryRecord[], count: number) {
+		stubFull(callMock, rows, count);
+		const hook = renderHook(() =>
+			useDashboardData({ call: asCallStub(callMock) }),
+		);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		return hook;
+	}
+
+	it("revisit with a fresh snapshot renders cached stats with no IPC", async () => {
+		const rows = [makeRow(2), makeRow(1)];
+		const first = await mountWithRows(rows, 2);
+		expect(first.result.current.data?.totalCount).toBe(2);
+		first.unmount();
+		callMock.mockClear();
+
+		const second = renderHook(() =>
+			useDashboardData({ call: asCallStub(callMock) }),
+		);
+		// First paint already shows cached data AND derived stats: no
+		// zero placeholders, no skeleton.
+		expect(second.result.current.data?.totalCount).toBe(2);
+		expect(second.result.current.period.count).toBe(2);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(callMock.mock.calls.length).toBe(0);
+		second.unmount();
+	});
+
+	it("stale snapshot revalidates in background while cached stats stay visible", async () => {
+		const rows = [makeRow(2), makeRow(1)];
+		const first = await mountWithRows(rows, 2);
+		first.unmount();
+		const snap = cacheStore.get(SNAPSHOT_KEY) as { fetchedAt: number };
+		cacheStore.set(SNAPSHOT_KEY, {
+			...(snap as unknown as Record<string, unknown>),
+			fetchedAt: Date.now() - DASHBOARD_CACHE_TTL_MS - 1,
+		});
+		callMock.mockClear();
+		stubFull(callMock, rows, 2);
+
+		const second = renderHook(() =>
+			useDashboardData({ call: asCallStub(callMock) }),
+		);
+		// Cached stats stay on screen while the refresh runs.
+		expect(second.result.current.data?.totalCount).toBe(2);
+		expect(second.result.current.period.count).toBe(2);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(callsOf(callMock, "get_history").length).toBeGreaterThan(0);
+		expect(second.result.current.data?.totalCount).toBe(2);
+		second.unmount();
+	});
+
+	it("slow failures skip the re-race (bridge patience already applied, C-CACHE-10)", async () => {
+		let rejectLoad!: (err: Error) => void;
+		const gate = new Promise<LausuConfig>((_, reject) => {
+			rejectLoad = reject;
+		});
+		callMock.mockImplementation((cmd: string) => {
+			// The gating call hangs 35s (bridge waited), then fails.
+			if (cmd === "get_config") return gate;
+			if (cmd === "get_history") return Promise.resolve([]);
+			if (cmd === "get_history_count") return Promise.resolve({ count: 0 });
+			if (cmd === "get_correction_usage") return Promise.resolve(null);
+			if (cmd === "get_model_status") return Promise.resolve({});
+			return Promise.resolve(null);
+		});
+		const hook = renderHook(() =>
+			useDashboardData({ call: asCallStub(callMock) }),
+		);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(35_000);
+			rejectLoad(new Error("boot storm"));
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(hook.result.current.data).toBeNull();
+		expect(hook.result.current.fetchError).not.toBeNull();
+		const configs = callsOf(callMock, "get_config").length;
+		// No second wait stacked: straight to the error screen.
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(120_000);
+		});
+		expect(callsOf(callMock, "get_config")).toHaveLength(configs);
+		hook.unmount();
+	});
+
+	it("mount awaits an in-flight hover prefetch instead of duplicating it", async () => {
+		const rows = [makeRow(2), makeRow(1)];
+		stubFull(callMock, rows, 2);
+		const prefetchCall = callMock as unknown as PrefetchCall;
+		const pending = prefetchDashboardData(prefetchCall);
+		const hook = renderHook(() =>
+			useDashboardData({ call: asCallStub(callMock) }),
+		);
+		await act(async () => {
+			await pending;
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		// One set of IPCs total: the mount piggybacked the prefetch.
+		expect(callsOf(callMock, "get_history")).toHaveLength(1);
+		expect(hook.result.current.data?.totalCount).toBe(2);
+		hook.unmount();
+	});
+});
+
+describe("prefetchDashboardData (C-CACHE-4)", () => {
+	let callMock: ReturnType<typeof vi.fn>;
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		cacheStore.clear();
+		callMock = vi.fn();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.clearAllMocks();
+	});
+
+	function prefetchCall(): PrefetchCall {
+		return callMock as unknown as PrefetchCall;
+	}
+
+	it("warms the snapshot so the next mount skips its fetch", async () => {
+		stubFull(callMock, [makeRow(2), makeRow(1)], 2);
+		await prefetchDashboardData(prefetchCall());
+		expect(callsOf(callMock, "get_history")).toHaveLength(1);
+		callMock.mockClear();
+
+		const hook = renderHook(() =>
+			useDashboardData({ call: asCallStub(callMock) }),
+		);
+		expect(hook.result.current.data?.totalCount).toBe(2);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(callMock.mock.calls.length).toBe(0);
+		hook.unmount();
+	});
+
+	it("repeated hovers issue no further IPC while the snapshot is fresh", async () => {
+		stubFull(callMock, [makeRow(1)], 1);
+		await prefetchDashboardData(prefetchCall());
+		callMock.mockClear();
+		await prefetchDashboardData(prefetchCall());
+		await prefetchDashboardData(prefetchCall());
+		expect(callMock.mock.calls.length).toBe(0);
+	});
+
+	it("concurrent hovers share one flight", async () => {
+		let resolveHistory!: (rows: HistoryRecord[]) => void;
+		const gate = new Promise<HistoryRecord[]>((resolve) => {
+			resolveHistory = resolve;
+		});
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_config") return Promise.resolve(makeConfig());
+			if (cmd === "get_history") return gate;
+			if (cmd === "get_history_count") return Promise.resolve({ count: 1 });
+			if (cmd === "get_correction_usage") return Promise.resolve(null);
+			if (cmd === "get_model_status") return Promise.resolve({});
+			return Promise.resolve(null);
+		});
+		const p1 = prefetchDashboardData(prefetchCall());
+		const p2 = prefetchDashboardData(prefetchCall());
+		resolveHistory([makeRow(1)]);
+		await p1;
+		await p2;
+		expect(callsOf(callMock, "get_history")).toHaveLength(1);
+	});
+
+	it("failures leave the cache empty (mount stays authoritative)", async () => {
+		callMock.mockRejectedValue(new Error("backend down"));
+		await prefetchDashboardData(prefetchCall());
+		expect(cacheStore.has(SNAPSHOT_KEY)).toBe(false);
 	});
 });

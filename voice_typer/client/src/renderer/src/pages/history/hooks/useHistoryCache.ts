@@ -36,6 +36,13 @@ import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { peekIpcCache, writeIpcCache } from "@/lib/ipcCache";
+import {
+	isSnapshotFresh,
+	type PrefetchCall,
+	peekPrefetchFlight,
+	runPrefetchFlight,
+	type TimestampedSnapshot,
+} from "@/lib/snapshotCache";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
 
 import { deriveHistoryCursor, type HistoryCursor } from "../utils/cursor";
@@ -47,6 +54,84 @@ export type { HistoryCursor };
 // instantly; `load` always revalidates fresh data over it.
 const HISTORY_CACHE_KEY = "history.firstPage";
 const HISTORY_STATS_CACHE_KEY = "history.todayStats";
+// Timestamped snapshot (C-CACHE-1): records + stats + hasMore written
+// atomically, so a revisit restores the full list state (including
+// Load-More availability) instead of a rows-only fragment. Legacy keys
+// above stay as fallback readers/writers.
+const HISTORY_SNAPSHOT_KEY = "history.snapshot";
+export const HISTORY_SNAPSHOT_TTL_MS = 30_000;
+
+const EMPTY_STATS: TodayStats = {
+	count: 0,
+	chars: 0,
+	word_count: 0,
+	duration: 0,
+};
+
+interface HistorySnapshot extends TimestampedSnapshot {
+	records: HistoryRecord[];
+	stats: TodayStats;
+	hasMore: boolean;
+}
+
+function readHistorySnapshot(): HistorySnapshot | null {
+	const snap = peekIpcCache<HistorySnapshot>(HISTORY_SNAPSHOT_KEY);
+	if (snap && Array.isArray(snap.records) && snap.stats) return snap;
+	const records = peekIpcCache<HistoryRecord[]>(HISTORY_CACHE_KEY);
+	if (records)
+		return {
+			records,
+			stats: peekIpcCache<TodayStats>(HISTORY_STATS_CACHE_KEY) ?? {
+				...EMPTY_STATS,
+			},
+			hasMore: false,
+			fetchedAt: 0,
+		};
+	return null;
+}
+
+function isDefaultFilter(query: string, favoritesOnly: boolean): boolean {
+	return query.trim() === "" && !favoritesOnly;
+}
+
+/** True when a fresh default-view snapshot makes a mount load redundant. */
+export function isHistoryCacheFresh(): boolean {
+	return isSnapshotFresh(readHistorySnapshot(), HISTORY_SNAPSHOT_TTL_MS);
+}
+
+/** In-flight hover prefetch, if any (mount awaits it before deciding). */
+export function peekHistoryPrefetch(): Promise<void> | null {
+	return peekPrefetchFlight(HISTORY_SNAPSHOT_KEY);
+}
+
+// Hover/focus data prefetch: warms the default-view snapshot before
+// navigation. Same four guards as the Analytics prefetch (C-CACHE-4).
+export function prefetchHistoryData(call: PrefetchCall): Promise<void> {
+	if (isHistoryCacheFresh()) return Promise.resolve();
+	return runPrefetchFlight(HISTORY_SNAPSHOT_KEY, async () => {
+		const [rows, todayStats] = await Promise.all([
+			call("get_history", { limit: HISTORY_PAGE_SIZE, offset: 0 }),
+			call("get_today_stats"),
+		]);
+		if (!Array.isArray(rows)) return;
+		const firstPage = (rows as HistoryRecord[]).slice(0, HISTORY_MAX_ROWS);
+		const stats =
+			todayStats &&
+			typeof todayStats === "object" &&
+			typeof (todayStats as TodayStats).count === "number"
+				? (todayStats as TodayStats)
+				: { ...EMPTY_STATS };
+		const snap: HistorySnapshot = {
+			records: firstPage,
+			stats,
+			hasMore: rows.length >= HISTORY_PAGE_SIZE,
+			fetchedAt: Date.now(),
+		};
+		writeIpcCache(HISTORY_SNAPSHOT_KEY, snap);
+		writeIpcCache(HISTORY_CACHE_KEY, firstPage);
+		writeIpcCache(HISTORY_STATS_CACHE_KEY, stats);
+	});
+}
 
 // Page size used for both the initial load and ``loadMore`` paging.
 // Mirrors the Python ``history_db.get_history`` default limit (50).
@@ -115,29 +200,36 @@ export interface UseHistoryCacheReturn {
 	setRecords: React.Dispatch<React.SetStateAction<HistoryRecord[]>>;
 	setStats: React.Dispatch<React.SetStateAction<TodayStats>>;
 	setHasMore: React.Dispatch<React.SetStateAction<boolean>>;
-	load: (query?: string, favoritesOnly?: boolean) => Promise<void>;
+	/** Fresh load. Resolves false when the fetch failed (loadError set). */
+	load: (query?: string, favoritesOnly?: boolean) => Promise<boolean>;
 	loadMore: () => Promise<void>;
 	refreshFromEvent: () => Promise<void>;
 	setFilter: (query: string, favoritesOnly: boolean) => void;
+	// Re-reads the snapshot cache into state (mount adopts a hover
+	// prefetch that landed after first paint, C-CACHE-2). Idempotent,
+	// returns false when there is nothing cached.
+	hydrateFromCache: () => boolean;
 }
 
 export function useHistoryCache(): UseHistoryCacheReturn {
-	// SWR seed: render the LAST visit's first page + stats immediately
-	// (module cache survives page unmount) and skip the loading state —
-	// the mount `load` below still revalidates in the background.
-	const cachedRecords = peekIpcCache<HistoryRecord[]>(HISTORY_CACHE_KEY);
-	const cachedStats = peekIpcCache<TodayStats>(HISTORY_STATS_CACHE_KEY);
-	const [records, setRecords] = useState<HistoryRecord[]>(cachedRecords ?? []);
-	const [stats, setStats] = useState<TodayStats>(
-		cachedStats ?? {
-			count: 0,
-			chars: 0,
-			word_count: 0,
-			duration: 0,
-		},
+	// SWR seed: render the LAST visit's snapshot immediately (module
+	// cache survives page unmount) and skip the loading state — the
+	// mount effect in History.tsx revalidates only when the snapshot is
+	// stale. Seeded as ONE snapshot so records + stats + hasMore stay
+	// consistent (C-CACHE-1/3).
+	const [initialSnapshot] = useState<HistorySnapshot | null>(
+		readHistorySnapshot,
 	);
-	const [hasMore, setHasMore] = useState(false);
-	const [loading, setLoading] = useState(cachedRecords === undefined);
+	const [records, setRecords] = useState<HistoryRecord[]>(
+		() => initialSnapshot?.records ?? [],
+	);
+	const [stats, setStats] = useState<TodayStats>(
+		() => initialSnapshot?.stats ?? { ...EMPTY_STATS },
+	);
+	const [hasMore, setHasMore] = useState(
+		() => initialSnapshot?.hasMore ?? false,
+	);
+	const [loading, setLoading] = useState(initialSnapshot === null);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -165,7 +257,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 		query: "",
 		favoritesOnly: false,
 	});
-	const offsetRef = useRef(0);
+	const offsetRef = useRef(initialSnapshot?.records.length ?? 0);
 
 	// ref mirror of the current ``records`` array so ``loadMore``
 	// can read the last row's ``(timestamp, id)`` for cursor pagination
@@ -227,9 +319,11 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	// ``load`` is invoked from the page mount effect, the search debounce,
 	// the favorites toggle, the retry button, and the manual refresh
 	// button. When called with no args, falls back to the filter ref.
+	// Resolves false on failure so the mount effect can schedule its
+	// cold-start re-race (mirrors the Dashboard/Models pattern).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const load = useCallback(
-		async (query?: string, favoritesOnly?: boolean) => {
+		async (query?: string, favoritesOnly?: boolean): Promise<boolean> => {
 			// Resolve the effective filter (explicit args win; otherwise read
 			// the ref so debounced / background callers see the latest).
 			const q = query ?? filterRef.current.query;
@@ -262,6 +356,18 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				// from this snapshot instead of showing a loading state.
 				writeIpcCache(HISTORY_CACHE_KEY, firstPage);
 				writeIpcCache(HISTORY_STATS_CACHE_KEY, nextStats);
+				// Timestamped snapshot for the TTL fast path — default
+				// view only. A filtered load must never seed the revisit
+				// cache, or a revisit would first-paint another filter's
+				// rows (C-CACHE-1).
+				if (isDefaultFilter(q, fav)) {
+					writeIpcCache(HISTORY_SNAPSHOT_KEY, {
+						records: firstPage,
+						stats: nextStats,
+						hasMore: safeRows.length >= HISTORY_PAGE_SIZE,
+						fetchedAt: Date.now(),
+					} satisfies HistorySnapshot);
+				}
 				// ``hasMore`` is true when the backend returned a full page
 				// (i.e. there MAY be more rows beyond this offset). The
 				// backend's frame cap (200 rows max) means a full page is
@@ -270,10 +376,12 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				setHasMore(safeRows.length >= HISTORY_PAGE_SIZE);
 				offsetRef.current = safeRows.length;
 				markUpdatedRef.current();
+				return true;
 			} catch (err) {
 				console.error("[renderer:History] load failed:", err);
 				setRecords([]);
 				setLoadError(err instanceof Error ? err.message : String(err));
+				return false;
 			} finally {
 				setLoading(false);
 			}
@@ -402,6 +510,27 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 					duration: 0,
 				},
 			);
+			// Keep the revisit snapshot moving on background refreshes
+			// (default view only, same filter guard as `load`): an event
+			// refresh IS a revalidation, so it renews the TTL.
+			if (
+				isDefaultFilter(
+					filterRef.current.query,
+					filterRef.current.favoritesOnly,
+				)
+			) {
+				const merged =
+					safeRows.length === 0
+						? []
+						: mergeRefreshedRecords(safeRows, recordsRef.current);
+				const capped = merged.slice(0, HISTORY_MAX_ROWS);
+				writeIpcCache(HISTORY_SNAPSHOT_KEY, {
+					records: capped,
+					stats: todayStats ?? { ...EMPTY_STATS },
+					hasMore: capped.length >= refreshLimit,
+					fetchedAt: Date.now(),
+				} satisfies HistorySnapshot);
+			}
 			markUpdatedRef.current();
 		} catch (err) {
 			console.warn("[renderer:History] background refresh failed:", err);
@@ -409,11 +538,23 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	}, [fetchPage]);
 
 	// Cheap ref-only update, called on every page render to keep the
-	// hook's filter mirror in sync with the page's state. Must NOT
+	// hook's filter mirror in sync with the page state. Must NOT
 	// trigger a re-render or fetch (the page decides when to fetch via
 	// ``load()`` / ``handleSearch`` debounce).
 	const setFilter = useCallback((query: string, favoritesOnly: boolean) => {
 		filterRef.current = { query, favoritesOnly };
+	}, []);
+
+	const hydrateFromCache = useCallback((): boolean => {
+		const snap = readHistorySnapshot();
+		if (!snap) return false;
+		setRecords(snap.records);
+		setStats(snap.stats);
+		setHasMore(snap.hasMore);
+		offsetRef.current = snap.records.length;
+		setLoading(false);
+		setLoadError(null);
+		return true;
 	}, []);
 
 	return {
@@ -431,5 +572,6 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 		loadMore,
 		refreshFromEvent,
 		setFilter,
+		hydrateFromCache,
 	};
 }

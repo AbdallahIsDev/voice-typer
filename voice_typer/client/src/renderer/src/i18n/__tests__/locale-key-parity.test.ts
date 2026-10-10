@@ -3,7 +3,7 @@
  * the SAME set of dot-keys as `en.json`.
  * CONSTRAINT C-I18N-1 requires that every user-visible string be added
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { flatten } from "@/i18n/store";
 import ar from "@/i18n/translations/ar.json";
 import de from "@/i18n/translations/de.json";
@@ -202,6 +202,40 @@ describe("cloud-provider pending message key (all 8 locales)", () => {
 			}
 		});
 	}
+});
+
+// Direct guard for the tray-label table in `i18n/push.ts`. The parity
+// loop above only proves en and each locale agree with each other; it
+// cannot catch a `labelKey` that is absent from EVERY catalog, which is
+// exactly how the table once shipped 18 entries whose `notify.<name>`
+// keys were never defined (every locale push logged
+// "[renderer:i18n] missing key" and silently dropped those tray
+// labels). `trayLabelsForLocale()` resolves each `labelKey` through
+// `t()`, which logs that warning for a key it cannot find in the
+// current locale OR English, so asserting a clean console while
+// resolving against the real en catalog pins the whole table.
+describe("tray-label table resolves against the real en catalog", () => {
+	it("emits no 'missing key' warning for locale 'en'", async () => {
+		const { _setCurrentLocale } = await import("@/i18n/store");
+		const { trayLabelsForLocale } = await import("@/i18n/push");
+		_setCurrentLocale("en");
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			trayLabelsForLocale();
+			const missing = warnSpy.mock.calls
+				.filter((call) => call[0] === "[renderer:i18n] missing key:")
+				.map((call) => call[1]);
+			expect(
+				missing,
+				"every labelKey in i18n/push.ts must exist in en.json (and thus, " +
+					"per the parity loop above, in all 8 catalogs). A missing one is " +
+					"silently dropped from the pushed tray labels AND logs a console " +
+					"warning on every locale change.",
+			).toEqual([]);
+		} finally {
+			warnSpy.mockRestore();
+		}
+	});
 });
 
 // Direct test of the `_withAppName` helper exported from store.ts.

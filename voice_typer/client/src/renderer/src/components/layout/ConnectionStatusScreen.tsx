@@ -108,7 +108,7 @@ export function ConnectionStatusScreen({
 						/>
 					</div>
 				)}
-				<h2 className="text-lg font-semibold text-foreground">{title}</h2>
+				<h2 className="text-lg font-medium text-foreground">{title}</h2>
 				{/* The description doubles as THE polite live region for this
 				 * screen (role="status" ⇒ implicit aria-live="polite"). The
 				 * wrapper div is intentionally ROLELESS: a role="alert"

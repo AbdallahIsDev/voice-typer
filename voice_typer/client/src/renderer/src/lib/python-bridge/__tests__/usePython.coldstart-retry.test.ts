@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { usePython } from "@/hooks/usePython";
@@ -44,18 +44,78 @@ describe("usePython cold-start retry for idempotent reads", () => {
 		expect(bridge.call).toHaveBeenCalledTimes(3);
 	}, 10000);
 
-	it("gives up after the budget and throws the last error", async () => {
-		const bridge = installPythonMock(() =>
-			Promise.reject(timeoutError("get_config")),
-		);
-		const { result } = renderHook(() => usePython());
+	it("gives up after the wait deadline and throws the last error", async () => {
+		// Fake timers: the mock rejects instantly, so only the backoff
+		// schedule consumes (fake) time — no real 90s wait.
+		vi.useFakeTimers();
+		try {
+			const bridge = installPythonMock(() =>
+				Promise.reject(timeoutError("get_config")),
+			);
+			const { result } = renderHook(() => usePython());
 
-		await expect(result.current.call("get_config")).rejects.toThrow(
-			/timed out after 5000ms/,
-		);
-		// 1 initial attempt + 3 retries, then it stops (bounded).
-		expect(bridge.call).toHaveBeenCalledTimes(4);
-	}, 15000);
+			let settled: "pending" | "rejected" = "pending";
+			let failure: unknown = null;
+			const pending = result.current.call("get_config").then(
+				() => {},
+				(err: unknown) => {
+					settled = "rejected";
+					failure = err;
+				},
+			);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100_000);
+			});
+			await pending;
+
+			expect(settled).toBe("rejected");
+			expect(String((failure as Error)?.message ?? failure)).toMatch(
+				/timed out after 5000ms/,
+			);
+			// Deadline-bounded, not attempt-counted: far more patience
+			// than the old 1+3 budget, but finite.
+			const attempts = bridge.call.mock.calls.length;
+			expect(attempts).toBeGreaterThan(4);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(120_000);
+			});
+			expect(bridge.call.mock.calls.length).toBe(attempts);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("resolves when the backend answers mid-wait (slow boot, no error screen)", async () => {
+		vi.useFakeTimers();
+		try {
+			const t0 = Date.now();
+			const bridge = installPythonMock(() =>
+				Date.now() - t0 < 60_000
+					? Promise.reject(timeoutError("get_config"))
+					: Promise.resolve({ ok: true }),
+			);
+			const { result } = renderHook(() => usePython());
+
+			let outcome: unknown = null;
+			const pending = result.current.call("get_config").then(
+				(v: unknown) => {
+					outcome = v;
+				},
+				() => {
+					outcome = "rejected";
+				},
+			);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(100_000);
+			});
+			await pending;
+
+			expect(outcome).toEqual({ ok: true });
+			expect(bridge.call.mock.calls.length).toBeGreaterThan(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 
 	it("does NOT retry non-timeout errors", async () => {
 		const bridge = installPythonMock(() => Promise.reject(new Error("down")));

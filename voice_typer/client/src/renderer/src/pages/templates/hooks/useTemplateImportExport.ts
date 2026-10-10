@@ -32,7 +32,7 @@ import type { Template, TemplateRow } from "../lib/types";
 
 interface UseTemplateImportExportArgs {
 	call: PythonCall;
-	loadRows: () => Promise<void>;
+	loadRows: () => Promise<unknown>;
 	templatesRef: React.RefObject<TemplateRow[]>;
 }
 

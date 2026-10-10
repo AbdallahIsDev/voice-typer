@@ -125,7 +125,7 @@ export function ActivityHeatmap({
 			    state (that the grid is CAPPED, not that history began a
 			    year ago), so it appears only when the cap actually bites. */}
 			<div className="flex items-baseline justify-between gap-3">
-				<h2 className="min-w-0 truncate font-sans text-sm font-semibold text-foreground">
+				<h2 className="min-w-0 truncate font-sans text-sm font-medium text-foreground">
 					<span className="tabular-nums">{activeDays}</span>{" "}
 					<span className="font-normal text-muted-foreground">{title}</span>
 					{truncated && (
@@ -161,6 +161,19 @@ export function ActivityHeatmap({
 						<HeatmapChart
 							data={columns}
 							layout="fluid"
+							// Reserved geometry (C-LIFE-2): the vendored chart
+							// measures its box via ParentSize, whose initial
+							// size is 0×0 — the first frame renders a 28px
+							// stub that jumps to full height on measure.
+							// Fluid height is exact math (top margin 28 +
+							// 7 rows × (W − left 40) / 53 columns), so W/H
+							// sits between ~4.8 and ~6.2 across 300–800px:
+							// 6/1 reserves within ±12px everywhere and the
+							// 64px floor covers narrow windows, so the card
+							// holds its height from first paint and the
+							// measured grid fills the reservation instead of
+							// pushing the page down.
+							className="aspect-[6/1] min-h-16"
 							// Right margin reclaimed so the grid ends flush with
 							// the card's content box: the chart reserved 16px of
 							// its own right padding on top of the card's `p-4`,

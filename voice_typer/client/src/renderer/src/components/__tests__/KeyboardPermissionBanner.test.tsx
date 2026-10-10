@@ -115,6 +115,11 @@ describe("KeyboardPermissionBanner ", () => {
 		// role="alert" so assistive tech announces the banner.
 		expect(screen.getByRole("alert")).toBeInTheDocument();
 
+		// mount-fade (C-ANIM-2): the probe resolves asynchronously, so
+		// the banner arrives after first paint — opacity-only arrival,
+		// nothing else on the page moves while it appears.
+		expect(screen.getByRole("alert").className).toContain("mount-fade");
+
 		// macOS deep-link anchor is rendered.
 		const link = screen.getByRole("link", {
 			name: "Open the operating system accessibility settings",

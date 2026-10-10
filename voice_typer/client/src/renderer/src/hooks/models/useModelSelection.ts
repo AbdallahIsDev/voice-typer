@@ -3,6 +3,7 @@ import type { PythonCall } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { formatErrorMessage, type ModelInfo } from "@/lib/utils/models";
 import type { LausuConfig } from "@/types/config";
+import { patchCachedModelDownloaded } from "./modelStatusCache";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -151,6 +152,11 @@ export function useModelSelection({
 							: m,
 					),
 				);
+				// The backend confirmed the files are gone: rewrite the
+				// cached status entry NOW so no revisit serves
+				// `downloaded: true` for it (C-CACHE-5). Only ever
+				// clears the flag here — setting it stays the stat's job.
+				patchCachedModelDownloaded(target.name, false);
 				showSnack(
 					result.message || t("models.snack.deleted", { name: target.name }),
 					"success",

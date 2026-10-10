@@ -44,7 +44,15 @@
 	--text-xs: 0.75rem;
 	--tracking-body: 0;
 	--leading-body: 1.4;
-	--border-subtle: var(--border);
+	/* ONE border weight for the whole picker: the app-wide card border
+	   (border-border/8, C-DESIGN-2's 8% default). The vendor painted its
+	   dividers at full-strength var(--border) — a hard black hairline in
+	   light mode — which read far heavier than every card in the app.
+	   Every resting edge in this file reads this token, so the picker
+	   cannot drift from the card look again. */
+	--border-card: color-mix(in oklch, var(--border) 8%, transparent);
+	/* Kept ONLY for the prefers-contrast: more escape hatch below, where a
+	   deliberately heavier edge is the entire point. */
 	--border-strong: color-mix(in oklch, var(--border) 15%, transparent);
 	--accent: var(--accent);
 	--accent-strong: var(--accent);
@@ -74,9 +82,8 @@
 	content: "";
 	position: absolute;
 	inset: 0;
-	/* Card-weight outline (C-DESIGN-2 8% default): the vendor painted full
-	   var(--border), a solid white ring in dark mode. */
-	border: 1px solid color-mix(in oklch, var(--border) 8%, transparent);
+	/* Card-weight outline (the shared --border-card token). */
+	border: 1px solid var(--border-card);
 	border-radius: inherit;
 	pointer-events: none;
 	transition: border-color var(--duration-fast) var(--ease-standard);
@@ -153,6 +160,34 @@
 	padding: 10px;
 	--cell: 36px;
 }
+/* Floating (trigger-less) panel: with no surface to morph out of, the
+   panel IS the card, so it carries the material the surface paints.
+   Radius comes from the rounded-lg class on the element — that is also
+   what gives it the app's squircle corner-shape, which a bare
+   border-radius declaration does not. */
+.panel[data-floating] {
+	background: var(--surface-raised);
+	border: 1px solid var(--border-card);
+	box-shadow: var(--shadow-floating);
+	overflow: clip;
+	/* Defence in depth: the panel is right-anchored under a centred
+	   control, so it can only ever spill off the left. Cap it at the
+	   viewport so a pathologically narrow window shrinks the panel
+	   instead of pushing it off-screen. 16px clears a desktop
+	   scrollbar. */
+	max-width: calc(100vw - 16px);
+}
+/* The floating panel hangs off the ROOT's origin (`.root` is its
+   containing block, and a trigger-less root collapses to zero width), so
+   the panel's own `left`/`right` is what picks the hanging edge. `end`
+   swaps to the right edge, which keeps the panel under a trigger at the
+   end of a row instead of running off the right of the window. Pure CSS
+   on purpose: no JS measurement means the placement cannot go stale or
+   race the reveal animation. */
+.panel[data-floating][data-align="end"] {
+	left: auto;
+	right: 0;
+}
 .body {
 	display: flex;
 	gap: 10px;
@@ -166,7 +201,7 @@
 	flex-direction: column;
 	gap: 2px;
 	padding-right: 10px;
-	border-right: 1px solid var(--border-subtle);
+	border-right: 1px solid var(--border-card);
 }
 .railHighlight {
 	position: absolute;
@@ -382,7 +417,7 @@
 	gap: 12px;
 	margin-top: 10px;
 	padding: 10px 2px 0 6px;
-	border-top: 1px solid var(--border-subtle);
+	border-top: 1px solid var(--border-card);
 }
 .summary {
 	display: grid;
@@ -483,7 +518,7 @@
 	padding: 0 8px 8px;
 	overflow-x: auto;
 	border-right: 0;
-	border-bottom: 1px solid var(--border-subtle);
+	border-bottom: 1px solid var(--border-card);
 	overscroll-behavior-x: contain;
 	scrollbar-width: none;
 }
@@ -512,9 +547,10 @@
 			var(--surface-raised)
 		);
 	}
-	.root:not([data-open]):has(> .trigger:hover:not(:disabled)) .surface::after {
-		border-color: var(--border-strong);
-	}
+	/* The vendor also bumped this surface border to --border-strong on
+	   hover. Removed on purpose: every edge in the picker is the shared
+	   card border, so that bump was the one hover edge heavier than a
+	   card. The background shift above already carries the hover signal. */
 	.preset:hover {
 		color: var(--foreground);
 	}
